@@ -21,6 +21,7 @@ import {
 } from "react-icons/fa";
 import {
   fetchStatus,
+  subscribeToEvents,
   controlPlayback,
   setVolume,
   seekPlayback,
@@ -49,6 +50,10 @@ import {
 import Sidebar from "./Sidebar";
 import SearchOverlay from "./SearchOverlay";
 import { formatMs } from "./utils";
+import EngineModal from "./components/EngineModal";
+import AddToPlaylistModal from "./components/AddToPlaylistModal";
+import QueuePanel from "./components/QueuePanel";
+import DevicesModal from "./components/DevicesModal";
 
 export default function App() {
   const [status, setStatus] = useState<StatusResponse | null>(null);
@@ -111,32 +116,39 @@ export default function App() {
     setTimeout(() => setToast(null), 2400);
   }, []);
 
-  // Poll /api/status
+  // Real-time Server-Sent Events (SSE) stream with fallback status polling
   useEffect(() => {
     let active = true;
+
+    const applyStatus = (s: StatusResponse) => {
+      if (!active) return;
+      setStatus(s);
+      if (s.engine_settings) {
+        setEngineSettings(s.engine_settings);
+      }
+      const dur = s.track?.duration_ms ?? 0;
+      if (!seekingRef.current) {
+        if (dur > 0) {
+          anchorRef.current = { positionMs: s.position_ms, startTime: Date.now(), durationMs: dur };
+        } else {
+          anchorRef.current = null;
+          setProgress(0);
+        }
+      }
+      if (s.volume !== null && !volumeDragging.current) {
+        setLocalVolume(s.volume);
+      }
+      setError(null);
+    };
+
+    const unsub = subscribeToEvents(applyStatus, () => {
+      // Fallback: silence SSE errors and let HTTP poll handle it
+    });
+
     const poll = async () => {
       try {
         const s = await fetchStatus();
-        if (!active) return;
-        setStatus(s);
-        if (s.engine_settings) {
-          setEngineSettings(s.engine_settings);
-        }
-
-        const dur = s.track?.duration_ms ?? 0;
-        if (!seekingRef.current) {
-          if (dur > 0) {
-            anchorRef.current = { positionMs: s.position_ms, startTime: Date.now(), durationMs: dur };
-          } else {
-            anchorRef.current = null;
-            setProgress(0);
-          }
-        }
-
-        if (s.volume !== null && !volumeDragging.current) {
-          setLocalVolume(s.volume);
-        }
-        setError(null);
+        applyStatus(s);
       } catch (e) {
         console.error("Status poll failed:", e);
         if (active) setError("Cannot reach backend");
@@ -147,6 +159,7 @@ export default function App() {
     return () => {
       active = false;
       clearInterval(id);
+      unsub();
     };
   }, []);
 
@@ -918,162 +931,16 @@ export default function App() {
         onOpenAddToPlaylist={handleOpenAddToPlaylist}
       />
 
-      {/* Audio Engine & Quality Popover */}
-      {enginePanelOpen && (
-        <div
-          data-modal-scope="true"
-          className="absolute top-14 right-4 z-40 w-84 bg-neutral-900 border border-neutral-800 rounded-xl shadow-2xl p-4 space-y-4"
-        >
-          <div className="flex items-center justify-between border-b border-neutral-800 pb-2">
-            <span className="text-sm font-semibold">Audio Engine & Quality</span>
-            <button
-              data-focusable="true"
-              onClick={() => setEnginePanelOpen(false)}
-              className="text-neutral-500 hover:text-white"
-            >
-              <FaTimes size={14} />
-            </button>
-          </div>
-
-          {/* Audio Backend Selector */}
-          <div>
-            <label className="text-xs text-neutral-400 block mb-1.5">
-              Spotify Connect Backend (cleanly stops the other engine)
-            </label>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                data-focusable="true"
-                disabled={switchingEngine}
-                onClick={() => handleEngineSettingChange({ audio_backend: "librespot" })}
-                className={`py-2 px-2.5 rounded-lg text-xs font-medium text-left transition-colors border ${
-                  !isSpotifyClientBackend
-                    ? "bg-green-500 text-black font-semibold border-green-400"
-                    : "bg-neutral-800 text-neutral-300 border-neutral-700 hover:bg-neutral-700"
-                }`}
-              >
-                <div>librespot</div>
-                <div className={`text-[10px] ${!isSpotifyClientBackend ? "text-black/80" : "text-neutral-500"}`}>
-                  Lightweight · Up to 320k
-                </div>
-              </button>
-              <button
-                data-focusable="true"
-                disabled={switchingEngine}
-                onClick={() => handleEngineSettingChange({ audio_backend: "spotify_client" })}
-                className={`py-2 px-2.5 rounded-lg text-xs font-medium text-left transition-colors border ${
-                  isSpotifyClientBackend
-                    ? "bg-green-500 text-black font-semibold border-green-400"
-                    : "bg-neutral-800 text-neutral-300 border-neutral-700 hover:bg-neutral-700"
-                }`}
-              >
-                <div>Official Client</div>
-                <div className={`text-[10px] ${isSpotifyClientBackend ? "text-black/80" : "text-neutral-500"}`}>
-                  Lossless FLAC + Native Mix
-                </div>
-              </button>
-            </div>
-          </div>
-
-          {/* Audio Quality Selector */}
-          <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <label className="text-xs text-neutral-400">Streaming Quality</label>
-              {streamFormatLabel && (
-                <span className="text-[10px] font-semibold text-green-400 bg-green-950/60 border border-green-500/30 px-1.5 py-0.5 rounded">
-                  PipeWire: {streamFormatLabel}
-                </span>
-              )}
-            </div>
-            <div className="grid grid-cols-2 gap-1.5">
-              {(
-                [
-                  { id: "96", label: "Normal (96k)", losslessOnly: false },
-                  { id: "160", label: "High (160k)", losslessOnly: false },
-                  { id: "320", label: "Very High (320k)", losslessOnly: false },
-                  { id: "lossless", label: "Lossless FLAC", losslessOnly: true },
-                ] as const
-              ).map((opt) => {
-                const disabled = opt.losslessOnly && !isSpotifyClientBackend;
-                const active = engineSettings.audio_quality === opt.id;
-                return (
-                  <button
-                    key={opt.id}
-                    data-focusable={!disabled ? "true" : undefined}
-                    disabled={disabled || switchingEngine}
-                    onClick={() => handleEngineSettingChange({ audio_quality: opt.id })}
-                    className={`py-1.5 px-2 rounded-lg text-xs font-medium transition-colors ${
-                      disabled
-                        ? "bg-neutral-900 text-neutral-600 border border-neutral-800 cursor-not-allowed"
-                        : active
-                          ? "bg-green-500 text-black font-semibold"
-                          : "bg-neutral-800 text-neutral-300 hover:bg-neutral-700"
-                    }`}
-                    title={
-                      disabled
-                        ? "Switch to Official Spotify Client above to enable Lossless FLAC"
-                        : opt.label
-                    }
-                  >
-                    {opt.label}
-                  </button>
-                );
-              })}
-            </div>
-            {!isSpotifyClientBackend && (
-              <div className="text-[11px] text-neutral-500 mt-1">
-                Lossless (24-bit / 44.1 kHz FLAC) and native Spotify Playlist Mixing require the{" "}
-                <span className="text-neutral-300">Official Client</span> engine.
-              </div>
-            )}
-          </div>
-
-          {isSpotifyClientBackend && (
-            <button
-              data-focusable="true"
-              onClick={() => {
-                setEnginePanelOpen(false);
-                setClientWindowOpen(true);
-              }}
-              className="w-full py-2 px-3 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-xs font-medium text-green-400 border border-green-500/30 flex items-center justify-center gap-2"
-            >
-              <FaWindowMaximize size={12} /> Open Headless Spotify Client Window
-            </button>
-          )}
-
-          <div className="space-y-2 pt-1 border-t border-neutral-800 text-xs">
-            <label className="flex items-center justify-between cursor-pointer">
-              <span className="text-neutral-300">Volume Normalization</span>
-              <input
-                data-focusable="true"
-                type="checkbox"
-                checked={engineSettings.normalisation}
-                onChange={(e) => handleEngineSettingChange({ normalisation: e.target.checked })}
-                className="accent-green-500"
-              />
-            </label>
-            <label className="flex items-center justify-between cursor-pointer">
-              <span className="text-neutral-300">Gapless Playback</span>
-              <input
-                data-focusable="true"
-                type="checkbox"
-                checked={engineSettings.gapless}
-                onChange={(e) => handleEngineSettingChange({ gapless: e.target.checked })}
-                className="accent-green-500"
-              />
-            </label>
-            <label className="flex items-center justify-between cursor-pointer">
-              <span className="text-neutral-300">Autoplay Similar Music</span>
-              <input
-                data-focusable="true"
-                type="checkbox"
-                checked={engineSettings.autoplay}
-                onChange={(e) => handleEngineSettingChange({ autoplay: e.target.checked })}
-                className="accent-green-500"
-              />
-            </label>
-          </div>
-        </div>
-      )}
+      {/* Audio Engine & Quality Modal */}
+      <EngineModal
+        isOpen={enginePanelOpen}
+        onClose={() => setEnginePanelOpen(false)}
+        engineSettings={engineSettings}
+        switchingEngine={switchingEngine}
+        streamFormatLabel={streamFormatLabel}
+        onSettingChange={handleEngineSettingChange}
+        onOpenClientWindow={() => setClientWindowOpen(true)}
+      />
 
       {/* Official Spotify Client Remote Window Modal */}
       {clientWindowOpen && (
@@ -1154,170 +1021,31 @@ export default function App() {
       )}
 
       {/* Add Track to Playlist Modal */}
-      {addPlaylistTarget && (
-        <div
-          data-modal-scope="true"
-          className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4"
-        >
-          <div className="bg-neutral-900 border border-neutral-800 rounded-2xl shadow-2xl w-full max-w-md flex flex-col max-h-[80vh] overflow-hidden">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-neutral-800">
-              <div className="min-w-0 pr-2">
-                <div className="text-sm font-semibold">Add to Playlist</div>
-                <div className="text-xs text-neutral-400 truncate">
-                  {addPlaylistTarget.name}
-                  {addPlaylistTarget.artist ? ` — ${addPlaylistTarget.artist}` : ""}
-                </div>
-              </div>
-              <button
-                data-focusable="true"
-                onClick={() => setAddPlaylistTarget(null)}
-                className="text-neutral-500 hover:text-white p-1"
-              >
-                <FaTimes size={16} />
-              </button>
-            </div>
-
-            <div className="p-3 border-b border-neutral-800">
-              <input
-                data-focusable="true"
-                type="text"
-                value={playlistFilter}
-                onChange={(e) => setPlaylistFilter(e.target.value)}
-                placeholder="Filter playlists..."
-                className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-3 py-1.5 text-xs text-white outline-none"
-              />
-            </div>
-
-            <div className="flex-1 overflow-y-auto divide-y divide-neutral-800/50">
-              {loadingUserPlaylists ? (
-                <div className="p-4 text-xs text-neutral-500">Loading your playlists...</div>
-              ) : filteredPlaylists.length === 0 ? (
-                <div className="p-4 text-xs text-neutral-500">No matching playlists found</div>
-              ) : (
-                filteredPlaylists.map((pl) => (
-                  <button
-                    key={pl.id}
-                    data-focusable="true"
-                    onClick={() => handleConfirmAddTrackToPlaylist(pl)}
-                    className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-neutral-800 transition-colors text-left"
-                  >
-                    {pl.image_url ? (
-                      <img src={pl.image_url} alt="" className="w-9 h-9 rounded object-cover shrink-0" />
-                    ) : (
-                      <div className="w-9 h-9 rounded bg-neutral-800 shrink-0" />
-                    )}
-                    <div className="min-w-0 flex-1">
-                      <div className="text-xs font-medium truncate">{pl.name}</div>
-                      <div className="text-[11px] text-neutral-500">{pl.track_count} tracks</div>
-                    </div>
-                    <span className="text-xs text-green-400 font-semibold">+ Add</span>
-                  </button>
-                ))
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      <AddToPlaylistModal
+        target={addPlaylistTarget}
+        onClose={() => setAddPlaylistTarget(null)}
+        playlists={userPlaylists}
+        loading={loadingUserPlaylists}
+        onSelectPlaylist={handleConfirmAddTrackToPlaylist}
+      />
 
       {/* Queue Drawer */}
-      {queueOpen && (
-        <div
-          data-modal-scope="true"
-          className="absolute top-14 right-4 z-40 w-80 max-h-96 bg-neutral-900 border border-neutral-800 rounded-xl shadow-2xl flex flex-col overflow-hidden"
-        >
-          <div className="flex items-center justify-between px-4 py-3 border-b border-neutral-800">
-            <span className="text-sm font-semibold">Up Next in Queue</span>
-            <button
-              data-focusable="true"
-              onClick={() => setQueueOpen(false)}
-              className="text-neutral-500 hover:text-white"
-            >
-              <FaTimes size={14} />
-            </button>
-          </div>
-          <div className="flex-1 overflow-y-auto divide-y divide-neutral-800/50">
-            {loadingQueue ? (
-              <div className="p-4 text-xs text-neutral-500">Loading queue...</div>
-            ) : queueItems.length === 0 ? (
-              <div className="p-4 text-xs text-neutral-500">Queue is empty</div>
-            ) : (
-              queueItems.map((item, idx) => (
-                <div
-                  key={item.uri + idx}
-                  data-focusable="true"
-                  data-track-id={item.id ?? ""}
-                  data-track-uri={item.uri}
-                  data-track-name={item.name}
-                  onClick={() => {
-                    playUris([item.uri]);
-                    setQueueOpen(false);
-                  }}
-                  className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-neutral-800 transition-colors text-left cursor-pointer"
-                >
-                  {item.image_url ? (
-                    <img src={item.image_url} alt="" className="w-8 h-8 rounded object-cover shrink-0" />
-                  ) : (
-                    <div className="w-8 h-8 rounded bg-neutral-800 shrink-0" />
-                  )}
-                  <div className="min-w-0 flex-1">
-                    <div className="text-xs font-medium truncate">{item.name}</div>
-                    <div className="text-[11px] text-neutral-500 truncate">{item.artist}</div>
-                  </div>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleOpenAddToPlaylist({ uri: item.uri, name: item.name, artist: item.artist });
-                    }}
-                    className="p-1.5 text-neutral-500 hover:text-green-400"
-                    title="Add to Playlist"
-                  >
-                    <FaPlus size={11} />
-                  </button>
-                  <span className="text-[11px] text-neutral-600">{formatMs(item.duration_ms)}</span>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-      )}
+      <QueuePanel
+        isOpen={queueOpen}
+        onClose={() => setQueueOpen(false)}
+        loading={loadingQueue}
+        items={queueItems}
+        onPlayItem={(uri) => playUris([uri])}
+        onAddToPlaylist={handleOpenAddToPlaylist}
+      />
 
       {/* Devices Popover */}
-      {devicesOpen && (
-        <div
-          data-modal-scope="true"
-          className="absolute top-14 right-4 z-40 w-72 bg-neutral-900 border border-neutral-800 rounded-xl shadow-2xl overflow-hidden"
-        >
-          <div className="flex items-center justify-between px-4 py-3 border-b border-neutral-800">
-            <span className="text-sm font-semibold">Connect Devices</span>
-            <button
-              data-focusable="true"
-              onClick={() => setDevicesOpen(false)}
-              className="text-neutral-500 hover:text-white"
-            >
-              <FaTimes size={14} />
-            </button>
-          </div>
-          <div className="divide-y divide-neutral-800/50">
-            {devices.length === 0 ? (
-              <div className="p-4 text-xs text-neutral-500">No active Spotify devices found</div>
-            ) : (
-              devices.map((d) => (
-                <button
-                  key={d.id}
-                  data-focusable="true"
-                  onClick={() => handleSelectDevice(d.id, d.name)}
-                  className={`w-full flex items-center justify-between px-4 py-2.5 hover:bg-neutral-800 text-left text-xs ${
-                    d.is_active ? "text-green-400 font-semibold" : "text-neutral-200"
-                  }`}
-                >
-                  <span className="truncate">{d.name}</span>
-                  <span className="text-[10px] uppercase text-neutral-500">{d.is_active ? "Active" : d.type}</span>
-                </button>
-              ))
-            )}
-          </div>
-        </div>
-      )}
+      <DevicesModal
+        isOpen={devicesOpen}
+        onClose={() => setDevicesOpen(false)}
+        devices={devices}
+        onSelectDevice={handleSelectDevice}
+      />
 
       {/* Album art */}
       <div className="shrink-0 relative">

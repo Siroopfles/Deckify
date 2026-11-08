@@ -66,6 +66,32 @@ export async function fetchStatus(): Promise<StatusResponse> {
   return jsonOrThrow(res);
 }
 
+export function subscribeToEvents(
+  onStatus: (status: StatusResponse) => void,
+  onError?: (err: any) => void
+): () => void {
+  try {
+    const es = new EventSource("/api/events");
+    es.addEventListener("status", (e: MessageEvent) => {
+      try {
+        const data = JSON.parse(e.data);
+        onStatus(data);
+      } catch (err) {
+        console.warn("Failed to parse SSE status data", err);
+      }
+    });
+    es.onerror = (err) => {
+      if (onError) onError(err);
+    };
+    return () => {
+      es.close();
+    };
+  } catch (err) {
+    if (onError) onError(err);
+    return () => {};
+  }
+}
+
 export async function controlPlayback(action: string): Promise<{ ok: boolean; error?: string }> {
   const res = await fetch(`/api/control?action=${encodeURIComponent(action)}`, { method: "POST" });
   return jsonOrThrow(res);
