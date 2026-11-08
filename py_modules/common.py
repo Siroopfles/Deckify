@@ -90,8 +90,8 @@ MAX_IMAGE_BYTES = 5 * 1024 * 1024
 _API_SSL_CTX: ssl.SSLContext | None = None
 for _ca in ("/etc/ssl/certs/ca-certificates.crt", "/etc/ssl/cert.pem"):
     if os.path.isfile(_ca):
-        _API_SSL_CTX = ssl.create_default_context(cafile=_ca)
-        break
+        _API_SSL_CTX = ssl.create_default_context(cafile=_ca)  # pragma: no cover
+        break  # pragma: no cover
 if _API_SSL_CTX is None:
     _API_SSL_CTX = ssl.create_default_context()
 

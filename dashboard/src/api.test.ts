@@ -266,6 +266,9 @@ describe("Dashboard API module", () => {
     messageListener({ data: JSON.stringify({ authenticated: true }) });
     expect(onStatus).toHaveBeenCalledWith({ authenticated: true });
 
+    // Simulate invalid SSE status JSON
+    messageListener({ data: "invalid json string" });
+
     // Simulate error
     errorListener(new Error("Network drop"));
     expect(onError).toHaveBeenCalled();
@@ -273,5 +276,18 @@ describe("Dashboard API module", () => {
     // Unsubscribe closes EventSource
     unsubscribe();
     expect(closeMock).toHaveBeenCalled();
+
+    // EventSource constructor exception branch
+    class BrokenEventSource {
+      constructor() {
+        throw new Error("Constructor failed");
+      }
+    }
+    vi.stubGlobal("EventSource", BrokenEventSource as any);
+    const onBrokenError = vi.fn();
+    const unsubBroken = api.subscribeToEvents(vi.fn(), onBrokenError);
+    expect(onBrokenError).toHaveBeenCalled();
+    expect(typeof unsubBroken).toBe("function");
+    unsubBroken();
   });
 });
