@@ -11,6 +11,7 @@ import {
   DialogButton,
   TextField,
   Navigation,
+  showModal,
   staticClasses,
 } from "@decky/ui";
 import {
@@ -18,8 +19,11 @@ import {
   addEventListener,
   removeEventListener,
   definePlugin,
+  routerHook,
   toaster,
 } from "@decky/api";
+import { registerSteamMenu } from "./steamMenu";
+import { DeckifyExpandedModal } from "./components/DeckifyExpandedModal";
 import {
   FaMusic,
   FaSpotify,
@@ -91,7 +95,6 @@ const backendSearchSpotify = callable<[string, string, number], {
   error?: string;
 }>("search_spotify");
 const backendPlayTracks = callable<[string | null, string | null, string[] | null, number], { ok: boolean; error?: string }>("play_tracks");
-const backendGetDashboardUrl = callable<[], { ok: boolean; url?: string; error?: string }>("get_dashboard_url");
 const backendGetDevices = callable<[], { ok: boolean; devices?: SpotifyDevice[]; error?: string }>("get_devices");
 const backendTransferPlayback = callable<[string], { ok: boolean; error?: string }>("transfer_playback");
 const backendPushGamepadEvent = callable<[string[]], { ok: boolean }>("push_gamepad_event");
@@ -1249,18 +1252,9 @@ const Content: FC = () => {
         <PanelSectionRow>
           <ButtonItem
             label="Dashboard"
-            description="Open full control panel in browser"
-            onClick={async () => {
-              try {
-                const res = await backendGetDashboardUrl();
-                if (res.ok && res.url) {
-                  Navigation.NavigateToExternalWeb(res.url);
-                } else {
-                  toaster.toast({ title: "Deckify", body: res.error ?? "Dashboard is unavailable", duration: 5000 });
-                }
-              } catch (err) {
-                toaster.toast({ title: "Deckify", body: String(err), duration: 5000 });
-              }
+            description="Open full-screen Spotify console view"
+            onClick={() => {
+              openExpandedView();
             }}
           >
             Open Dashboard
@@ -1310,9 +1304,46 @@ const Content: FC = () => {
   );
 };
 
+let bigOpen = false;
+const openExpandedView = () => {
+  if (bigOpen) return;
+  bigOpen = true;
+  showModal(
+    <DeckifyExpandedModal
+      closeModal={() => {
+        bigOpen = false;
+      }}
+    />
+  );
+};
+
+const DeckifyRouteOpener: FC = () => {
+  useEffect(() => {
+    try {
+      Navigation.NavigateBack();
+    } catch {}
+    const id = setTimeout(openExpandedView, 120);
+    return () => clearTimeout(id);
+  }, []);
+  return null;
+};
+
 export default definePlugin(() => {
   console.log("Deckify initializing");
 
+  // 1. Register native full-screen route
+  routerHook.addRoute("/deckify", DeckifyRouteOpener);
+
+  // 2. Patch Steam Main Menu (STEAM button) to add Spotify entry
+  const unregisterMenu = registerSteamMenu({
+    id: "deckify",
+    label: "Spotify",
+    route: "/deckify",
+    icon: <FaSpotify size={18} color="#1db954" />,
+    order: 3,
+  });
+
+  // 3. Fallback controller bridge for external browser view
   try {
     const win = window as any;
     const fc = win.FocusNavController;
@@ -1360,6 +1391,12 @@ export default definePlugin(() => {
     icon: <FaMusic />,
     onDismount() {
       console.log("Deckify dismounting");
+      try {
+        unregisterMenu();
+        routerHook.removeRoute("/deckify");
+      } catch (e) {
+        console.warn("Deckify dismount cleanup error:", e);
+      }
     },
   };
 });
