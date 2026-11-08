@@ -30,6 +30,12 @@ DEFAULT_SETTINGS = {
     "device_name": "",
     "bitrate": 320,
     "spotify_client_id": "",
+    "normalisation": True,
+    "normalisation_pregain": 0.0,
+    "gapless": True,
+    "autoplay": True,
+    "mix_mode": "off",
+    "crossfade_seconds": 5,
 }
 
 # PulseAudio socket for root processes (deck user UID 1000)
@@ -38,8 +44,12 @@ PULSE_SERVER = "unix:/run/user/1000/pulse/native"
 SPOTIFY_AUTH_URL = "https://accounts.spotify.com/authorize"
 SPOTIFY_TOKEN_URL = "https://accounts.spotify.com/api/token"
 SPOTIFY_API_BASE = "https://api.spotify.com/v1"
-SPOTIFY_SCOPES = "user-read-currently-playing user-read-playback-state user-modify-playback-state playlist-read-private playlist-read-collaborative user-library-read user-follow-read"
-CURRENT_SCOPES_VERSION = 4
+SPOTIFY_SCOPES = (
+    "user-read-currently-playing user-read-playback-state user-modify-playback-state "
+    "playlist-read-private playlist-read-collaborative user-library-read "
+    "user-library-modify user-follow-read user-read-recently-played"
+)
+CURRENT_SCOPES_VERSION = 5
 OAUTH_SERVER_PORT = 39281
 DASHBOARD_PORT = 39282
 DASHBOARD_DIR = os.path.join(decky.DECKY_PLUGIN_DIR, "dashboard", "dist")
@@ -245,6 +255,11 @@ class Plugin:
     _poll_track_id: str | None = None
     _poll_volume: int | None = None
     _active_device: dict | None = None  # {id, name, type}
+    _shuffle_state: bool = False
+    _repeat_state: str = "off"
+    _is_liked: bool = False
+    _mix_transitioning_track_id: str | None = None
+    _mix_task: asyncio.Task | None = None
     # Token refresh lock (initialized in _main)
     _token_refresh_lock: asyncio.Lock | None = None
     # Crash auto-restart state
@@ -325,6 +340,17 @@ class Plugin:
             "--backend", "pulseaudio",
             "--system-cache", CACHE_DIR,
         ]
+        if settings.get("normalisation", True):
+            cmd.extend([
+                "--enable-volume-normalisation",
+                "--normalisation-method", "dynamic",
+                "--normalisation-gain-type", "auto",
+                "--normalisation-pregain", str(float(settings.get("normalisation_pregain", 0.0))),
+            ])
+        if not settings.get("gapless", True):
+            cmd.append("--disable-gapless")
+        if "autoplay" in settings:
+            cmd.extend(["--autoplay", "on" if settings.get("autoplay") else "off"])
 
         env = os.environ.copy()
         env["PULSE_SERVER"] = PULSE_SERVER
@@ -363,11 +389,15 @@ class Plugin:
         is_playing = self._poll_play_state == "playing"
         position_ms = self._last_event.get("position_ms", 0) if self._last_event else 0
         duration_ms = self._last_event.get("duration_ms", 0) if self._last_event else 0
+        public_keys = (
+            "device_name", "bitrate", "spotify_client_id",
+            "normalisation", "normalisation_pregain", "gapless",
+            "autoplay", "mix_mode", "crossfade_seconds",
+        )
         return {
             "running": running,
             "binary_found": os.path.isfile(LIBRESPOT_BIN),
-            "settings": {k: v for k, v in self._settings.items()
-                         if k in ("device_name", "bitrate", "spotify_client_id")},
+            "settings": {k: v for k, v in self._settings.items() if k in public_keys},
             "last_event": self._last_event,
             "track_meta": self._track_meta,
             "volume": self._poll_volume,
@@ -375,6 +405,9 @@ class Plugin:
             "is_playing": is_playing,
             "position_ms": position_ms,
             "duration_ms": duration_ms,
+            "shuffle_state": self._shuffle_state,
+            "repeat_state": self._repeat_state,
+            "is_liked": self._is_liked,
         }
 
     async def get_settings(self) -> dict:
@@ -388,6 +421,21 @@ class Plugin:
                 return {"ok": False, "error": "Device name must be text without control characters"}
             value = value.strip()
             self._settings["device_name_customized"] = True
+        elif key == "mix_mode":
+            if value not in ("off", "fade", "rise"):
+                return {"ok": False, "error": "Invalid mix_mode"}
+        elif key == "crossfade_seconds":
+            try:
+                value = max(0, min(12, int(value)))
+            except (TypeError, ValueError):
+                return {"ok": False, "error": "crossfade_seconds must be an integer"}
+        elif key in ("normalisation", "gapless", "autoplay"):
+            value = bool(value)
+        elif key == "normalisation_pregain":
+            try:
+                value = max(-10.0, min(10.0, float(value)))
+            except (TypeError, ValueError):
+                return {"ok": False, "error": "normalisation_pregain must be a number"}
         self._settings[key] = value
         _save_settings(self._settings)
         decky.logger.info("Setting updated: %s = %s", key, value)
@@ -466,6 +514,169 @@ class Plugin:
             return {"ok": False, "error": _parse_spotify_error(e)}
         except Exception as e:
             decky.logger.error("set_volume(%d) failed: %s", volume_percent, e)
+            return {"ok": False, "error": str(e)}
+
+    async def seek_playback(self, position_ms: int, device_id: str = "") -> dict:
+        token = await self._ensure_token()
+        if not token:
+            return {"ok": False, "error": "Not authenticated"}
+        position_ms = max(0, int(position_ms))
+        params: dict = {"position_ms": position_ms}
+        if device_id:
+            params["device_id"] = device_id
+        try:
+            await _exec(_spotify_api_request, "me/player/seek", token, "PUT", params)
+            if self._last_event:
+                self._last_event["position_ms"] = position_ms
+            return {"ok": True, "position_ms": position_ms}
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                return {"ok": False, "error": "No active device found"}
+            return {"ok": False, "error": _parse_spotify_error(e)}
+        except Exception as e:
+            decky.logger.error("seek_playback(%d) failed: %s", position_ms, e)
+            return {"ok": False, "error": str(e)}
+
+    async def set_shuffle(self, state: bool, device_id: str = "") -> dict:
+        token = await self._ensure_token()
+        if not token:
+            return {"ok": False, "error": "Not authenticated"}
+        state_bool = bool(state)
+        params: dict = {"state": "true" if state_bool else "false"}
+        if device_id:
+            params["device_id"] = device_id
+        try:
+            await _exec(_spotify_api_request, "me/player/shuffle", token, "PUT", params)
+            self._shuffle_state = state_bool
+            await decky.emit("playback_modes", {
+                "shuffle_state": self._shuffle_state,
+                "repeat_state": self._repeat_state,
+            })
+            return {"ok": True, "shuffle_state": self._shuffle_state}
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                return {"ok": False, "error": "No active device found"}
+            return {"ok": False, "error": _parse_spotify_error(e)}
+        except Exception as e:
+            decky.logger.error("set_shuffle(%s) failed: %s", state, e)
+            return {"ok": False, "error": str(e)}
+
+    async def set_repeat(self, state: str, device_id: str = "") -> dict:
+        token = await self._ensure_token()
+        if not token:
+            return {"ok": False, "error": "Not authenticated"}
+        if state not in ("off", "context", "track"):
+            return {"ok": False, "error": f"Invalid repeat state: {state}"}
+        params: dict = {"state": state}
+        if device_id:
+            params["device_id"] = device_id
+        try:
+            await _exec(_spotify_api_request, "me/player/repeat", token, "PUT", params)
+            self._repeat_state = state
+            await decky.emit("playback_modes", {
+                "shuffle_state": self._shuffle_state,
+                "repeat_state": self._repeat_state,
+            })
+            return {"ok": True, "repeat_state": self._repeat_state}
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                return {"ok": False, "error": "No active device found"}
+            return {"ok": False, "error": _parse_spotify_error(e)}
+        except Exception as e:
+            decky.logger.error("set_repeat(%s) failed: %s", state, e)
+            return {"ok": False, "error": str(e)}
+
+    async def toggle_like_track(self, track_id: str = "", liked: bool | None = None) -> dict:
+        token = await self._ensure_token()
+        if not token:
+            return {"ok": False, "error": "Not authenticated"}
+        target_id = (track_id or self._poll_track_id or "").strip()
+        if not target_id:
+            return {"ok": False, "error": "No active track"}
+        target_liked = (not self._is_liked) if liked is None else bool(liked)
+        method = "PUT" if target_liked else "DELETE"
+        try:
+            await _exec(
+                _spotify_api_request, "me/tracks", token, method,
+                {"ids": target_id}, {"ids": [target_id]},
+            )
+            if target_id == self._poll_track_id:
+                self._is_liked = target_liked
+                if self._track_meta:
+                    self._track_meta["is_liked"] = target_liked
+                    await decky.emit("track_metadata", self._track_meta)
+            return {"ok": True, "track_id": target_id, "is_liked": target_liked}
+        except urllib.error.HTTPError as e:
+            return {"ok": False, "error": _parse_spotify_error(e)}
+        except Exception as e:
+            decky.logger.error("toggle_like_track(%s) failed: %s", target_id, e)
+            return {"ok": False, "error": str(e)}
+
+    async def get_queue(self) -> dict:
+        token = await self._ensure_token()
+        if not token:
+            return {"ok": False, "error": "Not authenticated"}
+        try:
+            data = await _exec(_spotify_api_request, "me/player/queue", token, "GET")
+            if not data:
+                return {"ok": True, "currently_playing": None, "queue": []}
+
+            def _fmt(item: dict | None) -> dict | None:
+                if not item:
+                    return None
+                if item.get("type") == "episode":
+                    show = item.get("show") or {}
+                    artists = show.get("name", "Podcast")
+                    album = ""
+                    images = item.get("images") or show.get("images") or []
+                else:
+                    artists = ", ".join(a["name"] for a in item.get("artists", []))
+                    album = item.get("album", {}).get("name", "")
+                    images = item.get("album", {}).get("images") or []
+                return {
+                    "id": item.get("id"),
+                    "name": item.get("name", ""),
+                    "artist": artists,
+                    "album": album,
+                    "uri": item.get("uri", ""),
+                    "duration_ms": item.get("duration_ms", 0),
+                    "image_url": _image_url(images),
+                }
+
+            queue_items = []
+            for q in (data.get("queue") or [])[:30]:
+                formatted = _fmt(q)
+                if formatted:
+                    queue_items.append(formatted)
+            return {
+                "ok": True,
+                "currently_playing": _fmt(data.get("currently_playing")),
+                "queue": queue_items,
+            }
+        except urllib.error.HTTPError as e:
+            return {"ok": False, "error": _parse_spotify_error(e)}
+        except Exception as e:
+            decky.logger.error("get_queue failed: %s", e)
+            return {"ok": False, "error": str(e)}
+
+    async def add_to_queue(self, uri: str, device_id: str = "") -> dict:
+        token = await self._ensure_token()
+        if not token:
+            return {"ok": False, "error": "Not authenticated"}
+        if not uri:
+            return {"ok": False, "error": "Missing track URI"}
+        params: dict = {"uri": uri}
+        if device_id:
+            params["device_id"] = device_id
+        try:
+            await _exec(_spotify_api_request, "me/player/queue", token, "POST", params)
+            return {"ok": True}
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                return {"ok": False, "error": "No active device found"}
+            return {"ok": False, "error": _parse_spotify_error(e)}
+        except Exception as e:
+            decky.logger.error("add_to_queue(%s) failed: %s", uri, e)
             return {"ok": False, "error": str(e)}
 
     # ── Playlist / context-play callable methods ─────────────────
@@ -701,6 +912,71 @@ class Plugin:
             decky.logger.error("get_artist_albums failed: %s", e)
             return {"ok": False, "error": str(e)}
 
+    async def get_artist_top_tracks(self, artist_id: str) -> dict:
+        token = await self._ensure_token()
+        if not token:
+            return {"ok": False, "error": "Not authenticated"}
+        try:
+            data = await _exec(
+                _spotify_api_request,
+                f"artists/{artist_id}/top-tracks", token, "GET",
+            )
+            items = data.get("tracks", []) if data else []
+            tracks = []
+            for t in items:
+                artists = ", ".join(a["name"] for a in t.get("artists", []))
+                images = t.get("album", {}).get("images") or []
+                tracks.append({
+                    "id": t.get("id"),
+                    "name": t.get("name", ""),
+                    "artist": artists,
+                    "album": t.get("album", {}).get("name", ""),
+                    "uri": t.get("uri", ""),
+                    "duration_ms": t.get("duration_ms", 0),
+                    "image_url": _image_url(images),
+                })
+            return {"ok": True, "tracks": tracks}
+        except Exception as e:
+            decky.logger.error("get_artist_top_tracks failed: %s", e)
+            return {"ok": False, "error": str(e)}
+
+    async def get_recently_played(self, limit: int = 30) -> dict:
+        token = await self._ensure_token()
+        if not token:
+            return {"ok": False, "error": "Not authenticated"}
+        try:
+            data = await _exec(
+                _spotify_api_request,
+                "me/player/recently-played", token, "GET",
+                {"limit": max(1, min(50, int(limit)))},
+            )
+            items = data.get("items", []) if data else []
+            tracks = []
+            seen_uris: set[str] = set()
+            for item in items:
+                t = item.get("track")
+                if not t:
+                    continue
+                uri = t.get("uri", "")
+                if uri in seen_uris:
+                    continue
+                seen_uris.add(uri)
+                artists = ", ".join(a["name"] for a in t.get("artists", []))
+                images = t.get("album", {}).get("images") or []
+                tracks.append({
+                    "id": t.get("id"),
+                    "name": t.get("name", ""),
+                    "artist": artists,
+                    "album": t.get("album", {}).get("name", ""),
+                    "uri": uri,
+                    "duration_ms": t.get("duration_ms", 0),
+                    "image_url": _image_url(images),
+                })
+            return {"ok": True, "tracks": tracks}
+        except Exception as e:
+            decky.logger.error("get_recently_played failed: %s", e)
+            return {"ok": False, "error": str(e)}
+
     async def search_spotify(self, query: str, types: str = "track,artist,album,playlist", offset: int = 0) -> dict:
         token = await self._ensure_token()
         if not token:
@@ -758,27 +1034,64 @@ class Plugin:
         token = await self._ensure_token()
         if not token:
             return {"ok": False, "error": "Not authenticated"}
+        body = {}
+        if context_uri:
+            body["context_uri"] = context_uri
+            if offset_uri:
+                body["offset"] = {"uri": offset_uri}
+        elif uris:
+            body["uris"] = uris
+            if position > 0:
+                body["offset"] = {"position": position}
         try:
-            body = {}
-            if context_uri:
-                body["context_uri"] = context_uri
-                if offset_uri:
-                    body["offset"] = {"uri": offset_uri}
-            elif uris:
-                body["uris"] = uris
-                if position > 0:
-                    body["offset"] = {"position": position}
             await _exec(
                 _spotify_api_request, "me/player/play", token, "PUT", None, body,
             )
             return {"ok": True}
         except urllib.error.HTTPError as e:
             if e.code == 404:
-                return {"ok": False, "error": "No active device"}
+                transfer_res = await self._auto_transfer_and_play(token)
+                if transfer_res.get("ok") and body:
+                    try:
+                        await asyncio.sleep(0.5)
+                        await _exec(_spotify_api_request, "me/player/play", token, "PUT", None, body)
+                        return {"ok": True}
+                    except Exception:
+                        pass
+                return transfer_res
             return {"ok": False, "error": _parse_spotify_error(e)}
         except Exception as e:
             decky.logger.error("play_tracks failed: %s", e)
             return {"ok": False, "error": str(e)}
+
+    async def start_mix_play(
+        self,
+        context_uri: str | None = None,
+        uris: list | None = None,
+        mix_mode: str = "fade",
+        crossfade_seconds: int = 6,
+        shuffle: bool = True,
+    ) -> dict:
+        """Enable Mix Mode transitions, optionally set shuffle, and start playback."""
+        if mix_mode in ("fade", "rise"):
+            self._settings["mix_mode"] = mix_mode
+        elif self._settings.get("mix_mode", "off") == "off":
+            self._settings["mix_mode"] = "fade"
+        if crossfade_seconds > 0:
+            self._settings["crossfade_seconds"] = max(1, min(12, int(crossfade_seconds)))
+        _save_settings(self._settings)
+
+        play_res = await self.play_tracks(context_uri=context_uri, uris=uris)
+        if not play_res.get("ok"):
+            return play_res
+        if shuffle:
+            await self.set_shuffle(True)
+        return {
+            "ok": True,
+            "mix_mode": self._settings["mix_mode"],
+            "crossfade_seconds": self._settings["crossfade_seconds"],
+            "shuffle_state": self._shuffle_state,
+        }
 
     # ── Device callable methods ─────────────────────────────────
 
@@ -972,6 +1285,75 @@ class Plugin:
                 offset = int(qs.get("offset", [0])[0])
                 result = await self.get_artist_albums(artist_id, offset)
                 await self._send_json(writer, 200, result)
+            elif path.startswith("/api/artists/") and path.endswith("/top-tracks") and method == "GET":
+                artist_id = path.split("/")[3]
+                result = await self.get_artist_top_tracks(artist_id)
+                await self._send_json(writer, 200, result)
+            elif path == "/api/recently-played" and method == "GET":
+                limit = int(qs.get("limit", [30])[0])
+                result = await self.get_recently_played(limit)
+                await self._send_json(writer, 200, result)
+            elif path == "/api/seek" and method == "POST":
+                b = body_json or {}
+                pos = b.get("position_ms") if "position_ms" in b else qs.get("position_ms", [0])[0]
+                result = await self.seek_playback(int(pos))
+                await self._send_json(writer, 200, result)
+            elif path == "/api/shuffle" and method == "POST":
+                b = body_json or {}
+                raw_state = b.get("state") if "state" in b else qs.get("state", ["false"])[0]
+                state_bool = raw_state if isinstance(raw_state, bool) else str(raw_state).lower() == "true"
+                result = await self.set_shuffle(state_bool)
+                await self._send_json(writer, 200, result)
+            elif path == "/api/repeat" and method == "POST":
+                b = body_json or {}
+                state_str = str(b.get("state") or qs.get("state", ["off"])[0])
+                result = await self.set_repeat(state_str)
+                await self._send_json(writer, 200, result)
+            elif path == "/api/like" and method == "POST":
+                b = body_json or {}
+                track_id = str(b.get("track_id") or qs.get("track_id", [""])[0])
+                liked = b.get("liked")
+                result = await self.toggle_like_track(track_id, liked)
+                await self._send_json(writer, 200, result)
+            elif path == "/api/queue" and method == "GET":
+                result = await self.get_queue()
+                await self._send_json(writer, 200, result)
+            elif path == "/api/queue" and method == "POST":
+                b = body_json or {}
+                uri = str(b.get("uri") or qs.get("uri", [""])[0])
+                result = await self.add_to_queue(uri)
+                await self._send_json(writer, 200, result)
+            elif path == "/api/devices" and method == "GET":
+                result = await self.get_devices()
+                await self._send_json(writer, 200, result)
+            elif path == "/api/transfer" and method == "POST":
+                b = body_json or {}
+                device_id = str(b.get("device_id") or qs.get("device_id", [""])[0])
+                result = await self.transfer_playback(device_id)
+                await self._send_json(writer, 200, result)
+            elif path == "/api/mix" and method == "POST":
+                b = body_json or {}
+                for k in ("mix_mode", "crossfade_seconds", "normalisation", "gapless", "autoplay"):
+                    if k in b:
+                        await self.set_setting(k, b[k])
+                await self._send_json(writer, 200, {
+                    "ok": True,
+                    "mix_mode": self._settings.get("mix_mode", "off"),
+                    "crossfade_seconds": self._settings.get("crossfade_seconds", 5),
+                    "normalisation": self._settings.get("normalisation", True),
+                    "gapless": self._settings.get("gapless", True),
+                    "autoplay": self._settings.get("autoplay", True),
+                })
+            elif path == "/api/mix-play" and method == "POST":
+                b = body_json or {}
+                result = await self.start_mix_play(
+                    context_uri=b.get("context_uri"),
+                    uris=b.get("uris"),
+                    mix_mode=b.get("mix_mode", "fade"),
+                    crossfade_seconds=int(b.get("crossfade_seconds", self._settings.get("crossfade_seconds", 6))),
+                    shuffle=bool(b.get("shuffle", True)),
+                )
+                await self._send_json(writer, 200, result)
             elif path == "/api/search" and method == "GET":
                 q = qs.get("q", [""])[0]
                 if not q:
@@ -1047,6 +1429,17 @@ class Plugin:
             "position_ms": position_ms,
             "is_playing": is_playing,
             "volume": self._poll_volume,
+            "shuffle_state": self._shuffle_state,
+            "repeat_state": self._repeat_state,
+            "is_liked": self._is_liked,
+            "active_device": self._active_device,
+            "mix_settings": {
+                "mix_mode": self._settings.get("mix_mode", "off"),
+                "crossfade_seconds": self._settings.get("crossfade_seconds", 5),
+                "normalisation": self._settings.get("normalisation", True),
+                "gapless": self._settings.get("gapless", True),
+                "autoplay": self._settings.get("autoplay", True),
+            },
         }
         await self._send_json(writer, 200, data)
 
@@ -1449,8 +1842,31 @@ class Plugin:
         track_id = item.get("id", "")
         duration_ms = item.get("duration_ms", 0)
 
+        shuffle_state = bool(data.get("shuffle_state", False))
+        repeat_state = data.get("repeat_state", "off")
+        if shuffle_state != self._shuffle_state or repeat_state != self._repeat_state:
+            self._shuffle_state = shuffle_state
+            self._repeat_state = repeat_state
+            await decky.emit("playback_modes", {
+                "shuffle_state": self._shuffle_state,
+                "repeat_state": self._repeat_state,
+            })
+
         if track_id != self._poll_track_id:
             self._poll_track_id = track_id
+            is_liked = False
+            if track_id and item.get("type") != "episode":
+                try:
+                    liked_res = await _exec(
+                        _spotify_api_request, "me/tracks/contains", token, "GET",
+                        {"ids": track_id},
+                    )
+                    if isinstance(liked_res, list) and len(liked_res) > 0:
+                        is_liked = bool(liked_res[0])
+                except Exception:
+                    is_liked = False
+            self._is_liked = is_liked
+
             if item.get("type") == "episode":
                 show = item.get("show") or {}
                 artist = show.get("name") or "Unknown"
@@ -1469,9 +1885,32 @@ class Plugin:
                 "album": album_name,
                 "artwork_url": artwork_url,
                 "duration_ms": duration_ms,
+                "uri": item.get("uri", ""),
+                "is_liked": is_liked,
             }
             self._track_meta = meta
             await decky.emit("track_metadata", meta)
+
+        # Trigger Mix / Crossfade transition when approaching end of track
+        mix_mode = self._settings.get("mix_mode", "off")
+        crossfade_sec = int(self._settings.get("crossfade_seconds", 0) or 0)
+        if (
+            is_playing
+            and mix_mode in ("fade", "rise")
+            and crossfade_sec > 0
+            and duration_ms > (crossfade_sec * 2000 + 5000)
+            and track_id
+            and self._mix_transitioning_track_id != track_id
+        ):
+            crossfade_ms = crossfade_sec * 1000
+            remaining_ms = duration_ms - progress_ms
+            if 0 < remaining_ms <= (crossfade_ms + 3200):
+                self._mix_transitioning_track_id = track_id
+                if self._mix_task and not self._mix_task.done():
+                    self._mix_task.cancel()
+                self._mix_task = asyncio.get_event_loop().create_task(
+                    self._run_mix_transition(track_id, remaining_ms, crossfade_ms, mix_mode)
+                )
 
         new_state = "playing" if is_playing else "paused"
         if is_playing:
@@ -1515,10 +1954,10 @@ class Plugin:
 
         return True
 
-    async def _boost_pa_volume(self):
-        """Set librespot's PulseAudio sink-input to 150% for audible volume."""
+    async def _set_pa_volume_percent(self, percent: int) -> bool:
+        """Set librespot's PulseAudio sink-input volume percentage."""
         if not self._process:
-            return
+            return False
         pid = self._process.pid
         try:
             env = os.environ.copy()
@@ -1541,18 +1980,62 @@ class Plugin:
                     sink_input_id = current_id
                     break
             if sink_input_id:
-
                 def _set_vol():
                     return subprocess.run(
-                        ["pactl", "set-sink-input-volume", sink_input_id, "150%"],
+                        ["pactl", "set-sink-input-volume", sink_input_id, f"{int(percent)}%"],
                         capture_output=True, text=True, env=env,
                     )
-
                 await _exec(_set_vol)
-                decky.logger.info("PA volume boosted to 150%% for sink-input %s", sink_input_id)
-                self._pa_volume_boosted = True
+                return True
         except Exception as e:
-            decky.logger.warning("Failed to boost PA volume: %s", e)
+            decky.logger.warning("Failed to set PA volume to %d%%: %s", percent, e)
+        return False
+
+    async def _boost_pa_volume(self):
+        """Set librespot's PulseAudio sink-input to 150% for audible volume."""
+        if await self._set_pa_volume_percent(150):
+            decky.logger.info("PA volume boosted to 150%%")
+            self._pa_volume_boosted = True
+
+    async def _run_mix_transition(self, track_id: str, remaining_ms: int, crossfade_ms: int, mix_mode: str):
+        """Perform smooth volume fade-out, advance track, and ramp volume back up."""
+        try:
+            wait_ms = max(0, remaining_ms - crossfade_ms)
+            if wait_ms > 0:
+                await asyncio.sleep(wait_ms / 1000.0)
+            if self._poll_track_id != track_id or self._poll_play_state != "playing":
+                return
+
+            decky.logger.info("Mix transition (%s, %.1fs) starting for track %s", mix_mode, crossfade_ms / 1000.0, track_id)
+            half_sec = max(0.5, (crossfade_ms / 1000.0) / 2.0)
+            steps = 5
+            step_delay = half_sec / steps
+
+            # Fade out current track on local PulseAudio sink
+            for i in range(1, steps + 1):
+                if self._poll_track_id != track_id:
+                    break
+                vol = int(150 - (115 * (i / steps)))  # 150% -> 35%
+                await self._set_pa_volume_percent(vol)
+                await asyncio.sleep(step_delay)
+
+            # Advance to next track if still on the outgoing track
+            if self._poll_track_id == track_id and self._poll_play_state == "playing":
+                await self.control_playback("next")
+
+            # Fade in incoming track
+            in_steps = 3 if mix_mode == "rise" else steps
+            in_delay = (half_sec * 0.6 if mix_mode == "rise" else half_sec) / in_steps
+            for i in range(1, in_steps + 1):
+                vol = int(45 + (105 * (i / in_steps)))  # 45% -> 150%
+                await self._set_pa_volume_percent(vol)
+                await asyncio.sleep(in_delay)
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            decky.logger.warning("Mix transition error: %s", e)
+        finally:
+            await self._set_pa_volume_percent(150)
 
     async def _monitor_process(self):
         """Monitor librespot process health and detect system sleep/wake."""

@@ -1,16 +1,35 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { FaTimes, FaChevronLeft, FaMusic, FaHeart, FaPodcast, FaUser, FaCompactDisc, FaStar } from "react-icons/fa";
+import {
+  FaTimes,
+  FaChevronLeft,
+  FaMusic,
+  FaHeart,
+  FaPodcast,
+  FaUser,
+  FaCompactDisc,
+  FaStar,
+  FaHistory,
+  FaPlay,
+  FaRandom,
+  FaSlidersH,
+  FaPlus,
+} from "react-icons/fa";
 import {
   fetchPlaylists,
   fetchPlaylistTracks,
   fetchLikedTracks,
+  fetchRecentlyPlayed,
   fetchSavedEpisodes,
   fetchSavedAlbums,
   fetchAlbumTracks,
   fetchFollowedArtists,
   fetchArtistAlbums,
+  fetchArtistTopTracks,
   playInContext,
   playUris,
+  addToQueue,
+  setShuffle,
+  startMixPlay,
   type Playlist,
   type PlaylistTrack,
   type Album,
@@ -19,14 +38,15 @@ import {
 } from "./api";
 import { formatMs } from "./utils";
 
-type View = "library" | "playlist" | "liked" | "episodes" | "album" | "artist";
+type View = "library" | "playlist" | "liked" | "recent" | "episodes" | "album" | "artist";
 
 interface Props {
   open: boolean;
   onClose: () => void;
+  onToast?: (msg: string) => void;
 }
 
-export default function Sidebar({ open, onClose }: Props) {
+export default function Sidebar({ open, onClose, onToast }: Props) {
   const [view, setView] = useState<View>("library");
   const [loading, setLoading] = useState(false);
 
@@ -38,7 +58,7 @@ export default function Sidebar({ open, onClose }: Props) {
   const [albums, setAlbums] = useState<Album[]>([]);
   const [artists, setArtists] = useState<Artist[]>([]);
 
-  // Drill-in: tracks (shared by playlist, liked, album, artist)
+  // Drill-in: tracks (shared by playlist, liked, recent, album)
   const [drillTitle, setDrillTitle] = useState("");
   const [drillSubtitle, setDrillSubtitle] = useState("");
   const [tracks, setTracks] = useState<PlaylistTrack[]>([]);
@@ -51,13 +71,13 @@ export default function Sidebar({ open, onClose }: Props) {
   const [episodesTotal, setEpisodesTotal] = useState(0);
   const [episodesOffset, setEpisodesOffset] = useState(0);
 
-  // Drill-in: artist albums
+  // Drill-in: artist top tracks + albums
+  const [artistTopTracks, setArtistTopTracks] = useState<PlaylistTrack[]>([]);
   const [artistAlbums, setArtistAlbums] = useState<Album[]>([]);
 
   // Context for play action
   const [activeContextId, setActiveContextId] = useState<string | null>(null);
 
-  // Request ID to discard stale drill-in responses
   const drillReqId = useRef(0);
 
   const splitPlaylists = useCallback((items: Playlist[]) => {
@@ -70,7 +90,6 @@ export default function Sidebar({ open, onClose }: Props) {
     return { made, user };
   }, []);
 
-  // Load library when drawer opens
   useEffect(() => {
     if (!open) return;
     setLoading(true);
@@ -90,8 +109,6 @@ export default function Sidebar({ open, onClose }: Props) {
       .finally(() => setLoading(false));
   }, [open, splitPlaylists]);
 
-  // ── Load more playlists in library view ──
-
   const loadMorePlaylists = useCallback(async () => {
     setLoadingTracks(true);
     try {
@@ -108,8 +125,6 @@ export default function Sidebar({ open, onClose }: Props) {
     setLoadingTracks(false);
   }, [playlistsOffset, splitPlaylists]);
 
-  // ── Drill-in openers ──
-
   const openPlaylist = useCallback(async (pl: Playlist) => {
     const reqId = ++drillReqId.current;
     setView("playlist");
@@ -122,7 +137,11 @@ export default function Sidebar({ open, onClose }: Props) {
     try {
       const r = await fetchPlaylistTracks(pl.id, 0);
       if (reqId !== drillReqId.current) return;
-      if (r.ok) { setTracks(r.tracks); setTracksTotal(r.total); setTracksOffset(r.tracks.length); }
+      if (r.ok) {
+        setTracks(r.tracks);
+        setTracksTotal(r.total ?? r.tracks.length);
+        setTracksOffset(r.tracks.length);
+      }
     } catch (e) {
       console.error("Failed to load playlist tracks:", e);
     }
@@ -141,7 +160,11 @@ export default function Sidebar({ open, onClose }: Props) {
     try {
       const r = await fetchAlbumTracks(al.id, 0);
       if (reqId !== drillReqId.current) return;
-      if (r.ok) { setTracks(r.tracks); setTracksTotal(r.total); setTracksOffset(r.tracks.length); }
+      if (r.ok) {
+        setTracks(r.tracks);
+        setTracksTotal(r.total ?? r.tracks.length);
+        setTracksOffset(r.tracks.length);
+      }
     } catch (e) {
       console.error("Failed to load album tracks:", e);
     }
@@ -160,9 +183,38 @@ export default function Sidebar({ open, onClose }: Props) {
     try {
       const r = await fetchLikedTracks(0);
       if (reqId !== drillReqId.current) return;
-      if (r.ok) { setTracks(r.tracks); setTracksTotal(r.total); setTracksOffset(r.tracks.length); setDrillSubtitle(`${r.total} tracks`); }
+      if (r.ok) {
+        setTracks(r.tracks);
+        setTracksTotal(r.total ?? r.tracks.length);
+        setTracksOffset(r.tracks.length);
+        setDrillSubtitle(`${r.total ?? r.tracks.length} tracks`);
+      }
     } catch (e) {
       console.error("Failed to load liked tracks:", e);
+    }
+    if (reqId === drillReqId.current) setLoadingTracks(false);
+  }, []);
+
+  const openRecent = useCallback(async () => {
+    const reqId = ++drillReqId.current;
+    setView("recent");
+    setDrillTitle("Recently Played");
+    setDrillSubtitle("");
+    setActiveContextId(null);
+    setTracks([]);
+    setTracksOffset(0);
+    setLoadingTracks(true);
+    try {
+      const r = await fetchRecentlyPlayed(30);
+      if (reqId !== drillReqId.current) return;
+      if (r.ok) {
+        setTracks(r.tracks);
+        setTracksTotal(r.tracks.length);
+        setTracksOffset(r.tracks.length);
+        setDrillSubtitle(`${r.tracks.length} recent tracks`);
+      }
+    } catch (e) {
+      console.error("Failed to load recently played:", e);
     }
     if (reqId === drillReqId.current) setLoadingTracks(false);
   }, []);
@@ -178,7 +230,12 @@ export default function Sidebar({ open, onClose }: Props) {
     try {
       const r = await fetchSavedEpisodes(0);
       if (reqId !== drillReqId.current) return;
-      if (r.ok) { setEpisodes(r.episodes); setEpisodesTotal(r.total); setEpisodesOffset(r.episodes.length); setDrillSubtitle(`${r.total} episodes`); }
+      if (r.ok) {
+        setEpisodes(r.episodes);
+        setEpisodesTotal(r.total);
+        setEpisodesOffset(r.episodes.length);
+        setDrillSubtitle(`${r.total} episodes`);
+      }
     } catch (e) {
       console.error("Failed to load episodes:", e);
     }
@@ -189,20 +246,24 @@ export default function Sidebar({ open, onClose }: Props) {
     const reqId = ++drillReqId.current;
     setView("artist");
     setDrillTitle(artist.name);
-    setDrillSubtitle("Albums");
+    setDrillSubtitle("Top Tracks & Albums");
+    setActiveContextId(artist.id);
+    setArtistTopTracks([]);
     setArtistAlbums([]);
     setLoadingTracks(true);
     try {
-      const r = await fetchArtistAlbums(artist.id);
+      const [topRes, albRes] = await Promise.all([
+        fetchArtistTopTracks(artist.id),
+        fetchArtistAlbums(artist.id),
+      ]);
       if (reqId !== drillReqId.current) return;
-      if (r.ok) setArtistAlbums(r.albums);
+      if (topRes.ok) setArtistTopTracks(topRes.tracks);
+      if (albRes.ok) setArtistAlbums(albRes.albums);
     } catch (e) {
-      console.error("Failed to load artist albums:", e);
+      console.error("Failed to load artist details:", e);
     }
     if (reqId === drillReqId.current) setLoadingTracks(false);
   }, []);
-
-  // ── Load more (drill-in) ──
 
   const loadMoreTracks = useCallback(async () => {
     setLoadingTracks(true);
@@ -211,7 +272,10 @@ export default function Sidebar({ open, onClose }: Props) {
       if (view === "liked") r = await fetchLikedTracks(tracksOffset);
       else if (view === "album") r = await fetchAlbumTracks(activeContextId!, tracksOffset);
       else r = await fetchPlaylistTracks(activeContextId!, tracksOffset);
-      if (r.ok) { setTracks((p) => [...p, ...r.tracks]); setTracksOffset((p) => p + r.tracks.length); }
+      if (r.ok) {
+        setTracks((p) => [...p, ...r.tracks]);
+        setTracksOffset((p) => p + r.tracks.length);
+      }
     } catch (e) {
       console.error("Failed to load more tracks:", e);
     }
@@ -222,14 +286,15 @@ export default function Sidebar({ open, onClose }: Props) {
     setLoadingTracks(true);
     try {
       const r = await fetchSavedEpisodes(episodesOffset);
-      if (r.ok) { setEpisodes((p) => [...p, ...r.episodes]); setEpisodesOffset((p) => p + r.episodes.length); }
+      if (r.ok) {
+        setEpisodes((p) => [...p, ...r.episodes]);
+        setEpisodesOffset((p) => p + r.episodes.length);
+      }
     } catch (e) {
       console.error("Failed to load more episodes:", e);
     }
     setLoadingTracks(false);
   }, [episodesOffset]);
-
-  // ── Play handlers ──
 
   const handlePlayTrack = useCallback(async (track: PlaylistTrack, index: number) => {
     if (view === "playlist" && activeContextId) {
@@ -242,28 +307,66 @@ export default function Sidebar({ open, onClose }: Props) {
     }
   }, [view, activeContextId, tracks]);
 
+  const handlePlayAll = useCallback(async (shuffle = false) => {
+    if (view === "playlist" && activeContextId) {
+      await playInContext(`spotify:playlist:${activeContextId}`);
+    } else if (view === "album" && activeContextId) {
+      await playInContext(`spotify:album:${activeContextId}`);
+    } else if (tracks.length > 0) {
+      await playUris(tracks.map((t) => t.uri), 0);
+    }
+    await setShuffle(shuffle);
+    onToast?.(shuffle ? `Shuffling ${drillTitle}` : `Playing ${drillTitle}`);
+  }, [view, activeContextId, tracks, drillTitle, onToast]);
+
+  const handleMixPlay = useCallback(async () => {
+    const contextUri =
+      view === "playlist" && activeContextId
+        ? `spotify:playlist:${activeContextId}`
+        : view === "album" && activeContextId
+        ? `spotify:album:${activeContextId}`
+        : undefined;
+    const uris = !contextUri && tracks.length > 0 ? tracks.map((t) => t.uri) : undefined;
+    const res = await startMixPlay({ context_uri: contextUri, uris, mix_mode: "fade", crossfade_seconds: 6, shuffle: true });
+    if (res.ok) {
+      onToast?.(`Mix Mode started for ${drillTitle}`);
+    }
+  }, [view, activeContextId, tracks, drillTitle, onToast]);
+
+  const handleQueueTrack = useCallback(async (e: React.MouseEvent, t: PlaylistTrack) => {
+    e.stopPropagation();
+    const res = await addToQueue(t.uri);
+    if (res.ok) {
+      onToast?.(`Queued "${t.name}"`);
+    }
+  }, [onToast]);
+
   const handlePlayEpisode = useCallback(async (ep: Episode) => {
     await playUris([ep.uri]);
   }, []);
-
-  // ── Navigation ──
 
   const goBack = useCallback(() => {
     setView("library");
     setTracks([]);
     setEpisodes([]);
+    setArtistTopTracks([]);
     setArtistAlbums([]);
   }, []);
 
   const handleClose = useCallback(() => {
     onClose();
-    setTimeout(() => { setView("library"); setTracks([]); setEpisodes([]); }, 300);
+    setTimeout(() => {
+      setView("library");
+      setTracks([]);
+      setEpisodes([]);
+      setArtistTopTracks([]);
+      setArtistAlbums([]);
+    }, 300);
   }, [onClose]);
 
   const inDrill = view !== "library";
   const allPlaylistsLoaded = playlistsOffset >= playlistsTotal;
 
-  // Reusable playlist row
   const PlaylistRow = ({ pl, icon }: { pl: Playlist; icon?: React.ReactNode }) => (
     <button onClick={() => openPlaylist(pl)} className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-neutral-800 transition-colors text-left">
       {pl.image_url ? (
@@ -306,12 +409,17 @@ export default function Sidebar({ open, onClose }: Props) {
               <div className="p-4 text-neutral-500 text-sm">Loading...</div>
             ) : (
               <>
-                {/* Special entries */}
                 <button onClick={openLiked} className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-neutral-800 transition-colors text-left">
                   <div className="w-10 h-10 rounded bg-gradient-to-br from-purple-700 to-blue-300 flex items-center justify-center shrink-0">
                     <FaHeart className="text-white" size={14} />
                   </div>
                   <span className="text-sm font-medium">Liked Songs</span>
+                </button>
+                <button onClick={openRecent} className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-neutral-800 transition-colors text-left">
+                  <div className="w-10 h-10 rounded bg-neutral-800 flex items-center justify-center shrink-0">
+                    <FaHistory className="text-green-400" size={14} />
+                  </div>
+                  <span className="text-sm font-medium">Recently Played</span>
                 </button>
                 <button onClick={openEpisodes} className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-neutral-800 transition-colors text-left">
                   <div className="w-10 h-10 rounded bg-green-800 flex items-center justify-center shrink-0">
@@ -320,7 +428,6 @@ export default function Sidebar({ open, onClose }: Props) {
                   <span className="text-sm font-medium">Your Episodes</span>
                 </button>
 
-                {/* Made For You */}
                 {madeForYou.length > 0 && (
                   <>
                     <div className="px-4 pt-4 pb-1 text-xs text-neutral-500 uppercase tracking-wider flex items-center gap-1.5">
@@ -330,7 +437,6 @@ export default function Sidebar({ open, onClose }: Props) {
                   </>
                 )}
 
-                {/* Artists */}
                 {artists.length > 0 && (
                   <>
                     <div className="px-4 pt-4 pb-1 text-xs text-neutral-500 uppercase tracking-wider">Artists</div>
@@ -349,7 +455,6 @@ export default function Sidebar({ open, onClose }: Props) {
                   </>
                 )}
 
-                {/* Albums */}
                 {albums.length > 0 && (
                   <>
                     <div className="px-4 pt-4 pb-1 text-xs text-neutral-500 uppercase tracking-wider">Albums</div>
@@ -371,7 +476,6 @@ export default function Sidebar({ open, onClose }: Props) {
                   </>
                 )}
 
-                {/* Playlists */}
                 {playlists.length > 0 && (
                   <>
                     <div className="px-4 pt-4 pb-1 text-xs text-neutral-500 uppercase tracking-wider">Playlists</div>
@@ -379,7 +483,6 @@ export default function Sidebar({ open, onClose }: Props) {
                   </>
                 )}
 
-                {/* Load more playlists */}
                 {!allPlaylistsLoaded && (
                   <button onClick={loadMorePlaylists} className="w-full py-3 text-sm text-green-500 hover:text-green-400 transition-colors">
                     {loadingTracks ? "Loading..." : "Load more playlists"}
@@ -389,51 +492,120 @@ export default function Sidebar({ open, onClose }: Props) {
             )
           )}
 
-          {/* Artist drill-in (albums) */}
+          {/* Artist drill-in (top tracks + albums) */}
           {view === "artist" && (
             <>
               <div className="px-4 py-3 border-b border-neutral-800">
                 <div className="text-sm font-semibold truncate">{drillTitle}</div>
                 {drillSubtitle && <div className="text-xs text-neutral-500">{drillSubtitle}</div>}
               </div>
-              {artistAlbums.map((al) => (
-                <button key={al.id} onClick={() => openAlbum(al)} className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-neutral-800 transition-colors text-left">
-                  {al.image_url ? (
-                    <img src={al.image_url} alt="" className="w-10 h-10 rounded object-cover shrink-0" />
-                  ) : (
-                    <div className="w-10 h-10 rounded bg-neutral-800 flex items-center justify-center shrink-0">
-                      <FaCompactDisc className="text-neutral-600" size={14} />
+              {artistTopTracks.length > 0 && (
+                <>
+                  <div className="px-4 pt-3 pb-1 text-xs text-neutral-500 uppercase tracking-wider">Popular Tracks</div>
+                  {artistTopTracks.slice(0, 5).map((t, i) => (
+                    <div
+                      key={t.uri + i}
+                      onClick={() => playUris(artistTopTracks.map((x) => x.uri), i)}
+                      className="w-full flex items-center justify-between px-4 py-2 hover:bg-neutral-800 transition-colors cursor-pointer"
+                    >
+                      <div className="min-w-0 flex-1 mr-2">
+                        <div className="text-sm truncate">{t.name}</div>
+                        <div className="text-xs text-neutral-500 truncate">{t.album}</div>
+                      </div>
+                      <button
+                        onClick={(e) => handleQueueTrack(e, t)}
+                        className="p-1.5 text-neutral-500 hover:text-green-400"
+                        title="Add to Queue"
+                      >
+                        <FaPlus size={11} />
+                      </button>
                     </div>
-                  )}
-                  <div className="min-w-0 flex-1">
-                    <div className="text-sm font-medium truncate">{al.name}</div>
-                    <div className="text-xs text-neutral-500 truncate">{al.artist}</div>
-                  </div>
-                </button>
-              ))}
+                  ))}
+                </>
+              )}
+              {artistAlbums.length > 0 && (
+                <>
+                  <div className="px-4 pt-3 pb-1 text-xs text-neutral-500 uppercase tracking-wider">Albums & Singles</div>
+                  {artistAlbums.map((al) => (
+                    <button key={al.id} onClick={() => openAlbum(al)} className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-neutral-800 transition-colors text-left">
+                      {al.image_url ? (
+                        <img src={al.image_url} alt="" className="w-10 h-10 rounded object-cover shrink-0" />
+                      ) : (
+                        <div className="w-10 h-10 rounded bg-neutral-800 flex items-center justify-center shrink-0">
+                          <FaCompactDisc className="text-neutral-600" size={14} />
+                        </div>
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-medium truncate">{al.name}</div>
+                        <div className="text-xs text-neutral-500 truncate">{al.artist}</div>
+                      </div>
+                    </button>
+                  ))}
+                </>
+              )}
               {loadingTracks && <div className="px-4 py-3 text-neutral-500 text-sm">Loading...</div>}
             </>
           )}
 
-          {/* Track drill-in (playlist / liked / album) */}
-          {(view === "playlist" || view === "liked" || view === "album") && (
+          {/* Track drill-in (playlist / liked / recent / album) */}
+          {(view === "playlist" || view === "liked" || view === "recent" || view === "album") && (
             <>
-              <div className="px-4 py-3 border-b border-neutral-800">
-                <div className="text-sm font-semibold truncate">{drillTitle}</div>
-                {drillSubtitle && <div className="text-xs text-neutral-500">{drillSubtitle}</div>}
+              <div className="px-4 py-3 border-b border-neutral-800 space-y-2.5">
+                <div>
+                  <div className="text-sm font-semibold truncate">{drillTitle}</div>
+                  {drillSubtitle && <div className="text-xs text-neutral-500">{drillSubtitle}</div>}
+                </div>
+                {tracks.length > 0 && (
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handlePlayAll(false)}
+                      className="flex-1 flex items-center justify-center gap-1.5 bg-white text-black text-xs font-semibold py-1.5 px-2.5 rounded-lg hover:bg-neutral-200 transition-colors"
+                    >
+                      <FaPlay size={10} /> Play
+                    </button>
+                    <button
+                      onClick={() => handlePlayAll(true)}
+                      className="flex-1 flex items-center justify-center gap-1.5 bg-neutral-800 text-white text-xs font-medium py-1.5 px-2.5 rounded-lg hover:bg-neutral-700 transition-colors"
+                    >
+                      <FaRandom size={11} /> Shuffle
+                    </button>
+                    <button
+                      onClick={handleMixPlay}
+                      className="flex-1 flex items-center justify-center gap-1.5 bg-green-500 text-black text-xs font-semibold py-1.5 px-2.5 rounded-lg hover:bg-green-400 transition-colors"
+                      title="Start with Mix Crossfade & Shuffle"
+                    >
+                      <FaSlidersH size={11} /> Mix
+                    </button>
+                  </div>
+                )}
               </div>
               {tracks.map((t, i) => (
-                <button key={t.uri + i} onClick={() => handlePlayTrack(t, i)} className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-neutral-800 transition-colors text-left">
-                  <div className="min-w-0 flex-1 mr-3">
+                <div
+                  key={t.uri + i}
+                  onClick={() => handlePlayTrack(t, i)}
+                  className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-neutral-800 transition-colors cursor-pointer"
+                >
+                  <div className="min-w-0 flex-1 mr-2">
                     <div className="text-sm truncate">{t.name}</div>
                     <div className="text-xs text-neutral-500 truncate">{t.artist}</div>
                   </div>
-                  <span className="text-xs text-neutral-600 shrink-0">{formatMs(t.duration_ms)}</span>
-                </button>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-xs text-neutral-600">{formatMs(t.duration_ms)}</span>
+                    <button
+                      onClick={(e) => handleQueueTrack(e, t)}
+                      className="p-1.5 text-neutral-500 hover:text-green-400 transition-colors"
+                      title="Add to Queue"
+                    >
+                      <FaPlus size={11} />
+                    </button>
+                  </div>
+                </div>
               ))}
               {loadingTracks && <div className="px-4 py-3 text-neutral-500 text-sm">Loading...</div>}
               {!loadingTracks && tracks.length < tracksTotal && (
-                <button onClick={loadMoreTracks} className="w-full py-3 text-sm text-green-500 hover:text-green-400 transition-colors">Load more</button>
+                <button onClick={loadMoreTracks} className="w-full py-3 text-sm text-green-500 hover:text-green-400 transition-colors">
+                  Load more
+                </button>
               )}
             </>
           )}
@@ -456,7 +628,9 @@ export default function Sidebar({ open, onClose }: Props) {
               ))}
               {loadingTracks && <div className="px-4 py-3 text-neutral-500 text-sm">Loading...</div>}
               {!loadingTracks && episodes.length < episodesTotal && (
-                <button onClick={loadMoreEpisodes} className="w-full py-3 text-sm text-green-500 hover:text-green-400 transition-colors">Load more</button>
+                <button onClick={loadMoreEpisodes} className="w-full py-3 text-sm text-green-500 hover:text-green-400 transition-colors">
+                  Load more
+                </button>
               )}
             </>
           )}

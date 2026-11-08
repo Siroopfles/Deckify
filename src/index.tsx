@@ -20,7 +20,19 @@ import {
   definePlugin,
   toaster,
 } from "@decky/api";
-import { FaMusic, FaSpotify, FaPlay, FaPause, FaStepBackward, FaStepForward } from "react-icons/fa";
+import {
+  FaMusic,
+  FaSpotify,
+  FaPlay,
+  FaPause,
+  FaStepBackward,
+  FaStepForward,
+  FaRandom,
+  FaRedo,
+  FaHeart,
+  FaRegHeart,
+  FaPlus,
+} from "react-icons/fa";
 import { QRCodeSVG } from "qrcode.react";
 
 const backendStart = callable<[], { ok: boolean; error?: string; pid?: number }>("start_librespot");
@@ -36,13 +48,38 @@ const backendGetStatus = callable<[], {
   position_ms: number;
   duration_ms: number;
   volume: number | null;
+  shuffle_state: boolean;
+  repeat_state: "off" | "context" | "track";
+  is_liked: boolean;
 }>("get_status");
-const backendSetSetting = callable<[string, any], { ok: boolean; settings?: Settings; error?: string }>("set_setting");
+const backendSetSetting = callable<[string, unknown], { ok: boolean; settings?: Settings; error?: string }>("set_setting");
 const backendStartOAuth = callable<[], { ok: boolean; landing_url?: string; redirect_uri?: string; error?: string }>("start_oauth");
 const backendGetAuthStatus = callable<[], { authenticated: boolean; needs_reauth: boolean }>("get_auth_status");
 const backendLogout = callable<[], { ok: boolean }>("logout_spotify");
 const backendControlPlayback = callable<[string, string], { ok: boolean; error?: string }>("control_playback");
 const backendSetVolume = callable<[number], { ok: boolean; error?: string }>("set_volume");
+const backendSeekPlayback = callable<[number, string], { ok: boolean; position_ms?: number; error?: string }>("seek_playback");
+const backendSetShuffle = callable<[boolean, string], { ok: boolean; shuffle_state?: boolean; error?: string }>("set_shuffle");
+const backendSetRepeat = callable<[string, string], { ok: boolean; repeat_state?: string; error?: string }>("set_repeat");
+const backendToggleLike = callable<[string, boolean | null], { ok: boolean; is_liked?: boolean; error?: string }>("toggle_like_track");
+const backendGetQueue = callable<[], { ok: boolean; currently_playing?: TrackItem | null; queue?: TrackItem[]; error?: string }>("get_queue");
+const backendAddToQueue = callable<[string, string], { ok: boolean; error?: string }>("add_to_queue");
+const backendGetPlaylists = callable<[number], { ok: boolean; playlists?: PlaylistItem[]; total?: number; error?: string }>("get_playlists");
+const backendGetLikedTracks = callable<[number], { ok: boolean; tracks?: TrackItem[]; total?: number; error?: string }>("get_liked_tracks");
+const backendSearchSpotify = callable<[string, string, number], {
+  ok: boolean;
+  tracks?: TrackItem[];
+  playlists?: PlaylistItem[];
+  error?: string;
+}>("search_spotify");
+const backendPlayTracks = callable<[string | null, string | null, string[] | null, number], { ok: boolean; error?: string }>("play_tracks");
+const backendStartMixPlay = callable<[string | null, string[] | null, string, number, boolean], {
+  ok: boolean;
+  mix_mode?: string;
+  crossfade_seconds?: number;
+  shuffle_state?: boolean;
+  error?: string;
+}>("start_mix_play");
 const backendGetDashboardUrl = callable<[], { ok: boolean; url?: string; error?: string }>("get_dashboard_url");
 const backendGetDevices = callable<[], { ok: boolean; devices?: SpotifyDevice[]; error?: string }>("get_devices");
 const backendTransferPlayback = callable<[string], { ok: boolean; error?: string }>("transfer_playback");
@@ -51,6 +88,12 @@ interface Settings {
   device_name: string;
   bitrate: number;
   spotify_client_id: string;
+  normalisation?: boolean;
+  normalisation_pregain?: number;
+  gapless?: boolean;
+  autoplay?: boolean;
+  mix_mode?: "off" | "fade" | "rise";
+  crossfade_seconds?: number;
 }
 
 interface LibrespotEvent {
@@ -83,13 +126,48 @@ interface TrackMetadata {
   album: string;
   artwork_url: string | null;
   duration_ms: number;
+  uri?: string;
+  is_liked?: boolean;
 }
+
+interface TrackItem {
+  id: string | null;
+  name: string;
+  artist: string;
+  album: string;
+  uri: string;
+  duration_ms: number;
+  image_url: string | null;
+}
+
+interface PlaylistItem {
+  id: string;
+  name: string;
+  image_url: string | null;
+  track_count: number;
+  owner_id: string;
+}
+
+type QuickTab = "none" | "playlists" | "liked" | "queue" | "search";
 
 const BITRATE_OPTIONS = [
   { data: 96, label: "96 kbps" },
   { data: 160, label: "160 kbps" },
   { data: 320, label: "320 kbps" },
 ];
+
+const MIX_MODE_OPTIONS = [
+  { data: "off", label: "Off (Standard)" },
+  { data: "fade", label: "Smooth Fade (Crossfade)" },
+  { data: "rise", label: "Quick Rise (DJ Blend)" },
+];
+
+function formatDuration(ms: number): string {
+  const totalSec = Math.max(0, Math.floor(ms / 1000));
+  const min = Math.floor(totalSec / 60);
+  const sec = totalSec % 60;
+  return `${min}:${sec < 10 ? "0" : ""}${sec}`;
+}
 
 function playerEventToLabel(event: string | undefined, isPlaying: boolean): string {
   switch (event) {
@@ -120,6 +198,11 @@ const Content: FC = () => {
     device_name: "",
     bitrate: 320,
     spotify_client_id: "",
+    normalisation: true,
+    gapless: true,
+    autoplay: true,
+    mix_mode: "off",
+    crossfade_seconds: 5,
   });
   const [toggling, setToggling] = useState(false);
   const [deviceName, setDeviceName] = useState("");
@@ -131,8 +214,23 @@ const Content: FC = () => {
   const [trackMeta, setTrackMeta] = useState<TrackMetadata | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [volume, setVolume] = useState(50);
+  const [shuffleState, setShuffleState] = useState(false);
+  const [repeatState, setRepeatState] = useState<"off" | "context" | "track">("off");
+  const [isLiked, setIsLiked] = useState(false);
+  const [positionMs, setPositionMs] = useState(0);
+  const [durationMs, setDurationMs] = useState(0);
   const [restartNeeded, setRestartNeeded] = useState(false);
   const [devices, setDevices] = useState<SpotifyDevice[]>([]);
+
+  // Quick Browser state
+  const [quickTab, setQuickTab] = useState<QuickTab>("none");
+  const [quickLoading, setQuickLoading] = useState(false);
+  const [playlists, setPlaylists] = useState<PlaylistItem[]>([]);
+  const [likedTracks, setLikedTracks] = useState<TrackItem[]>([]);
+  const [queueTracks, setQueueTracks] = useState<TrackItem[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<TrackItem[]>([]);
+
   const activeDeviceIdRef = useRef<string>("");
   const updateDevices = useCallback((devs: SpotifyDevice[]) => {
     setDevices(devs);
@@ -140,27 +238,37 @@ const Content: FC = () => {
   }, []);
   const volumeDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const volumeChangeSourceRef = useRef<"user" | "remote">("remote");
+  const seekDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const seekingRef = useRef(false);
 
   useEffect(() => {
     backendGetStatus().then((status) => {
       setRunning(status.running);
       setBinaryFound(status.binary_found);
-      setSettings(status.settings);
+      setSettings((prev) => ({ ...prev, ...status.settings }));
       setDeviceName(status.settings.device_name);
       setLastEvent(status.last_event);
       if (status.volume != null) setVolume(status.volume);
       if (status.track_meta) {
         setTrackMeta(status.track_meta);
+        setDurationMs(status.track_meta.duration_ms || status.duration_ms || 0);
+        if (status.track_meta.is_liked !== undefined) {
+          setIsLiked(status.track_meta.is_liked);
+        }
       }
-      if (status.is_playing) {
-        setIsPlaying(true);
-      }
+      setPositionMs(status.position_ms || 0);
+      setIsPlaying(status.is_playing);
+      setShuffleState(Boolean(status.shuffle_state));
+      setRepeatState(status.repeat_state || "off");
+      setIsLiked(Boolean(status.is_liked));
     });
     backendGetAuthStatus().then((s) => {
       setAuthenticated(s.authenticated);
       setNeedsReauth(s.needs_reauth);
       if (s.authenticated) {
-        backendGetDevices().then((r) => { if (r.ok && r.devices && r.devices.length > 0) updateDevices(r.devices); });
+        backendGetDevices().then((r) => {
+          if (r.ok && r.devices && r.devices.length > 0) updateDevices(r.devices);
+        });
       }
     });
   }, [updateDevices]);
@@ -173,7 +281,7 @@ const Content: FC = () => {
       if (r.ok && r.devices && r.devices.length > 0) updateDevices(r.devices);
     }, 30000);
     return () => clearInterval(interval);
-  }, [authenticated]);
+  }, [authenticated, updateDevices]);
 
   // Listen to backend events
   useEffect(() => {
@@ -194,11 +302,22 @@ const Content: FC = () => {
       const etype = event.event;
       if (etype === "playing" || etype === "started") {
         setIsPlaying(true);
+        if (!seekingRef.current && event.position_ms !== undefined) {
+          setPositionMs(event.position_ms);
+        }
+        if (event.duration_ms !== undefined) {
+          setDurationMs(event.duration_ms);
+        }
       } else if (etype === "paused") {
         setIsPlaying(false);
+        if (!seekingRef.current && event.position_ms !== undefined) {
+          setPositionMs(event.position_ms);
+        }
       } else if (etype === "stopped" || etype === "unavailable") {
         setIsPlaying(false);
         setTrackMeta(null);
+        setPositionMs(0);
+        setDurationMs(0);
       } else if (etype === "volume_set" && event.volume !== undefined) {
         if (volumeChangeSourceRef.current !== "user") {
           setVolume(event.volume);
@@ -219,8 +338,15 @@ const Content: FC = () => {
     };
     const onTrackMeta = (meta: TrackMetadata) => {
       setTrackMeta(meta);
+      setDurationMs(meta.duration_ms || 0);
+      if (meta.is_liked !== undefined) {
+        setIsLiked(meta.is_liked);
+      }
     };
-
+    const onPlaybackModes = (modes: { shuffle_state: boolean; repeat_state: "off" | "context" | "track" }) => {
+      setShuffleState(modes.shuffle_state);
+      setRepeatState(modes.repeat_state);
+    };
     const onAuthExpired = () => {
       setAuthenticated(false);
       setNeedsReauth(false);
@@ -233,9 +359,10 @@ const Content: FC = () => {
         icon: <FaSpotify />,
       });
     };
-
     const onDeviceChanged = () => {
-      backendGetDevices().then((r) => { if (r.ok && r.devices && r.devices.length > 0) updateDevices(r.devices); });
+      backendGetDevices().then((r) => {
+        if (r.ok && r.devices && r.devices.length > 0) updateDevices(r.devices);
+      });
     };
 
     const regStatus = addEventListener<[StatusPayload]>("librespot_status", onStatus);
@@ -243,6 +370,10 @@ const Content: FC = () => {
     const regOAuth = addEventListener<[{ authenticated: boolean }]>("oauth_complete", onOAuthComplete);
     const regAuthExpired = addEventListener("auth_expired", onAuthExpired);
     const regMeta = addEventListener<[TrackMetadata]>("track_metadata", onTrackMeta);
+    const regModes = addEventListener<[{ shuffle_state: boolean; repeat_state: "off" | "context" | "track" }]>(
+      "playback_modes",
+      onPlaybackModes,
+    );
     const regDevice = addEventListener("device_changed", onDeviceChanged);
 
     return () => {
@@ -251,12 +382,23 @@ const Content: FC = () => {
       removeEventListener("oauth_complete", regOAuth);
       removeEventListener("auth_expired", regAuthExpired);
       removeEventListener("track_metadata", regMeta);
+      removeEventListener("playback_modes", regModes);
       removeEventListener("device_changed", regDevice);
     };
-  }, []);
+  }, [updateDevices]);
 
-  // Progress bar tick
-const handleToggle = useCallback(async (checked: boolean) => {
+  // Smooth progress bar tick while playing
+  useEffect(() => {
+    if (!isPlaying || durationMs <= 0) return;
+    const timer = setInterval(() => {
+      if (!seekingRef.current) {
+        setPositionMs((prev) => Math.min(durationMs, prev + 1000));
+      }
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [isPlaying, durationMs]);
+
+  const handleToggle = useCallback(async (checked: boolean) => {
     setToggling(true);
     try {
       if (checked) {
@@ -275,17 +417,20 @@ const handleToggle = useCallback(async (checked: boolean) => {
     }
   }, []);
 
-  const handleSettingChange = useCallback(async (key: string, value: any) => {
+  const handleSettingChange = useCallback(async (key: string, value: unknown) => {
     try {
       const result = await backendSetSetting(key, value);
       if (!result.ok || !result.settings) throw new Error(result.error ?? "Could not save setting");
-      setSettings(result.settings);
+      setSettings((prev) => ({ ...prev, ...result.settings }));
       if (key === "device_name") setDeviceName(result.settings.device_name);
-      if ((key === "device_name" || key === "bitrate") && running) {
+      if (
+        (key === "device_name" || key === "bitrate" || key === "normalisation" || key === "gapless" || key === "autoplay")
+        && running
+      ) {
         setRestartNeeded(true);
       }
-    } catch (error) {
-      toaster.toast({ title: "Deckify", body: String(error), duration: 5000 });
+    } catch (err) {
+      toaster.toast({ title: "Deckify", body: String(err), duration: 5000 });
     }
   }, [running]);
 
@@ -334,14 +479,68 @@ const handleToggle = useCallback(async (checked: boolean) => {
     }
   }, []);
 
+  const handleSeekChange = useCallback((seconds: number) => {
+    const targetMs = seconds * 1000;
+    seekingRef.current = true;
+    setPositionMs(targetMs);
+    if (seekDebounceRef.current) clearTimeout(seekDebounceRef.current);
+    seekDebounceRef.current = setTimeout(async () => {
+      await backendSeekPlayback(targetMs, activeDeviceIdRef.current);
+      setTimeout(() => {
+        seekingRef.current = false;
+      }, 600);
+    }, 350);
+  }, []);
+
+  const handleToggleShuffle = useCallback(async () => {
+    const nextState = !shuffleState;
+    setShuffleState(nextState);
+    const res = await backendSetShuffle(nextState, activeDeviceIdRef.current);
+    if (!res.ok) {
+      setShuffleState(!nextState);
+      toaster.toast({ title: "Deckify", body: res.error ?? "Failed to set shuffle", duration: 3000 });
+    }
+  }, [shuffleState]);
+
+  const handleCycleRepeat = useCallback(async () => {
+    const order: Array<"off" | "context" | "track"> = ["off", "context", "track"];
+    const nextState = order[(order.indexOf(repeatState) + 1) % order.length];
+    const prevState = repeatState;
+    setRepeatState(nextState);
+    const res = await backendSetRepeat(nextState, activeDeviceIdRef.current);
+    if (!res.ok) {
+      setRepeatState(prevState);
+      toaster.toast({ title: "Deckify", body: res.error ?? "Failed to set repeat", duration: 3000 });
+    }
+  }, [repeatState]);
+
+  const handleToggleLike = useCallback(async () => {
+    if (!trackMeta?.track_id) return;
+    const nextLiked = !isLiked;
+    setIsLiked(nextLiked);
+    const res = await backendToggleLike(trackMeta.track_id, nextLiked);
+    if (!res.ok) {
+      setIsLiked(!nextLiked);
+      toaster.toast({ title: "Deckify", body: res.error ?? "Failed to update Library", duration: 3000 });
+    } else {
+      toaster.toast({
+        title: "Deckify",
+        body: nextLiked ? "Added to Liked Songs" : "Removed from Liked Songs",
+        duration: 2000,
+        icon: <FaSpotify />,
+      });
+    }
+  }, [trackMeta, isLiked]);
+
   const handleVolumeChange = useCallback((value: number) => {
     setVolume(value);
     volumeChangeSourceRef.current = "user";
     if (volumeDebounceRef.current) clearTimeout(volumeDebounceRef.current);
     volumeDebounceRef.current = setTimeout(async () => {
       await backendSetVolume(value);
-      // Allow remote updates again after a short delay
-      setTimeout(() => { volumeChangeSourceRef.current = "remote"; }, 500);
+      setTimeout(() => {
+        volumeChangeSourceRef.current = "remote";
+      }, 500);
     }, 300);
   }, []);
 
@@ -374,9 +573,78 @@ const handleToggle = useCallback(async (checked: boolean) => {
     setRestartNeeded(false);
   }, []);
 
+  // Quick Browser loaders
+  const handleSelectQuickTab = useCallback(async (tab: QuickTab) => {
+    if (quickTab === tab) {
+      setQuickTab("none");
+      return;
+    }
+    setQuickTab(tab);
+    setQuickLoading(true);
+    try {
+      if (tab === "playlists") {
+        const res = await backendGetPlaylists(0);
+        if (res.ok && res.playlists) setPlaylists(res.playlists.slice(0, 15));
+      } else if (tab === "liked") {
+        const res = await backendGetLikedTracks(0);
+        if (res.ok && res.tracks) setLikedTracks(res.tracks.slice(0, 15));
+      } else if (tab === "queue") {
+        const res = await backendGetQueue();
+        if (res.ok && res.queue) setQueueTracks(res.queue.slice(0, 15));
+      }
+    } finally {
+      setQuickLoading(false);
+    }
+  }, [quickTab]);
+
+  const handleRunSearch = useCallback(async () => {
+    if (!searchQuery.trim()) return;
+    setQuickLoading(true);
+    try {
+      const res = await backendSearchSpotify(searchQuery.trim(), "track", 0);
+      if (res.ok && res.tracks) setSearchResults(res.tracks.slice(0, 10));
+    } finally {
+      setQuickLoading(false);
+    }
+  }, [searchQuery]);
+
+  const handleAddToQueue = useCallback(async (uri: string, name: string) => {
+    const res = await backendAddToQueue(uri, activeDeviceIdRef.current);
+    if (res.ok) {
+      toaster.toast({ title: "Queued", body: name, duration: 2000, icon: <FaSpotify /> });
+    } else {
+      toaster.toast({ title: "Deckify", body: res.error ?? "Could not add to queue", duration: 3000 });
+    }
+  }, []);
+
+  const handleMixPlayContext = useCallback(async (contextUri: string | null, uris: string[] | null, label: string) => {
+    const mode = settings.mix_mode && settings.mix_mode !== "off" ? settings.mix_mode : "fade";
+    const cf = settings.crossfade_seconds && settings.crossfade_seconds > 0 ? settings.crossfade_seconds : 6;
+    const res = await backendStartMixPlay(contextUri, uris, mode, cf, true);
+    if (res.ok) {
+      setSettings((prev) => ({
+        ...prev,
+        mix_mode: (res.mix_mode as Settings["mix_mode"]) ?? "fade",
+        crossfade_seconds: res.crossfade_seconds ?? 6,
+      }));
+      setShuffleState(true);
+      toaster.toast({
+        title: "Mix Mode Active",
+        body: `Mixing ${label} (${cf}s crossfade)`,
+        duration: 2500,
+        icon: <FaSpotify />,
+      });
+    } else {
+      toaster.toast({ title: "Deckify", body: res.error ?? "Failed to start Mix", duration: 3000 });
+    }
+  }, [settings.mix_mode, settings.crossfade_seconds]);
+
   const playState = lastEvent ? playerEventToLabel(lastEvent.event, isPlaying) : "Idle";
   const trackId = lastEvent?.track_id ?? "—";
   const showRichMedia = (authenticated || running) && trackMeta;
+  const durationSec = Math.max(1, Math.floor(durationMs / 1000));
+  const positionSec = Math.min(durationSec, Math.floor(positionMs / 1000));
+
   return (
     <>
       <PanelSection title="Deckify">
@@ -414,7 +682,7 @@ const handleToggle = useCallback(async (checked: boolean) => {
             <PanelSectionRow>
               <Field
                 label={trackMeta.name}
-                description={`${trackMeta.artist} — ${trackMeta.album}`}
+                description={`${trackMeta.artist}${trackMeta.album ? ` — ${trackMeta.album}` : ""}`}
                 icon={
                   trackMeta.artwork_url ? (
                     <img
@@ -431,6 +699,18 @@ const handleToggle = useCallback(async (checked: boolean) => {
                 {playState}
               </Field>
             </PanelSectionRow>
+            {durationMs > 0 && (
+              <PanelSectionRow>
+                <SliderField
+                  label={`Position (${formatDuration(positionMs)} / ${formatDuration(durationMs)})`}
+                  value={positionSec}
+                  min={0}
+                  max={durationSec}
+                  step={1}
+                  onChange={handleSeekChange}
+                />
+              </PanelSectionRow>
+            )}
           </>
         ) : running ? (
           <>
@@ -450,27 +730,81 @@ const handleToggle = useCallback(async (checked: boolean) => {
         {authenticated && (
           <>
             <PanelSectionRow>
-              <Focusable style={{ display: "flex", justifyContent: "center", gap: "12px" }} flow-children="right">
+              <Focusable style={{ display: "flex", justifyContent: "center", gap: "8px", alignItems: "center" }} flow-children="right">
                 <DialogButton
-                  style={{ minWidth: "auto", padding: "10px 16px" }}
-                  onClick={(e: MouseEvent) => { (e.currentTarget as HTMLElement).blur(); handlePlaybackControl("previous"); }}
+                  style={{
+                    minWidth: "auto",
+                    padding: "8px 11px",
+                    color: shuffleState ? "#1DB954" : undefined,
+                  }}
+                  onClick={(e: MouseEvent) => {
+                    (e.currentTarget as HTMLElement).blur();
+                    handleToggleShuffle();
+                  }}
+                >
+                  <FaRandom />
+                </DialogButton>
+                <DialogButton
+                  style={{ minWidth: "auto", padding: "10px 14px" }}
+                  onClick={(e: MouseEvent) => {
+                    (e.currentTarget as HTMLElement).blur();
+                    handlePlaybackControl("previous");
+                  }}
                 >
                   <FaStepBackward />
                 </DialogButton>
                 <DialogButton
-                  style={{ minWidth: "auto", padding: "10px 20px" }}
-                  onClick={(e: MouseEvent) => { (e.currentTarget as HTMLElement).blur(); handlePlaybackControl(isPlaying ? "pause" : "play"); }}
+                  style={{ minWidth: "auto", padding: "10px 18px" }}
+                  onClick={(e: MouseEvent) => {
+                    (e.currentTarget as HTMLElement).blur();
+                    handlePlaybackControl(isPlaying ? "pause" : "play");
+                  }}
                 >
                   {isPlaying ? <FaPause /> : <FaPlay />}
                 </DialogButton>
                 <DialogButton
-                  style={{ minWidth: "auto", padding: "10px 16px" }}
-                  onClick={(e: MouseEvent) => { (e.currentTarget as HTMLElement).blur(); handlePlaybackControl("next"); }}
+                  style={{ minWidth: "auto", padding: "10px 14px" }}
+                  onClick={(e: MouseEvent) => {
+                    (e.currentTarget as HTMLElement).blur();
+                    handlePlaybackControl("next");
+                  }}
                 >
                   <FaStepForward />
                 </DialogButton>
+                <DialogButton
+                  style={{
+                    minWidth: "auto",
+                    padding: "8px 11px",
+                    color: repeatState !== "off" ? "#1DB954" : undefined,
+                    position: "relative",
+                  }}
+                  onClick={(e: MouseEvent) => {
+                    (e.currentTarget as HTMLElement).blur();
+                    handleCycleRepeat();
+                  }}
+                >
+                  <FaRedo />
+                  {repeatState === "track" && (
+                    <span style={{ fontSize: "9px", fontWeight: 700, marginLeft: 2 }}>1</span>
+                  )}
+                </DialogButton>
+                <DialogButton
+                  style={{
+                    minWidth: "auto",
+                    padding: "8px 11px",
+                    color: isLiked ? "#1DB954" : undefined,
+                  }}
+                  disabled={!trackMeta?.track_id}
+                  onClick={(e: MouseEvent) => {
+                    (e.currentTarget as HTMLElement).blur();
+                    handleToggleLike();
+                  }}
+                >
+                  {isLiked ? <FaHeart /> : <FaRegHeart />}
+                </DialogButton>
               </Focusable>
             </PanelSectionRow>
+
             <PanelSectionRow>
               <SliderField
                 label="Volume"
@@ -483,6 +817,7 @@ const handleToggle = useCallback(async (checked: boolean) => {
                 onChange={handleVolumeChange}
               />
             </PanelSectionRow>
+
             {devices.length > 0 && (
               <PanelSectionRow>
                 <DropdownItem
@@ -505,12 +840,216 @@ const handleToggle = useCallback(async (checked: boolean) => {
         )}
       </PanelSection>
 
+      {authenticated && (
+        <PanelSection title="Quick Library & Queue">
+          <PanelSectionRow>
+            <Focusable style={{ display: "flex", gap: "6px", justifyContent: "space-between" }} flow-children="right">
+              {(["playlists", "liked", "queue", "search"] as QuickTab[]).map((tab) => (
+                <DialogButton
+                  key={tab}
+                  style={{
+                    minWidth: "auto",
+                    flex: 1,
+                    padding: "6px 8px",
+                    fontSize: "12px",
+                    background: quickTab === tab ? "#1DB954" : undefined,
+                    color: quickTab === tab ? "#000" : undefined,
+                    fontWeight: quickTab === tab ? 700 : 500,
+                  }}
+                  onClick={() => handleSelectQuickTab(tab)}
+                >
+                  {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                </DialogButton>
+              ))}
+            </Focusable>
+          </PanelSectionRow>
+
+          {quickLoading && (
+            <PanelSectionRow>
+              <Field label="Loading..." />
+            </PanelSectionRow>
+          )}
+
+          {!quickLoading && quickTab === "playlists" && (
+            <>
+              {playlists.map((pl) => (
+                <PanelSectionRow key={pl.id}>
+                  <Focusable style={{ display: "flex", alignItems: "center", gap: "6px", width: "100%" }} flow-children="right">
+                    <DialogButton
+                      style={{ flex: 1, textAlign: "left", padding: "6px 10px", fontSize: "12px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                      onClick={() => backendPlayTracks(`spotify:playlist:${pl.id}`, null, null, 0)}
+                    >
+                      {pl.name} ({pl.track_count})
+                    </DialogButton>
+                    <DialogButton
+                      style={{ minWidth: "auto", padding: "6px 10px", fontSize: "11px", color: "#1DB954" }}
+                      onClick={() => handleMixPlayContext(`spotify:playlist:${pl.id}`, null, pl.name)}
+                    >
+                      Mix
+                    </DialogButton>
+                  </Focusable>
+                </PanelSectionRow>
+              ))}
+            </>
+          )}
+
+          {!quickLoading && quickTab === "liked" && (
+            <>
+              {likedTracks.length > 0 && (
+                <PanelSectionRow>
+                  <Focusable style={{ display: "flex", gap: "6px" }} flow-children="right">
+                    <DialogButton
+                      style={{ flex: 1, padding: "6px 10px", fontSize: "12px" }}
+                      onClick={() => backendPlayTracks(null, null, likedTracks.map((t) => t.uri), 0)}
+                    >
+                      Play Liked
+                    </DialogButton>
+                    <DialogButton
+                      style={{ flex: 1, padding: "6px 10px", fontSize: "12px", color: "#1DB954" }}
+                      onClick={() => handleMixPlayContext(null, likedTracks.map((t) => t.uri), "Liked Songs")}
+                    >
+                      Mix Liked
+                    </DialogButton>
+                  </Focusable>
+                </PanelSectionRow>
+              )}
+              {likedTracks.slice(0, 8).map((t, idx) => (
+                <PanelSectionRow key={t.uri + idx}>
+                  <Focusable style={{ display: "flex", alignItems: "center", gap: "6px", width: "100%" }} flow-children="right">
+                    <DialogButton
+                      style={{ flex: 1, textAlign: "left", padding: "6px 10px", fontSize: "12px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                      onClick={() => backendPlayTracks(null, null, likedTracks.map((x) => x.uri), idx)}
+                    >
+                      {t.name} — {t.artist}
+                    </DialogButton>
+                    <DialogButton
+                      style={{ minWidth: "auto", padding: "6px 10px", fontSize: "11px" }}
+                      onClick={() => handleAddToQueue(t.uri, t.name)}
+                    >
+                      <FaPlus />
+                    </DialogButton>
+                  </Focusable>
+                </PanelSectionRow>
+              ))}
+            </>
+          )}
+
+          {!quickLoading && quickTab === "queue" && (
+            <>
+              {queueTracks.length === 0 ? (
+                <PanelSectionRow>
+                  <Field label="Queue is empty" />
+                </PanelSectionRow>
+              ) : (
+                queueTracks.slice(0, 8).map((t, idx) => (
+                  <PanelSectionRow key={t.uri + idx}>
+                    <ButtonItem
+                      label={t.name}
+                      description={t.artist}
+                      onClick={() => backendPlayTracks(null, null, [t.uri], 0)}
+                    >
+                      Play
+                    </ButtonItem>
+                  </PanelSectionRow>
+                ))
+              )}
+            </>
+          )}
+
+          {quickTab === "search" && (
+            <>
+              <PanelSectionRow>
+                <TextField
+                  label="Search Spotify"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
+              </PanelSectionRow>
+              <PanelSectionRow>
+                <ButtonItem label="Search Tracks" onClick={handleRunSearch}>
+                  Search
+                </ButtonItem>
+              </PanelSectionRow>
+              {!quickLoading &&
+                searchResults.map((t, idx) => (
+                  <PanelSectionRow key={t.uri + idx}>
+                    <Focusable style={{ display: "flex", alignItems: "center", gap: "6px", width: "100%" }} flow-children="right">
+                      <DialogButton
+                        style={{ flex: 1, textAlign: "left", padding: "6px 10px", fontSize: "12px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                        onClick={() => backendPlayTracks(null, null, [t.uri], 0)}
+                      >
+                        {t.name} — {t.artist}
+                      </DialogButton>
+                      <DialogButton
+                        style={{ minWidth: "auto", padding: "6px 10px", fontSize: "11px" }}
+                        onClick={() => handleAddToQueue(t.uri, t.name)}
+                      >
+                        <FaPlus />
+                      </DialogButton>
+                    </Focusable>
+                  </PanelSectionRow>
+                ))}
+            </>
+          )}
+        </PanelSection>
+      )}
+
+      <PanelSection title="Mixing & Audio">
+        <PanelSectionRow>
+          <DropdownItem
+            label="Mix Transition Mode"
+            description="Smoothly crossfade or blend between tracks"
+            rgOptions={MIX_MODE_OPTIONS}
+            selectedOption={settings.mix_mode ?? "off"}
+            onChange={(opt) => handleSettingChange("mix_mode", opt.data)}
+          />
+        </PanelSectionRow>
+        {settings.mix_mode && settings.mix_mode !== "off" && (
+          <PanelSectionRow>
+            <SliderField
+              label="Crossfade Duration"
+              value={settings.crossfade_seconds ?? 5}
+              min={1}
+              max={12}
+              step={1}
+              showValue
+              valueSuffix="s"
+              onChange={(val) => handleSettingChange("crossfade_seconds", val)}
+            />
+          </PanelSectionRow>
+        )}
+        <PanelSectionRow>
+          <ToggleField
+            label="Volume Normalization"
+            description="Play all tracks at matched loudness (recommended for Mixing)"
+            checked={settings.normalisation ?? true}
+            onChange={(checked) => handleSettingChange("normalisation", checked)}
+          />
+        </PanelSectionRow>
+        <PanelSectionRow>
+          <ToggleField
+            label="Gapless Playback"
+            description="Seamless zero-gap transitions between tracks"
+            checked={settings.gapless ?? true}
+            onChange={(checked) => handleSettingChange("gapless", checked)}
+          />
+        </PanelSectionRow>
+        <PanelSectionRow>
+          <ToggleField
+            label="Autoplay Endless Mix"
+            description="Continue playing similar music when a playlist ends"
+            checked={settings.autoplay ?? true}
+            onChange={(checked) => handleSettingChange("autoplay", checked)}
+          />
+        </PanelSectionRow>
+      </PanelSection>
+
       <PanelSection title="Spotify Account">
         {authenticated && needsReauth && (
           <PanelSectionRow>
             <ButtonItem
               label="Reconnect Required"
-              description="New features need updated permissions. Please reconnect your Spotify account."
+              description="New features (Like & Recently Played) need updated permissions."
               onClick={handleOAuthStart}
             >
               {oauthLoading ? "Waiting..." : "Reconnect"}
@@ -568,8 +1107,8 @@ const handleToggle = useCallback(async (checked: boolean) => {
                 } else {
                   toaster.toast({ title: "Deckify", body: res.error ?? "Dashboard is unavailable", duration: 5000 });
                 }
-              } catch (error) {
-                toaster.toast({ title: "Deckify", body: String(error), duration: 5000 });
+              } catch (err) {
+                toaster.toast({ title: "Deckify", body: String(err), duration: 5000 });
               }
             }}
           >
@@ -624,7 +1163,6 @@ const handleToggle = useCallback(async (checked: boolean) => {
             onChange={(opt) => handleSettingChange("bitrate", opt.data)}
           />
         </PanelSectionRow>
-
       </PanelSection>
     </>
   );

@@ -10,6 +10,24 @@ export interface TrackMeta {
   album: string;
   artwork_url: string | null;
   duration_ms: number;
+  uri?: string;
+  is_liked?: boolean;
+}
+
+export interface MixSettings {
+  mix_mode: "off" | "fade" | "rise";
+  crossfade_seconds: number;
+  normalisation: boolean;
+  gapless: boolean;
+  autoplay: boolean;
+}
+
+export interface SpotifyDevice {
+  id: string;
+  name: string;
+  type: string;
+  is_active: boolean;
+  volume_percent: number | null;
 }
 
 export interface StatusResponse {
@@ -20,6 +38,11 @@ export interface StatusResponse {
   position_ms: number;
   is_playing: boolean;
   volume: number | null;
+  shuffle_state?: boolean;
+  repeat_state?: "off" | "context" | "track";
+  is_liked?: boolean;
+  active_device?: { id: string; name: string; type: string } | null;
+  mix_settings?: MixSettings;
 }
 
 export async function fetchStatus(): Promise<StatusResponse> {
@@ -37,7 +60,67 @@ export async function setVolume(value: number): Promise<{ ok: boolean; error?: s
   return jsonOrThrow(res);
 }
 
-// ── Playlist types & API ─────────────────────────────────────
+export async function seekPlayback(positionMs: number): Promise<{ ok: boolean; position_ms?: number; error?: string }> {
+  const res = await fetch("/api/seek", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ position_ms: Math.max(0, Math.round(positionMs)) }),
+  });
+  return jsonOrThrow(res);
+}
+
+export async function setShuffle(state: boolean): Promise<{ ok: boolean; shuffle_state?: boolean; error?: string }> {
+  const res = await fetch("/api/shuffle", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ state }),
+  });
+  return jsonOrThrow(res);
+}
+
+export async function setRepeat(state: "off" | "context" | "track"): Promise<{ ok: boolean; repeat_state?: string; error?: string }> {
+  const res = await fetch("/api/repeat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ state }),
+  });
+  return jsonOrThrow(res);
+}
+
+export async function toggleLikeTrack(trackId?: string, liked?: boolean): Promise<{ ok: boolean; is_liked?: boolean; error?: string }> {
+  const res = await fetch("/api/like", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ track_id: trackId ?? "", liked }),
+  });
+  return jsonOrThrow(res);
+}
+
+export async function updateMixSettings(settings: Partial<MixSettings>): Promise<{ ok: boolean } & MixSettings> {
+  const res = await fetch("/api/mix", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(settings),
+  });
+  return jsonOrThrow(res);
+}
+
+export async function startMixPlay(params: {
+  context_uri?: string;
+  uris?: string[];
+  mix_mode?: "fade" | "rise";
+  crossfade_seconds?: number;
+  shuffle?: boolean;
+}): Promise<{ ok: boolean; mix_mode?: string; crossfade_seconds?: number; shuffle_state?: boolean; error?: string }> {
+  const res = await fetch("/api/mix-play", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(params),
+  });
+  return jsonOrThrow(res);
+}
+
+// ── Playlist & Queue types & API ─────────────────────────────
 
 export interface Playlist {
   id: string;
@@ -68,9 +151,44 @@ export interface PlaylistsResponse {
 export interface TracksResponse {
   ok: boolean;
   tracks: PlaylistTrack[];
-  total: number;
-  offset: number;
+  total?: number;
+  offset?: number;
   error?: string;
+}
+
+export interface QueueResponse {
+  ok: boolean;
+  currently_playing: PlaylistTrack | null;
+  queue: PlaylistTrack[];
+  error?: string;
+}
+
+export async function fetchQueue(): Promise<QueueResponse> {
+  const res = await fetch("/api/queue");
+  return jsonOrThrow(res);
+}
+
+export async function addToQueue(uri: string): Promise<{ ok: boolean; error?: string }> {
+  const res = await fetch("/api/queue", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ uri }),
+  });
+  return jsonOrThrow(res);
+}
+
+export async function fetchDevices(): Promise<{ ok: boolean; devices: SpotifyDevice[]; error?: string }> {
+  const res = await fetch("/api/devices");
+  return jsonOrThrow(res);
+}
+
+export async function transferPlayback(deviceId: string): Promise<{ ok: boolean; error?: string }> {
+  const res = await fetch("/api/transfer", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ device_id: deviceId }),
+  });
+  return jsonOrThrow(res);
 }
 
 export async function fetchPlaylists(offset = 0): Promise<PlaylistsResponse> {
@@ -83,7 +201,7 @@ export async function fetchPlaylistTracks(id: string, offset = 0): Promise<Track
   return jsonOrThrow(res);
 }
 
-export async function playInContext(contextUri: string, offsetUri: string): Promise<{ ok: boolean; error?: string }> {
+export async function playInContext(contextUri: string, offsetUri?: string): Promise<{ ok: boolean; error?: string }> {
   const res = await fetch("/api/play", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -154,6 +272,11 @@ export async function fetchLikedTracks(offset = 0): Promise<TracksResponse> {
   return jsonOrThrow(res);
 }
 
+export async function fetchRecentlyPlayed(limit = 30): Promise<TracksResponse> {
+  const res = await fetch(`/api/recently-played?limit=${limit}`);
+  return jsonOrThrow(res);
+}
+
 export async function fetchSavedEpisodes(offset = 0): Promise<EpisodesResponse> {
   const res = await fetch(`/api/episodes?offset=${offset}`);
   return jsonOrThrow(res);
@@ -176,6 +299,11 @@ export async function fetchAlbumTracks(id: string, offset = 0): Promise<TracksRe
 
 export async function fetchArtistAlbums(id: string, offset = 0): Promise<AlbumsResponse> {
   const res = await fetch(`/api/artists/${encodeURIComponent(id)}/albums?offset=${offset}`);
+  return jsonOrThrow(res);
+}
+
+export async function fetchArtistTopTracks(id: string): Promise<TracksResponse> {
+  const res = await fetch(`/api/artists/${encodeURIComponent(id)}/top-tracks`);
   return jsonOrThrow(res);
 }
 

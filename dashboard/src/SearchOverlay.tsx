@@ -1,12 +1,15 @@
 import { useState, useCallback, useRef, useEffect } from "react";
-import { FaTimes, FaSearch, FaMusic, FaUser, FaCompactDisc } from "react-icons/fa";
+import { FaTimes, FaSearch, FaMusic, FaUser, FaCompactDisc, FaPlus, FaSlidersH } from "react-icons/fa";
 import {
   searchSpotify,
   playUris,
   playInContext,
+  addToQueue,
+  startMixPlay,
   fetchPlaylistTracks,
   fetchAlbumTracks,
   fetchArtistAlbums,
+  fetchArtistTopTracks,
   type SearchResponse,
   type PlaylistTrack,
   type Album,
@@ -20,16 +23,16 @@ type DrillView = null | "album" | "artist" | "playlist";
 interface Props {
   open: boolean;
   onClose: () => void;
+  onToast?: (msg: string) => void;
 }
 
-export default function SearchOverlay({ open, onClose }: Props) {
+export default function SearchOverlay({ open, onClose, onToast }: Props) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Drill-in state
   const [drillView, setDrillView] = useState<DrillView>(null);
   const [drillTitle, setDrillTitle] = useState("");
   const [drillTracks, setDrillTracks] = useState<PlaylistTrack[]>([]);
@@ -66,11 +69,22 @@ export default function SearchOverlay({ open, onClose }: Props) {
   const handleClose = useCallback(() => {
     onClose();
     setTimeout(() => {
-      setQuery(""); setResults(null); setDrillView(null); setDrillTracks([]); setDrillAlbums([]);
+      setQuery("");
+      setResults(null);
+      setDrillView(null);
+      setDrillTracks([]);
+      setDrillAlbums([]);
     }, 300);
   }, [onClose]);
 
-  // Drill-in handlers
+  const handleQueueTrack = useCallback(async (e: React.MouseEvent, t: PlaylistTrack) => {
+    e.stopPropagation();
+    const res = await addToQueue(t.uri);
+    if (res.ok) {
+      onToast?.(`Queued "${t.name}"`);
+    }
+  }, [onToast]);
+
   const openAlbum = useCallback(async (al: Album) => {
     setDrillView("album");
     setDrillTitle(al.name);
@@ -93,10 +107,14 @@ export default function SearchOverlay({ open, onClose }: Props) {
     setDrillTracks([]);
     setDrillLoading(true);
     try {
-      const r = await fetchArtistAlbums(a.id);
-      if (r.ok) setDrillAlbums(r.albums);
+      const [topRes, albRes] = await Promise.all([
+        fetchArtistTopTracks(a.id),
+        fetchArtistAlbums(a.id),
+      ]);
+      if (topRes.ok) setDrillTracks(topRes.tracks);
+      if (albRes.ok) setDrillAlbums(albRes.albums);
     } catch (e) {
-      console.error("Failed to load artist albums:", e);
+      console.error("Failed to load artist details:", e);
     }
     setDrillLoading(false);
   }, []);
@@ -133,12 +151,22 @@ export default function SearchOverlay({ open, onClose }: Props) {
   }, []);
 
   const handlePlayDrillTrack = useCallback(async (track: PlaylistTrack, index: number) => {
-    if (drillContextUri) {
+    if (drillContextUri && drillView !== "artist") {
       await playInContext(drillContextUri, track.uri);
     } else {
       await playUris(drillTracks.map((t) => t.uri), index);
     }
-  }, [drillContextUri, drillTracks]);
+  }, [drillContextUri, drillView, drillTracks]);
+
+  const handleMixDrill = useCallback(async () => {
+    if (drillContextUri && drillView !== "artist") {
+      await startMixPlay({ context_uri: drillContextUri, mix_mode: "fade", crossfade_seconds: 6, shuffle: true });
+      onToast?.(`Mix Mode started for ${drillTitle}`);
+    } else if (drillTracks.length > 0) {
+      await startMixPlay({ uris: drillTracks.map((t) => t.uri), mix_mode: "fade", crossfade_seconds: 6, shuffle: true });
+      onToast?.(`Mix Mode started for ${drillTitle}`);
+    }
+  }, [drillContextUri, drillView, drillTracks, drillTitle, onToast]);
 
   const backToResults = useCallback(() => {
     setDrillView(null);
@@ -153,12 +181,24 @@ export default function SearchOverlay({ open, onClose }: Props) {
       {/* Header */}
       <div className="flex items-center gap-4 px-6 py-4 border-b border-neutral-800 shrink-0">
         {drillView ? (
-          <button onClick={backToResults} className="text-neutral-400 hover:text-white text-sm shrink-0">Back</button>
+          <button onClick={backToResults} className="text-neutral-400 hover:text-white text-sm shrink-0">
+            Back
+          </button>
         ) : (
           <FaSearch className="text-neutral-500 shrink-0" size={18} />
         )}
         {drillView ? (
-          <span className="text-lg font-semibold truncate flex-1">{drillTitle}</span>
+          <div className="flex items-center justify-between flex-1 min-w-0">
+            <span className="text-lg font-semibold truncate">{drillTitle}</span>
+            {drillTracks.length > 0 && (
+              <button
+                onClick={handleMixDrill}
+                className="flex items-center gap-1.5 bg-green-500 text-black text-xs font-semibold py-1.5 px-3 rounded-lg hover:bg-green-400 transition-colors ml-3 shrink-0"
+              >
+                <FaSlidersH size={11} /> Mix Play
+              </button>
+            )}
+          </div>
         ) : (
           <input
             ref={inputRef}
@@ -176,44 +216,87 @@ export default function SearchOverlay({ open, onClose }: Props) {
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto px-6 py-4">
-        {/* Drill-in view */}
         {drillView && (
           drillLoading ? (
             <div className="text-neutral-500 text-sm">Loading...</div>
           ) : drillView === "artist" ? (
-            <div className="max-w-2xl mx-auto">
-              {drillAlbums.map((al) => (
-                <button key={al.id} onClick={() => openDrillAlbum(al)} className="w-full flex items-center gap-3 py-2.5 hover:bg-neutral-800/50 rounded-lg px-3 transition-colors text-left">
-                  {al.image_url ? (
-                    <img src={al.image_url} alt="" className="w-10 h-10 rounded object-cover shrink-0" />
-                  ) : (
-                    <div className="w-10 h-10 rounded bg-neutral-800 flex items-center justify-center shrink-0">
-                      <FaCompactDisc className="text-neutral-600" size={14} />
+            <div className="max-w-2xl mx-auto space-y-6">
+              {drillTracks.length > 0 && (
+                <section>
+                  <h3 className="text-xs text-neutral-500 uppercase tracking-wider mb-2">Popular Tracks</h3>
+                  {drillTracks.slice(0, 5).map((t, i) => (
+                    <div
+                      key={t.uri + i}
+                      onClick={() => handlePlayDrillTrack(t, i)}
+                      className="w-full flex items-center justify-between py-2.5 hover:bg-neutral-800/50 rounded-lg px-3 transition-colors cursor-pointer"
+                    >
+                      <div className="min-w-0 flex-1 mr-3">
+                        <div className="text-sm truncate">{t.name}</div>
+                        <div className="text-xs text-neutral-500 truncate">{t.album}</div>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className="text-xs text-neutral-600">{formatMs(t.duration_ms)}</span>
+                        <button
+                          onClick={(e) => handleQueueTrack(e, t)}
+                          className="p-1.5 text-neutral-500 hover:text-green-400"
+                          title="Add to Queue"
+                        >
+                          <FaPlus size={12} />
+                        </button>
+                      </div>
                     </div>
-                  )}
-                  <div className="min-w-0 flex-1">
-                    <div className="text-sm font-medium truncate">{al.name}</div>
-                    <div className="text-xs text-neutral-500 truncate">{al.artist}</div>
-                  </div>
-                </button>
-              ))}
+                  ))}
+                </section>
+              )}
+              {drillAlbums.length > 0 && (
+                <section>
+                  <h3 className="text-xs text-neutral-500 uppercase tracking-wider mb-2">Albums & Singles</h3>
+                  {drillAlbums.map((al) => (
+                    <button key={al.id} onClick={() => openDrillAlbum(al)} className="w-full flex items-center gap-3 py-2.5 hover:bg-neutral-800/50 rounded-lg px-3 transition-colors text-left">
+                      {al.image_url ? (
+                        <img src={al.image_url} alt="" className="w-10 h-10 rounded object-cover shrink-0" />
+                      ) : (
+                        <div className="w-10 h-10 rounded bg-neutral-800 flex items-center justify-center shrink-0">
+                          <FaCompactDisc className="text-neutral-600" size={14} />
+                        </div>
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-medium truncate">{al.name}</div>
+                        <div className="text-xs text-neutral-500 truncate">{al.artist}</div>
+                      </div>
+                    </button>
+                  ))}
+                </section>
+              )}
             </div>
           ) : (
             <div className="max-w-2xl mx-auto">
               {drillTracks.map((t, i) => (
-                <button key={t.uri + i} onClick={() => handlePlayDrillTrack(t, i)} className="w-full flex items-center justify-between py-3 hover:bg-neutral-800/50 rounded-lg px-3 transition-colors text-left">
+                <div
+                  key={t.uri + i}
+                  onClick={() => handlePlayDrillTrack(t, i)}
+                  className="w-full flex items-center justify-between py-3 hover:bg-neutral-800/50 rounded-lg px-3 transition-colors cursor-pointer"
+                >
                   <div className="min-w-0 flex-1 mr-3">
                     <div className="text-sm truncate">{t.name}</div>
                     <div className="text-xs text-neutral-500 truncate">{t.artist}</div>
                   </div>
-                  <span className="text-xs text-neutral-600 shrink-0">{formatMs(t.duration_ms)}</span>
-                </button>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-xs text-neutral-600">{formatMs(t.duration_ms)}</span>
+                    <button
+                      onClick={(e) => handleQueueTrack(e, t)}
+                      className="p-1.5 text-neutral-500 hover:text-green-400"
+                      title="Add to Queue"
+                    >
+                      <FaPlus size={12} />
+                    </button>
+                  </div>
+                </div>
               ))}
             </div>
           )
         )}
 
-        {/* Search results */}
         {!drillView && (
           loading ? (
             <div className="text-neutral-500 text-sm">Searching...</div>
@@ -225,7 +308,11 @@ export default function SearchOverlay({ open, onClose }: Props) {
                 <section>
                   <h3 className="text-xs text-neutral-500 uppercase tracking-wider mb-2">Tracks</h3>
                   {results.tracks.slice(0, 6).map((t, i) => (
-                    <button key={t.uri + i} onClick={() => playUris([t.uri])} className="w-full flex items-center gap-3 py-2.5 hover:bg-neutral-800/50 rounded-lg px-3 transition-colors text-left">
+                    <div
+                      key={t.uri + i}
+                      onClick={() => playUris([t.uri])}
+                      className="w-full flex items-center gap-3 py-2.5 hover:bg-neutral-800/50 rounded-lg px-3 transition-colors cursor-pointer"
+                    >
                       {t.image_url ? (
                         <img src={t.image_url} alt="" className="w-10 h-10 rounded object-cover shrink-0" />
                       ) : (
@@ -238,7 +325,14 @@ export default function SearchOverlay({ open, onClose }: Props) {
                         <div className="text-xs text-neutral-500 truncate">{t.artist}</div>
                       </div>
                       <span className="text-xs text-neutral-600 shrink-0">{formatMs(t.duration_ms)}</span>
-                    </button>
+                      <button
+                        onClick={(e) => handleQueueTrack(e, t)}
+                        className="p-1.5 text-neutral-500 hover:text-green-400 shrink-0"
+                        title="Add to Queue"
+                      >
+                        <FaPlus size={12} />
+                      </button>
+                    </div>
                   ))}
                 </section>
               )}
