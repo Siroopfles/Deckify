@@ -1384,6 +1384,21 @@ export default definePlugin(() => {
     console.warn("Deckify gamepad bridge init failed:", err);
   }
 
+  // 4. In-game track change toast notification
+  let lastToastTrackId = "";
+  const trackSub = addEventListener<[any]>("track_metadata", (meta: any) => {
+    if (!meta || !meta.name || meta.track_id === lastToastTrackId) return;
+    lastToastTrackId = meta.track_id;
+    try {
+      toaster.toast({
+        title: meta.name,
+        body: meta.artist ? `${meta.artist}` : "Deckify",
+        duration: 3500,
+        logo: <FaSpotify color="#1db954" />,
+      });
+    } catch {}
+  });
+
   return {
     name: "Deckify",
     titleView: <div className={staticClasses.Title}>Deckify</div>,
@@ -1394,6 +1409,7 @@ export default definePlugin(() => {
       try {
         unregisterMenu();
         routerHook.removeRoute("/deckify");
+        removeEventListener("track_metadata", trackSub);
       } catch (e) {
         console.warn("Deckify dismount cleanup error:", e);
       }
