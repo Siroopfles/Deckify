@@ -520,6 +520,13 @@ export default function App() {
       if (el) {
         el.setAttribute("data-gamepad-focused", "true");
         el.scrollIntoView({ block: "nearest", behavior: "smooth" });
+        if (typeof el.focus === "function") {
+          try {
+            el.focus({ preventScroll: true });
+          } catch {
+            // Ignore focus error
+          }
+        }
       }
     };
 
@@ -633,7 +640,12 @@ export default function App() {
           break;
         case "a":
           if (focusedElRef.current) {
-            focusedElRef.current.click();
+            const el = focusedElRef.current;
+            if (el.tagName?.toLowerCase() === "input" && (el as HTMLInputElement).type === "checkbox") {
+              (el as HTMLInputElement).checked = !(el as HTMLInputElement).checked;
+              el.dispatchEvent(new Event("change", { bubbles: true }));
+            }
+            el.click();
           } else {
             moveFocus("down");
           }
@@ -702,7 +714,7 @@ export default function App() {
     };
     window.addEventListener("keydown", onKeyDown);
 
-    // 2. Backend Linux /dev/input/js* Polling (bypasses SteamOS CEF Gamepad API block)
+    // 2. Backend controller polling (draining in-memory Steam queue + Linux joystick)
     let pollBusy = false;
     const backendTimer = setInterval(async () => {
       if (pollBusy || document.visibilityState !== "visible") return;
@@ -719,9 +731,21 @@ export default function App() {
       } finally {
         pollBusy = false;
       }
-    }, 120);
+    }, 75);
 
-    // 3. Standard HTML5 Gamepad API fallback
+    // 3. Ensure initial focus ring is clearly visible on mount / view switch
+    const autoFocusTimer = setTimeout(() => {
+      const elements = getVisibleFocusableElements();
+      if (elements.length > 0) {
+        const cur = focusedElRef.current;
+        if (!cur || !elements.includes(cur)) {
+          const playBtn = elements.find((el) => el.getAttribute("data-play-button") === "true");
+          setGamepadFocus(playBtn || elements[0]);
+        }
+      }
+    }, 140);
+
+    // 4. Standard HTML5 Gamepad API fallback
     const pollGamepad = () => {
       const pads = navigator.getGamepads ? navigator.getGamepads() : [];
       const gp = pads[0] || pads[1] || pads[2] || pads[3];
@@ -771,6 +795,7 @@ export default function App() {
     rafId = requestAnimationFrame(pollGamepad);
     return () => {
       clearInterval(backendTimer);
+      clearTimeout(autoFocusTimer);
       cancelAnimationFrame(rafId);
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("gamepadconnected", onConnect);
@@ -1395,6 +1420,7 @@ export default function App() {
         </button>
         <button
           data-focusable="true"
+          data-play-button="true"
           onClick={() => handleControl(isPlaying ? "pause" : "play")}
           className="bg-white text-black rounded-full p-4 hover:scale-105 transition-transform"
           title={isPlaying ? "Pause (Start)" : "Play (Start)"}

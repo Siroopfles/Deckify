@@ -37,6 +37,7 @@ VALID_SPOTIFY_CLIENT_QUALITIES = ("96", "160", "320", "lossless")
 
 SPOTIFY_FLATPAK_ID = "com.spotify.Client"
 SPOTIFY_CDP_PORT = 9229
+STEAM_CEF_PORT = 8080
 DECK_USER = "deck"
 DECK_UID = 1000
 DECK_HOME = "/home/deck"
@@ -329,10 +330,14 @@ def _parse_spotify_rootlist_folders(raw_bytes: bytes) -> list[dict]:
     return [f for f in folders_by_id.values() if f["playlist_ids"]]
 
 
-def _cdp_get_page_target(port: int = SPOTIFY_CDP_PORT) -> dict | None:
+def _cdp_get_page_target(port: int = SPOTIFY_CDP_PORT, target_title: str | None = None) -> dict | None:
     try:
         with urllib.request.urlopen(f"http://127.0.0.1:{port}/json", timeout=2) as resp:
             targets = json.loads(resp.read())
+        if target_title:
+            for t in targets:
+                if t.get("title") == target_title and t.get("webSocketDebuggerUrl"):
+                    return t
         for t in targets:
             if t.get("type") == "page" and t.get("webSocketDebuggerUrl"):
                 return t
@@ -341,9 +346,9 @@ def _cdp_get_page_target(port: int = SPOTIFY_CDP_PORT) -> dict | None:
         return None
 
 
-def _cdp_call(method: str, params: dict | None = None, port: int = SPOTIFY_CDP_PORT, timeout: float = 4.0) -> dict | None:
-    """Invoke a Chrome DevTools Protocol method on the headless Spotify Client over raw WebSocket."""
-    target = _cdp_get_page_target(port)
+def _cdp_call(method: str, params: dict | None = None, port: int = SPOTIFY_CDP_PORT, target_title: str | None = None, timeout: float = 4.0) -> dict | None:
+    """Invoke a Chrome DevTools Protocol method on the headless Spotify Client or Steam CEF over raw WebSocket."""
+    target = _cdp_get_page_target(port, target_title=target_title)
     if not target or not target.get("webSocketDebuggerUrl"):
         return None
     ws_url = target["webSocketDebuggerUrl"]
@@ -438,12 +443,13 @@ def _cdp_call(method: str, params: dict | None = None, port: int = SPOTIFY_CDP_P
     return None
 
 
-def _cdp_evaluate(expression: str, port: int = SPOTIFY_CDP_PORT, timeout: float = 5.0):
-    """Evaluate a JavaScript expression inside the running Official Spotify Client via CDP."""
+def _cdp_evaluate(expression: str, port: int = SPOTIFY_CDP_PORT, target_title: str | None = None, timeout: float = 5.0):
+    """Evaluate a JavaScript expression inside the running Official Spotify Client or Steam CEF via CDP."""
     res = _cdp_call(
         "Runtime.evaluate",
         {"expression": expression, "awaitPromise": True, "returnByValue": True},
         port=port,
+        target_title=target_title,
         timeout=timeout,
     )
     if isinstance(res, dict):
@@ -537,6 +543,56 @@ def _fetch_spotify_cdp_folder_tree(port: int = SPOTIFY_CDP_PORT) -> list[dict] |
     except Exception:
         pass
     return None
+
+
+def _inject_steam_gamepad_bridge_sync() -> bool:
+    """Inject controller event bridge into Steam's SharedJSContext via CDP port 8080."""
+    expr = """
+    (() => {
+      if (window.__deckify_steam_gamepad_bridge_installed) {
+        return { ok: true, already: true };
+      }
+      const fc = window.FocusNavController;
+      const src = fc && fc.m_rgGamepadInputSources && fc.m_rgGamepadInputSources[0];
+      if (!src || !src.RegisterForGamepadButtonDown) {
+        return { ok: false, error: "no_src" };
+      }
+      const buttonMap = {
+        1: "a",
+        2: "b",
+        3: "x",
+        4: "y",
+        5: "lb",
+        6: "rb",
+        7: "lt",
+        8: "rt",
+        9: "up",
+        10: "down",
+        11: "left",
+        12: "right",
+        13: "select",
+        14: "start"
+      };
+      window.__deckify_steam_gamepad_bridge_installed = true;
+      src.RegisterForGamepadButtonDown((btn, srcType, ctrlIdx, isRepeat) => {
+        const isDir = btn >= 9 && btn <= 12;
+        if (isRepeat && !isDir) return;
+        const mapped = buttonMap[btn];
+        if (!mapped) return;
+        fetch("http://127.0.0.1:39282/api/gamepad/push", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ events: [mapped] })
+        }).catch(() => {});
+      });
+      return { ok: true, installed: true };
+    })()
+    """
+    try:
+        val = _cdp_evaluate(expr, port=STEAM_CEF_PORT, target_title="SharedJSContext", timeout=3.0)
+        return isinstance(val, dict) and val.get("ok") is True
+    except Exception:
+        return False
 
 
 def _get_lan_ip() -> str:
@@ -709,9 +765,12 @@ class Plugin:
     _crash_timestamps: list = []
     _pa_volume_boosted: bool = False
     _stable_start: float = 0
-    # Linux joystick reader state (/dev/input/js*)
+    # Linux joystick reader state (/dev/input/js*) & Gamepad event queue
     _js_fds: dict[str, int] = {}
     _js_axis_state: dict[tuple[str, int], int] = {}
+    _gamepad_queue: list[str] = []
+    _last_gamepad_poll: float = 0.0
+    _steam_gamepad_bridge_task: asyncio.Task | None = None
 
     # ── Lifecycle ──────────────────────────────────────────────
 
@@ -720,6 +779,8 @@ class Plugin:
         self._crash_timestamps = []
         self._js_fds = {}
         self._js_axis_state = {}
+        self._gamepad_queue = []
+        self._last_gamepad_poll = 0.0
         self._settings = _load_settings()
         # Restore persisted tokens
         self._access_token = self._settings.get("access_token")
@@ -729,6 +790,7 @@ class Plugin:
                      if k not in ("access_token", "refresh_token", "token_expires_at", "spotify_client_id", "spotify_folder_tree")}
         decky.logger.info("Deckify loaded, settings: %s", safe_keys)
         await self._start_dashboard()
+        self._steam_gamepad_bridge_task = asyncio.create_task(self._steam_gamepad_bridge_worker())
         if self._access_token:
             self._start_api_poll()
         await self._sync_native_spotify_folders()
@@ -736,6 +798,9 @@ class Plugin:
 
     async def _unload(self):
         decky.logger.info("Deckify unloading")
+        if self._steam_gamepad_bridge_task and not self._steam_gamepad_bridge_task.done():
+            self._steam_gamepad_bridge_task.cancel()
+            self._steam_gamepad_bridge_task = None
         self._close_gamepad_fds()
         await self._stop_monitor()
         await self._kill_librespot()
@@ -746,6 +811,9 @@ class Plugin:
 
     async def _uninstall(self):
         decky.logger.info("Deckify uninstalling")
+        if self._steam_gamepad_bridge_task and not self._steam_gamepad_bridge_task.done():
+            self._steam_gamepad_bridge_task.cancel()
+            self._steam_gamepad_bridge_task = None
         self._close_gamepad_fds()
         await self._stop_monitor()
         await self._kill_librespot()
@@ -1714,8 +1782,43 @@ class Plugin:
         self._js_fds.clear()
         self._js_axis_state.clear()
 
-    async def poll_gamepad_events(self) -> dict:
-        """Read queued Linux joystick events (/dev/input/js*) non-blockingly for SteamOS CEF Dashboard navigation."""
+    async def _steam_gamepad_bridge_worker(self):
+        """Periodically ensure the controller bridge is injected into Steam's SharedJSContext."""
+        while True:
+            try:
+                await _exec(_inject_steam_gamepad_bridge_sync, timeout=4)
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                decky.logger.debug("Gamepad bridge worker error: %s", e)
+            await asyncio.sleep(6)
+
+    def push_gamepad_events(self, events: list[str] | str) -> dict:
+        """Push gamepad button events into the internal queue for Dashboard consumption."""
+        if isinstance(events, str):
+            events = [events]
+        count = 0
+        valid_actions = {
+            "a", "b", "x", "y", "lb", "rb", "lt", "rt",
+            "up", "down", "left", "right", "select", "start",
+        }
+        for ev in events:
+            if isinstance(ev, str):
+                norm = ev.strip().lower()
+                if norm in valid_actions:
+                    self._gamepad_queue.append(norm)
+                    count += 1
+        # Cap queue length to avoid unbounded growth if unpolled
+        if len(self._gamepad_queue) > 100:
+            del self._gamepad_queue[:-100]
+        return {"ok": True, "pushed": count, "queued": len(self._gamepad_queue)}
+
+    async def push_gamepad_event(self, event: str | list[str]) -> dict:
+        """Callable exposed to Decky frontend in SharedJSContext."""
+        return self.push_gamepad_events(event)
+
+    def _read_linux_joystick_events(self) -> list[str]:
+        """Read queued Linux joystick events (/dev/input/js*) non-blockingly as desktop/fallback input."""
         events: list[str] = []
         js_struct = struct.Struct("<IhBB")
         button_map = {
@@ -1732,63 +1835,79 @@ class Plugin:
             13: "left",
             14: "right",
         }
-        try:
-            for idx in range(4):
-                path = f"/dev/input/js{idx}"
-                if not os.path.exists(path):
-                    if path in self._js_fds:
+        for idx in range(4):
+            path = f"/dev/input/js{idx}"
+            if not os.path.exists(path):
+                if path in self._js_fds:
+                    try:
+                        os.close(self._js_fds.pop(path))
+                    except Exception:
+                        pass
+                continue
+            if path not in self._js_fds:
+                try:
+                    self._js_fds[path] = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
+                except OSError:
+                    continue
+            fd = self._js_fds[path]
+            while True:
+                try:
+                    chunk = os.read(fd, 8)
+                    if not chunk or len(chunk) < 8:
+                        break
+                    _, val, ev_type, num = js_struct.unpack(chunk)
+                    if ev_type & 0x80:
+                        continue
+                    if ev_type == 0x01 and val == 1:
+                        mapped = button_map.get(num)
+                        if mapped:
+                            events.append(mapped)
+                    elif ev_type == 0x02:
+                        key = (path, num)
+                        prev_dir = self._js_axis_state.get(key, 0)
+                        if num in (0, 6):
+                            cur_dir = -1 if val < -16000 else (1 if val > 16000 else 0)
+                            self._js_axis_state[key] = cur_dir
+                            if cur_dir != prev_dir and cur_dir != 0:
+                                events.append("left" if cur_dir < 0 else "right")
+                        elif num in (1, 7):
+                            cur_dir = -1 if val < -16000 else (1 if val > 16000 else 0)
+                            self._js_axis_state[key] = cur_dir
+                            if cur_dir != prev_dir and cur_dir != 0:
+                                events.append("up" if cur_dir < 0 else "down")
+                        elif num in (2, 5):
+                            cur_dir = 1 if val > 16000 else 0
+                            self._js_axis_state[key] = cur_dir
+                            if cur_dir != prev_dir and cur_dir == 1:
+                                events.append("lt" if num == 2 else "rt")
+                except OSError as e:
+                    if e.errno not in (errno.EAGAIN, errno.EWOULDBLOCK):
                         try:
-                            os.close(self._js_fds.pop(path))
+                            os.close(fd)
                         except Exception:
                             pass
-                    continue
-                if path not in self._js_fds:
-                    try:
-                        self._js_fds[path] = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
-                    except OSError:
-                        continue
-                fd = self._js_fds[path]
-                while True:
-                    try:
-                        chunk = os.read(fd, 8)
-                        if not chunk or len(chunk) < 8:
-                            break
-                        _, val, ev_type, num = js_struct.unpack(chunk)
-                        # Ignore synthetic initial state burst (JS_EVENT_INIT = 0x80)
-                        if ev_type & 0x80:
-                            continue
-                        if ev_type == 0x01 and val == 1:
-                            mapped = button_map.get(num)
-                            if mapped:
-                                events.append(mapped)
-                        elif ev_type == 0x02:
-                            key = (path, num)
-                            prev_dir = self._js_axis_state.get(key, 0)
-                            if num in (0, 6):  # Left Stick X or D-Pad Hat X
-                                cur_dir = -1 if val < -16000 else (1 if val > 16000 else 0)
-                                self._js_axis_state[key] = cur_dir
-                                if cur_dir != prev_dir and cur_dir != 0:
-                                    events.append("left" if cur_dir < 0 else "right")
-                            elif num in (1, 7):  # Left Stick Y or D-Pad Hat Y
-                                cur_dir = -1 if val < -16000 else (1 if val > 16000 else 0)
-                                self._js_axis_state[key] = cur_dir
-                                if cur_dir != prev_dir and cur_dir != 0:
-                                    events.append("up" if cur_dir < 0 else "down")
-                            elif num in (2, 5):  # Left Trigger (2) / Right Trigger (5)
-                                cur_dir = 1 if val > 16000 else 0
-                                self._js_axis_state[key] = cur_dir
-                                if cur_dir != prev_dir and cur_dir == 1:
-                                    events.append("lt" if num == 2 else "rt")
-                    except OSError as e:
-                        if e.errno not in (errno.EAGAIN, errno.EWOULDBLOCK):
-                            try:
-                                os.close(fd)
-                            except Exception:
-                                pass
-                            self._js_fds.pop(path, None)
-                        break
+                        self._js_fds.pop(path, None)
+                    break
+        return events
+
+    async def poll_gamepad_events(self) -> dict:
+        """Read queued controller events non-blockingly for SteamOS Dashboard navigation."""
+        self._last_gamepad_poll = time.time()
+        events: list[str] = []
+
+        # Drain in-memory queue from Steam / SharedJSContext bridge first
+        if self._gamepad_queue:
+            events.extend(self._gamepad_queue)
+            self._gamepad_queue.clear()
+
+        # Check raw Linux joystick events as a fallback
+        try:
+            raw_js = self._read_linux_joystick_events()
+            if raw_js:
+                events.extend(raw_js)
         except Exception as e:
             decky.logger.debug("Gamepad poll error: %s", e)
+
         return {"ok": True, "events": events}
 
     async def get_client_window_status(self) -> dict:
@@ -2591,6 +2710,11 @@ class Plugin:
             elif path == "/api/gamepad/poll" and method == "GET":
                 result = await self.poll_gamepad_events()
                 await self._send_json(writer, 200, result)
+            elif path == "/api/gamepad/push" and method == "POST":
+                b = body_json or {}
+                raw_ev = b.get("events") if "events" in b else b.get("event")
+                result = self.push_gamepad_events(raw_ev or [])
+                await self._send_json(writer, 200, result)
             elif path == "/api/search" and method == "GET":
                 q = qs.get("q", [""])[0]
                 if not q:
@@ -2716,7 +2840,11 @@ class Plugin:
 
         loop = asyncio.get_event_loop()
         body = await loop.run_in_executor(None, self._read_file, file_path)
-        cache = "Cache-Control: public, max-age=31536000, immutable\r\n" if rel_path.startswith("assets/") else ""
+        cache = (
+            "Cache-Control: public, max-age=31536000, immutable\r\n"
+            if rel_path.startswith("assets/")
+            else "Cache-Control: no-cache, no-store, must-revalidate\r\nPragma: no-cache\r\nExpires: 0\r\n"
+        )
         header = f"HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {len(body)}\r\n{cache}Connection: close\r\n\r\n"
         writer.write(header.encode() + body)
         await writer.drain()

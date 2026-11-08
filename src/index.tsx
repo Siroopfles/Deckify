@@ -94,6 +94,7 @@ const backendPlayTracks = callable<[string | null, string | null, string[] | nul
 const backendGetDashboardUrl = callable<[], { ok: boolean; url?: string; error?: string }>("get_dashboard_url");
 const backendGetDevices = callable<[], { ok: boolean; devices?: SpotifyDevice[]; error?: string }>("get_devices");
 const backendTransferPlayback = callable<[string], { ok: boolean; error?: string }>("transfer_playback");
+const backendPushGamepadEvent = callable<[string[]], { ok: boolean }>("push_gamepad_event");
 
 interface Settings {
   device_name: string;
@@ -1311,6 +1312,46 @@ const Content: FC = () => {
 
 export default definePlugin(() => {
   console.log("Deckify initializing");
+
+  try {
+    const win = window as any;
+    const fc = win.FocusNavController;
+    const src = fc?.m_rgGamepadInputSources?.[0];
+    if (src?.RegisterForGamepadButtonDown && !win.__deckify_steam_gamepad_bridge_installed) {
+      win.__deckify_steam_gamepad_bridge_installed = true;
+      const buttonMap: Record<number, string> = {
+        1: "a",
+        2: "b",
+        3: "x",
+        4: "y",
+        5: "lb",
+        6: "rb",
+        7: "lt",
+        8: "rt",
+        9: "up",
+        10: "down",
+        11: "left",
+        12: "right",
+        13: "select",
+        14: "start",
+      };
+      src.RegisterForGamepadButtonDown((btn: number, _srcType: number, _ctrlIdx: number, isRepeat: boolean) => {
+        const isDir = btn >= 9 && btn <= 12;
+        if (isRepeat && !isDir) return;
+        const mapped = buttonMap[btn];
+        if (!mapped) return;
+        fetch("http://127.0.0.1:39282/api/gamepad/push", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ events: [mapped] }),
+        }).catch(() => {
+          backendPushGamepadEvent([mapped]).catch(() => {});
+        });
+      });
+    }
+  } catch (err) {
+    console.warn("Deckify gamepad bridge init failed:", err);
+  }
 
   return {
     name: "Deckify",
