@@ -23,79 +23,36 @@ import decky
 # librespot then load the wrong libssl/libcrypto and crash.  Strip it early.
 os.environ.pop("LD_LIBRARY_PATH", None)
 
+import sys
+for _dir in [
+    os.path.dirname(__file__),
+    os.path.join(os.path.dirname(__file__), "bin"),
+]:
+    if _dir and os.path.isdir(_dir) and _dir not in sys.path:
+        sys.path.insert(0, _dir)
+
+if hasattr(os, "geteuid") and os.geteuid() == 0:
+    try:
+        os.chown(os.path.dirname(__file__), 1000, 1000)
+    except Exception:
+        pass
+
+from py_modules import *
+
 SETTINGS_FILE = os.path.join(decky.DECKY_PLUGIN_SETTINGS_DIR, "settings.json")
-LIBRESPOT_BIN = os.path.join(decky.DECKY_PLUGIN_DIR, "bin", "librespot")
-CACHE_DIR = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, "cache")
-LIBRESPOT_PID_FILE = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, "librespot.pid")
-SPOTIFY_CLIENT_PID_FILE = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, "spotify_client.pid")
-SSL_CERT = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, "cert.pem")
-SSL_KEY = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, "key.pem")
-
-VALID_AUDIO_BACKENDS = ("librespot", "spotify_client")
-VALID_LIBRESPOT_QUALITIES = ("96", "160", "320")
-VALID_SPOTIFY_CLIENT_QUALITIES = ("96", "160", "320", "lossless")
-
-SPOTIFY_FLATPAK_ID = "com.spotify.Client"
-SPOTIFY_CDP_PORT = 9229
-STEAM_CEF_PORT = 8080
-DECK_USER = "deck"
-DECK_UID = 1000
-DECK_HOME = "/home/deck"
-SPOTIFY_CLIENT_CONFIG_DIR = os.path.join(DECK_HOME, ".var", "app", SPOTIFY_FLATPAK_ID, "config", "spotify")
-SPOTIFY_CLIENT_CACHE_DIR = os.path.join(DECK_HOME, ".var", "app", SPOTIFY_FLATPAK_ID, "cache", "spotify")
-
-DEFAULT_SETTINGS = {
-    "device_name": "",
-    "audio_backend": "librespot",
-    "audio_quality": "320",
-    "bitrate": 320,
-    "bit_perfect_clock": True,
-    "spotify_client_id": "",
-    "normalisation": True,
-    "normalisation_pregain": 0.0,
-    "gapless": True,
-    "autoplay": True,
-    "playlist_folders": [],
-    "spotify_folder_tree": [],
-}
-
-# PulseAudio socket for root processes (deck user UID 1000)
-PULSE_SERVER = "unix:/run/user/1000/pulse/native"
-DBUS_SESSION_BUS_ADDRESS = "unix:path=/run/user/1000/bus"
-XDG_RUNTIME_DIR = "/run/user/1000"
-
-SPOTIFY_AUTH_URL = "https://accounts.spotify.com/authorize"
-SPOTIFY_TOKEN_URL = "https://accounts.spotify.com/api/token"
-SPOTIFY_API_BASE = "https://api.spotify.com/v1"
-SPOTIFY_SCOPES = (
-    "user-read-currently-playing user-read-playback-state user-modify-playback-state "
-    "playlist-read-private playlist-read-collaborative playlist-modify-public "
-    "playlist-modify-private user-library-read user-library-modify "
-    "user-follow-read user-read-recently-played"
-)
-CURRENT_SCOPES_VERSION = 6
-OAUTH_SERVER_PORT = 39281
-DASHBOARD_PORT = 39282
-DASHBOARD_DIR = os.path.join(decky.DECKY_PLUGIN_DIR, "dashboard", "dist")
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
-
-# SSL context for outgoing HTTPS requests (Spotify API).
-# Root environments on SteamOS may not find system CA certs automatically.
-_API_SSL_CTX: ssl.SSLContext | None = None
-for _ca in ("/etc/ssl/certs/ca-certificates.crt", "/etc/ssl/cert.pem"):
-    if os.path.isfile(_ca):
-        _API_SSL_CTX = ssl.create_default_context(cafile=_ca)
-        break
-if _API_SSL_CTX is None:
-    _API_SSL_CTX = ssl.create_default_context()
 
 
 def _validate_image_url(url: str) -> None:
     parsed = urllib.parse.urlsplit(url)
     host = parsed.hostname or ""
-    if (parsed.scheme != "https" or parsed.port not in (None, 443)
-            or parsed.username is not None or parsed.password is not None
-            or not host.endswith((".scdn.co", ".spotifycdn.com"))):
+    if (
+        parsed.scheme != "https"
+        or parsed.port not in (None, 443)
+        or parsed.username is not None
+        or parsed.password is not None
+        or not host.endswith((".scdn.co", ".spotifycdn.com"))
+    ):
         raise ValueError("Only Spotify HTTPS image URLs are supported")
 
 
@@ -120,57 +77,6 @@ def _fetch_spotify_image(url: str) -> tuple[str, bytes]:
         return content_type, body
 
 
-def _proxy_spotify_image_url(raw_url: str | None) -> str | None:
-    if not raw_url or not isinstance(raw_url, str):
-        return None
-    raw = raw_url.strip()
-    if not raw:
-        return None
-    if raw.startswith(f"http://127.0.0.1:{DASHBOARD_PORT}/api/image?"):
-        return raw
-    if raw.startswith("spotify:image:"):
-        img_id = raw.split("spotify:image:", 1)[1].strip()
-        if img_id:
-            raw = f"https://i.scdn.co/image/{img_id}"
-    elif raw.startswith("spotify:mosaic:"):
-        parts = [p for p in raw.split(":")[2:] if p]
-        if parts:
-            raw = f"https://mosaic.scdn.co/300/{''.join(parts[:4])}"
-    try:
-        _validate_image_url(raw)
-    except ValueError:
-        return None
-    query = urllib.parse.urlencode({"url": raw})
-    return f"http://127.0.0.1:{DASHBOARD_PORT}/api/image?{query}"
-
-
-def _image_url(images: list) -> str | None:
-    if not images:
-        return None
-    return _proxy_spotify_image_url(images[0].get("url"))
-
-
-def _proxy_folder_tree_images(folders: list[dict]) -> list[dict]:
-    """Recursively ensure all playlist image_urls in a folder tree use Deckify's image proxy."""
-    out: list[dict] = []
-    for folder in folders or []:
-        if not isinstance(folder, dict):
-            continue
-        f_copy = dict(folder)
-        if isinstance(f_copy.get("playlists"), list):
-            new_pls = []
-            for pl in f_copy["playlists"]:
-                if isinstance(pl, dict):
-                    pl_copy = dict(pl)
-                    pl_copy["image_url"] = _proxy_spotify_image_url(pl_copy.get("image_url"))
-                    new_pls.append(pl_copy)
-            f_copy["playlists"] = new_pls
-        if isinstance(f_copy.get("subfolders"), list):
-            f_copy["subfolders"] = _proxy_folder_tree_images(f_copy["subfolders"])
-        out.append(f_copy)
-    return out
-
-
 def _load_settings() -> dict:
     try:
         with open(SETTINGS_FILE, "r") as f:
@@ -178,7 +84,6 @@ def _load_settings() -> dict:
         for obsolete in ("mix_mode", "crossfade_seconds", "mixed_playlists"):
             saved.pop(obsolete, None)
         merged = {**DEFAULT_SETTINGS, **saved}
-        # Older versions saved this fixed default without offering a name editor.
         if merged["device_name"] == "Steam Deck" and not saved.get("device_name_customized"):
             merged["device_name"] = ""
         if merged.get("audio_backend") not in VALID_AUDIO_BACKENDS:
@@ -198,6 +103,8 @@ def _load_settings() -> dict:
             merged["playlist_folders"] = []
         if not isinstance(merged.get("spotify_folder_tree"), list):
             merged["spotify_folder_tree"] = []
+        if not isinstance(merged.get("game_audio_profiles"), dict):
+            merged["game_audio_profiles"] = {}
         return merged
     except Exception:
         return dict(DEFAULT_SETTINGS)
@@ -207,526 +114,6 @@ def _save_settings(settings: dict) -> None:
     os.makedirs(os.path.dirname(SETTINGS_FILE), exist_ok=True)
     with open(SETTINGS_FILE, "w") as f:
         json.dump(settings, f, indent=2)
-
-
-def _update_spotify_prefs_content(
-    existing_text: str,
-    audio_quality: str,
-    gapless: bool = True,
-    normalisation: bool = True,
-) -> str:
-    """Update Spotify Desktop Client prefs text with quality, lossless, gapless, and normalization settings."""
-    enum_map = {"96": 2, "160": 3, "320": 4, "lossless": 5}
-    q_enum = enum_map.get(str(audio_quality).lower(), 4)
-    desired = {
-        "audio.play_bitrate_enumeration": str(q_enum),
-        "audio.play_bitrate_non_metered_enumeration": str(q_enum),
-        "audio.sync_bitrate_enumeration": str(q_enum),
-        "audio.play_bitrate_non_metered_migrated": "true",
-        "audio.hifi_upgraded": "true" if str(audio_quality).lower() == "lossless" else "false",
-        "audio.gapless_v2": "true" if gapless else "false",
-        "audio.normalize_v2": "true" if normalisation else "false",
-    }
-    lines = existing_text.splitlines() if existing_text else []
-    seen: set[str] = set()
-    out_lines: list[str] = []
-    for line in lines:
-        stripped = line.strip()
-        if "=" in stripped and not stripped.startswith("#"):
-            k = stripped.split("=", 1)[0].strip()
-            if k in desired:
-                out_lines.append(f"{k}={desired[k]}")
-                seen.add(k)
-                continue
-        out_lines.append(line)
-    for k, v in desired.items():
-        if k not in seen:
-            out_lines.append(f"{k}={v}")
-    return "\n".join(out_lines) + "\n"
-
-
-def _parse_pactl_sink_inputs(stdout: str) -> dict | None:
-    """Parse `pactl list sink-inputs` output for active Spotify or librespot audio stream details."""
-    if not stdout:
-        return None
-    blocks = re.split(r"(?=Sink Input #\d+)", stdout)
-    best: dict | None = None
-    for block in blocks:
-        if not block.strip():
-            continue
-        low = block.lower()
-        is_spotify = "com.spotify.client" in low or '"spotify"' in low
-        is_librespot = "librespot" in low
-        if not (is_spotify or is_librespot):
-            continue
-        spec_m = re.search(r"Sample Specification:\s*([^\r\n]+)", block)
-        resample_m = re.search(r"Resample method:\s*([^\r\n]+)", block)
-        corked_m = re.search(r"Corked:\s*([^\r\n]+)", block)
-        sample_spec = spec_m.group(1).strip() if spec_m else ""
-        resample_method = resample_m.group(1).strip() if resample_m else ""
-        corked = (corked_m.group(1).strip().lower() == "yes") if corked_m else False
-
-        # Format human-readable label e.g. "24-bit · 44.1 kHz" or "32-bit Float · 48.0 kHz"
-        parts = sample_spec.split()
-        fmt_raw = parts[0] if parts else ""
-        rate_raw = parts[2] if len(parts) > 2 else ""
-        fmt_map = {
-            "s16le": "16-bit",
-            "s24le": "24-bit",
-            "s24-32le": "24-bit",
-            "s32le": "32-bit",
-            "float32le": "32-bit Float",
-        }
-        fmt_str = fmt_map.get(fmt_raw, fmt_raw)
-        rate_str = rate_raw
-        if rate_raw.endswith("Hz"):
-            try:
-                hz = int(rate_raw[:-2])
-                rate_str = f"{hz / 1000:.1f} kHz"
-            except ValueError:
-                pass
-        label = f"{fmt_str} · {rate_str}".strip(" ·")
-        info = {
-            "application": "Spotify Client" if is_spotify else "librespot",
-            "sample_spec": sample_spec,
-            "format_label": label or sample_spec,
-            "resample_method": resample_method,
-            "active": not corked,
-        }
-        if not corked:
-            return info
-        best = info
-    return best
-
-
-def _parse_spotify_rootlist_folders(raw_bytes: bytes) -> list[dict]:
-    """Extract Spotify playlist folder hierarchy (start-group / end-group) from binary/text rootlist cache."""
-    if not raw_bytes:
-        return []
-    text = raw_bytes.decode("utf-8", errors="ignore")
-    token_re = re.compile(
-        r"spotify:(?:start-group:([A-Za-z0-9]+):([^\s\"'\\:\x00-\x1f]+)"
-        r"|end-group:([A-Za-z0-9]+)"
-        r"|playlist:([A-Za-z0-9]{22}))"
-    )
-    folders_by_id: dict[str, dict] = {}
-    stack: list[dict] = []
-    for m in token_re.finditer(text):
-        start_id, encoded_name, end_id, playlist_id = m.groups()
-        if start_id and encoded_name:
-            name = urllib.parse.unquote_plus(encoded_name).strip() or "Folder"
-            folder = folders_by_id.get(start_id)
-            if not folder:
-                folder = {"id": f"sp-{start_id}", "name": name, "playlist_ids": [], "source": "spotify"}
-                folders_by_id[start_id] = folder
-            stack.append(folder)
-        elif end_id:
-            if stack:
-                stack.pop()
-        elif playlist_id and stack:
-            curr = stack[-1]
-            if playlist_id not in curr["playlist_ids"]:
-                curr["playlist_ids"].append(playlist_id)
-    return [f for f in folders_by_id.values() if f["playlist_ids"]]
-
-
-def _cdp_get_page_target(port: int = SPOTIFY_CDP_PORT, target_title: str | None = None) -> dict | None:
-    try:
-        with urllib.request.urlopen(f"http://127.0.0.1:{port}/json", timeout=2) as resp:
-            targets = json.loads(resp.read())
-        if target_title:
-            for t in targets:
-                if t.get("title") == target_title and t.get("webSocketDebuggerUrl"):
-                    return t
-        for t in targets:
-            if t.get("type") == "page" and t.get("webSocketDebuggerUrl"):
-                return t
-        return targets[0] if targets else None
-    except Exception:
-        return None
-
-
-def _cdp_call(method: str, params: dict | None = None, port: int = SPOTIFY_CDP_PORT, target_title: str | None = None, timeout: float = 4.0) -> dict | None:
-    """Invoke a Chrome DevTools Protocol method on the headless Spotify Client or Steam CEF over raw WebSocket."""
-    target = _cdp_get_page_target(port, target_title=target_title)
-    if not target or not target.get("webSocketDebuggerUrl"):
-        return None
-    ws_url = target["webSocketDebuggerUrl"]
-    parsed = urllib.parse.urlparse(ws_url)
-    host = parsed.hostname or "127.0.0.1"
-    ws_port = parsed.port or port
-    path = parsed.path or "/"
-    sock = socket.create_connection((host, ws_port), timeout=timeout)
-    try:
-        key = base64.b64encode(os.urandom(16)).decode("ascii")
-        handshake = (
-            f"GET {path} HTTP/1.1\r\n"
-            f"Host: {host}:{ws_port}\r\n"
-            "Upgrade: websocket\r\n"
-            "Connection: Upgrade\r\n"
-            f"Sec-WebSocket-Key: {key}\r\n"
-            "Sec-WebSocket-Version: 13\r\n\r\n"
-        )
-        sock.sendall(handshake.encode("ascii"))
-        buf = b""
-        while b"\r\n\r\n" not in buf:
-            chunk = sock.recv(4096)
-            if not chunk:
-                return None
-            buf += chunk
-        leftover = buf.split(b"\r\n\r\n", 1)[1]
-
-        payload = json.dumps({"id": 1, "method": method, "params": params or {}}).encode("utf-8")
-        mask = os.urandom(4)
-        header = bytearray([0x81])
-        length = len(payload)
-        if length < 126:
-            header.append(0x80 | length)
-        elif length < 65536:
-            header.append(0x80 | 126)
-            header.extend(length.to_bytes(2, "big"))
-        else:
-            header.append(0x80 | 127)
-            header.extend(length.to_bytes(8, "big"))
-        header.extend(mask)
-        masked = bytes(b ^ mask[i % 4] for i, b in enumerate(payload))
-        sock.sendall(bytes(header) + masked)
-
-        # Read WebSocket frames until we get JSON message with id=1 (handling multi-frame continuations)
-        raw = bytearray(leftover)
-        msg_chunks = bytearray()
-        while True:
-            while len(raw) >= 2:
-                b0 = raw[0]
-                b1 = raw[1]
-                fin = (b0 & 0x80) != 0
-                opcode = b0 & 0x0F
-                is_masked = (b1 & 0x80) != 0
-                plen = b1 & 0x7F
-                idx = 2
-                if plen == 126:
-                    if len(raw) < 4:
-                        break
-                    plen = int.from_bytes(raw[2:4], "big")
-                    idx = 4
-                elif plen == 127:
-                    if len(raw) < 10:
-                        break
-                    plen = int.from_bytes(raw[2:10], "big")
-                    idx = 10
-                if is_masked:
-                    idx += 4
-                if len(raw) < idx + plen:
-                    break
-                frame_data = bytes(raw[idx:idx + plen])
-                del raw[:idx + plen]
-                if opcode in (0, 1, 2):
-                    msg_chunks.extend(frame_data)
-                    if fin:
-                        full_data = bytes(msg_chunks)
-                        msg_chunks.clear()
-                        try:
-                            msg = json.loads(full_data.decode("utf-8", errors="replace"))
-                            if msg.get("id") == 1:
-                                return msg.get("result")
-                        except Exception:
-                            pass
-            chunk = sock.recv(65536)
-            if not chunk:
-                break
-            raw.extend(chunk)
-    finally:
-        try:
-            sock.close()
-        except Exception:
-            pass
-    return None
-
-
-def _cdp_evaluate(expression: str, port: int = SPOTIFY_CDP_PORT, target_title: str | None = None, timeout: float = 5.0):
-    """Evaluate a JavaScript expression inside the running Official Spotify Client or Steam CEF via CDP."""
-    res = _cdp_call(
-        "Runtime.evaluate",
-        {"expression": expression, "awaitPromise": True, "returnByValue": True},
-        port=port,
-        target_title=target_title,
-        timeout=timeout,
-    )
-    if isinstance(res, dict):
-        return res.get("result", {}).get("value")
-    return None
-
-
-def _fetch_spotify_cdp_folder_tree(port: int = SPOTIFY_CDP_PORT) -> list[dict] | None:
-    """Extract the user's complete recursive folder & playlist tree from Spotify's internal RootlistAPI via CDP."""
-    expr = """
-    (async () => {
-      const el = document.querySelector('#main');
-      if (!el) return null;
-      const fk = Object.keys(el).find(k => k.startsWith('__reactFiber$') || k.startsWith('__reactContainer$'));
-      if (!fk) return null;
-      const queue = [el[fk]];
-      const visited = new Set();
-      let registry = null;
-      while (queue.length > 0 && !registry) {
-        const n = queue.shift();
-        if (!n || visited.has(n)) continue;
-        visited.add(n);
-        const val = n.memoizedProps?.value;
-        if (val && val._map instanceof Map) { registry = val; break; }
-        if (val && typeof val.getRegistry === 'function') { registry = val.getRegistry(); break; }
-        if (n.child) queue.push(n.child);
-        if (n.sibling) queue.push(n.sibling);
-      }
-      if (!registry) return null;
-      let rootlistAPI = null;
-      for (const [k, v] of registry._map.entries()) {
-        if ((k?.description || String(k)) === 'RootlistAPI') {
-          rootlistAPI = v?.instance || v;
-          break;
-        }
-      }
-      if (!rootlistAPI || typeof rootlistAPI.getContents !== 'function') return null;
-      const root = await rootlistAPI.getContents({ limit: 5000, flatten: false });
-      const parseImg = (images) => {
-        const raw = images?.[0]?.url || '';
-        if (!raw) return null;
-        if (raw.startsWith('http://') || raw.startsWith('https://')) return raw;
-        if (raw.startsWith('spotify:image:')) return 'https://i.scdn.co/image/' + raw.split(':')[2];
-        if (raw.startsWith('spotify:mosaic:')) return 'https://i.scdn.co/image/' + raw.split(':')[2];
-        return null;
-      };
-      const mapFolder = (node) => {
-        const uri = node.uri || '';
-        const fid = uri.includes(':folder:') ? ('sp-' + uri.split(':folder:')[1]) : ('sp-' + (node.name || 'folder'));
-        const subfolders = [];
-        const playlists = [];
-        const playlist_ids = [];
-        for (const child of (node.items || [])) {
-          if (child.type === 'folder') {
-            const sf = mapFolder(child);
-            if (sf.playlists.length > 0 || sf.subfolders.length > 0) {
-              subfolders.push(sf);
-            }
-          } else if (child.type === 'playlist' && child.uri && child.name && child.name.trim() !== '') {
-            const pid = child.uri.split(':').pop();
-            playlist_ids.push(pid);
-            playlists.push({
-              id: pid,
-              name: child.name,
-              uri: child.uri,
-              image_url: parseImg(child.images),
-              track_count: child.totalLength || 0,
-              owner_id: child.owner?.username || child.owner?.id || '',
-              can_mix: Boolean(child.canMixPlaylist),
-              is_mixed: Array.isArray(child.appliedLenses) && child.appliedLenses.includes('mix')
-            });
-          }
-        }
-        return {
-          id: fid,
-          uri: uri,
-          name: node.name || 'Folder',
-          source: 'spotify_client',
-          playlist_ids,
-          playlists,
-          subfolders
-        };
-      };
-      return (root.items || []).filter(i => i.type === 'folder').map(mapFolder).filter(f => f.playlists.length > 0 || f.subfolders.length > 0);
-    })()
-    """
-    try:
-        res = _cdp_evaluate(expr, port=port, timeout=6.0)
-        if isinstance(res, list):
-            return res
-    except Exception:
-        pass
-    return None
-
-
-def _inject_steam_gamepad_bridge_sync() -> bool:
-    """Inject controller event bridge into Steam's SharedJSContext via CDP port 8080."""
-    expr = """
-    (() => {
-      if (window.__deckify_steam_gamepad_bridge_installed) {
-        return { ok: true, already: true };
-      }
-      const fc = window.FocusNavController;
-      const src = fc && fc.m_rgGamepadInputSources && fc.m_rgGamepadInputSources[0];
-      if (!src || !src.RegisterForGamepadButtonDown) {
-        return { ok: false, error: "no_src" };
-      }
-      const buttonMap = {
-        1: "a",
-        2: "b",
-        3: "x",
-        4: "y",
-        5: "lb",
-        6: "rb",
-        7: "lt",
-        8: "rt",
-        9: "up",
-        10: "down",
-        11: "left",
-        12: "right",
-        13: "select",
-        14: "start"
-      };
-      window.__deckify_steam_gamepad_bridge_installed = true;
-      src.RegisterForGamepadButtonDown((btn, srcType, ctrlIdx, isRepeat) => {
-        const isDir = btn >= 9 && btn <= 12;
-        if (isRepeat && !isDir) return;
-        const mapped = buttonMap[btn];
-        if (!mapped) return;
-        fetch("http://127.0.0.1:39282/api/gamepad/push", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ events: [mapped] })
-        }).catch(() => {});
-      });
-      return { ok: true, installed: true };
-    })()
-    """
-    try:
-        val = _cdp_evaluate(expr, port=STEAM_CEF_PORT, target_title="SharedJSContext", timeout=3.0)
-        return isinstance(val, dict) and val.get("ok") is True
-    except Exception:
-        return False
-
-
-def _get_lan_ip() -> str:
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        try:
-            s.connect(("8.8.8.8", 80))
-            return s.getsockname()[0]
-        finally:
-            s.close()
-    except Exception:
-        return "127.0.0.1"
-
-
-def _get_mdns_host() -> str:
-    try:
-        return f"{socket.gethostname()}.local"
-    except Exception:
-        return _get_lan_ip()
-
-
-def _ensure_ssl_cert() -> tuple[ssl.SSLContext, None] | tuple[None, str]:
-    if not os.path.isfile(SSL_CERT) or not os.path.isfile(SSL_KEY):
-        decky.logger.info("SSL cert not found at %s, generating...", SSL_CERT)
-        mdns_host = _get_mdns_host()
-        os.makedirs(os.path.dirname(SSL_CERT), exist_ok=True)
-        try:
-            result = subprocess.run([
-                "openssl", "req", "-x509", "-newkey", "rsa:2048",
-                "-keyout", SSL_KEY, "-out", SSL_CERT,
-                "-days", "3650", "-nodes",
-                "-subj", f"/CN={mdns_host}",
-                "-config", "/dev/null",
-            ], capture_output=True, text=True)
-            if result.returncode != 0:
-                msg = f"openssl failed (code {result.returncode}): {result.stderr.strip()}"
-                decky.logger.error(msg)
-                return None, msg
-        except Exception as e:
-            msg = f"Failed to run openssl: {e}"
-            decky.logger.error(msg)
-            return None, msg
-    else:
-        decky.logger.info("SSL cert found at %s", SSL_CERT)
-    try:
-        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-        ctx.load_cert_chain(SSL_CERT, SSL_KEY)
-        return ctx, None
-    except Exception as e:
-        msg = f"Failed to load SSL cert: {e}"
-        decky.logger.error(msg)
-        return None, msg
-
-
-def _generate_pkce_pair() -> tuple[str, str]:
-    verifier = secrets.token_urlsafe(64)
-    digest = hashlib.sha256(verifier.encode("ascii")).digest()
-    challenge = base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
-    return verifier, challenge
-
-
-def _spotify_token_request(params: dict) -> dict:
-    data = urllib.parse.urlencode(params).encode("utf-8")
-    req = urllib.request.Request(
-        SPOTIFY_TOKEN_URL, data=data,
-        headers={"Content-Type": "application/x-www-form-urlencoded"},
-    )
-    with urllib.request.urlopen(req, timeout=10, context=_API_SSL_CTX) as resp:
-        return json.loads(resp.read())
-
-
-def _spotify_api_request(endpoint: str, token: str, method: str = "GET", params: dict | None = None, body: dict | None = None) -> dict | None:
-    url = f"{SPOTIFY_API_BASE}/{endpoint}"
-    if params:
-        url = f"{url}?{urllib.parse.urlencode(params)}"
-    headers = {"Authorization": f"Bearer {token}"}
-    data = None
-    if body is not None:
-        data = json.dumps(body).encode()
-        headers["Content-Type"] = "application/json"
-    req = urllib.request.Request(url, data=data, headers=headers, method=method)
-    with urllib.request.urlopen(req, timeout=10, context=_API_SSL_CTX) as resp:
-        if resp.status == 204:
-            return None
-        raw = resp.read()
-        if not raw or not raw.strip():
-            return None
-        try:
-            return json.loads(raw)
-        except json.JSONDecodeError:
-            return None
-
-
-def _parse_spotify_error(e: urllib.error.HTTPError) -> str:
-    """Extract human-readable message from Spotify API error response."""
-    try:
-        body = json.loads(e.read())
-        return body.get("error", {}).get("message", f"Spotify API error: {e.code}")
-    except Exception:
-        return f"Spotify API error: {e.code}"
-
-
-async def _exec(fn, *args, timeout=10):
-    """Run blocking I/O in executor with asyncio-level timeout (covers DNS)."""
-    try:
-        return await asyncio.wait_for(
-            asyncio.get_event_loop().run_in_executor(None, fn, *args),
-            timeout=timeout,
-        )
-    except asyncio.TimeoutError:
-        raise TimeoutError(f"Request timed out after {timeout}s")
-
-
-def _build_deck_command(cmd: list[str], extra_env: dict | None = None) -> tuple[list[str], dict]:
-    """Ensure user-level graphical/audio processes run as user `deck` (UID 1000) even when Decky runs as root."""
-    env = os.environ.copy()
-    env["XDG_RUNTIME_DIR"] = XDG_RUNTIME_DIR
-    env["DBUS_SESSION_BUS_ADDRESS"] = DBUS_SESSION_BUS_ADDRESS
-    env["PULSE_SERVER"] = PULSE_SERVER
-    env["HOME"] = DECK_HOME
-    if extra_env:
-        env.update(extra_env)
-    if hasattr(os, "geteuid") and os.geteuid() == 0:
-        env_args = [
-            f"XDG_RUNTIME_DIR={XDG_RUNTIME_DIR}",
-            f"DBUS_SESSION_BUS_ADDRESS={DBUS_SESSION_BUS_ADDRESS}",
-            f"PULSE_SERVER={PULSE_SERVER}",
-            f"HOME={DECK_HOME}",
-        ]
-        if extra_env:
-            for k, v in extra_env.items():
-                env_args.append(f"{k}={v}")
-        return ["runuser", "-u", DECK_USER, "--", "env", *env_args, *cmd], env
-    return cmd, env
 
 
 class Plugin:
@@ -789,6 +176,12 @@ class Plugin:
         safe_keys = {k: v for k, v in self._settings.items()
                      if k not in ("access_token", "refresh_token", "token_expires_at", "spotify_client_id", "spotify_folder_tree")}
         decky.logger.info("Deckify loaded, settings: %s", safe_keys)
+        self._sse = SSEManager()
+        self._suspend_monitor = SuspendResumeMonitor(
+            on_sleep=self._on_deck_sleep,
+            on_resume=self._on_deck_resume,
+        )
+        self._suspend_monitor.start()
         await self._start_dashboard()
         self._steam_gamepad_bridge_task = asyncio.create_task(self._steam_gamepad_bridge_worker())
         if self._access_token:
@@ -798,6 +191,9 @@ class Plugin:
 
     async def _unload(self):
         decky.logger.info("Deckify unloading")
+        if hasattr(self, "_suspend_monitor") and self._suspend_monitor:
+            await self._suspend_monitor.stop()
+            self._suspend_monitor = None
         if self._steam_gamepad_bridge_task and not self._steam_gamepad_bridge_task.done():
             self._steam_gamepad_bridge_task.cancel()
             self._steam_gamepad_bridge_task = None
@@ -809,8 +205,25 @@ class Plugin:
         await self._stop_oauth_server()
         await self._stop_api_poll()
 
+    async def _on_deck_sleep(self):
+        decky.logger.info("Deck entering sleep")
+
+    async def _on_deck_resume(self):
+        decky.logger.info("Deck resumed from suspend - recovering token and audio state")
+        try:
+            await self._ensure_token()
+            await self._poll_playback()
+            await self._refresh_audio_stream_info()
+            await self._broadcast_status_sse()
+            await decky.emit("deck_resumed")
+        except Exception as e:
+            decky.logger.warning("Resume handler error: %s", e)
+
     async def _uninstall(self):
         decky.logger.info("Deckify uninstalling")
+        if hasattr(self, "_suspend_monitor") and self._suspend_monitor:
+            await self._suspend_monitor.stop()
+            self._suspend_monitor = None
         if self._steam_gamepad_bridge_task and not self._steam_gamepad_bridge_task.done():
             self._steam_gamepad_bridge_task.cancel()
             self._steam_gamepad_bridge_task = None
@@ -821,6 +234,20 @@ class Plugin:
         await self._stop_dashboard()
         await self._stop_oauth_server()
         await self._stop_api_poll()
+
+    async def _on_deck_sleep(self):
+        decky.logger.info("Deck entering sleep")
+
+    async def _on_deck_resume(self):
+        decky.logger.info("Deck resumed from suspend - recovering token and audio state")
+        try:
+            await self._ensure_token()
+            await self._poll_playback()
+            await self._refresh_audio_stream_info()
+            await self._broadcast_status_sse()
+            await decky.emit("deck_resumed")
+        except Exception as e:
+            decky.logger.warning("Resume handler error: %s", e)
 
     async def _migration(self):
         decky.logger.info("Deckify migrating")
@@ -2620,6 +2047,9 @@ class Plugin:
             # API routes
             if path == "/api/status":
                 await self._api_status(writer)
+            elif path == "/api/events" and method == "GET":
+                await self._serve_sse_events(writer)
+                return
             elif path == "/api/image" and method == "GET":
                 await self._serve_image(writer, qs.get("url", [""])[0])
             elif path == "/api/control" and method == "POST":
@@ -2854,7 +2284,7 @@ class Plugin:
         await writer.drain()
         writer.close()
 
-    async def _api_status(self, writer: asyncio.StreamWriter):
+    def _get_status_dict(self) -> dict:
         running = self._is_engine_running()
         is_playing = self._poll_play_state == "playing"
 
@@ -2863,7 +2293,7 @@ class Plugin:
         if self._last_event:
             position_ms = self._last_event.get("position_ms", 0)
 
-        data = {
+        return {
             "authenticated": self._access_token is not None,
             "librespot_running": running,
             "audio_backend": self._settings.get("audio_backend", "librespot"),
@@ -2889,7 +2319,32 @@ class Plugin:
                 "autoplay": self._settings.get("autoplay", True),
             },
         }
+
+    async def _api_status(self, writer: asyncio.StreamWriter):
+        data = self._get_status_dict()
         await self._send_json(writer, 200, data)
+
+    async def _serve_sse_events(self, writer: asyncio.StreamWriter):
+        header = (
+            "HTTP/1.1 200 OK\r\n"
+            "Content-Type: text/event-stream\r\n"
+            "Cache-Control: no-cache\r\n"
+            "Connection: keep-alive\r\n"
+            "Access-Control-Allow-Origin: *\r\n\r\n"
+        )
+        writer.write(header.encode("utf-8"))
+        await writer.drain()
+        if not hasattr(self, "_sse") or not self._sse:
+            self._sse = SSEManager()
+        await self._sse.add_client(writer, initial_data=self._get_status_dict())
+
+    async def _broadcast_status_sse(self):
+        if hasattr(self, "_sse") and self._sse:
+            try:
+                data = self._get_status_dict()
+                await self._sse.broadcast("status", data)
+            except Exception:
+                pass
 
     async def _send_json(self, writer: asyncio.StreamWriter, status: int, data: dict):
         reason = {200: "OK", 204: "No Content", 400: "Bad Request", 404: "Not Found", 500: "Internal Server Error", 502: "Bad Gateway"}.get(status, "OK")

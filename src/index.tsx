@@ -109,6 +109,11 @@ interface Settings {
   normalisation_pregain?: number;
   gapless?: boolean;
   autoplay?: boolean;
+  game_audio_profiles?: Record<string, { volume: number; ducking: boolean }>;
+  auto_ducking?: boolean;
+  auto_ducking_volume?: number;
+  gamepad_chords_enabled?: boolean;
+  toast_enabled?: boolean;
 }
 
 interface LibrespotEvent {
@@ -1262,6 +1267,45 @@ const Content: FC = () => {
         </PanelSectionRow>
       </PanelSection>
 
+      <PanelSection title="Gaming & Auto-Ducking">
+        <PanelSectionRow>
+          <ToggleField
+            label="In-Game Auto-Ducking"
+            description="Automatically lowers music volume while a game is running."
+            checked={settings.auto_ducking ?? true}
+            onChange={(checked) => handleSettingChange("auto_ducking", checked)}
+          />
+        </PanelSectionRow>
+        {(settings.auto_ducking ?? true) && (
+          <PanelSectionRow>
+            <SliderField
+              label="Ducked Game Volume"
+              value={settings.auto_ducking_volume ?? 30}
+              min={5}
+              max={100}
+              step={5}
+              onChange={(value) => handleSettingChange("auto_ducking_volume", value)}
+            />
+          </PanelSectionRow>
+        )}
+        <PanelSectionRow>
+          <ToggleField
+            label="In-Game Track Change Toasts"
+            description="Show toast notification with song & artist on track change."
+            checked={settings.toast_enabled ?? true}
+            onChange={(checked) => handleSettingChange("toast_enabled", checked)}
+          />
+        </PanelSectionRow>
+        <PanelSectionRow>
+          <ToggleField
+            label="Gamepad Global Chords"
+            description="Use STEAM + D-Pad Left/Right to skip tracks during games."
+            checked={settings.gamepad_chords_enabled ?? true}
+            onChange={(checked) => handleSettingChange("gamepad_chords_enabled", checked)}
+          />
+        </PanelSectionRow>
+      </PanelSection>
+
       <PanelSection title="Settings">
         <PanelSectionRow>
           <TextField
@@ -1386,10 +1430,12 @@ export default definePlugin(() => {
 
   // 4. In-game track change toast notification
   let lastToastTrackId = "";
-  const trackSub = addEventListener<[any]>("track_metadata", (meta: any) => {
+  const trackSub = addEventListener<[any]>("track_metadata", async (meta: any) => {
     if (!meta || !meta.name || meta.track_id === lastToastTrackId) return;
     lastToastTrackId = meta.track_id;
     try {
+      const curStatus = await backendGetStatus().catch(() => null);
+      if (curStatus?.settings?.toast_enabled === false) return;
       toaster.toast({
         title: meta.name,
         body: meta.artist ? `${meta.artist}` : "Deckify",
@@ -1399,6 +1445,40 @@ export default definePlugin(() => {
     } catch {}
   });
 
+  // 5. In-game Auto-Ducking & App Lifetime Listener
+  let originalVolumeBeforeGame: number | null = null;
+  let activeGameAppId: number | null = null;
+  let appLifetimeSub: any = null;
+  try {
+    const steamApps = (window as any).SteamClient?.Apps;
+    if (steamApps?.RegisterForAppLifetimeNotifications) {
+      appLifetimeSub = steamApps.RegisterForAppLifetimeNotifications(async (ev: any) => {
+        if (!ev) return;
+        const appId = ev.unAppID || ev.nAppID;
+        const running = Boolean(ev.bRunning);
+        if (running && appId) {
+          activeGameAppId = appId;
+          const status = await backendGetStatus().catch(() => null);
+          if (!status) return;
+          const ducking = status.settings?.auto_ducking ?? true;
+          const duckVol = status.settings?.auto_ducking_volume ?? 30;
+          if (ducking && status.volume != null && status.volume > duckVol) {
+            originalVolumeBeforeGame = status.volume;
+            await backendSetVolume(duckVol);
+          }
+        } else if (!running && activeGameAppId) {
+          activeGameAppId = null;
+          if (originalVolumeBeforeGame != null) {
+            await backendSetVolume(originalVolumeBeforeGame);
+            originalVolumeBeforeGame = null;
+          }
+        }
+      });
+    }
+  } catch (err) {
+    console.debug("Deckify: AppLifetimeNotifications not available", err);
+  }
+
   return {
     name: "Deckify",
     titleView: <div className={staticClasses.Title}>Deckify</div>,
@@ -1407,6 +1487,9 @@ export default definePlugin(() => {
     onDismount() {
       console.log("Deckify dismounting");
       try {
+        if (appLifetimeSub?.unregister) {
+          appLifetimeSub.unregister();
+        }
         unregisterMenu();
         routerHook.removeRoute("/deckify");
         removeEventListener("track_metadata", trackSub);
