@@ -26,6 +26,8 @@ LIBRESPOT_PID_FILE = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, "librespot.pid
 SSL_CERT = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, "cert.pem")
 SSL_KEY = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, "key.pem")
 
+VALID_MIX_MODES = ("off", "auto", "fade", "rise", "blend", "slam")
+
 DEFAULT_SETTINGS = {
     "device_name": "",
     "bitrate": 320,
@@ -35,7 +37,8 @@ DEFAULT_SETTINGS = {
     "gapless": True,
     "autoplay": True,
     "mix_mode": "off",
-    "crossfade_seconds": 5,
+    "crossfade_seconds": 6,
+    "mixed_playlists": {},
 }
 
 # PulseAudio socket for root processes (deck user UID 1000)
@@ -258,6 +261,7 @@ class Plugin:
     _shuffle_state: bool = False
     _repeat_state: str = "off"
     _is_liked: bool = False
+    _context_uri: str = ""
     _mix_transitioning_track_id: str | None = None
     _mix_task: asyncio.Task | None = None
     # Token refresh lock (initialized in _main)
@@ -384,6 +388,17 @@ class Plugin:
         await decky.emit("librespot_status", {"running": False, "error": None})
         return {"ok": True}
 
+    def _get_active_mix_mode(self) -> str:
+        """Return the active Mix preset for the current playback context or global setting."""
+        mixed_map = self._settings.get("mixed_playlists")
+        if isinstance(mixed_map, dict) and self._context_uri.startswith("spotify:playlist:"):
+            pid = self._context_uri.split(":")[-1]
+            preset = mixed_map.get(pid)
+            if preset in VALID_MIX_MODES and preset != "off":
+                return preset
+        mode = self._settings.get("mix_mode", "off")
+        return mode if mode in VALID_MIX_MODES else "off"
+
     async def get_status(self) -> dict:
         running = self._process is not None and self._process.poll() is None
         is_playing = self._poll_play_state == "playing"
@@ -392,7 +407,7 @@ class Plugin:
         public_keys = (
             "device_name", "bitrate", "spotify_client_id",
             "normalisation", "normalisation_pregain", "gapless",
-            "autoplay", "mix_mode", "crossfade_seconds",
+            "autoplay", "mix_mode", "crossfade_seconds", "mixed_playlists",
         )
         return {
             "running": running,
@@ -408,6 +423,8 @@ class Plugin:
             "shuffle_state": self._shuffle_state,
             "repeat_state": self._repeat_state,
             "is_liked": self._is_liked,
+            "context_uri": self._context_uri,
+            "active_mix_mode": self._get_active_mix_mode(),
         }
 
     async def get_settings(self) -> dict:
@@ -422,7 +439,7 @@ class Plugin:
             value = value.strip()
             self._settings["device_name_customized"] = True
         elif key == "mix_mode":
-            if value not in ("off", "fade", "rise"):
+            if value not in VALID_MIX_MODES:
                 return {"ok": False, "error": "Invalid mix_mode"}
         elif key == "crossfade_seconds":
             try:
@@ -436,6 +453,9 @@ class Plugin:
                 value = max(-10.0, min(10.0, float(value)))
             except (TypeError, ValueError):
                 return {"ok": False, "error": "normalisation_pregain must be a number"}
+        elif key == "mixed_playlists":
+            if not isinstance(value, dict):
+                return {"ok": False, "error": "mixed_playlists must be an object"}
         self._settings[key] = value
         _save_settings(self._settings)
         decky.logger.info("Setting updated: %s = %s", key, value)
@@ -586,19 +606,57 @@ class Plugin:
             decky.logger.error("set_repeat(%s) failed: %s", state, e)
             return {"ok": False, "error": str(e)}
 
+    async def _check_tracks_liked(self, token: str, track_ids: list[str]) -> dict[str, bool]:
+        """Batch-check saved status via Spotify's /me/library/contains endpoint."""
+        clean_ids = [tid for tid in dict.fromkeys(track_ids) if tid]
+        if not clean_ids:
+            return {}
+        result: dict[str, bool] = {}
+        for i in range(0, len(clean_ids), 40):
+            chunk = clean_ids[i:i + 40]
+            uris = ",".join(f"spotify:track:{tid}" for tid in chunk)
+            try:
+                res = await _exec(
+                    _spotify_api_request, "me/library/contains", token, "GET",
+                    {"uris": uris},
+                )
+                if isinstance(res, list):
+                    for tid, flag in zip(chunk, res):
+                        result[tid] = bool(flag)
+            except Exception as e:
+                decky.logger.warning("me/library/contains check failed: %s", e)
+        return result
+
+    async def _annotate_tracks_liked(self, token: str, tracks: list[dict]) -> None:
+        ids = [t.get("id") for t in tracks if t.get("id")]
+        liked_map = await self._check_tracks_liked(token, ids)
+        for t in tracks:
+            tid = t.get("id")
+            t["is_liked"] = bool(liked_map.get(tid, False)) if tid else False
+
     async def toggle_like_track(self, track_id: str = "", liked: bool | None = None) -> dict:
         token = await self._ensure_token()
         if not token:
             return {"ok": False, "error": "Not authenticated"}
         target_id = (track_id or self._poll_track_id or "").strip()
+        if target_id.startswith("spotify:track:"):
+            target_id = target_id.split(":")[-1]
         if not target_id:
             return {"ok": False, "error": "No active track"}
-        target_liked = (not self._is_liked) if liked is None else bool(liked)
+        if liked is None:
+            if target_id == self._poll_track_id:
+                target_liked = not self._is_liked
+            else:
+                checked = await self._check_tracks_liked(token, [target_id])
+                target_liked = not checked.get(target_id, False)
+        else:
+            target_liked = bool(liked)
         method = "PUT" if target_liked else "DELETE"
+        track_uri = f"spotify:track:{target_id}"
         try:
             await _exec(
-                _spotify_api_request, "me/tracks", token, method,
-                {"ids": target_id}, {"ids": [target_id]},
+                _spotify_api_request, "me/library", token, method,
+                {"uris": track_uri},
             )
             if target_id == self._poll_track_id:
                 self._is_liked = target_liked
@@ -648,9 +706,12 @@ class Plugin:
                 formatted = _fmt(q)
                 if formatted:
                     queue_items.append(formatted)
+            curr = _fmt(data.get("currently_playing"))
+            all_to_check = ([curr] if curr else []) + queue_items
+            await self._annotate_tracks_liked(token, all_to_check)
             return {
                 "ok": True,
-                "currently_playing": _fmt(data.get("currently_playing")),
+                "currently_playing": curr,
                 "queue": queue_items,
             }
         except urllib.error.HTTPError as e:
@@ -688,15 +749,22 @@ class Plugin:
         try:
             data = await _exec(_spotify_api_request, "me/playlists", token, "GET", {"limit": 50, "offset": offset})
             items = data.get("items", []) if data else []
+            mixed_map = self._settings.get("mixed_playlists")
+            if not isinstance(mixed_map, dict):
+                mixed_map = {}
             playlists = []
             for p in items:
                 images = p.get("images") or []
+                pid = p["id"]
+                preset = mixed_map.get(pid, "off")
                 playlists.append({
-                    "id": p["id"],
+                    "id": pid,
                     "name": p.get("name", ""),
                     "image_url": _image_url(images),
                     "track_count": (p.get("items") or p.get("tracks") or {}).get("total", 0),
                     "owner_id": p.get("owner", {}).get("id", ""),
+                    "mix_enabled": preset in VALID_MIX_MODES and preset != "off",
+                    "mix_preset": preset if preset in VALID_MIX_MODES and preset != "off" else "auto",
                 })
             total = data.get("total", 0) if data else 0
             return {"ok": True, "playlists": playlists, "total": total, "offset": offset}
@@ -731,6 +799,7 @@ class Plugin:
                     "duration_ms": t.get("duration_ms", 0),
                     "image_url": _image_url(images),
                 })
+            await self._annotate_tracks_liked(token, tracks)
             total = data.get("total", 0) if data else 0
             return {"ok": True, "tracks": tracks, "total": total, "offset": offset}
         except Exception as e:
@@ -762,6 +831,7 @@ class Plugin:
                     "uri": t.get("uri", ""),
                     "duration_ms": t.get("duration_ms", 0),
                     "image_url": _image_url(images),
+                    "is_liked": True,
                 })
             total = data.get("total", 0) if data else 0
             return {"ok": True, "tracks": tracks, "total": total, "offset": offset}
@@ -853,6 +923,7 @@ class Plugin:
                     "duration_ms": t.get("duration_ms", 0),
                     "image_url": None,
                 })
+            await self._annotate_tracks_liked(token, tracks)
             total = data.get("total", 0) if data else 0
             return {"ok": True, "tracks": tracks, "total": total, "offset": offset}
         except Exception as e:
@@ -917,11 +988,27 @@ class Plugin:
         if not token:
             return {"ok": False, "error": "Not authenticated"}
         try:
-            data = await _exec(
-                _spotify_api_request,
-                f"artists/{artist_id}/top-tracks", token, "GET",
-            )
-            items = data.get("tracks", []) if data else []
+            items = []
+            try:
+                data = await _exec(
+                    _spotify_api_request,
+                    f"artists/{artist_id}/top-tracks", token, "GET",
+                )
+                items = data.get("tracks", []) if data else []
+            except urllib.error.HTTPError as e:
+                if e.code == 403:
+                    artist_info = await _exec(
+                        _spotify_api_request, f"artists/{artist_id}", token, "GET",
+                    )
+                    artist_name = (artist_info or {}).get("name", "")
+                    if artist_name:
+                        search_data = await _exec(
+                            _spotify_api_request, "search", token, "GET",
+                            {"q": f"artist:{artist_name}", "type": "track", "limit": 10},
+                        )
+                        items = (search_data or {}).get("tracks", {}).get("items", [])
+                else:
+                    raise
             tracks = []
             for t in items:
                 artists = ", ".join(a["name"] for a in t.get("artists", []))
@@ -935,6 +1022,7 @@ class Plugin:
                     "duration_ms": t.get("duration_ms", 0),
                     "image_url": _image_url(images),
                 })
+            await self._annotate_tracks_liked(token, tracks)
             return {"ok": True, "tracks": tracks}
         except Exception as e:
             decky.logger.error("get_artist_top_tracks failed: %s", e)
@@ -972,6 +1060,7 @@ class Plugin:
                     "duration_ms": t.get("duration_ms", 0),
                     "image_url": _image_url(images),
                 })
+            await self._annotate_tracks_liked(token, tracks)
             return {"ok": True, "tracks": tracks}
         except Exception as e:
             decky.logger.error("get_recently_played failed: %s", e)
@@ -998,6 +1087,7 @@ class Plugin:
                     "duration_ms": t.get("duration_ms", 0),
                     "image_url": _image_url(images),
                 })
+            await self._annotate_tracks_liked(token, tracks)
             artists_out = []
             for a in data.get("artists", {}).get("items", []):
                 images = a.get("images") or []
@@ -1014,16 +1104,23 @@ class Plugin:
                     "image_url": _image_url(images),
                     "track_count": a.get("total_tracks", 0), "uri": a.get("uri", ""),
                 })
+            mixed_map = self._settings.get("mixed_playlists")
+            if not isinstance(mixed_map, dict):
+                mixed_map = {}
             playlists_out = []
             for p in data.get("playlists", {}).get("items", []):
                 if p is None:
                     continue
                 images = p.get("images") or []
+                pid = p["id"]
+                preset = mixed_map.get(pid, "off")
                 playlists_out.append({
-                    "id": p["id"], "name": p.get("name", ""),
+                    "id": pid, "name": p.get("name", ""),
                     "image_url": _image_url(images),
                     "track_count": (p.get("items") or p.get("tracks") or {}).get("total", 0),
                     "owner_id": p.get("owner", {}).get("id", ""),
+                    "mix_enabled": preset in VALID_MIX_MODES and preset != "off",
+                    "mix_preset": preset if preset in VALID_MIX_MODES and preset != "off" else "auto",
                 })
             return {"ok": True, "tracks": tracks, "artists": artists_out, "albums": albums_out, "playlists": playlists_out}
         except Exception as e:
@@ -1039,6 +1136,7 @@ class Plugin:
             body["context_uri"] = context_uri
             if offset_uri:
                 body["offset"] = {"uri": offset_uri}
+            self._context_uri = context_uri
         elif uris:
             body["uris"] = uris
             if position > 0:
@@ -1064,19 +1162,64 @@ class Plugin:
             decky.logger.error("play_tracks failed: %s", e)
             return {"ok": False, "error": str(e)}
 
+    async def toggle_playlist_mix(
+        self,
+        playlist_id: str,
+        enabled: bool | None = None,
+        preset: str = "auto",
+    ) -> dict:
+        """Toggle or update Spotify Playlist Mix mode for a specific playlist."""
+        pid = (playlist_id or "").strip()
+        if pid.startswith("spotify:playlist:"):
+            pid = pid.split(":")[-1]
+        if not pid:
+            return {"ok": False, "error": "Missing playlist_id"}
+        mixed_map = self._settings.get("mixed_playlists")
+        if not isinstance(mixed_map, dict):
+            mixed_map = {}
+        else:
+            mixed_map = dict(mixed_map)
+        current_enabled = pid in mixed_map and mixed_map[pid] != "off"
+        target_enabled = (not current_enabled) if enabled is None else bool(enabled)
+        chosen_preset = preset if preset in VALID_MIX_MODES and preset != "off" else mixed_map.get(pid, "auto")
+        if chosen_preset not in VALID_MIX_MODES or chosen_preset == "off":
+            chosen_preset = "auto"
+        if target_enabled:
+            mixed_map[pid] = chosen_preset
+        else:
+            mixed_map.pop(pid, None)
+        self._settings["mixed_playlists"] = mixed_map
+        _save_settings(self._settings)
+        decky.logger.info("Playlist Mix updated: playlist=%s enabled=%s preset=%s", pid, target_enabled, chosen_preset)
+        return {
+            "ok": True,
+            "playlist_id": pid,
+            "mix_enabled": target_enabled,
+            "mix_preset": chosen_preset if target_enabled else "off",
+            "mixed_playlists": mixed_map,
+        }
+
     async def start_mix_play(
         self,
         context_uri: str | None = None,
         uris: list | None = None,
-        mix_mode: str = "fade",
+        mix_mode: str = "auto",
         crossfade_seconds: int = 6,
-        shuffle: bool = True,
+        shuffle: bool = False,
     ) -> dict:
-        """Enable Mix Mode transitions, optionally set shuffle, and start playback."""
-        if mix_mode in ("fade", "rise"):
-            self._settings["mix_mode"] = mix_mode
-        elif self._settings.get("mix_mode", "off") == "off":
-            self._settings["mix_mode"] = "fade"
+        """Start Spotify Playlist Mix playback in sequence with the selected transition preset."""
+        chosen_mode = mix_mode if mix_mode in VALID_MIX_MODES and mix_mode != "off" else "auto"
+        if context_uri and context_uri.startswith("spotify:playlist:"):
+            pid = context_uri.split(":")[-1]
+            mixed_map = self._settings.get("mixed_playlists")
+            if not isinstance(mixed_map, dict):
+                mixed_map = {}
+            else:
+                mixed_map = dict(mixed_map)
+            mixed_map[pid] = chosen_mode
+            self._settings["mixed_playlists"] = mixed_map
+        else:
+            self._settings["mix_mode"] = chosen_mode
         if crossfade_seconds > 0:
             self._settings["crossfade_seconds"] = max(1, min(12, int(crossfade_seconds)))
         _save_settings(self._settings)
@@ -1084,13 +1227,14 @@ class Plugin:
         play_res = await self.play_tracks(context_uri=context_uri, uris=uris)
         if not play_res.get("ok"):
             return play_res
-        if shuffle:
-            await self.set_shuffle(True)
+        # In Spotify Playlist Mix, playlists play in their mixed track sequence (shuffle off by default)
+        await self.set_shuffle(bool(shuffle))
         return {
             "ok": True,
-            "mix_mode": self._settings["mix_mode"],
+            "mix_mode": chosen_mode,
             "crossfade_seconds": self._settings["crossfade_seconds"],
             "shuffle_state": self._shuffle_state,
+            "mixed_playlists": self._settings.get("mixed_playlists", {}),
         }
 
     # ── Device callable methods ─────────────────────────────────
@@ -1333,25 +1477,34 @@ class Plugin:
                 await self._send_json(writer, 200, result)
             elif path == "/api/mix" and method == "POST":
                 b = body_json or {}
-                for k in ("mix_mode", "crossfade_seconds", "normalisation", "gapless", "autoplay"):
+                for k in ("mix_mode", "crossfade_seconds", "normalisation", "gapless", "autoplay", "mixed_playlists"):
                     if k in b:
                         await self.set_setting(k, b[k])
                 await self._send_json(writer, 200, {
                     "ok": True,
                     "mix_mode": self._settings.get("mix_mode", "off"),
-                    "crossfade_seconds": self._settings.get("crossfade_seconds", 5),
+                    "active_mix_mode": self._get_active_mix_mode(),
+                    "crossfade_seconds": self._settings.get("crossfade_seconds", 6),
                     "normalisation": self._settings.get("normalisation", True),
                     "gapless": self._settings.get("gapless", True),
                     "autoplay": self._settings.get("autoplay", True),
+                    "mixed_playlists": self._settings.get("mixed_playlists", {}),
                 })
+            elif path == "/api/playlist-mix" and method == "POST":
+                b = body_json or {}
+                pid = str(b.get("playlist_id") or qs.get("playlist_id", [""])[0])
+                enabled = b.get("enabled")
+                preset = str(b.get("preset") or qs.get("preset", ["auto"])[0])
+                result = await self.toggle_playlist_mix(pid, enabled, preset)
+                await self._send_json(writer, 200, result)
             elif path == "/api/mix-play" and method == "POST":
                 b = body_json or {}
                 result = await self.start_mix_play(
                     context_uri=b.get("context_uri"),
                     uris=b.get("uris"),
-                    mix_mode=b.get("mix_mode", "fade"),
+                    mix_mode=b.get("mix_mode", "auto"),
                     crossfade_seconds=int(b.get("crossfade_seconds", self._settings.get("crossfade_seconds", 6))),
-                    shuffle=bool(b.get("shuffle", True)),
+                    shuffle=bool(b.get("shuffle", False)),
                 )
                 await self._send_json(writer, 200, result)
             elif path == "/api/search" and method == "GET":
@@ -1432,13 +1585,16 @@ class Plugin:
             "shuffle_state": self._shuffle_state,
             "repeat_state": self._repeat_state,
             "is_liked": self._is_liked,
+            "context_uri": self._context_uri,
             "active_device": self._active_device,
             "mix_settings": {
                 "mix_mode": self._settings.get("mix_mode", "off"),
-                "crossfade_seconds": self._settings.get("crossfade_seconds", 5),
+                "active_mix_mode": self._get_active_mix_mode(),
+                "crossfade_seconds": self._settings.get("crossfade_seconds", 6),
                 "normalisation": self._settings.get("normalisation", True),
                 "gapless": self._settings.get("gapless", True),
                 "autoplay": self._settings.get("autoplay", True),
+                "mixed_playlists": self._settings.get("mixed_playlists", {}),
             },
         }
         await self._send_json(writer, 200, data)
@@ -1841,6 +1997,8 @@ class Plugin:
         progress_ms = data.get("progress_ms", 0)
         track_id = item.get("id", "")
         duration_ms = item.get("duration_ms", 0)
+        ctx = data.get("context") or {}
+        self._context_uri = ctx.get("uri", "") if isinstance(ctx, dict) else ""
 
         shuffle_state = bool(data.get("shuffle_state", False))
         repeat_state = data.get("repeat_state", "off")
@@ -1856,15 +2014,8 @@ class Plugin:
             self._poll_track_id = track_id
             is_liked = False
             if track_id and item.get("type") != "episode":
-                try:
-                    liked_res = await _exec(
-                        _spotify_api_request, "me/tracks/contains", token, "GET",
-                        {"ids": track_id},
-                    )
-                    if isinstance(liked_res, list) and len(liked_res) > 0:
-                        is_liked = bool(liked_res[0])
-                except Exception:
-                    is_liked = False
+                checked = await self._check_tracks_liked(token, [track_id])
+                is_liked = bool(checked.get(track_id, False))
             self._is_liked = is_liked
 
             if item.get("type") == "episode":
@@ -1892,11 +2043,11 @@ class Plugin:
             await decky.emit("track_metadata", meta)
 
         # Trigger Mix / Crossfade transition when approaching end of track
-        mix_mode = self._settings.get("mix_mode", "off")
+        mix_mode = self._get_active_mix_mode()
         crossfade_sec = int(self._settings.get("crossfade_seconds", 0) or 0)
         if (
             is_playing
-            and mix_mode in ("fade", "rise")
+            and mix_mode in ("auto", "fade", "rise", "blend", "slam")
             and crossfade_sec > 0
             and duration_ms > (crossfade_sec * 2000 + 5000)
             and track_id
@@ -1998,36 +2149,64 @@ class Plugin:
             self._pa_volume_boosted = True
 
     async def _run_mix_transition(self, track_id: str, remaining_ms: int, crossfade_ms: int, mix_mode: str):
-        """Perform smooth volume fade-out, advance track, and ramp volume back up."""
+        """Perform Spotify Mix transition (auto, fade, rise, blend, slam) across track handoff."""
         try:
-            wait_ms = max(0, remaining_ms - crossfade_ms)
+            # Preset-specific timing & envelope parameters
+            # auto: trims dead air (~5s before end, cues ~2.5s into next track)
+            # fade: full smooth volume fade out/in from 0:00
+            # rise: holds energy longer, cues ~3.5s into next track, rapid swell
+            # blend: extended balanced envelope, cues ~1.5s into next track
+            # slam: tight DJ cut 3s before end -> cues ~2.5s into next track with minimal dip
+            preset_cfg = {
+                "auto":  {"window_scale": 0.85, "min_vol": 45,  "out_steps": 5, "in_steps": 4, "cue_ms": 2500},
+                "fade":  {"window_scale": 1.00, "min_vol": 30,  "out_steps": 6, "in_steps": 6, "cue_ms": 0},
+                "rise":  {"window_scale": 0.70, "min_vol": 60,  "out_steps": 4, "in_steps": 3, "cue_ms": 3500},
+                "blend": {"window_scale": 1.15, "min_vol": 50,  "out_steps": 6, "in_steps": 6, "cue_ms": 1500},
+                "slam":  {"window_scale": 0.45, "min_vol": 110, "out_steps": 2, "in_steps": 2, "cue_ms": 2500},
+            }.get(mix_mode, {"window_scale": 0.85, "min_vol": 45, "out_steps": 5, "in_steps": 4, "cue_ms": 2000})
+
+            effective_window_ms = int(max(1500, crossfade_ms * preset_cfg["window_scale"]))
+            wait_ms = max(0, remaining_ms - effective_window_ms)
             if wait_ms > 0:
                 await asyncio.sleep(wait_ms / 1000.0)
             if self._poll_track_id != track_id or self._poll_play_state != "playing":
                 return
 
-            decky.logger.info("Mix transition (%s, %.1fs) starting for track %s", mix_mode, crossfade_ms / 1000.0, track_id)
-            half_sec = max(0.5, (crossfade_ms / 1000.0) / 2.0)
-            steps = 5
-            step_delay = half_sec / steps
+            decky.logger.info(
+                "Mix transition (preset=%s, window=%.1fs) starting for track %s",
+                mix_mode, effective_window_ms / 1000.0, track_id,
+            )
+            half_sec = max(0.3, (effective_window_ms / 1000.0) / 2.0)
+            out_steps = preset_cfg["out_steps"]
+            min_vol = preset_cfg["min_vol"]
+            step_delay = half_sec / out_steps
 
-            # Fade out current track on local PulseAudio sink
-            for i in range(1, steps + 1):
+            # 1. Fade out outgoing track on local PulseAudio sink
+            for i in range(1, out_steps + 1):
                 if self._poll_track_id != track_id:
                     break
-                vol = int(150 - (115 * (i / steps)))  # 150% -> 35%
+                vol = int(150 - ((150 - min_vol) * (i / out_steps)))
                 await self._set_pa_volume_percent(vol)
                 await asyncio.sleep(step_delay)
 
-            # Advance to next track if still on the outgoing track
+            # 2. Advance to incoming track if still on outgoing track
             if self._poll_track_id == track_id and self._poll_play_state == "playing":
                 await self.control_playback("next")
+                await asyncio.sleep(0.35)
 
-            # Fade in incoming track
-            in_steps = 3 if mix_mode == "rise" else steps
-            in_delay = (half_sec * 0.6 if mix_mode == "rise" else half_sec) / in_steps
+            # 3. Cue incoming track past intro dead-air when preset specifies cue_ms
+            cue_ms = preset_cfg["cue_ms"]
+            if cue_ms > 0:
+                try:
+                    await self.seek_playback(cue_ms)
+                except Exception:
+                    pass
+
+            # 4. Ramp volume up on incoming track
+            in_steps = preset_cfg["in_steps"]
+            in_delay = (half_sec * 0.65 if mix_mode in ("rise", "slam") else half_sec) / in_steps
             for i in range(1, in_steps + 1):
-                vol = int(45 + (105 * (i / in_steps)))  # 45% -> 150%
+                vol = int(min_vol + ((150 - min_vol) * (i / in_steps)))
                 await self._set_pa_volume_percent(vol)
                 await asyncio.sleep(in_delay)
         except asyncio.CancelledError:

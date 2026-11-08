@@ -4,6 +4,7 @@ import {
   FaChevronLeft,
   FaMusic,
   FaHeart,
+  FaRegHeart,
   FaPodcast,
   FaUser,
   FaCompactDisc,
@@ -30,11 +31,14 @@ import {
   addToQueue,
   setShuffle,
   startMixPlay,
+  togglePlaylistMix,
+  toggleLikeTrack,
   type Playlist,
   type PlaylistTrack,
   type Album,
   type Artist,
   type Episode,
+  type MixMode,
 } from "./api";
 import { formatMs } from "./utils";
 
@@ -77,6 +81,8 @@ export default function Sidebar({ open, onClose, onToast }: Props) {
 
   // Context for play action
   const [activeContextId, setActiveContextId] = useState<string | null>(null);
+  const [activePlaylistMixEnabled, setActivePlaylistMixEnabled] = useState(false);
+  const [activePlaylistMixPreset, setActivePlaylistMixPreset] = useState<MixMode>("auto");
 
   const drillReqId = useRef(0);
 
@@ -131,6 +137,8 @@ export default function Sidebar({ open, onClose, onToast }: Props) {
     setDrillTitle(pl.name);
     setDrillSubtitle(`${pl.track_count} tracks`);
     setActiveContextId(pl.id);
+    setActivePlaylistMixEnabled(Boolean(pl.mix_enabled));
+    setActivePlaylistMixPreset((pl.mix_preset as MixMode) || "auto");
     setTracks([]);
     setTracksOffset(0);
     setLoadingTracks(true);
@@ -319,19 +327,53 @@ export default function Sidebar({ open, onClose, onToast }: Props) {
     onToast?.(shuffle ? `Shuffling ${drillTitle}` : `Playing ${drillTitle}`);
   }, [view, activeContextId, tracks, drillTitle, onToast]);
 
-  const handleMixPlay = useCallback(async () => {
-    const contextUri =
-      view === "playlist" && activeContextId
-        ? `spotify:playlist:${activeContextId}`
-        : view === "album" && activeContextId
-        ? `spotify:album:${activeContextId}`
-        : undefined;
-    const uris = !contextUri && tracks.length > 0 ? tracks.map((t) => t.uri) : undefined;
-    const res = await startMixPlay({ context_uri: contextUri, uris, mix_mode: "fade", crossfade_seconds: 6, shuffle: true });
-    if (res.ok) {
-      onToast?.(`Mix Mode started for ${drillTitle}`);
+  const handleMixPlay = useCallback(async (presetOverride?: MixMode) => {
+    const preset = presetOverride ?? activePlaylistMixPreset ?? "auto";
+    if (view === "playlist" && activeContextId) {
+      const nextEnabled = presetOverride ? true : !activePlaylistMixEnabled;
+      const res = await togglePlaylistMix(activeContextId, nextEnabled, preset);
+      if (res.ok) {
+        setActivePlaylistMixEnabled(Boolean(res.mix_enabled));
+        setActivePlaylistMixPreset((res.mix_preset as MixMode) || preset);
+        const upd = (list: Playlist[]) =>
+          list.map((p) => (p.id === activeContextId ? { ...p, mix_enabled: res.mix_enabled, mix_preset: res.mix_preset } : p));
+        setPlaylists(upd);
+        setMadeForYou(upd);
+        if (nextEnabled) {
+          await startMixPlay({
+            context_uri: `spotify:playlist:${activeContextId}`,
+            mix_mode: preset,
+            crossfade_seconds: 6,
+            shuffle: false,
+          });
+          onToast?.(`Mix enabled (${preset.toUpperCase()}) for ${drillTitle}`);
+        } else {
+          onToast?.(`Mix disabled for ${drillTitle}`);
+        }
+      }
+      return;
     }
-  }, [view, activeContextId, tracks, drillTitle, onToast]);
+    const contextUri = view === "album" && activeContextId ? `spotify:album:${activeContextId}` : undefined;
+    const uris = !contextUri && tracks.length > 0 ? tracks.map((t) => t.uri) : undefined;
+    const res = await startMixPlay({ context_uri: contextUri, uris, mix_mode: preset, crossfade_seconds: 6, shuffle: false });
+    if (res.ok) {
+      onToast?.(`Mix Mode (${preset.toUpperCase()}) started for ${drillTitle}`);
+    }
+  }, [view, activeContextId, activePlaylistMixEnabled, activePlaylistMixPreset, tracks, drillTitle, onToast]);
+
+  const handleToggleTrackLike = useCallback(async (e: React.MouseEvent, t: PlaylistTrack) => {
+    e.stopPropagation();
+    if (!t.id) return;
+    const nextLiked = !t.is_liked;
+    const res = await toggleLikeTrack(t.id, nextLiked);
+    if (res.ok) {
+      const upd = (list: PlaylistTrack[]) =>
+        list.map((x) => (x.id === t.id ? { ...x, is_liked: res.is_liked } : x));
+      setTracks(upd);
+      setArtistTopTracks(upd);
+      onToast?.(res.is_liked ? `Saved "${t.name}"` : `Removed "${t.name}"`);
+    }
+  }, [onToast]);
 
   const handleQueueTrack = useCallback(async (e: React.MouseEvent, t: PlaylistTrack) => {
     e.stopPropagation();
@@ -380,6 +422,11 @@ export default function Sidebar({ open, onClose, onToast }: Props) {
         <div className="text-sm font-medium truncate">{pl.name}</div>
         <div className="text-xs text-neutral-500">{pl.track_count} tracks</div>
       </div>
+      {pl.mix_enabled && (
+        <span className="text-[10px] font-bold bg-green-500/20 text-green-400 border border-green-500/40 px-1.5 py-0.5 rounded shrink-0">
+          MIX {(pl.mix_preset || "auto").toUpperCase()}
+        </span>
+      )}
     </button>
   );
 
@@ -512,13 +559,24 @@ export default function Sidebar({ open, onClose, onToast }: Props) {
                         <div className="text-sm truncate">{t.name}</div>
                         <div className="text-xs text-neutral-500 truncate">{t.album}</div>
                       </div>
-                      <button
-                        onClick={(e) => handleQueueTrack(e, t)}
-                        className="p-1.5 text-neutral-500 hover:text-green-400"
-                        title="Add to Queue"
-                      >
-                        <FaPlus size={11} />
-                      </button>
+                      <div className="flex items-center gap-1 shrink-0">
+                        {t.id && (
+                          <button
+                            onClick={(e) => handleToggleTrackLike(e, t)}
+                            className={`p-1.5 transition-colors ${t.is_liked ? "text-green-500" : "text-neutral-500 hover:text-white"}`}
+                            title={t.is_liked ? "Remove from Liked Songs" : "Save to Liked Songs"}
+                          >
+                            {t.is_liked ? <FaHeart size={12} /> : <FaRegHeart size={12} />}
+                          </button>
+                        )}
+                        <button
+                          onClick={(e) => handleQueueTrack(e, t)}
+                          className="p-1.5 text-neutral-500 hover:text-green-400"
+                          title="Add to Queue"
+                        >
+                          <FaPlus size={11} />
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </>
@@ -556,26 +614,52 @@ export default function Sidebar({ open, onClose, onToast }: Props) {
                   {drillSubtitle && <div className="text-xs text-neutral-500">{drillSubtitle}</div>}
                 </div>
                 {tracks.length > 0 && (
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => handlePlayAll(false)}
-                      className="flex-1 flex items-center justify-center gap-1.5 bg-white text-black text-xs font-semibold py-1.5 px-2.5 rounded-lg hover:bg-neutral-200 transition-colors"
-                    >
-                      <FaPlay size={10} /> Play
-                    </button>
-                    <button
-                      onClick={() => handlePlayAll(true)}
-                      className="flex-1 flex items-center justify-center gap-1.5 bg-neutral-800 text-white text-xs font-medium py-1.5 px-2.5 rounded-lg hover:bg-neutral-700 transition-colors"
-                    >
-                      <FaRandom size={11} /> Shuffle
-                    </button>
-                    <button
-                      onClick={handleMixPlay}
-                      className="flex-1 flex items-center justify-center gap-1.5 bg-green-500 text-black text-xs font-semibold py-1.5 px-2.5 rounded-lg hover:bg-green-400 transition-colors"
-                      title="Start with Mix Crossfade & Shuffle"
-                    >
-                      <FaSlidersH size={11} /> Mix
-                    </button>
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => handlePlayAll(false)}
+                        className="flex-1 flex items-center justify-center gap-1.5 bg-white text-black text-xs font-semibold py-1.5 px-2.5 rounded-lg hover:bg-neutral-200 transition-colors"
+                      >
+                        <FaPlay size={10} /> Play
+                      </button>
+                      <button
+                        onClick={() => handlePlayAll(true)}
+                        className="flex-1 flex items-center justify-center gap-1.5 bg-neutral-800 text-white text-xs font-medium py-1.5 px-2.5 rounded-lg hover:bg-neutral-700 transition-colors"
+                      >
+                        <FaRandom size={11} /> Shuffle
+                      </button>
+                      <button
+                        onClick={() => handleMixPlay()}
+                        className={`flex-1 flex items-center justify-center gap-1.5 text-xs font-semibold py-1.5 px-2.5 rounded-lg transition-colors ${
+                          view === "playlist" && activePlaylistMixEnabled
+                            ? "bg-green-500 text-black hover:bg-green-400"
+                            : "bg-neutral-800 text-green-400 border border-green-500/40 hover:bg-neutral-700"
+                        }`}
+                        title="Toggle Spotify Playlist Mix"
+                      >
+                        <FaSlidersH size={11} />{" "}
+                        {view === "playlist" && activePlaylistMixEnabled
+                          ? `Mix: ${activePlaylistMixPreset.toUpperCase()}`
+                          : "Mix"}
+                      </button>
+                    </div>
+                    {view === "playlist" && activePlaylistMixEnabled && (
+                      <div className="flex items-center gap-1 pt-0.5">
+                        {(["auto", "fade", "rise", "blend", "slam"] as MixMode[]).map((preset) => (
+                          <button
+                            key={preset}
+                            onClick={() => handleMixPlay(preset)}
+                            className={`flex-1 py-1 rounded text-[10px] font-semibold uppercase transition-colors ${
+                              activePlaylistMixPreset === preset
+                                ? "bg-green-500 text-black"
+                                : "bg-neutral-800 text-neutral-400 hover:text-white"
+                            }`}
+                          >
+                            {preset}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -589,8 +673,17 @@ export default function Sidebar({ open, onClose, onToast }: Props) {
                     <div className="text-sm truncate">{t.name}</div>
                     <div className="text-xs text-neutral-500 truncate">{t.artist}</div>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
+                  <div className="flex items-center gap-1.5 shrink-0">
                     <span className="text-xs text-neutral-600">{formatMs(t.duration_ms)}</span>
+                    {t.id && (
+                      <button
+                        onClick={(e) => handleToggleTrackLike(e, t)}
+                        className={`p-1.5 transition-colors ${t.is_liked ? "text-green-500" : "text-neutral-500 hover:text-white"}`}
+                        title={t.is_liked ? "Remove from Liked Songs" : "Save to Liked Songs"}
+                      >
+                        {t.is_liked ? <FaHeart size={12} /> : <FaRegHeart size={12} />}
+                      </button>
+                    )}
                     <button
                       onClick={(e) => handleQueueTrack(e, t)}
                       className="p-1.5 text-neutral-500 hover:text-green-400 transition-colors"

@@ -374,13 +374,18 @@ export default function App() {
             </button>
           </div>
           <div>
-            <label className="text-xs text-neutral-400 block mb-1.5">Transition Style</label>
+            <label className="text-xs text-neutral-400 block mb-1.5">
+              Spotify Mix Transition Preset
+            </label>
             <div className="grid grid-cols-3 gap-1.5">
               {(
                 [
-                  { id: "off", label: "Off" },
-                  { id: "fade", label: "Smooth Fade" },
-                  { id: "rise", label: "Quick Rise" },
+                  { id: "off", label: "Playlist Only" },
+                  { id: "auto", label: "Auto Blend" },
+                  { id: "fade", label: "Fade" },
+                  { id: "rise", label: "Rise" },
+                  { id: "blend", label: "Blend" },
+                  { id: "slam", label: "Slam Cut" },
                 ] as const
               ).map((opt) => (
                 <button
@@ -398,22 +403,20 @@ export default function App() {
             </div>
           </div>
 
-          {mixSettings.mix_mode !== "off" && (
-            <div>
-              <div className="flex justify-between text-xs text-neutral-400 mb-1">
-                <span>Crossfade Overlap</span>
-                <span className="text-green-400 font-medium">{mixSettings.crossfade_seconds}s</span>
-              </div>
-              <input
-                type="range"
-                min={1}
-                max={12}
-                value={mixSettings.crossfade_seconds}
-                onChange={(e) => handleMixChange({ crossfade_seconds: Number(e.target.value) })}
-                className="w-full h-1.5 bg-neutral-800 rounded-full appearance-none cursor-pointer accent-green-500"
-              />
+          <div>
+            <div className="flex justify-between text-xs text-neutral-400 mb-1">
+              <span>Transition Overlap Window</span>
+              <span className="text-green-400 font-medium">{mixSettings.crossfade_seconds}s</span>
             </div>
-          )}
+            <input
+              type="range"
+              min={1}
+              max={12}
+              value={mixSettings.crossfade_seconds}
+              onChange={(e) => handleMixChange({ crossfade_seconds: Number(e.target.value) })}
+              className="w-full h-1.5 bg-neutral-800 rounded-full appearance-none cursor-pointer accent-green-500"
+            />
+          </div>
 
           <div className="space-y-2 pt-1 border-t border-neutral-800 text-xs">
             <label className="flex items-center justify-between cursor-pointer">
@@ -531,9 +534,9 @@ export default function App() {
             <FaPlay className="text-neutral-600 text-4xl" />
           </div>
         )}
-        {mixSettings.mix_mode !== "off" && (
+        {(mixSettings.active_mix_mode ?? mixSettings.mix_mode) !== "off" && (
           <span className="absolute -bottom-2 right-2 bg-green-500 text-black text-[10px] font-bold px-2 py-0.5 rounded-full shadow">
-            MIX {mixSettings.crossfade_seconds}s
+            MIX {(mixSettings.active_mix_mode ?? mixSettings.mix_mode).toUpperCase()} {mixSettings.crossfade_seconds}s
           </span>
         )}
       </div>

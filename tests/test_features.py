@@ -54,6 +54,27 @@ class DeckifyFeatureTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(res["is_liked"])
         self.assertTrue(self.plugin._is_liked)
         self.assertTrue(self.plugin._track_meta["is_liked"])
+        self.execute.assert_awaited_once_with(
+            main._spotify_api_request,
+            "me/library",
+            "valid-token",
+            "PUT",
+            {"uris": "spotify:track:track-123"},
+        )
+
+    async def test_playlist_mix_toggle_and_presets(self):
+        for preset in ("auto", "fade", "rise", "blend", "slam"):
+            res = await self.plugin.toggle_playlist_mix("pl-1", True, preset)
+            self.assertTrue(res["ok"])
+            self.assertTrue(res["mix_enabled"])
+            self.assertEqual(res["mix_preset"], preset)
+            self.plugin._context_uri = "spotify:playlist:pl-1"
+            self.assertEqual(self.plugin._get_active_mix_mode(), preset)
+
+        off_res = await self.plugin.toggle_playlist_mix("pl-1", False)
+        self.assertTrue(off_res["ok"])
+        self.assertFalse(off_res["mix_enabled"])
+        self.assertEqual(self.plugin._get_active_mix_mode(), "off")
 
     async def test_queue_and_add_to_queue(self):
         self.execute.return_value = {
@@ -111,7 +132,8 @@ class DeckifyFeatureTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(cmd[cmd.index("--autoplay") + 1], "on")
 
     async def test_mix_settings_validation(self):
-        self.assertTrue((await self.plugin.set_setting("mix_mode", "fade"))["ok"])
+        for mode in ("off", "auto", "fade", "rise", "blend", "slam"):
+            self.assertTrue((await self.plugin.set_setting("mix_mode", mode))["ok"])
         self.assertFalse((await self.plugin.set_setting("mix_mode", "invalid"))["ok"])
         self.assertTrue((await self.plugin.set_setting("crossfade_seconds", 99))["ok"])
         self.assertEqual(self.plugin._settings["crossfade_seconds"], 12)

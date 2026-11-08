@@ -14,12 +14,16 @@ export interface TrackMeta {
   is_liked?: boolean;
 }
 
+export type MixMode = "off" | "auto" | "fade" | "rise" | "blend" | "slam";
+
 export interface MixSettings {
-  mix_mode: "off" | "fade" | "rise";
+  mix_mode: MixMode;
+  active_mix_mode?: MixMode;
   crossfade_seconds: number;
   normalisation: boolean;
   gapless: boolean;
   autoplay: boolean;
+  mixed_playlists?: Record<string, string>;
 }
 
 export interface SpotifyDevice {
@@ -105,13 +109,40 @@ export async function updateMixSettings(settings: Partial<MixSettings>): Promise
   return jsonOrThrow(res);
 }
 
+export async function togglePlaylistMix(
+  playlistId: string,
+  enabled?: boolean,
+  preset = "auto",
+): Promise<{
+  ok: boolean;
+  playlist_id?: string;
+  mix_enabled?: boolean;
+  mix_preset?: string;
+  mixed_playlists?: Record<string, string>;
+  error?: string;
+}> {
+  const res = await fetch("/api/playlist-mix", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ playlist_id: playlistId, enabled, preset }),
+  });
+  return jsonOrThrow(res);
+}
+
 export async function startMixPlay(params: {
   context_uri?: string;
   uris?: string[];
-  mix_mode?: "fade" | "rise";
+  mix_mode?: MixMode;
   crossfade_seconds?: number;
   shuffle?: boolean;
-}): Promise<{ ok: boolean; mix_mode?: string; crossfade_seconds?: number; shuffle_state?: boolean; error?: string }> {
+}): Promise<{
+  ok: boolean;
+  mix_mode?: string;
+  crossfade_seconds?: number;
+  shuffle_state?: boolean;
+  mixed_playlists?: Record<string, string>;
+  error?: string;
+}> {
   const res = await fetch("/api/mix-play", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -128,6 +159,8 @@ export interface Playlist {
   image_url: string | null;
   track_count: number;
   owner_id: string;
+  mix_enabled?: boolean;
+  mix_preset?: string;
 }
 
 export interface PlaylistTrack {
@@ -138,6 +171,7 @@ export interface PlaylistTrack {
   uri: string;
   duration_ms: number;
   image_url: string | null;
+  is_liked?: boolean;
 }
 
 export interface PlaylistsResponse {
