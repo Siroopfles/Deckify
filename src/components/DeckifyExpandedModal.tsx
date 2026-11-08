@@ -277,26 +277,13 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const toastTimer = useRef<any>(null);
 
-  const contentContainerRef = useRef<HTMLDivElement>(null);
+  const activePlaylistRef = useRef<PlaylistItem | null>(null);
+  activePlaylistRef.current = activePlaylist;
 
   const showToast = useCallback((msg: string) => {
     setToastMsg(msg);
     if (toastTimer.current) clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToastMsg(null), 3000);
-  }, []);
-
-  // Programmatically focus the right content panel on category select
-  const focusContent = useCallback(() => {
-    setTimeout(() => {
-      const container = contentContainerRef.current;
-      if (!container) return;
-      const el = container.querySelector(
-        "[data-focusable='true'], button, [tabindex='0'], .Focusable"
-      ) as HTMLElement;
-      if (el) {
-        el.focus();
-      }
-    }, 50);
   }, []);
 
   // Poll status
@@ -364,8 +351,7 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
       }
     } catch {}
     setLoadingTracks(false);
-    focusContent();
-  }, [focusContent]);
+  }, []);
 
   // Search
   useEffect(() => {
@@ -455,57 +441,28 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
     refreshStatus();
   }, [showToast, refreshStatus]);
 
-  // Switch category and focus content panel
+  // Switch category
   const handleSelectMode = useCallback((id: ViewMode) => {
     setActivePlaylist(null);
     setMode(id);
-    focusContent();
-  }, [focusContent]);
+  }, []);
 
-  // Controller physical button shortcut router
-  const lastBtnTime = useRef(0);
-  const handleGamepadButton = useCallback((button: number) => {
-    const now = Date.now();
-    if (now - lastBtnTime.current < 160) return;
-    lastBtnTime.current = now;
-
-    if (button === 1) { // B button
-      if (activePlaylist) {
-        setActivePlaylist(null);
-        focusContent();
-      } else {
-        closeModal?.();
-      }
-    } else if (button === 2) { // X button -> Like
-      handleToggleLike();
-    } else if (button === 5) { // LB -> Previous
-      handlePrev();
-    } else if (button === 6) { // RB -> Next
-      handleNext();
-    } else if (button === 10 || button === 36) { // Start/Menu -> Play/Pause
-      handlePlayPause();
-    }
-  }, [activePlaylist, closeModal, handleToggleLike, handlePrev, handleNext, handlePlayPause, focusContent]);
-
-  // Attach native SteamOS gamepad event listeners at the DOM boundary
+  // Handle B button in subpages (like open playlists)
   const attachNav = useCallback((el: HTMLDivElement | null) => {
     if (!el || (el as any).__deckifyNavAttached) return;
     (el as any).__deckifyNavAttached = true;
 
     el.addEventListener("vgp_oncancel", (e: Event) => {
-      e.preventDefault();
-      e.stopPropagation();
-      (e as any).stopImmediatePropagation?.();
-      handleGamepadButton(1);
-    }, true);
-
-    el.addEventListener("vgp_onbuttondown", (e: any) => {
-      const b = e?.detail?.button;
-      if (typeof b === "number") {
-        handleGamepadButton(b);
+      // If inside an open playlist, pressing B backs out to the playlist list
+      if (activePlaylistRef.current) {
+        e.preventDefault();
+        e.stopPropagation();
+        (e as any).stopImmediatePropagation?.();
+        setActivePlaylist(null);
       }
+      // If at root, do not preventDefault: Steam will naturally close the modal
     }, true);
-  }, [handleGamepadButton]);
+  }, []);
 
   const isPlaying = status?.is_playing;
   const track = status?.track_meta;
@@ -642,24 +599,28 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
                 </div>
               )}
 
-              {/* Close Button */}
-              <InteractiveRow
-                onClick={() => closeModal?.()}
+              {/* Close Hint */}
+              <div
                 style={{
                   marginTop: 8,
+                  padding: "8px 12px",
+                  borderRadius: 8,
+                  background: "rgba(255,255,255,0.04)",
+                  display: "flex",
+                  alignItems: "center",
                   justifyContent: "center",
                   gap: 8,
                   fontSize: 12,
+                  color: "#888",
                 }}
               >
                 <FaTimes size={12} />
-                <span>Terug naar Game (B)</span>
-              </InteractiveRow>
+                <span>Druk op (B) om te sluiten</span>
+              </div>
             </Focusable>
 
             {/* Right Content Panel */}
             <Focusable
-              ref={contentContainerRef}
               flow-children="column"
               navEntryPreferPosition={NavEntryPositionPreferences.FIRST}
               style={{
@@ -800,10 +761,7 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
                     style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 20 }}
                   >
                     <InteractiveRow
-                      onClick={() => {
-                        setActivePlaylist(null);
-                        focusContent();
-                      }}
+                      onClick={() => setActivePlaylist(null)}
                       style={{ padding: "8px 12px", fontSize: 13 }}
                     >
                       ← Terug (B)
