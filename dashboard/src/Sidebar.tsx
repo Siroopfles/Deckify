@@ -12,8 +12,12 @@ import {
   FaHistory,
   FaPlay,
   FaRandom,
-  FaSlidersH,
   FaPlus,
+  FaFolder,
+  FaFolderOpen,
+  FaFolderPlus,
+  FaTrash,
+  FaListUl,
 } from "react-icons/fa";
 import {
   fetchPlaylists,
@@ -26,19 +30,19 @@ import {
   fetchFollowedArtists,
   fetchArtistAlbums,
   fetchArtistTopTracks,
+  fetchFolders,
+  manageFolder,
   playInContext,
   playUris,
   addToQueue,
   setShuffle,
-  startMixPlay,
-  togglePlaylistMix,
   toggleLikeTrack,
   type Playlist,
+  type PlaylistFolder,
   type PlaylistTrack,
   type Album,
   type Artist,
   type Episode,
-  type MixMode,
 } from "./api";
 import { formatMs } from "./utils";
 
@@ -48,19 +52,28 @@ interface Props {
   open: boolean;
   onClose: () => void;
   onToast?: (msg: string) => void;
+  onOpenAddToPlaylist?: (track: { uri: string; name: string; artist?: string }) => void;
 }
 
-export default function Sidebar({ open, onClose, onToast }: Props) {
+export default function Sidebar({ open, onClose, onToast, onOpenAddToPlaylist }: Props) {
   const [view, setView] = useState<View>("library");
   const [loading, setLoading] = useState(false);
 
   // Library data
   const [madeForYou, setMadeForYou] = useState<Playlist[]>([]);
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
+  const [allPlaylists, setAllPlaylists] = useState<Playlist[]>([]);
   const [playlistsTotal, setPlaylistsTotal] = useState(0);
   const [playlistsOffset, setPlaylistsOffset] = useState(0);
   const [albums, setAlbums] = useState<Album[]>([]);
   const [artists, setArtists] = useState<Artist[]>([]);
+
+  // Playlist Folders state
+  const [folders, setFolders] = useState<PlaylistFolder[]>([]);
+  const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({});
+  const [creatingFolder, setCreatingFolder] = useState(false);
+  const [newFolderName, setNewFolderName] = useState("");
+  const [assigningPlaylistToFolder, setAssigningPlaylistToFolder] = useState<string | null>(null);
 
   // Drill-in: tracks (shared by playlist, liked, recent, album)
   const [drillTitle, setDrillTitle] = useState("");
@@ -81,8 +94,6 @@ export default function Sidebar({ open, onClose, onToast }: Props) {
 
   // Context for play action
   const [activeContextId, setActiveContextId] = useState<string | null>(null);
-  const [activePlaylistMixEnabled, setActivePlaylistMixEnabled] = useState(false);
-  const [activePlaylistMixPreset, setActivePlaylistMixPreset] = useState<MixMode>("auto");
 
   const drillReqId = useRef(0);
 
@@ -99,17 +110,19 @@ export default function Sidebar({ open, onClose, onToast }: Props) {
   useEffect(() => {
     if (!open) return;
     setLoading(true);
-    Promise.all([fetchPlaylists(), fetchSavedAlbums(), fetchFollowedArtists()])
-      .then(([pl, al, ar]) => {
+    Promise.all([fetchPlaylists(), fetchSavedAlbums(), fetchFollowedArtists(), fetchFolders()])
+      .then(([pl, al, ar, fl]) => {
         if (pl.ok) {
           const { made, user } = splitPlaylists(pl.playlists);
           setMadeForYou(made);
           setPlaylists(user);
+          setAllPlaylists(pl.playlists);
           setPlaylistsTotal(pl.total);
           setPlaylistsOffset(pl.playlists.length);
         }
         if (al.ok) setAlbums(al.albums);
         if (ar.ok) setArtists(ar.artists);
+        if (fl.ok) setFolders(fl.folders || []);
       })
       .catch((e) => console.error("Failed to load library:", e))
       .finally(() => setLoading(false));
@@ -123,6 +136,7 @@ export default function Sidebar({ open, onClose, onToast }: Props) {
         const { made, user } = splitPlaylists(r.playlists);
         setMadeForYou((p) => [...p, ...made]);
         setPlaylists((p) => [...p, ...user]);
+        setAllPlaylists((p) => [...p, ...r.playlists]);
         setPlaylistsOffset((p) => p + r.playlists.length);
       }
     } catch (e) {
@@ -131,14 +145,79 @@ export default function Sidebar({ open, onClose, onToast }: Props) {
     setLoadingTracks(false);
   }, [playlistsOffset, splitPlaylists]);
 
+  const handleToggleFolder = useCallback((folderId: string) => {
+    setExpandedFolders((prev) => ({ ...prev, [folderId]: !prev[folderId] }));
+  }, []);
+
+  const handleCreateFolder = useCallback(async () => {
+    const name = newFolderName.trim();
+    if (!name) return;
+    try {
+      const res = await manageFolder({ action: "create", name });
+      if (res.ok) {
+        setFolders(res.folders);
+        setNewFolderName("");
+        setCreatingFolder(false);
+        onToast?.(`Created folder "${name}"`);
+      }
+    } catch (e) {
+      console.error("Failed to create folder:", e);
+    }
+  }, [newFolderName, onToast]);
+
+  const handleDeleteFolder = useCallback(async (e: React.MouseEvent, folder: PlaylistFolder) => {
+    e.stopPropagation();
+    try {
+      const res = await manageFolder({ action: "delete", folder_id: folder.id });
+      if (res.ok) {
+        setFolders(res.folders);
+        onToast?.(`Deleted folder "${folder.name}"`);
+      }
+    } catch (err) {
+      console.error("Failed to delete folder:", err);
+    }
+  }, [onToast]);
+
+  const handleAddPlaylistToFolder = useCallback(async (folderId: string, playlistId: string) => {
+    try {
+      const res = await manageFolder({
+        action: "add_playlist",
+        folder_id: folderId,
+        playlist_id: playlistId,
+      });
+      if (res.ok) {
+        setFolders(res.folders);
+        setAssigningPlaylistToFolder(null);
+        onToast?.("Added playlist to folder");
+      }
+    } catch (err) {
+      console.error("Failed to add playlist to folder:", err);
+    }
+  }, [onToast]);
+
+  const handleRemovePlaylistFromFolder = useCallback(async (e: React.MouseEvent, folderId: string, playlistId: string) => {
+    e.stopPropagation();
+    try {
+      const res = await manageFolder({
+        action: "remove_playlist",
+        folder_id: folderId,
+        playlist_id: playlistId,
+      });
+      if (res.ok) {
+        setFolders(res.folders);
+        onToast?.("Removed playlist from folder");
+      }
+    } catch (err) {
+      console.error("Failed to remove playlist from folder:", err);
+    }
+  }, [onToast]);
+
   const openPlaylist = useCallback(async (pl: Playlist) => {
     const reqId = ++drillReqId.current;
     setView("playlist");
     setDrillTitle(pl.name);
     setDrillSubtitle(`${pl.track_count} tracks`);
     setActiveContextId(pl.id);
-    setActivePlaylistMixEnabled(Boolean(pl.mix_enabled));
-    setActivePlaylistMixPreset((pl.mix_preset as MixMode) || "auto");
     setTracks([]);
     setTracksOffset(0);
     setLoadingTracks(true);
@@ -327,40 +406,6 @@ export default function Sidebar({ open, onClose, onToast }: Props) {
     onToast?.(shuffle ? `Shuffling ${drillTitle}` : `Playing ${drillTitle}`);
   }, [view, activeContextId, tracks, drillTitle, onToast]);
 
-  const handleMixPlay = useCallback(async (presetOverride?: MixMode) => {
-    const preset = presetOverride ?? activePlaylistMixPreset ?? "auto";
-    if (view === "playlist" && activeContextId) {
-      const nextEnabled = presetOverride ? true : !activePlaylistMixEnabled;
-      const res = await togglePlaylistMix(activeContextId, nextEnabled, preset);
-      if (res.ok) {
-        setActivePlaylistMixEnabled(Boolean(res.mix_enabled));
-        setActivePlaylistMixPreset((res.mix_preset as MixMode) || preset);
-        const upd = (list: Playlist[]) =>
-          list.map((p) => (p.id === activeContextId ? { ...p, mix_enabled: res.mix_enabled, mix_preset: res.mix_preset } : p));
-        setPlaylists(upd);
-        setMadeForYou(upd);
-        if (nextEnabled) {
-          await startMixPlay({
-            context_uri: `spotify:playlist:${activeContextId}`,
-            mix_mode: preset,
-            crossfade_seconds: 6,
-            shuffle: false,
-          });
-          onToast?.(`Mix enabled (${preset.toUpperCase()}) for ${drillTitle}`);
-        } else {
-          onToast?.(`Mix disabled for ${drillTitle}`);
-        }
-      }
-      return;
-    }
-    const contextUri = view === "album" && activeContextId ? `spotify:album:${activeContextId}` : undefined;
-    const uris = !contextUri && tracks.length > 0 ? tracks.map((t) => t.uri) : undefined;
-    const res = await startMixPlay({ context_uri: contextUri, uris, mix_mode: preset, crossfade_seconds: 6, shuffle: false });
-    if (res.ok) {
-      onToast?.(`Mix Mode (${preset.toUpperCase()}) started for ${drillTitle}`);
-    }
-  }, [view, activeContextId, activePlaylistMixEnabled, activePlaylistMixPreset, tracks, drillTitle, onToast]);
-
   const handleToggleTrackLike = useCallback(async (e: React.MouseEvent, t: PlaylistTrack) => {
     e.stopPropagation();
     if (!t.id) return;
@@ -382,6 +427,11 @@ export default function Sidebar({ open, onClose, onToast }: Props) {
       onToast?.(`Queued "${t.name}"`);
     }
   }, [onToast]);
+
+  const handleAddToPlaylistClick = useCallback((e: React.MouseEvent, t: PlaylistTrack) => {
+    e.stopPropagation();
+    onOpenAddToPlaylist?.({ uri: t.uri, name: t.name, artist: t.artist });
+  }, [onOpenAddToPlaylist]);
 
   const handlePlayEpisode = useCallback(async (ep: Episode) => {
     await playUris([ep.uri]);
@@ -408,26 +458,47 @@ export default function Sidebar({ open, onClose, onToast }: Props) {
 
   const inDrill = view !== "library";
   const allPlaylistsLoaded = playlistsOffset >= playlistsTotal;
+  const playlistById = new Map<string, Playlist>();
+  for (const p of allPlaylists) playlistById.set(p.id, p);
 
-  const PlaylistRow = ({ pl, icon }: { pl: Playlist; icon?: React.ReactNode }) => (
-    <button onClick={() => openPlaylist(pl)} className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-neutral-800 transition-colors text-left">
-      {pl.image_url ? (
-        <img src={pl.image_url} alt="" className="w-10 h-10 rounded object-cover shrink-0" />
-      ) : (
-        <div className="w-10 h-10 rounded bg-neutral-800 flex items-center justify-center shrink-0">
-          {icon || <FaMusic className="text-neutral-600" size={14} />}
+  const PlaylistRow = ({
+    pl,
+    icon,
+    inFolderId,
+  }: {
+    pl: Playlist;
+    icon?: React.ReactNode;
+    inFolderId?: string;
+  }) => (
+    <div className="flex items-center group hover:bg-neutral-800 transition-colors">
+      <button
+        data-focusable="true"
+        onClick={() => openPlaylist(pl)}
+        className={`flex-1 flex items-center gap-3 ${inFolderId ? "pl-8 pr-2" : "px-4"} py-2.5 text-left min-w-0`}
+      >
+        {pl.image_url ? (
+          <img src={pl.image_url} alt="" className="w-9 h-9 rounded object-cover shrink-0" />
+        ) : (
+          <div className="w-9 h-9 rounded bg-neutral-800 flex items-center justify-center shrink-0">
+            {icon || <FaMusic className="text-neutral-600" size={13} />}
+          </div>
+        )}
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-medium truncate">{pl.name}</div>
+          <div className="text-xs text-neutral-500">{pl.track_count} tracks</div>
         </div>
+      </button>
+      {inFolderId && (
+        <button
+          data-focusable="true"
+          onClick={(e) => handleRemovePlaylistFromFolder(e, inFolderId, pl.id)}
+          className="p-2 mr-2 text-neutral-500 hover:text-red-400"
+          title="Remove from folder"
+        >
+          <FaTimes size={11} />
+        </button>
       )}
-      <div className="min-w-0 flex-1">
-        <div className="text-sm font-medium truncate">{pl.name}</div>
-        <div className="text-xs text-neutral-500">{pl.track_count} tracks</div>
-      </div>
-      {pl.mix_enabled && (
-        <span className="text-[10px] font-bold bg-green-500/20 text-green-400 border border-green-500/40 px-1.5 py-0.5 rounded shrink-0">
-          MIX {(pl.mix_preset || "auto").toUpperCase()}
-        </span>
-      )}
-    </button>
+    </div>
   );
 
   return (
@@ -438,13 +509,21 @@ export default function Sidebar({ open, onClose, onToast }: Props) {
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-neutral-800 shrink-0">
           {inDrill ? (
-            <button onClick={goBack} className="text-neutral-400 hover:text-white flex items-center gap-1 text-sm">
+            <button
+              data-focusable="true"
+              onClick={goBack}
+              className="text-neutral-400 hover:text-white flex items-center gap-1 text-sm"
+            >
               <FaChevronLeft size={12} /> Library
             </button>
           ) : (
             <span className="font-semibold text-sm">Library</span>
           )}
-          <button onClick={handleClose} className="text-neutral-500 hover:text-white p-1">
+          <button
+            data-focusable="true"
+            onClick={handleClose}
+            className="text-neutral-500 hover:text-white p-1"
+          >
             <FaTimes size={16} />
           </button>
         </div>
@@ -456,24 +535,162 @@ export default function Sidebar({ open, onClose, onToast }: Props) {
               <div className="p-4 text-neutral-500 text-sm">Loading...</div>
             ) : (
               <>
-                <button onClick={openLiked} className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-neutral-800 transition-colors text-left">
+                <button
+                  data-focusable="true"
+                  onClick={openLiked}
+                  className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-neutral-800 transition-colors text-left"
+                >
                   <div className="w-10 h-10 rounded bg-gradient-to-br from-purple-700 to-blue-300 flex items-center justify-center shrink-0">
                     <FaHeart className="text-white" size={14} />
                   </div>
                   <span className="text-sm font-medium">Liked Songs</span>
                 </button>
-                <button onClick={openRecent} className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-neutral-800 transition-colors text-left">
+                <button
+                  data-focusable="true"
+                  onClick={openRecent}
+                  className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-neutral-800 transition-colors text-left"
+                >
                   <div className="w-10 h-10 rounded bg-neutral-800 flex items-center justify-center shrink-0">
                     <FaHistory className="text-green-400" size={14} />
                   </div>
                   <span className="text-sm font-medium">Recently Played</span>
                 </button>
-                <button onClick={openEpisodes} className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-neutral-800 transition-colors text-left">
+                <button
+                  data-focusable="true"
+                  onClick={openEpisodes}
+                  className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-neutral-800 transition-colors text-left"
+                >
                   <div className="w-10 h-10 rounded bg-green-800 flex items-center justify-center shrink-0">
                     <FaPodcast className="text-white" size={14} />
                   </div>
                   <span className="text-sm font-medium">Your Episodes</span>
                 </button>
+
+                {/* Playlist Folders Section */}
+                <div className="px-4 pt-4 pb-1 flex items-center justify-between">
+                  <span className="text-xs text-neutral-500 uppercase tracking-wider flex items-center gap-1.5">
+                    <FaFolder size={10} /> Folders
+                  </span>
+                  <button
+                    data-focusable="true"
+                    onClick={() => setCreatingFolder((v) => !v)}
+                    className="text-xs text-green-400 hover:text-green-300 flex items-center gap-1"
+                    title="Create Playlist Folder"
+                  >
+                    <FaFolderPlus size={12} /> New Folder
+                  </button>
+                </div>
+
+                {creatingFolder && (
+                  <div className="px-4 py-2 flex items-center gap-1.5 bg-neutral-800/60">
+                    <input
+                      type="text"
+                      value={newFolderName}
+                      onChange={(e) => setNewFolderName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") handleCreateFolder();
+                      }}
+                      placeholder="Folder name..."
+                      className="flex-1 bg-neutral-900 border border-neutral-700 rounded px-2 py-1 text-xs text-white outline-none"
+                    />
+                    <button
+                      data-focusable="true"
+                      onClick={handleCreateFolder}
+                      className="bg-green-500 text-black text-xs font-semibold px-2.5 py-1 rounded hover:bg-green-400"
+                    >
+                      Save
+                    </button>
+                  </div>
+                )}
+
+                {folders.length === 0 && !creatingFolder && (
+                  <div className="px-4 py-1.5 text-xs text-neutral-600">
+                    No folders yet. Click "New Folder" or sync via Official Spotify Client.
+                  </div>
+                )}
+
+                {folders.map((folder) => {
+                  const isExpanded = Boolean(expandedFolders[folder.id]);
+                  const folderPlaylists = folder.playlist_ids
+                    .map((pid) => playlistById.get(pid))
+                    .filter((x): x is Playlist => Boolean(x));
+                  return (
+                    <div key={folder.id} className="border-b border-neutral-800/40">
+                      <div className="flex items-center hover:bg-neutral-800 transition-colors">
+                        <button
+                          data-focusable="true"
+                          onClick={() => handleToggleFolder(folder.id)}
+                          className="flex-1 flex items-center gap-3 px-4 py-2.5 text-left min-w-0"
+                        >
+                          <div className="w-9 h-9 rounded bg-amber-500/15 text-amber-400 flex items-center justify-center shrink-0">
+                            {isExpanded ? <FaFolderOpen size={15} /> : <FaFolder size={15} />}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="text-sm font-medium truncate">{folder.name}</div>
+                            <div className="text-xs text-neutral-500">
+                              {folderPlaylists.length} playlists
+                              {folder.source === "spotify_client" ? " · Spotify" : ""}
+                            </div>
+                          </div>
+                        </button>
+                        <button
+                          data-focusable="true"
+                          onClick={() =>
+                            setAssigningPlaylistToFolder((curr) =>
+                              curr === folder.id ? null : folder.id,
+                            )
+                          }
+                          className="p-2 text-neutral-400 hover:text-green-400"
+                          title="Add playlist to folder"
+                        >
+                          <FaPlus size={11} />
+                        </button>
+                        <button
+                          data-focusable="true"
+                          onClick={(e) => handleDeleteFolder(e, folder)}
+                          className="p-2 mr-2 text-neutral-500 hover:text-red-400"
+                          title="Delete folder"
+                        >
+                          <FaTrash size={11} />
+                        </button>
+                      </div>
+
+                      {assigningPlaylistToFolder === folder.id && (
+                        <div className="px-4 py-2 bg-neutral-950/80 space-y-1 max-h-40 overflow-y-auto">
+                          <div className="text-[11px] text-neutral-400 mb-1">
+                            Select playlist to add to "{folder.name}":
+                          </div>
+                          {allPlaylists
+                            .filter((p) => !folder.playlist_ids.includes(p.id))
+                            .map((p) => (
+                              <button
+                                key={p.id}
+                                data-focusable="true"
+                                onClick={() => handleAddPlaylistToFolder(folder.id, p.id)}
+                                className="w-full text-left text-xs py-1 px-2 rounded hover:bg-neutral-800 truncate text-neutral-200"
+                              >
+                                + {p.name}
+                              </button>
+                            ))}
+                        </div>
+                      )}
+
+                      {isExpanded && (
+                        <div className="bg-neutral-950/40">
+                          {folderPlaylists.length === 0 ? (
+                            <div className="pl-10 pr-4 py-2 text-xs text-neutral-600">
+                              Empty folder — click + to add playlists
+                            </div>
+                          ) : (
+                            folderPlaylists.map((pl) => (
+                              <PlaylistRow key={pl.id} pl={pl} inFolderId={folder.id} />
+                            ))
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
 
                 {madeForYou.length > 0 && (
                   <>
@@ -488,7 +705,12 @@ export default function Sidebar({ open, onClose, onToast }: Props) {
                   <>
                     <div className="px-4 pt-4 pb-1 text-xs text-neutral-500 uppercase tracking-wider">Artists</div>
                     {artists.map((a) => (
-                      <button key={a.id} onClick={() => openArtist(a)} className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-neutral-800 transition-colors text-left">
+                      <button
+                        key={a.id}
+                        data-focusable="true"
+                        onClick={() => openArtist(a)}
+                        className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-neutral-800 transition-colors text-left"
+                      >
                         {a.image_url ? (
                           <img src={a.image_url} alt="" className="w-10 h-10 rounded-full object-cover shrink-0" />
                         ) : (
@@ -506,7 +728,12 @@ export default function Sidebar({ open, onClose, onToast }: Props) {
                   <>
                     <div className="px-4 pt-4 pb-1 text-xs text-neutral-500 uppercase tracking-wider">Albums</div>
                     {albums.map((al) => (
-                      <button key={al.id} onClick={() => openAlbum(al)} className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-neutral-800 transition-colors text-left">
+                      <button
+                        key={al.id}
+                        data-focusable="true"
+                        onClick={() => openAlbum(al)}
+                        className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-neutral-800 transition-colors text-left"
+                      >
                         {al.image_url ? (
                           <img src={al.image_url} alt="" className="w-10 h-10 rounded object-cover shrink-0" />
                         ) : (
@@ -531,7 +758,11 @@ export default function Sidebar({ open, onClose, onToast }: Props) {
                 )}
 
                 {!allPlaylistsLoaded && (
-                  <button onClick={loadMorePlaylists} className="w-full py-3 text-sm text-green-500 hover:text-green-400 transition-colors">
+                  <button
+                    data-focusable="true"
+                    onClick={loadMorePlaylists}
+                    className="w-full py-3 text-sm text-green-500 hover:text-green-400 transition-colors"
+                  >
                     {loadingTracks ? "Loading..." : "Load more playlists"}
                   </button>
                 )}
@@ -552,6 +783,10 @@ export default function Sidebar({ open, onClose, onToast }: Props) {
                   {artistTopTracks.slice(0, 5).map((t, i) => (
                     <div
                       key={t.uri + i}
+                      data-focusable="true"
+                      data-track-id={t.id ?? ""}
+                      data-track-uri={t.uri}
+                      data-track-name={t.name}
                       onClick={() => playUris(artistTopTracks.map((x) => x.uri), i)}
                       className="w-full flex items-center justify-between px-4 py-2 hover:bg-neutral-800 transition-colors cursor-pointer"
                     >
@@ -570,6 +805,13 @@ export default function Sidebar({ open, onClose, onToast }: Props) {
                           </button>
                         )}
                         <button
+                          onClick={(e) => handleAddToPlaylistClick(e, t)}
+                          className="p-1.5 text-neutral-500 hover:text-green-400"
+                          title="Add to Playlist"
+                        >
+                          <FaListUl size={11} />
+                        </button>
+                        <button
                           onClick={(e) => handleQueueTrack(e, t)}
                           className="p-1.5 text-neutral-500 hover:text-green-400"
                           title="Add to Queue"
@@ -585,7 +827,12 @@ export default function Sidebar({ open, onClose, onToast }: Props) {
                 <>
                   <div className="px-4 pt-3 pb-1 text-xs text-neutral-500 uppercase tracking-wider">Albums & Singles</div>
                   {artistAlbums.map((al) => (
-                    <button key={al.id} onClick={() => openAlbum(al)} className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-neutral-800 transition-colors text-left">
+                    <button
+                      key={al.id}
+                      data-focusable="true"
+                      onClick={() => openAlbum(al)}
+                      className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-neutral-800 transition-colors text-left"
+                    >
                       {al.image_url ? (
                         <img src={al.image_url} alt="" className="w-10 h-10 rounded object-cover shrink-0" />
                       ) : (
@@ -614,58 +861,31 @@ export default function Sidebar({ open, onClose, onToast }: Props) {
                   {drillSubtitle && <div className="text-xs text-neutral-500">{drillSubtitle}</div>}
                 </div>
                 {tracks.length > 0 && (
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => handlePlayAll(false)}
-                        className="flex-1 flex items-center justify-center gap-1.5 bg-white text-black text-xs font-semibold py-1.5 px-2.5 rounded-lg hover:bg-neutral-200 transition-colors"
-                      >
-                        <FaPlay size={10} /> Play
-                      </button>
-                      <button
-                        onClick={() => handlePlayAll(true)}
-                        className="flex-1 flex items-center justify-center gap-1.5 bg-neutral-800 text-white text-xs font-medium py-1.5 px-2.5 rounded-lg hover:bg-neutral-700 transition-colors"
-                      >
-                        <FaRandom size={11} /> Shuffle
-                      </button>
-                      <button
-                        onClick={() => handleMixPlay()}
-                        className={`flex-1 flex items-center justify-center gap-1.5 text-xs font-semibold py-1.5 px-2.5 rounded-lg transition-colors ${
-                          view === "playlist" && activePlaylistMixEnabled
-                            ? "bg-green-500 text-black hover:bg-green-400"
-                            : "bg-neutral-800 text-green-400 border border-green-500/40 hover:bg-neutral-700"
-                        }`}
-                        title="Toggle Spotify Playlist Mix"
-                      >
-                        <FaSlidersH size={11} />{" "}
-                        {view === "playlist" && activePlaylistMixEnabled
-                          ? `Mix: ${activePlaylistMixPreset.toUpperCase()}`
-                          : "Mix"}
-                      </button>
-                    </div>
-                    {view === "playlist" && activePlaylistMixEnabled && (
-                      <div className="flex items-center gap-1 pt-0.5">
-                        {(["auto", "fade", "rise", "blend", "slam"] as MixMode[]).map((preset) => (
-                          <button
-                            key={preset}
-                            onClick={() => handleMixPlay(preset)}
-                            className={`flex-1 py-1 rounded text-[10px] font-semibold uppercase transition-colors ${
-                              activePlaylistMixPreset === preset
-                                ? "bg-green-500 text-black"
-                                : "bg-neutral-800 text-neutral-400 hover:text-white"
-                            }`}
-                          >
-                            {preset}
-                          </button>
-                        ))}
-                      </div>
-                    )}
+                  <div className="flex items-center gap-2">
+                    <button
+                      data-focusable="true"
+                      onClick={() => handlePlayAll(false)}
+                      className="flex-1 flex items-center justify-center gap-1.5 bg-white text-black text-xs font-semibold py-1.5 px-2.5 rounded-lg hover:bg-neutral-200 transition-colors"
+                    >
+                      <FaPlay size={10} /> Play
+                    </button>
+                    <button
+                      data-focusable="true"
+                      onClick={() => handlePlayAll(true)}
+                      className="flex-1 flex items-center justify-center gap-1.5 bg-neutral-800 text-white text-xs font-medium py-1.5 px-2.5 rounded-lg hover:bg-neutral-700 transition-colors"
+                    >
+                      <FaRandom size={11} /> Shuffle
+                    </button>
                   </div>
                 )}
               </div>
               {tracks.map((t, i) => (
                 <div
                   key={t.uri + i}
+                  data-focusable="true"
+                  data-track-id={t.id ?? ""}
+                  data-track-uri={t.uri}
+                  data-track-name={t.name}
                   onClick={() => handlePlayTrack(t, i)}
                   className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-neutral-800 transition-colors cursor-pointer"
                 >
@@ -673,8 +893,8 @@ export default function Sidebar({ open, onClose, onToast }: Props) {
                     <div className="text-sm truncate">{t.name}</div>
                     <div className="text-xs text-neutral-500 truncate">{t.artist}</div>
                   </div>
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    <span className="text-xs text-neutral-600">{formatMs(t.duration_ms)}</span>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <span className="text-xs text-neutral-600 mr-1">{formatMs(t.duration_ms)}</span>
                     {t.id && (
                       <button
                         onClick={(e) => handleToggleTrackLike(e, t)}
@@ -684,6 +904,13 @@ export default function Sidebar({ open, onClose, onToast }: Props) {
                         {t.is_liked ? <FaHeart size={12} /> : <FaRegHeart size={12} />}
                       </button>
                     )}
+                    <button
+                      onClick={(e) => handleAddToPlaylistClick(e, t)}
+                      className="p-1.5 text-neutral-500 hover:text-green-400 transition-colors"
+                      title="Add to Playlist"
+                    >
+                      <FaListUl size={11} />
+                    </button>
                     <button
                       onClick={(e) => handleQueueTrack(e, t)}
                       className="p-1.5 text-neutral-500 hover:text-green-400 transition-colors"
@@ -696,7 +923,11 @@ export default function Sidebar({ open, onClose, onToast }: Props) {
               ))}
               {loadingTracks && <div className="px-4 py-3 text-neutral-500 text-sm">Loading...</div>}
               {!loadingTracks && tracks.length < tracksTotal && (
-                <button onClick={loadMoreTracks} className="w-full py-3 text-sm text-green-500 hover:text-green-400 transition-colors">
+                <button
+                  data-focusable="true"
+                  onClick={loadMoreTracks}
+                  className="w-full py-3 text-sm text-green-500 hover:text-green-400 transition-colors"
+                >
                   Load more
                 </button>
               )}
@@ -711,7 +942,12 @@ export default function Sidebar({ open, onClose, onToast }: Props) {
                 {drillSubtitle && <div className="text-xs text-neutral-500">{drillSubtitle}</div>}
               </div>
               {episodes.map((ep, i) => (
-                <button key={ep.uri + i} onClick={() => handlePlayEpisode(ep)} className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-neutral-800 transition-colors text-left">
+                <button
+                  key={ep.uri + i}
+                  data-focusable="true"
+                  onClick={() => handlePlayEpisode(ep)}
+                  className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-neutral-800 transition-colors text-left"
+                >
                   <div className="min-w-0 flex-1 mr-3">
                     <div className="text-sm truncate">{ep.name}</div>
                     <div className="text-xs text-neutral-500 truncate">{ep.show_name}</div>
@@ -721,7 +957,11 @@ export default function Sidebar({ open, onClose, onToast }: Props) {
               ))}
               {loadingTracks && <div className="px-4 py-3 text-neutral-500 text-sm">Loading...</div>}
               {!loadingTracks && episodes.length < episodesTotal && (
-                <button onClick={loadMoreEpisodes} className="w-full py-3 text-sm text-green-500 hover:text-green-400 transition-colors">
+                <button
+                  data-focusable="true"
+                  onClick={loadMoreEpisodes}
+                  className="w-full py-3 text-sm text-green-500 hover:text-green-400 transition-colors"
+                >
                   Load more
                 </button>
               )}

@@ -1,12 +1,11 @@
 import { useState, useCallback, useRef, useEffect } from "react";
-import { FaTimes, FaSearch, FaMusic, FaUser, FaCompactDisc, FaPlus, FaSlidersH, FaHeart, FaRegHeart } from "react-icons/fa";
+import { FaTimes, FaSearch, FaMusic, FaUser, FaCompactDisc, FaPlus, FaHeart, FaRegHeart, FaListUl, FaPlay } from "react-icons/fa";
 import {
   searchSpotify,
   playUris,
   playInContext,
   addToQueue,
   toggleLikeTrack,
-  startMixPlay,
   fetchPlaylistTracks,
   fetchAlbumTracks,
   fetchArtistAlbums,
@@ -25,9 +24,10 @@ interface Props {
   open: boolean;
   onClose: () => void;
   onToast?: (msg: string) => void;
+  onOpenAddToPlaylist?: (track: { uri: string; name: string; artist?: string }) => void;
 }
 
-export default function SearchOverlay({ open, onClose, onToast }: Props) {
+export default function SearchOverlay({ open, onClose, onToast, onOpenAddToPlaylist }: Props) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -85,6 +85,11 @@ export default function SearchOverlay({ open, onClose, onToast }: Props) {
       onToast?.(`Queued "${t.name}"`);
     }
   }, [onToast]);
+
+  const handleAddToPlaylistClick = useCallback((e: React.MouseEvent, t: PlaylistTrack) => {
+    e.stopPropagation();
+    onOpenAddToPlaylist?.({ uri: t.uri, name: t.name, artist: t.artist });
+  }, [onOpenAddToPlaylist]);
 
   const handleLikeTrack = useCallback(async (e: React.MouseEvent, t: PlaylistTrack) => {
     e.stopPropagation();
@@ -178,13 +183,13 @@ export default function SearchOverlay({ open, onClose, onToast }: Props) {
     }
   }, [drillContextUri, drillView, drillTracks]);
 
-  const handleMixDrill = useCallback(async () => {
+  const handlePlayDrillAll = useCallback(async () => {
     if (drillContextUri && drillView !== "artist") {
-      await startMixPlay({ context_uri: drillContextUri, mix_mode: "auto", crossfade_seconds: 6, shuffle: false });
-      onToast?.(`Playlist Mix (AUTO) started for ${drillTitle}`);
+      await playInContext(drillContextUri);
+      onToast?.(`Playing ${drillTitle}`);
     } else if (drillTracks.length > 0) {
-      await startMixPlay({ uris: drillTracks.map((t) => t.uri), mix_mode: "auto", crossfade_seconds: 6, shuffle: false });
-      onToast?.(`Mix Mode (AUTO) started for ${drillTitle}`);
+      await playUris(drillTracks.map((t) => t.uri), 0);
+      onToast?.(`Playing ${drillTitle}`);
     }
   }, [drillContextUri, drillView, drillTracks, drillTitle, onToast]);
 
@@ -201,7 +206,11 @@ export default function SearchOverlay({ open, onClose, onToast }: Props) {
       {/* Header */}
       <div className="flex items-center gap-4 px-6 py-4 border-b border-neutral-800 shrink-0">
         {drillView ? (
-          <button onClick={backToResults} className="text-neutral-400 hover:text-white text-sm shrink-0">
+          <button
+            data-focusable="true"
+            onClick={backToResults}
+            className="text-neutral-400 hover:text-white text-sm shrink-0"
+          >
             Back
           </button>
         ) : (
@@ -212,16 +221,18 @@ export default function SearchOverlay({ open, onClose, onToast }: Props) {
             <span className="text-lg font-semibold truncate">{drillTitle}</span>
             {drillTracks.length > 0 && (
               <button
-                onClick={handleMixDrill}
+                data-focusable="true"
+                onClick={handlePlayDrillAll}
                 className="flex items-center gap-1.5 bg-green-500 text-black text-xs font-semibold py-1.5 px-3 rounded-lg hover:bg-green-400 transition-colors ml-3 shrink-0"
               >
-                <FaSlidersH size={11} /> Mix Play
+                <FaPlay size={10} /> Play All
               </button>
             )}
           </div>
         ) : (
           <input
             ref={inputRef}
+            data-focusable="true"
             type="text"
             value={query}
             onChange={(e) => handleInput(e.target.value)}
@@ -229,7 +240,11 @@ export default function SearchOverlay({ open, onClose, onToast }: Props) {
             className="flex-1 bg-transparent text-xl text-white placeholder-neutral-600 outline-none"
           />
         )}
-        <button onClick={handleClose} className="text-neutral-500 hover:text-white p-1 shrink-0">
+        <button
+          data-focusable="true"
+          onClick={handleClose}
+          className="text-neutral-500 hover:text-white p-1 shrink-0"
+        >
           <FaTimes size={20} />
         </button>
       </div>
@@ -247,6 +262,10 @@ export default function SearchOverlay({ open, onClose, onToast }: Props) {
                   {drillTracks.slice(0, 5).map((t, i) => (
                     <div
                       key={t.uri + i}
+                      data-focusable="true"
+                      data-track-id={t.id ?? ""}
+                      data-track-uri={t.uri}
+                      data-track-name={t.name}
                       onClick={() => handlePlayDrillTrack(t, i)}
                       className="w-full flex items-center justify-between py-2.5 hover:bg-neutral-800/50 rounded-lg px-3 transition-colors cursor-pointer"
                     >
@@ -266,6 +285,13 @@ export default function SearchOverlay({ open, onClose, onToast }: Props) {
                           </button>
                         )}
                         <button
+                          onClick={(e) => handleAddToPlaylistClick(e, t)}
+                          className="p-1.5 text-neutral-500 hover:text-green-400"
+                          title="Add to Playlist"
+                        >
+                          <FaListUl size={12} />
+                        </button>
+                        <button
                           onClick={(e) => handleQueueTrack(e, t)}
                           className="p-1.5 text-neutral-500 hover:text-green-400"
                           title="Add to Queue"
@@ -281,7 +307,12 @@ export default function SearchOverlay({ open, onClose, onToast }: Props) {
                 <section>
                   <h3 className="text-xs text-neutral-500 uppercase tracking-wider mb-2">Albums & Singles</h3>
                   {drillAlbums.map((al) => (
-                    <button key={al.id} onClick={() => openDrillAlbum(al)} className="w-full flex items-center gap-3 py-2.5 hover:bg-neutral-800/50 rounded-lg px-3 transition-colors text-left">
+                    <button
+                      key={al.id}
+                      data-focusable="true"
+                      onClick={() => openDrillAlbum(al)}
+                      className="w-full flex items-center gap-3 py-2.5 hover:bg-neutral-800/50 rounded-lg px-3 transition-colors text-left"
+                    >
                       {al.image_url ? (
                         <img src={al.image_url} alt="" className="w-10 h-10 rounded object-cover shrink-0" />
                       ) : (
@@ -303,6 +334,10 @@ export default function SearchOverlay({ open, onClose, onToast }: Props) {
               {drillTracks.map((t, i) => (
                 <div
                   key={t.uri + i}
+                  data-focusable="true"
+                  data-track-id={t.id ?? ""}
+                  data-track-uri={t.uri}
+                  data-track-name={t.name}
                   onClick={() => handlePlayDrillTrack(t, i)}
                   className="w-full flex items-center justify-between py-3 hover:bg-neutral-800/50 rounded-lg px-3 transition-colors cursor-pointer"
                 >
@@ -312,6 +347,22 @@ export default function SearchOverlay({ open, onClose, onToast }: Props) {
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <span className="text-xs text-neutral-600">{formatMs(t.duration_ms)}</span>
+                    {t.id && (
+                      <button
+                        onClick={(e) => handleLikeTrack(e, t)}
+                        className={`p-1.5 ${t.is_liked ? "text-green-500" : "text-neutral-500 hover:text-white"}`}
+                        title={t.is_liked ? "Remove from Liked Songs" : "Save to Liked Songs"}
+                      >
+                        {t.is_liked ? <FaHeart size={12} /> : <FaRegHeart size={12} />}
+                      </button>
+                    )}
+                    <button
+                      onClick={(e) => handleAddToPlaylistClick(e, t)}
+                      className="p-1.5 text-neutral-500 hover:text-green-400"
+                      title="Add to Playlist"
+                    >
+                      <FaListUl size={12} />
+                    </button>
                     <button
                       onClick={(e) => handleQueueTrack(e, t)}
                       className="p-1.5 text-neutral-500 hover:text-green-400"
@@ -339,6 +390,10 @@ export default function SearchOverlay({ open, onClose, onToast }: Props) {
                   {results.tracks.slice(0, 6).map((t, i) => (
                     <div
                       key={t.uri + i}
+                      data-focusable="true"
+                      data-track-id={t.id ?? ""}
+                      data-track-uri={t.uri}
+                      data-track-name={t.name}
                       onClick={() => playUris([t.uri])}
                       className="w-full flex items-center gap-3 py-2.5 hover:bg-neutral-800/50 rounded-lg px-3 transition-colors cursor-pointer"
                     >
@@ -364,6 +419,13 @@ export default function SearchOverlay({ open, onClose, onToast }: Props) {
                         </button>
                       )}
                       <button
+                        onClick={(e) => handleAddToPlaylistClick(e, t)}
+                        className="p-1.5 text-neutral-500 hover:text-green-400 shrink-0"
+                        title="Add to Playlist"
+                      >
+                        <FaListUl size={12} />
+                      </button>
+                      <button
                         onClick={(e) => handleQueueTrack(e, t)}
                         className="p-1.5 text-neutral-500 hover:text-green-400 shrink-0"
                         title="Add to Queue"
@@ -379,7 +441,12 @@ export default function SearchOverlay({ open, onClose, onToast }: Props) {
                 <section>
                   <h3 className="text-xs text-neutral-500 uppercase tracking-wider mb-2">Artists</h3>
                   {results.artists.slice(0, 4).map((a) => (
-                    <button key={a.id} onClick={() => openArtist(a)} className="w-full flex items-center gap-3 py-2.5 hover:bg-neutral-800/50 rounded-lg px-3 transition-colors text-left">
+                    <button
+                      key={a.id}
+                      data-focusable="true"
+                      onClick={() => openArtist(a)}
+                      className="w-full flex items-center gap-3 py-2.5 hover:bg-neutral-800/50 rounded-lg px-3 transition-colors text-left"
+                    >
                       {a.image_url ? (
                         <img src={a.image_url} alt="" className="w-10 h-10 rounded-full object-cover shrink-0" />
                       ) : (
@@ -397,7 +464,12 @@ export default function SearchOverlay({ open, onClose, onToast }: Props) {
                 <section>
                   <h3 className="text-xs text-neutral-500 uppercase tracking-wider mb-2">Albums</h3>
                   {results.albums.slice(0, 4).map((al) => (
-                    <button key={al.id} onClick={() => openAlbum(al)} className="w-full flex items-center gap-3 py-2.5 hover:bg-neutral-800/50 rounded-lg px-3 transition-colors text-left">
+                    <button
+                      key={al.id}
+                      data-focusable="true"
+                      onClick={() => openAlbum(al)}
+                      className="w-full flex items-center gap-3 py-2.5 hover:bg-neutral-800/50 rounded-lg px-3 transition-colors text-left"
+                    >
                       {al.image_url ? (
                         <img src={al.image_url} alt="" className="w-10 h-10 rounded object-cover shrink-0" />
                       ) : (
@@ -418,7 +490,12 @@ export default function SearchOverlay({ open, onClose, onToast }: Props) {
                 <section>
                   <h3 className="text-xs text-neutral-500 uppercase tracking-wider mb-2">Playlists</h3>
                   {results.playlists.slice(0, 4).map((pl) => (
-                    <button key={pl.id} onClick={() => openPlaylist(pl)} className="w-full flex items-center gap-3 py-2.5 hover:bg-neutral-800/50 rounded-lg px-3 transition-colors text-left">
+                    <button
+                      key={pl.id}
+                      data-focusable="true"
+                      onClick={() => openPlaylist(pl)}
+                      className="w-full flex items-center gap-3 py-2.5 hover:bg-neutral-800/50 rounded-lg px-3 transition-colors text-left"
+                    >
                       {pl.image_url ? (
                         <img src={pl.image_url} alt="" className="w-10 h-10 rounded object-cover shrink-0" />
                       ) : (
