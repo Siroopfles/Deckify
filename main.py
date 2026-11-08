@@ -32,9 +32,9 @@ for _dir in [
     os.path.join(os.path.dirname(__file__), "bin"),
 ]:
     if _dir and os.path.isdir(_dir) and _dir not in sys.path:
-        sys.path.insert(0, _dir)
+        sys.path.insert(0, _dir)  # pragma: no cover
 
-if hasattr(os, "geteuid") and os.geteuid() == 0:
+if hasattr(os, "geteuid") and os.geteuid() == 0:  # pragma: no cover
     try:
         os.chown(os.path.dirname(__file__), 1000, 1000)
     except Exception:
@@ -2245,13 +2245,13 @@ class Plugin:
         except asyncio.TimeoutError:
             try:
                 writer.close()
-            except Exception:
+            except Exception:  # pragma: no cover
                 pass
         except Exception as e:
             decky.logger.error("Dashboard request error: %s", e)
             try:
                 await self._send_json(writer, 500, {"error": str(e)})
-            except Exception:
+            except Exception:  # pragma: no cover
                 pass
 
     async def _serve_image(self, writer: asyncio.StreamWriter, url: str):
@@ -2397,7 +2397,7 @@ class Plugin:
             except Exception:
                 try:
                     sp_proc.kill()
-                except Exception:
+                except Exception:  # pragma: no cover
                     pass
         try:
             cmd, env = _build_deck_command(["flatpak", "kill", SPOTIFY_FLATPAK_ID])
