@@ -16,7 +16,10 @@ import urllib.parse
 import urllib.request
 from html import escape
 
-import decky
+try:
+    import decky
+except ImportError:
+    from py_modules.common import decky
 
 # Decky Loader (PyInstaller) injects LD_LIBRARY_PATH pointing to its bundled
 # libs which are older than the system's.  Subprocesses like openssl and
@@ -234,20 +237,6 @@ class Plugin:
         await self._stop_dashboard()
         await self._stop_oauth_server()
         await self._stop_api_poll()
-
-    async def _on_deck_sleep(self):
-        decky.logger.info("Deck entering sleep")
-
-    async def _on_deck_resume(self):
-        decky.logger.info("Deck resumed from suspend - recovering token and audio state")
-        try:
-            await self._ensure_token()
-            await self._poll_playback()
-            await self._refresh_audio_stream_info()
-            await self._broadcast_status_sse()
-            await decky.emit("deck_resumed")
-        except Exception as e:
-            decky.logger.warning("Resume handler error: %s", e)
 
     async def _migration(self):
         decky.logger.info("Deckify migrating")
@@ -1282,7 +1271,8 @@ class Plugin:
                 continue
             if path not in self._js_fds:
                 try:
-                    self._js_fds[path] = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
+                    nonblock = getattr(os, "O_NONBLOCK", 0)
+                    self._js_fds[path] = os.open(path, os.O_RDONLY | nonblock)
                 except OSError:
                     continue
             fd = self._js_fds[path]
@@ -2465,7 +2455,7 @@ class Plugin:
             return
         try:
             os.kill(old_pid, 0)  # check alive
-        except ProcessLookupError:
+        except (ProcessLookupError, OSError):
             self._clear_pid()
             return
         decky.logger.info("Killing stale librespot pid=%d", old_pid)
