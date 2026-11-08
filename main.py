@@ -1515,35 +1515,44 @@ class Plugin:
             decky.logger.error("get_playlists failed: %s", e)
             return {"ok": False, "error": str(e)}
 
-    async def get_playlist_tracks(self, playlist_id: str, offset: int = 0) -> dict:
+    async def get_playlist_tracks(self, playlist_id: str, offset: int = 0, fetch_all: bool = True) -> dict:
         token = await self._ensure_token()
         if not token:
             return {"ok": False, "error": "Not authenticated"}
         try:
-            data = await _exec(
-                _spotify_api_request,
-                f"playlists/{playlist_id}/items", token, "GET",
-                {"limit": 50, "offset": offset},
-            )
-            items = data.get("items", []) if data else []
             tracks = []
-            for item in items:
-                t = item.get("item") or item.get("track")
-                if t is None:
-                    continue
-                artists = ", ".join(a["name"] for a in t.get("artists", []))
-                images = t.get("album", {}).get("images") or []
-                tracks.append({
-                    "id": t.get("id"),
-                    "name": t.get("name", ""),
-                    "artist": artists,
-                    "album": t.get("album", {}).get("name", ""),
-                    "uri": t.get("uri", ""),
-                    "duration_ms": t.get("duration_ms", 0),
-                    "image_url": _image_url(images),
-                })
+            cur_offset = offset
+            total = 0
+            while True:
+                data = await _exec(
+                    _spotify_api_request,
+                    f"playlists/{playlist_id}/items", token, "GET",
+                    {"limit": 100, "offset": cur_offset},
+                )
+                items = data.get("items", []) if data else []
+                total = data.get("total", 0) if data else 0
+                for item in items:
+                    t = item.get("item") or item.get("track")
+                    if t is None:
+                        continue
+                    artists = ", ".join(a["name"] for a in t.get("artists", []))
+                    images = t.get("album", {}).get("images") or []
+                    img_url = _image_url(images)
+                    tracks.append({
+                        "id": t.get("id"),
+                        "name": t.get("name", ""),
+                        "artist": artists,
+                        "album": t.get("album", {}).get("name", ""),
+                        "uri": t.get("uri", ""),
+                        "duration_ms": t.get("duration_ms", 0),
+                        "image_url": img_url,
+                        "artwork_url": img_url,
+                    })
+                cur_offset += len(items)
+                if not fetch_all or not items or len(tracks) >= total or len(tracks) >= 1000:
+                    break
+
             await self._annotate_tracks_liked(token, tracks)
-            total = data.get("total", 0) if data else 0
             return {"ok": True, "tracks": tracks, "total": total, "offset": offset}
         except Exception as e:
             decky.logger.error("get_playlist_tracks failed: %s", e)
@@ -2046,34 +2055,42 @@ class Plugin:
             decky.logger.warning("send_client_window_input failed: %s", e)
             return {"ok": False, "error": str(e)}
 
-    async def get_liked_tracks(self, offset: int = 0) -> dict:
+    async def get_liked_tracks(self, offset: int = 0, fetch_all: bool = True) -> dict:
         token = await self._ensure_token()
         if not token:
             return {"ok": False, "error": "Not authenticated"}
         try:
-            data = await _exec(
-                _spotify_api_request, "me/tracks", token, "GET",
-                {"limit": 50, "offset": offset},
-            )
-            items = data.get("items", []) if data else []
             tracks = []
-            for item in items:
-                t = item.get("track")
-                if t is None:
-                    continue
-                artists = ", ".join(a["name"] for a in t.get("artists", []))
-                images = t.get("album", {}).get("images") or []
-                tracks.append({
-                    "id": t.get("id"),
-                    "name": t.get("name", ""),
-                    "artist": artists,
-                    "album": t.get("album", {}).get("name", ""),
-                    "uri": t.get("uri", ""),
-                    "duration_ms": t.get("duration_ms", 0),
-                    "image_url": _image_url(images),
-                    "is_liked": True,
-                })
-            total = data.get("total", 0) if data else 0
+            cur_offset = offset
+            total = 0
+            while True:
+                data = await _exec(
+                    _spotify_api_request, "me/tracks", token, "GET",
+                    {"limit": 50, "offset": cur_offset},
+                )
+                items = data.get("items", []) if data else []
+                total = data.get("total", 0) if data else 0
+                for item in items:
+                    t = item.get("track")
+                    if t is None:
+                        continue
+                    artists = ", ".join(a["name"] for a in t.get("artists", []))
+                    images = t.get("album", {}).get("images") or []
+                    img_url = _image_url(images)
+                    tracks.append({
+                        "id": t.get("id"),
+                        "name": t.get("name", ""),
+                        "artist": artists,
+                        "album": t.get("album", {}).get("name", ""),
+                        "uri": t.get("uri", ""),
+                        "duration_ms": t.get("duration_ms", 0),
+                        "image_url": img_url,
+                        "artwork_url": img_url,
+                        "is_liked": True,
+                    })
+                cur_offset += len(items)
+                if not fetch_all or not items or len(tracks) >= total or len(tracks) >= 1000:
+                    break
             return {"ok": True, "tracks": tracks, "total": total, "offset": offset}
         except Exception as e:
             decky.logger.error("get_liked_tracks failed: %s", e)
@@ -2358,6 +2375,72 @@ class Plugin:
             return {"ok": True, "tracks": tracks, "artists": artists_out, "albums": albums_out, "playlists": playlists_out}
         except Exception as e:
             decky.logger.error("search_spotify failed: %s", e)
+            return {"ok": False, "error": str(e)}
+
+    async def get_track_recommendations(self, seed_track_id: str, limit: int = 25) -> dict:
+        """Fetch track recommendations based on a seed track."""
+        token = await self._ensure_token()
+        if not token:
+            return {"ok": False, "error": "Not authenticated"}
+        clean_seed = (seed_track_id or "").strip()
+        if clean_seed.startswith("spotify:track:"):
+            clean_seed = clean_seed.split(":")[-1]
+        try:
+            data = await _exec(
+                _spotify_api_request, "recommendations", token, "GET",
+                {"seed_tracks": clean_seed, "limit": min(100, max(1, limit))},
+            )
+            items = data.get("tracks", []) if data else []
+            tracks = []
+            for t in items:
+                artists = ", ".join(a["name"] for a in t.get("artists", []))
+                images = t.get("album", {}).get("images") or []
+                img_url = _image_url(images)
+                tracks.append({
+                    "id": t.get("id"),
+                    "name": t.get("name", ""),
+                    "artist": artists,
+                    "album": t.get("album", {}).get("name", ""),
+                    "uri": t.get("uri", ""),
+                    "duration_ms": t.get("duration_ms", 0),
+                    "image_url": img_url,
+                    "artwork_url": img_url,
+                })
+            await self._annotate_tracks_liked(token, tracks)
+            return {"ok": True, "tracks": tracks}
+        except Exception as e:
+            decky.logger.error("get_track_recommendations failed: %s", e)
+            return {"ok": False, "error": str(e)}
+
+    async def get_lyrics(self, track_name: str, artist_name: str, duration_sec: int = 0) -> dict:
+        """Fetch synchronized or plain lyrics from LRCLIB."""
+        def _fetch():
+            params = {"track_name": track_name, "artist_name": artist_name}
+            if duration_sec > 0:
+                params["duration"] = duration_sec
+            qs = urllib.parse.urlencode(params)
+            url = f"https://lrclib.net/api/get?{qs}"
+            req = urllib.request.Request(url, headers={"User-Agent": "Deckify/0.4.2 (SteamDeck; DeckyLoader)"})
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                return {
+                    "ok": True,
+                    "synced_lyrics": data.get("syncedLyrics"),
+                    "plain_lyrics": data.get("plainLyrics"),
+                }
+        try:
+            return await _exec(_fetch, timeout=6)
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    async def shutdown_system(self) -> dict:
+        """Power off the Steam Deck / Steam Machine cleanly."""
+        try:
+            def _poweroff():
+                subprocess.Popen(["systemctl", "poweroff"])
+            await _exec(_poweroff, timeout=3)
+            return {"ok": True}
+        except Exception as e:
             return {"ok": False, "error": str(e)}
 
     async def play_tracks(self, context_uri: str | None = None, offset_uri: str | None = None, uris: list | None = None, position: int = 0) -> dict:
@@ -3281,6 +3364,7 @@ class Plugin:
                 "artist": artist,
                 "album": album_name,
                 "artwork_url": artwork_url,
+                "image_url": artwork_url,
                 "duration_ms": duration_ms,
                 "uri": item.get("uri", ""),
                 "is_liked": is_liked,
