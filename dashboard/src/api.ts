@@ -136,12 +136,18 @@ export interface Playlist {
   image_url: string | null;
   track_count: number;
   owner_id: string;
+  uri?: string;
+  can_mix?: boolean;
+  is_mixed?: boolean;
 }
 
 export interface PlaylistFolder {
   id: string;
+  uri?: string;
   name: string;
   playlist_ids: string[];
+  playlists?: Playlist[];
+  subfolders?: PlaylistFolder[];
   source?: string;
 }
 
@@ -269,14 +275,35 @@ export async function playUris(uris: string[], position = 0): Promise<{ ok: bool
   return jsonOrThrow(res);
 }
 
-// ── Official Spotify Client Remote Window API ────────────────
+// ── Official Spotify Client Remote Window & Gamepad API ──────
 
 export interface ClientWindowStatus {
   ok: boolean;
   running: boolean;
   title?: string;
   url?: string;
+  logged_in?: boolean;
+  viewport_width?: number;
+  viewport_height?: number;
   error?: string;
+}
+
+export async function toggleNativeSpotifyMix(
+  playlistId: string,
+  enabled: boolean,
+  playNow = true,
+): Promise<{ ok: boolean; playlist_id?: string; is_mixed?: boolean; error?: string }> {
+  const res = await fetch("/api/native-mix", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ playlist_id: playlistId, enabled, play_now: playNow }),
+  });
+  return jsonOrThrow(res);
+}
+
+export async function pollGamepadEvents(): Promise<{ ok: boolean; events: string[] }> {
+  const res = await fetch("/api/gamepad/poll");
+  return jsonOrThrow(res);
 }
 
 export async function fetchClientWindowStatus(): Promise<ClientWindowStatus> {

@@ -224,6 +224,86 @@ class DeckifyFeatureTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(hasattr(self.plugin, "start_mix_play"))
             self.assertFalse(hasattr(self.plugin, "toggle_playlist_mix"))
 
+    async def test_cdp_recursive_folders_sync_and_cache(self):
+        fake_cdp_tree = [
+            {
+                "id": "spotify-folder-111",
+                "uri": "spotify:start-group:111:My%20playlists",
+                "name": "My playlists",
+                "source": "spotify_client",
+                "playlist_ids": ["pl_top"],
+                "playlists": [
+                    {
+                        "id": "pl_top",
+                        "name": "Top Playlist",
+                        "uri": "spotify:playlist:pl_top",
+                        "image_url": "spotify:image:ab67706c0000da840000",
+                        "track_count": 42,
+                        "owner_id": "user1",
+                        "can_mix": True,
+                        "is_mixed": False,
+                    }
+                ],
+                "subfolders": [
+                    {
+                        "id": "spotify-folder-222",
+                        "uri": "spotify:start-group:222:Genre",
+                        "name": "Genre",
+                        "source": "spotify_client",
+                        "playlist_ids": ["pl_sub"],
+                        "playlists": [
+                            {
+                                "id": "pl_sub",
+                                "name": "Drum & Bass",
+                                "uri": "spotify:playlist:pl_sub",
+                                "image_url": "https://i.scdn.co/image/ab67706c0000da841111",
+                                "track_count": 100,
+                                "owner_id": "user1",
+                                "can_mix": True,
+                                "is_mixed": True,
+                            }
+                        ],
+                        "subfolders": [],
+                    }
+                ],
+            }
+        ]
+        self.execute.return_value = fake_cdp_tree
+        res = await self.plugin.get_playlist_folders()
+        self.assertTrue(res["ok"])
+        self.assertEqual(len(res["folders"]), 1)
+        top = res["folders"][0]
+        self.assertEqual(top["name"], "My playlists")
+        self.assertIn("/api/image?", top["playlists"][0]["image_url"])
+        self.assertEqual(len(top["subfolders"]), 1)
+        self.assertEqual(top["subfolders"][0]["name"], "Genre")
+        self.assertTrue(top["subfolders"][0]["playlists"][0]["is_mixed"])
+
+        # When CDP is unavailable (e.g. switched back to librespot), cached tree is still returned
+        self.execute.return_value = None
+        res_cached = await self.plugin.get_playlist_folders()
+        self.assertTrue(res_cached["ok"])
+        self.assertEqual(len(res_cached["folders"]), 1)
+        self.assertEqual(res_cached["folders"][0]["subfolders"][0]["name"], "Genre")
+
+    async def test_native_playlist_mix_requires_spotify_client_backend(self):
+        self.plugin._settings["audio_backend"] = "librespot"
+        denied = await self.plugin.set_native_playlist_mix("pl_sub", True)
+        self.assertFalse(denied["ok"])
+        self.assertIn("Official Spotify Client", denied["error"])
+
+        self.plugin._settings["audio_backend"] = "spotify_client"
+        self.execute.return_value = {"ok": True, "playlist_id": "pl_sub", "is_mixed": True}
+        allowed = await self.plugin.set_native_playlist_mix("pl_sub", True)
+        self.assertTrue(allowed["ok"])
+        self.assertTrue(allowed["is_mixed"])
+
+    async def test_poll_gamepad_events_nonblocking(self):
+        with patch.object(main.os.path, "exists", return_value=False):
+            res = await self.plugin.poll_gamepad_events()
+            self.assertTrue(res["ok"])
+            self.assertEqual(res["events"], [])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import errno
 import glob
 import hashlib
 import json
@@ -8,6 +9,7 @@ import re
 import secrets
 import socket
 import ssl
+import struct
 import subprocess
 import time
 import urllib.parse
@@ -53,6 +55,7 @@ DEFAULT_SETTINGS = {
     "gapless": True,
     "autoplay": True,
     "playlist_folders": [],
+    "spotify_folder_tree": [],
 }
 
 # PulseAudio socket for root processes (deck user UID 1000)
@@ -116,11 +119,55 @@ def _fetch_spotify_image(url: str) -> tuple[str, bytes]:
         return content_type, body
 
 
+def _proxy_spotify_image_url(raw_url: str | None) -> str | None:
+    if not raw_url or not isinstance(raw_url, str):
+        return None
+    raw = raw_url.strip()
+    if not raw:
+        return None
+    if raw.startswith(f"http://127.0.0.1:{DASHBOARD_PORT}/api/image?"):
+        return raw
+    if raw.startswith("spotify:image:"):
+        img_id = raw.split("spotify:image:", 1)[1].strip()
+        if img_id:
+            raw = f"https://i.scdn.co/image/{img_id}"
+    elif raw.startswith("spotify:mosaic:"):
+        parts = [p for p in raw.split(":")[2:] if p]
+        if parts:
+            raw = f"https://mosaic.scdn.co/300/{''.join(parts[:4])}"
+    try:
+        _validate_image_url(raw)
+    except ValueError:
+        return None
+    query = urllib.parse.urlencode({"url": raw})
+    return f"http://127.0.0.1:{DASHBOARD_PORT}/api/image?{query}"
+
+
 def _image_url(images: list) -> str | None:
     if not images:
         return None
-    query = urllib.parse.urlencode({"url": images[0]["url"]})
-    return f"http://127.0.0.1:{DASHBOARD_PORT}/api/image?{query}"
+    return _proxy_spotify_image_url(images[0].get("url"))
+
+
+def _proxy_folder_tree_images(folders: list[dict]) -> list[dict]:
+    """Recursively ensure all playlist image_urls in a folder tree use Deckify's image proxy."""
+    out: list[dict] = []
+    for folder in folders or []:
+        if not isinstance(folder, dict):
+            continue
+        f_copy = dict(folder)
+        if isinstance(f_copy.get("playlists"), list):
+            new_pls = []
+            for pl in f_copy["playlists"]:
+                if isinstance(pl, dict):
+                    pl_copy = dict(pl)
+                    pl_copy["image_url"] = _proxy_spotify_image_url(pl_copy.get("image_url"))
+                    new_pls.append(pl_copy)
+            f_copy["playlists"] = new_pls
+        if isinstance(f_copy.get("subfolders"), list):
+            f_copy["subfolders"] = _proxy_folder_tree_images(f_copy["subfolders"])
+        out.append(f_copy)
+    return out
 
 
 def _load_settings() -> dict:
@@ -148,6 +195,8 @@ def _load_settings() -> dict:
             merged["bitrate"] = 320 if raw_q == "lossless" else int(raw_q)
         if not isinstance(merged.get("playlist_folders"), list):
             merged["playlist_folders"] = []
+        if not isinstance(merged.get("spotify_folder_tree"), list):
+            merged["spotify_folder_tree"] = []
         return merged
     except Exception:
         return dict(DEFAULT_SETTINGS)
@@ -338,11 +387,15 @@ def _cdp_call(method: str, params: dict | None = None, port: int = SPOTIFY_CDP_P
         masked = bytes(b ^ mask[i % 4] for i, b in enumerate(payload))
         sock.sendall(bytes(header) + masked)
 
-        # Read WebSocket frames until we get JSON message with id=1
+        # Read WebSocket frames until we get JSON message with id=1 (handling multi-frame continuations)
         raw = bytearray(leftover)
+        msg_chunks = bytearray()
         while True:
             while len(raw) >= 2:
+                b0 = raw[0]
                 b1 = raw[1]
+                fin = (b0 & 0x80) != 0
+                opcode = b0 & 0x0F
                 is_masked = (b1 & 0x80) != 0
                 plen = b1 & 0x7F
                 idx = 2
@@ -362,12 +415,17 @@ def _cdp_call(method: str, params: dict | None = None, port: int = SPOTIFY_CDP_P
                     break
                 frame_data = bytes(raw[idx:idx + plen])
                 del raw[:idx + plen]
-                try:
-                    msg = json.loads(frame_data.decode("utf-8", errors="replace"))
-                    if msg.get("id") == 1:
-                        return msg.get("result")
-                except Exception:
-                    pass
+                if opcode in (0, 1, 2):
+                    msg_chunks.extend(frame_data)
+                    if fin:
+                        full_data = bytes(msg_chunks)
+                        msg_chunks.clear()
+                        try:
+                            msg = json.loads(full_data.decode("utf-8", errors="replace"))
+                            if msg.get("id") == 1:
+                                return msg.get("result")
+                        except Exception:
+                            pass
             chunk = sock.recv(65536)
             if not chunk:
                 break
@@ -377,6 +435,107 @@ def _cdp_call(method: str, params: dict | None = None, port: int = SPOTIFY_CDP_P
             sock.close()
         except Exception:
             pass
+    return None
+
+
+def _cdp_evaluate(expression: str, port: int = SPOTIFY_CDP_PORT, timeout: float = 5.0):
+    """Evaluate a JavaScript expression inside the running Official Spotify Client via CDP."""
+    res = _cdp_call(
+        "Runtime.evaluate",
+        {"expression": expression, "awaitPromise": True, "returnByValue": True},
+        port=port,
+        timeout=timeout,
+    )
+    if isinstance(res, dict):
+        return res.get("result", {}).get("value")
+    return None
+
+
+def _fetch_spotify_cdp_folder_tree(port: int = SPOTIFY_CDP_PORT) -> list[dict] | None:
+    """Extract the user's complete recursive folder & playlist tree from Spotify's internal RootlistAPI via CDP."""
+    expr = """
+    (async () => {
+      const el = document.querySelector('#main');
+      if (!el) return null;
+      const fk = Object.keys(el).find(k => k.startsWith('__reactFiber$') || k.startsWith('__reactContainer$'));
+      if (!fk) return null;
+      const queue = [el[fk]];
+      const visited = new Set();
+      let registry = null;
+      while (queue.length > 0 && !registry) {
+        const n = queue.shift();
+        if (!n || visited.has(n)) continue;
+        visited.add(n);
+        const val = n.memoizedProps?.value;
+        if (val && val._map instanceof Map) { registry = val; break; }
+        if (val && typeof val.getRegistry === 'function') { registry = val.getRegistry(); break; }
+        if (n.child) queue.push(n.child);
+        if (n.sibling) queue.push(n.sibling);
+      }
+      if (!registry) return null;
+      let rootlistAPI = null;
+      for (const [k, v] of registry._map.entries()) {
+        if ((k?.description || String(k)) === 'RootlistAPI') {
+          rootlistAPI = v?.instance || v;
+          break;
+        }
+      }
+      if (!rootlistAPI || typeof rootlistAPI.getContents !== 'function') return null;
+      const root = await rootlistAPI.getContents({ limit: 5000, flatten: false });
+      const parseImg = (images) => {
+        const raw = images?.[0]?.url || '';
+        if (!raw) return null;
+        if (raw.startsWith('http://') || raw.startsWith('https://')) return raw;
+        if (raw.startsWith('spotify:image:')) return 'https://i.scdn.co/image/' + raw.split(':')[2];
+        if (raw.startsWith('spotify:mosaic:')) return 'https://i.scdn.co/image/' + raw.split(':')[2];
+        return null;
+      };
+      const mapFolder = (node) => {
+        const uri = node.uri || '';
+        const fid = uri.includes(':folder:') ? ('sp-' + uri.split(':folder:')[1]) : ('sp-' + (node.name || 'folder'));
+        const subfolders = [];
+        const playlists = [];
+        const playlist_ids = [];
+        for (const child of (node.items || [])) {
+          if (child.type === 'folder') {
+            const sf = mapFolder(child);
+            if (sf.playlists.length > 0 || sf.subfolders.length > 0) {
+              subfolders.push(sf);
+            }
+          } else if (child.type === 'playlist' && child.uri && child.name && child.name.trim() !== '') {
+            const pid = child.uri.split(':').pop();
+            playlist_ids.push(pid);
+            playlists.push({
+              id: pid,
+              name: child.name,
+              uri: child.uri,
+              image_url: parseImg(child.images),
+              track_count: child.totalLength || 0,
+              owner_id: child.owner?.username || child.owner?.id || '',
+              can_mix: Boolean(child.canMixPlaylist),
+              is_mixed: Array.isArray(child.appliedLenses) && child.appliedLenses.includes('mix')
+            });
+          }
+        }
+        return {
+          id: fid,
+          uri: uri,
+          name: node.name || 'Folder',
+          source: 'spotify_client',
+          playlist_ids,
+          playlists,
+          subfolders
+        };
+      };
+      return (root.items || []).filter(i => i.type === 'folder').map(mapFolder).filter(f => f.playlists.length > 0 || f.subfolders.length > 0);
+    })()
+    """
+    try:
+        res = _cdp_evaluate(expr, port=port, timeout=6.0)
+        if isinstance(res, list):
+            return res
+    except Exception:
+        pass
     return None
 
 
@@ -550,19 +709,24 @@ class Plugin:
     _crash_timestamps: list = []
     _pa_volume_boosted: bool = False
     _stable_start: float = 0
+    # Linux joystick reader state (/dev/input/js*)
+    _js_fds: dict[str, int] = {}
+    _js_axis_state: dict[tuple[str, int], int] = {}
 
     # ── Lifecycle ──────────────────────────────────────────────
 
     async def _main(self):
         self._token_refresh_lock = asyncio.Lock()
         self._crash_timestamps = []
+        self._js_fds = {}
+        self._js_axis_state = {}
         self._settings = _load_settings()
         # Restore persisted tokens
         self._access_token = self._settings.get("access_token")
         self._refresh_token = self._settings.get("refresh_token")
         self._token_expires_at = self._settings.get("token_expires_at", 0)
         safe_keys = {k: v for k, v in self._settings.items()
-                     if k not in ("access_token", "refresh_token", "token_expires_at", "spotify_client_id")}
+                     if k not in ("access_token", "refresh_token", "token_expires_at", "spotify_client_id", "spotify_folder_tree")}
         decky.logger.info("Deckify loaded, settings: %s", safe_keys)
         await self._start_dashboard()
         if self._access_token:
@@ -572,6 +736,7 @@ class Plugin:
 
     async def _unload(self):
         decky.logger.info("Deckify unloading")
+        self._close_gamepad_fds()
         await self._stop_monitor()
         await self._kill_librespot()
         await self._kill_spotify_client()
@@ -581,6 +746,7 @@ class Plugin:
 
     async def _uninstall(self):
         decky.logger.info("Deckify uninstalling")
+        self._close_gamepad_fds()
         await self._stop_monitor()
         await self._kill_librespot()
         await self._kill_spotify_client()
@@ -657,6 +823,55 @@ class Plugin:
                         pass
         except Exception as e:
             decky.logger.warning("Failed to write Spotify client prefs: %s", e)
+
+    async def _sync_spotify_client_quality_cdp(self, quality: str) -> None:
+        """Apply streaming quality live inside the running Official Spotify Client via SettingsAPI."""
+        if not self._spotify_client_process or self._spotify_client_process.poll() is not None:
+            return
+        enum_map = {"96": 2, "160": 3, "320": 4, "lossless": 5}
+        q_enum = enum_map.get(str(quality).lower(), 4)
+        expr = f"""
+        (async () => {{
+          const mainEl = document.getElementById('main');
+          if (!mainEl) return false;
+          const rk = Object.keys(mainEl).find(k => k.startsWith('__reactContainer'));
+          const q = [mainEl[rk]];
+          const visited = new Set();
+          let reg = null;
+          while (q.length > 0 && visited.size < 1000) {{
+            const curr = q.shift();
+            if (!curr || visited.has(curr)) continue;
+            visited.add(curr);
+            let m = curr.memoizedState;
+            while (m) {{
+              if (m.memoizedState && typeof m.memoizedState === 'object') {{
+                const val = m.memoizedState;
+                if (val._map && val._map instanceof Map) {{ reg = val._map; break; }}
+                if (val.value && typeof val.value.getRegistry === 'function') {{ reg = val.value.getRegistry()._map; break; }}
+              }}
+              m = m.next;
+            }}
+            if (reg) break;
+            if (curr.child) q.push(curr.child);
+            if (curr.sibling) q.push(curr.sibling);
+          }}
+          if (!reg) return false;
+          for (const [k, v] of reg.entries()) {{
+            if (String(k.description) === 'SettingsAPI') {{
+              const s = v.instance;
+              if (s.quality && s.quality.streamingQuality && typeof s.quality.streamingQuality.setValue === 'function') {{
+                await s.quality.streamingQuality.setValue({q_enum});
+                return true;
+              }}
+            }}
+          }}
+          return false;
+        }})()
+        """
+        try:
+            await _exec(_cdp_evaluate, expr, SPOTIFY_CDP_PORT, 4.0, timeout=5)
+        except Exception as e:
+            decky.logger.debug("CDP quality sync failed: %s", e)
 
     async def start_spotify_client(self) -> dict:
         """Start the Official Spotify Linux Client headless in the background (stopping librespot first)."""
@@ -918,6 +1133,7 @@ class Plugin:
                 await self.start_librespot()
         elif quality_changed and self._settings.get("audio_backend") == "spotify_client":
             self._write_spotify_client_prefs()
+            await self._sync_spotify_client_quality_cdp(str(self._settings.get("audio_quality", "320")))
             await self._configure_pipewire_clock(
                 self._settings.get("audio_quality") == "lossless"
                 and bool(self._settings.get("bit_perfect_clock", True))
@@ -1302,56 +1518,28 @@ class Plugin:
             return {"ok": False, "error": str(e)}
 
     async def _sync_native_spotify_folders(self) -> list[dict]:
-        """Scan Official Spotify Client local cache/storage for rootlist folders and merge with saved folders."""
-        existing = self._settings.get("playlist_folders")
-        if not isinstance(existing, list):
-            existing = []
-        existing_by_id = {f.get("id"): dict(f) for f in existing if isinstance(f, dict) and f.get("id")}
+        """Extract recursive playlist folders from Official Spotify Client CDP RootlistAPI (cached across backends) and merge custom folders."""
+        custom_folders = [
+            dict(f) for f in (self._settings.get("playlist_folders") or [])
+            if isinstance(f, dict) and f.get("id") and f.get("source") not in ("spotify", "spotify_client")
+        ]
+        cached_tree = self._settings.get("spotify_folder_tree")
+        if not isinstance(cached_tree, list):
+            cached_tree = []
 
-        def _scan_files() -> list[dict]:
-            discovered: list[dict] = []
-            search_roots = [SPOTIFY_CLIENT_CONFIG_DIR, SPOTIFY_CLIENT_CACHE_DIR]
-            for root_dir in search_roots:
-                if not os.path.isdir(root_dir):
-                    continue
-                for dirpath, _, filenames in os.walk(root_dir):
-                    for fn in filenames:
-                        if fn.endswith((".bnk", ".ldb", ".log", "prefs", ".json")):
-                            fpath = os.path.join(dirpath, fn)
-                            try:
-                                if os.path.getsize(fpath) > 8 * 1024 * 1024:
-                                    continue
-                                with open(fpath, "rb") as f:
-                                    raw = f.read()
-                                if b"start-group:" in raw:
-                                    parsed = _parse_spotify_rootlist_folders(raw)
-                                    if parsed:
-                                        discovered.extend(parsed)
-                            except Exception:
-                                pass
-            return discovered
-
+        # Attempt live extraction via Official Spotify Client CDP if available
         try:
-            native_folders = await _exec(_scan_files, timeout=5)
-            changed = False
-            for nf in native_folders:
-                fid = nf["id"]
-                if fid not in existing_by_id:
-                    existing_by_id[fid] = nf
-                    changed = True
-                else:
-                    merged_pids = list(dict.fromkeys(existing_by_id[fid].get("playlist_ids", []) + nf.get("playlist_ids", [])))
-                    if merged_pids != existing_by_id[fid].get("playlist_ids"):
-                        existing_by_id[fid]["playlist_ids"] = merged_pids
-                        changed = True
-            folders_list = list(existing_by_id.values())
-            if changed:
-                self._settings["playlist_folders"] = folders_list
-                _save_settings(self._settings)
-            return folders_list
+            cdp_tree = await _exec(_fetch_spotify_cdp_folder_tree, SPOTIFY_CDP_PORT, timeout=6)
+            if isinstance(cdp_tree, list) and len(cdp_tree) > 0:
+                proxied_tree = _proxy_folder_tree_images(cdp_tree)
+                if proxied_tree != cached_tree:
+                    self._settings["spotify_folder_tree"] = proxied_tree
+                    _save_settings(self._settings)
+                cached_tree = proxied_tree
         except Exception as e:
-            decky.logger.warning("Failed to scan native Spotify folders: %s", e)
-            return list(existing_by_id.values())
+            decky.logger.debug("Live CDP folder sync skipped: %s", e)
+
+        return _proxy_folder_tree_images(cached_tree) + custom_folders
 
     async def get_playlist_folders(self) -> dict:
         folders = await self._sync_native_spotify_folders()
@@ -1365,10 +1553,10 @@ class Plugin:
         playlist_id: str = "",
         folders: list | None = None,
     ) -> dict:
-        """Create, rename, delete, or assign playlists to folders in Deckify."""
+        """Create, rename, delete, or assign playlists to custom folders in Deckify."""
         current: list[dict] = [
             dict(f) for f in (self._settings.get("playlist_folders") or [])
-            if isinstance(f, dict) and f.get("id")
+            if isinstance(f, dict) and f.get("id") and f.get("source") not in ("spotify", "spotify_client")
         ]
         act = (action or "").strip().lower()
         if act == "save" and isinstance(folders, list):
@@ -1378,7 +1566,7 @@ class Plugin:
                     "name": str(f.get("name", "Folder")).strip() or "Folder",
                     "playlist_ids": [str(x) for x in (f.get("playlist_ids") or []) if x],
                 }
-                for f in folders if isinstance(f, dict) and f.get("id")
+                for f in folders if isinstance(f, dict) and f.get("id") and f.get("source") not in ("spotify", "spotify_client")
             ]
         elif act == "create":
             clean_name = (name or "").strip()
@@ -1426,20 +1614,219 @@ class Plugin:
 
         self._settings["playlist_folders"] = current
         _save_settings(self._settings)
-        return {"ok": True, "folders": current}
+        native_tree = _proxy_folder_tree_images(self._settings.get("spotify_folder_tree") or [])
+        return {"ok": True, "folders": native_tree + current}
 
-    # ── Official Spotify Client Remote Window (CDP) ─────────────
+    async def set_native_playlist_mix(self, playlist_id: str, enabled: bool = True, play_now: bool = True) -> dict:
+        """Toggle native Spotify playlist mixing via Official Spotify Client CDP PlaylistMixingAPI."""
+        if self._settings.get("audio_backend") != "spotify_client":
+            return {"ok": False, "error": "Native Spotify Mix requires the Official Spotify Client backend"}
+        pid = (playlist_id or "").strip()
+        if pid.startswith("spotify:playlist:"):
+            pid = pid.split(":")[-1]
+        if not pid:
+            return {"ok": False, "error": "Missing playlist_id"}
+        uri = f"spotify:playlist:{pid}"
+        enabled_js = "true" if enabled else "false"
+        play_js = "true" if play_now else "false"
+        expr = f"""
+        (async () => {{
+          const mainEl = document.getElementById('main');
+          if (!mainEl) return {{ ok: false, error: 'Spotify UI not ready' }};
+          const rk = Object.keys(mainEl).find(k => k.startsWith('__reactContainer'));
+          const q = [mainEl[rk]];
+          const visited = new Set();
+          let reg = null;
+          while (q.length > 0 && visited.size < 1000) {{
+            const curr = q.shift();
+            if (!curr || visited.has(curr)) continue;
+            visited.add(curr);
+            let m = curr.memoizedState;
+            while (m) {{
+              if (m.memoizedState && typeof m.memoizedState === 'object') {{
+                const val = m.memoizedState;
+                if (val._map && val._map instanceof Map) {{ reg = val._map; break; }}
+                if (val.value && typeof val.value.getRegistry === 'function') {{ reg = val.value.getRegistry()._map; break; }}
+              }}
+              m = m.next;
+            }}
+            if (reg) break;
+            if (curr.child) q.push(curr.child);
+            if (curr.sibling) q.push(curr.sibling);
+          }}
+          if (!reg) return {{ ok: false, error: 'Spotify internal registry unavailable' }};
+          let mixApi = null;
+          let playerApi = null;
+          for (const [k, v] of reg.entries()) {{
+            const desc = String(k.description);
+            if (desc === 'PlaylistMixingAPI') mixApi = v.instance;
+            if (desc === 'PlayerAPI') playerApi = v.instance;
+          }}
+          if (!mixApi) return {{ ok: false, error: 'PlaylistMixingAPI unavailable' }};
+          const uri = {json.dumps(uri)};
+          const enable = {enabled_js};
+          try {{
+            if (typeof mixApi.setAutoMix === 'function') await mixApi.setAutoMix(uri, enable);
+          }} catch (e) {{}}
+          try {{
+            if (typeof mixApi.setMixState === 'function') await mixApi.setMixState(uri, enable);
+          }} catch (e) {{}}
+          if ({play_js} && playerApi && typeof playerApi.play === 'function') {{
+            try {{
+              await playerApi.play({{ uri }}, {{}}, {{}});
+            }} catch (e) {{}}
+          }}
+          return {{ ok: true, playlist_id: {json.dumps(pid)}, uri, is_mixed: enable }};
+        }})()
+        """
+        try:
+            res = await _exec(_cdp_evaluate, expr, SPOTIFY_CDP_PORT, 6.0, timeout=7)
+            if isinstance(res, dict) and res.get("ok"):
+                # Update cached folder tree is_mixed state if present
+                def _update_mixed(nodes: list[dict]) -> None:
+                    for folder in nodes:
+                        for pl in folder.get("playlists") or []:
+                            if pl.get("id") == pid:
+                                pl["is_mixed"] = bool(enabled)
+                        if folder.get("subfolders"):
+                            _update_mixed(folder["subfolders"])
+
+                tree = self._settings.get("spotify_folder_tree")
+                if isinstance(tree, list):
+                    _update_mixed(tree)
+                    _save_settings(self._settings)
+                return res
+            if isinstance(res, dict):
+                return res
+            return {"ok": False, "error": "Official Spotify Client did not respond over CDP"}
+        except Exception as e:
+            decky.logger.warning("set_native_playlist_mix failed: %s", e)
+            return {"ok": False, "error": str(e)}
+
+    # ── Official Spotify Client Remote Window (CDP) & Gamepad ────
+
+    def _close_gamepad_fds(self) -> None:
+        for path, fd in list(self._js_fds.items()):
+            try:
+                os.close(fd)
+            except Exception:
+                pass
+        self._js_fds.clear()
+        self._js_axis_state.clear()
+
+    async def poll_gamepad_events(self) -> dict:
+        """Read queued Linux joystick events (/dev/input/js*) non-blockingly for SteamOS CEF Dashboard navigation."""
+        events: list[str] = []
+        js_struct = struct.Struct("<IhBB")
+        button_map = {
+            0: "a",
+            1: "b",
+            2: "x",
+            3: "y",
+            4: "lb",
+            5: "rb",
+            6: "select",
+            7: "start",
+            11: "up",
+            12: "down",
+            13: "left",
+            14: "right",
+        }
+        try:
+            for idx in range(4):
+                path = f"/dev/input/js{idx}"
+                if not os.path.exists(path):
+                    if path in self._js_fds:
+                        try:
+                            os.close(self._js_fds.pop(path))
+                        except Exception:
+                            pass
+                    continue
+                if path not in self._js_fds:
+                    try:
+                        self._js_fds[path] = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
+                    except OSError:
+                        continue
+                fd = self._js_fds[path]
+                while True:
+                    try:
+                        chunk = os.read(fd, 8)
+                        if not chunk or len(chunk) < 8:
+                            break
+                        _, val, ev_type, num = js_struct.unpack(chunk)
+                        # Ignore synthetic initial state burst (JS_EVENT_INIT = 0x80)
+                        if ev_type & 0x80:
+                            continue
+                        if ev_type == 0x01 and val == 1:
+                            mapped = button_map.get(num)
+                            if mapped:
+                                events.append(mapped)
+                        elif ev_type == 0x02:
+                            key = (path, num)
+                            prev_dir = self._js_axis_state.get(key, 0)
+                            if num in (0, 6):  # Left Stick X or D-Pad Hat X
+                                cur_dir = -1 if val < -16000 else (1 if val > 16000 else 0)
+                                self._js_axis_state[key] = cur_dir
+                                if cur_dir != prev_dir and cur_dir != 0:
+                                    events.append("left" if cur_dir < 0 else "right")
+                            elif num in (1, 7):  # Left Stick Y or D-Pad Hat Y
+                                cur_dir = -1 if val < -16000 else (1 if val > 16000 else 0)
+                                self._js_axis_state[key] = cur_dir
+                                if cur_dir != prev_dir and cur_dir != 0:
+                                    events.append("up" if cur_dir < 0 else "down")
+                            elif num in (2, 5):  # Left Trigger (2) / Right Trigger (5)
+                                cur_dir = 1 if val > 16000 else 0
+                                self._js_axis_state[key] = cur_dir
+                                if cur_dir != prev_dir and cur_dir == 1:
+                                    events.append("lt" if num == 2 else "rt")
+                    except OSError as e:
+                        if e.errno not in (errno.EAGAIN, errno.EWOULDBLOCK):
+                            try:
+                                os.close(fd)
+                            except Exception:
+                                pass
+                            self._js_fds.pop(path, None)
+                        break
+        except Exception as e:
+            decky.logger.debug("Gamepad poll error: %s", e)
+        return {"ok": True, "events": events}
 
     async def get_client_window_status(self) -> dict:
+        target = await _exec(_cdp_get_page_target, SPOTIFY_CDP_PORT, timeout=3)
         running = (
-            self._spotify_client_process is not None
-            and self._spotify_client_process.poll() is None
+            (self._spotify_client_process is not None and self._spotify_client_process.poll() is None)
+            or target is not None
         )
         if not running:
-            return {"ok": True, "running": False, "title": "", "url": "", "logged_in": False}
-        target = await _exec(_cdp_get_page_target, SPOTIFY_CDP_PORT, timeout=3)
+            return {
+                "ok": True,
+                "running": False,
+                "title": "",
+                "url": "",
+                "logged_in": False,
+                "viewport_width": 1280,
+                "viewport_height": 800,
+            }
         if not target:
-            return {"ok": True, "running": True, "title": "Starting...", "url": "", "logged_in": False}
+            return {
+                "ok": True,
+                "running": True,
+                "title": "Starting...",
+                "url": "",
+                "logged_in": False,
+                "viewport_width": 1280,
+                "viewport_height": 800,
+            }
+        try:
+            await _exec(
+                _cdp_call,
+                "Emulation.setDeviceMetricsOverride",
+                {"width": 1280, "height": 800, "deviceScaleFactor": 1, "mobile": False},
+                SPOTIFY_CDP_PORT,
+                timeout=2,
+            )
+        except Exception:
+            pass
         title = target.get("title", "")
         url = target.get("url", "")
         logged_in = "login.app.spotify.com" not in url and bool(url)
@@ -1449,19 +1836,25 @@ class Plugin:
             "title": title,
             "url": url,
             "logged_in": logged_in,
+            "viewport_width": 1280,
+            "viewport_height": 800,
         }
 
     async def capture_client_window_screenshot(self) -> bytes | None:
-        if not self._spotify_client_process or self._spotify_client_process.poll() is not None:
-            return None
         try:
-            res = await _exec(
-                _cdp_call,
-                "Page.captureScreenshot",
-                {"format": "jpeg", "quality": 80},
-                SPOTIFY_CDP_PORT,
-                timeout=4,
-            )
+            def _capture():
+                _cdp_call(
+                    "Emulation.setDeviceMetricsOverride",
+                    {"width": 1280, "height": 800, "deviceScaleFactor": 1, "mobile": False},
+                    SPOTIFY_CDP_PORT,
+                )
+                return _cdp_call(
+                    "Page.captureScreenshot",
+                    {"format": "jpeg", "quality": 80},
+                    SPOTIFY_CDP_PORT,
+                )
+
+            res = await _exec(_capture, timeout=4)
             if res and res.get("data"):
                 return base64.b64decode(res["data"])
         except Exception as e:
@@ -1469,8 +1862,6 @@ class Plugin:
         return None
 
     async def send_client_window_input(self, payload: dict) -> dict:
-        if not self._spotify_client_process or self._spotify_client_process.poll() is not None:
-            return {"ok": False, "error": "Official Spotify Client is not running"}
         input_type = str(payload.get("type") or payload.get("action") or "").lower()
         try:
             if input_type == "click":
@@ -1496,7 +1887,8 @@ class Plugin:
             if input_type == "wheel":
                 x = int(float(payload.get("x", 640)))
                 y = int(float(payload.get("y", 400)))
-                delta_y = int(float(payload.get("deltaY", 120)))
+                raw_dy = payload.get("delta_y") if "delta_y" in payload else payload.get("deltaY", 120)
+                delta_y = int(float(raw_dy))
                 await _exec(
                     _cdp_call,
                     "Input.dispatchMouseEvent",
@@ -2186,6 +2578,18 @@ class Plugin:
                     writer.close()
             elif path == "/api/client-window/input" and method == "POST":
                 result = await self.send_client_window_input(body_json or {})
+                await self._send_json(writer, 200, result)
+            elif path == "/api/native-mix" and method == "POST":
+                b = body_json or {}
+                pid = str(b.get("playlist_id") or qs.get("playlist_id", [""])[0])
+                raw_en = b.get("enabled") if "enabled" in b else qs.get("enabled", ["true"])[0]
+                enabled = raw_en if isinstance(raw_en, bool) else str(raw_en).lower() == "true"
+                raw_play = b.get("play_now") if "play_now" in b else True
+                play_now = raw_play if isinstance(raw_play, bool) else str(raw_play).lower() == "true"
+                result = await self.set_native_playlist_mix(pid, enabled=enabled, play_now=play_now)
+                await self._send_json(writer, 200, result)
+            elif path == "/api/gamepad/poll" and method == "GET":
+                result = await self.poll_gamepad_events()
                 await self._send_json(writer, 200, result)
             elif path == "/api/search" and method == "GET":
                 q = qs.get("q", [""])[0]
@@ -2943,6 +3347,9 @@ class Plugin:
 
                 if backend == "librespot" and not self._pa_volume_boosted:
                     await self._boost_pa_volume()
+                elif backend == "spotify_client" and not self._settings.get("spotify_folder_tree"):
+                    await self._sync_native_spotify_folders()
+                    await self._sync_spotify_client_quality_cdp(str(self._settings.get("audio_quality", "320")))
 
                 await self._refresh_audio_stream_info()
                 await asyncio.sleep(3)

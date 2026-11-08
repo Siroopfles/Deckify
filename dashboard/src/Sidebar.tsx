@@ -37,6 +37,7 @@ import {
   addToQueue,
   setShuffle,
   toggleLikeTrack,
+  toggleNativeSpotifyMix,
   type Playlist,
   type PlaylistFolder,
   type PlaylistTrack,
@@ -53,9 +54,16 @@ interface Props {
   onClose: () => void;
   onToast?: (msg: string) => void;
   onOpenAddToPlaylist?: (track: { uri: string; name: string; artist?: string }) => void;
+  isSpotifyClientBackend?: boolean;
 }
 
-export default function Sidebar({ open, onClose, onToast, onOpenAddToPlaylist }: Props) {
+export default function Sidebar({
+  open,
+  onClose,
+  onToast,
+  onOpenAddToPlaylist,
+  isSpotifyClientBackend = false,
+}: Props) {
   const [view, setView] = useState<View>("library");
   const [loading, setLoading] = useState(false);
 
@@ -94,6 +102,8 @@ export default function Sidebar({ open, onClose, onToast, onOpenAddToPlaylist }:
 
   // Context for play action
   const [activeContextId, setActiveContextId] = useState<string | null>(null);
+  const [activePlaylistMixed, setActivePlaylistMixed] = useState(false);
+  const [mixingBusy, setMixingBusy] = useState(false);
 
   const drillReqId = useRef(0);
 
@@ -218,6 +228,7 @@ export default function Sidebar({ open, onClose, onToast, onOpenAddToPlaylist }:
     setDrillTitle(pl.name);
     setDrillSubtitle(`${pl.track_count} tracks`);
     setActiveContextId(pl.id);
+    setActivePlaylistMixed(Boolean(pl.is_mixed));
     setTracks([]);
     setTracksOffset(0);
     setLoadingTracks(true);
@@ -406,6 +417,30 @@ export default function Sidebar({ open, onClose, onToast, onOpenAddToPlaylist }:
     onToast?.(shuffle ? `Shuffling ${drillTitle}` : `Playing ${drillTitle}`);
   }, [view, activeContextId, tracks, drillTitle, onToast]);
 
+  const handleToggleNativeMix = useCallback(async () => {
+    if (!activeContextId || mixingBusy) return;
+    setMixingBusy(true);
+    const nextMixed = !activePlaylistMixed;
+    try {
+      const res = await toggleNativeSpotifyMix(activeContextId, nextMixed, true);
+      if (res.ok) {
+        setActivePlaylistMixed(nextMixed);
+        onToast?.(
+          nextMixed
+            ? `Native Spotify Mix enabled for "${drillTitle}"`
+            : `Native Spotify Mix disabled for "${drillTitle}"`,
+        );
+      } else {
+        onToast?.(res.error || "Could not toggle Native Spotify Mix");
+      }
+    } catch (e) {
+      console.error("Failed to toggle native mix:", e);
+      onToast?.("Could not toggle Native Spotify Mix");
+    } finally {
+      setMixingBusy(false);
+    }
+  }, [activeContextId, activePlaylistMixed, drillTitle, mixingBusy, onToast]);
+
   const handleToggleTrackLike = useCallback(async (e: React.MouseEvent, t: PlaylistTrack) => {
     e.stopPropagation();
     if (!t.id) return;
@@ -461,34 +496,71 @@ export default function Sidebar({ open, onClose, onToast, onOpenAddToPlaylist }:
   const playlistById = new Map<string, Playlist>();
   for (const p of allPlaylists) playlistById.set(p.id, p);
 
+  const registerFolderPlaylists = (nodes: PlaylistFolder[]) => {
+    for (const f of nodes) {
+      if (f.playlists) {
+        for (const p of f.playlists) {
+          if (p.id && !playlistById.has(p.id)) playlistById.set(p.id, p);
+        }
+      }
+      if (f.subfolders) registerFolderPlaylists(f.subfolders);
+    }
+  };
+  registerFolderPlaylists(folders);
+
+  const countFolderItems = (folder: PlaylistFolder): { subfolderCount: number; playlistCount: number } => {
+    const subs = folder.subfolders || [];
+    const directPlaylists =
+      folder.playlists && folder.playlists.length > 0
+        ? folder.playlists.length
+        : (folder.playlist_ids || []).length;
+    let totalPlaylists = directPlaylists;
+    for (const sf of subs) {
+      totalPlaylists += countFolderItems(sf).playlistCount;
+    }
+    return { subfolderCount: subs.length, playlistCount: totalPlaylists };
+  };
+
   const PlaylistRow = ({
     pl,
     icon,
     inFolderId,
+    depth = 0,
+    canRemove = false,
   }: {
     pl: Playlist;
     icon?: React.ReactNode;
     inFolderId?: string;
+    depth?: number;
+    canRemove?: boolean;
   }) => (
     <div className="flex items-center group hover:bg-neutral-800 transition-colors">
       <button
         data-focusable="true"
         onClick={() => openPlaylist(pl)}
-        className={`flex-1 flex items-center gap-3 ${inFolderId ? "pl-8 pr-2" : "px-4"} py-2.5 text-left min-w-0`}
+        style={depth > 0 ? { paddingLeft: `${16 + depth * 14}px` } : undefined}
+        className={`flex-1 flex items-center gap-3 ${inFolderId && depth === 0 ? "pl-8 pr-2" : "px-4"} py-2 text-left min-w-0`}
       >
         {pl.image_url ? (
-          <img src={pl.image_url} alt="" className="w-9 h-9 rounded object-cover shrink-0" />
+          <img src={pl.image_url} alt="" className="w-8 h-8 rounded object-cover shrink-0" />
         ) : (
-          <div className="w-9 h-9 rounded bg-neutral-800 flex items-center justify-center shrink-0">
-            {icon || <FaMusic className="text-neutral-600" size={13} />}
+          <div className="w-8 h-8 rounded bg-neutral-800 flex items-center justify-center shrink-0">
+            {icon || <FaMusic className="text-neutral-600" size={12} />}
           </div>
         )}
         <div className="min-w-0 flex-1">
-          <div className="text-sm font-medium truncate">{pl.name}</div>
+          <div className="text-sm font-medium truncate flex items-center gap-1.5">
+            <span className="truncate">{pl.name}</span>
+            {isSpotifyClientBackend && pl.is_mixed && (
+              <span className="text-[9px] px-1.5 py-0.5 rounded bg-green-500/20 text-green-400 font-semibold shrink-0">
+                MIX
+              </span>
+            )}
+          </div>
           <div className="text-xs text-neutral-500">{pl.track_count} tracks</div>
         </div>
       </button>
-      {inFolderId && (
+      {inFolderId && canRemove && (
         <button
           data-focusable="true"
           onClick={(e) => handleRemovePlaylistFromFolder(e, inFolderId, pl.id)}
@@ -501,11 +573,120 @@ export default function Sidebar({ open, onClose, onToast, onOpenAddToPlaylist }:
     </div>
   );
 
+  const renderFolderNode = (folder: PlaylistFolder, depth = 0): React.ReactNode => {
+    const isExpanded = Boolean(expandedFolders[folder.id]);
+    const isNativeSpotify = folder.source === "spotify_client";
+    const directPlaylists: Playlist[] =
+      folder.playlists && folder.playlists.length > 0
+        ? folder.playlists
+        : (folder.playlist_ids || [])
+            .map((pid) => playlistById.get(pid))
+            .filter((x): x is Playlist => Boolean(x));
+    const subfolders = folder.subfolders || [];
+    const { subfolderCount, playlistCount } = countFolderItems(folder);
+
+    return (
+      <div key={folder.id} className={depth === 0 ? "border-b border-neutral-800/40" : ""}>
+        <div className="flex items-center hover:bg-neutral-800 transition-colors">
+          <button
+            data-focusable="true"
+            onClick={() => handleToggleFolder(folder.id)}
+            style={depth > 0 ? { paddingLeft: `${16 + depth * 14}px` } : undefined}
+            className="flex-1 flex items-center gap-3 px-4 py-2 text-left min-w-0"
+          >
+            <div className="w-8 h-8 rounded bg-amber-500/15 text-amber-400 flex items-center justify-center shrink-0">
+              {isExpanded ? <FaFolderOpen size={14} /> : <FaFolder size={14} />}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="text-sm font-medium truncate">{folder.name}</div>
+              <div className="text-xs text-neutral-500 truncate">
+                {subfolderCount > 0 ? `${subfolderCount} folders · ` : ""}
+                {playlistCount} playlists
+                {isNativeSpotify && depth === 0 ? " · Spotify" : ""}
+              </div>
+            </div>
+          </button>
+          {!isNativeSpotify && (
+            <>
+              <button
+                data-focusable="true"
+                onClick={() =>
+                  setAssigningPlaylistToFolder((curr) =>
+                    curr === folder.id ? null : folder.id,
+                  )
+                }
+                className="p-2 text-neutral-400 hover:text-green-400"
+                title="Add playlist to folder"
+              >
+                <FaPlus size={11} />
+              </button>
+              <button
+                data-focusable="true"
+                onClick={(e) => handleDeleteFolder(e, folder)}
+                className="p-2 mr-2 text-neutral-500 hover:text-red-400"
+                title="Delete folder"
+              >
+                <FaTrash size={11} />
+              </button>
+            </>
+          )}
+        </div>
+
+        {assigningPlaylistToFolder === folder.id && !isNativeSpotify && (
+          <div className="px-4 py-2 bg-neutral-950/80 space-y-1 max-h-40 overflow-y-auto">
+            <div className="text-[11px] text-neutral-400 mb-1">
+              Select playlist to add to "{folder.name}":
+            </div>
+            {allPlaylists
+              .filter((p) => !(folder.playlist_ids || []).includes(p.id))
+              .map((p) => (
+                <button
+                  key={p.id}
+                  data-focusable="true"
+                  onClick={() => handleAddPlaylistToFolder(folder.id, p.id)}
+                  className="w-full text-left text-xs py-1 px-2 rounded hover:bg-neutral-800 truncate text-neutral-200"
+                >
+                  + {p.name}
+                </button>
+              ))}
+          </div>
+        )}
+
+        {isExpanded && (
+          <div className="bg-neutral-950/35">
+            {subfolders.map((sf) => renderFolderNode(sf, depth + 1))}
+            {directPlaylists.length === 0 && subfolders.length === 0 ? (
+              <div
+                style={{ paddingLeft: `${28 + depth * 14}px` }}
+                className="pr-4 py-2 text-xs text-neutral-600"
+              >
+                Empty folder
+              </div>
+            ) : (
+              directPlaylists.map((pl) => (
+                <PlaylistRow
+                  key={`${folder.id}-${pl.id}`}
+                  pl={pl}
+                  inFolderId={folder.id}
+                  depth={depth + 1}
+                  canRemove={!isNativeSpotify}
+                />
+              ))
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <>
       {open && <div className="fixed inset-0 z-40 bg-black/60" onClick={handleClose} />}
 
-      <div className={`fixed inset-y-0 left-0 z-50 w-80 bg-neutral-900 shadow-2xl flex flex-col transition-transform duration-300 ${open ? "translate-x-0" : "-translate-x-full"}`}>
+      <div
+        data-modal-scope={open ? "true" : undefined}
+        className={`fixed inset-y-0 left-0 z-50 w-80 bg-neutral-900 shadow-2xl flex flex-col transition-transform duration-300 ${open ? "translate-x-0" : "-translate-x-full"}`}
+      >
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-neutral-800 shrink-0">
           {inDrill ? (
@@ -609,88 +790,7 @@ export default function Sidebar({ open, onClose, onToast, onOpenAddToPlaylist }:
                   </div>
                 )}
 
-                {folders.map((folder) => {
-                  const isExpanded = Boolean(expandedFolders[folder.id]);
-                  const folderPlaylists = folder.playlist_ids
-                    .map((pid) => playlistById.get(pid))
-                    .filter((x): x is Playlist => Boolean(x));
-                  return (
-                    <div key={folder.id} className="border-b border-neutral-800/40">
-                      <div className="flex items-center hover:bg-neutral-800 transition-colors">
-                        <button
-                          data-focusable="true"
-                          onClick={() => handleToggleFolder(folder.id)}
-                          className="flex-1 flex items-center gap-3 px-4 py-2.5 text-left min-w-0"
-                        >
-                          <div className="w-9 h-9 rounded bg-amber-500/15 text-amber-400 flex items-center justify-center shrink-0">
-                            {isExpanded ? <FaFolderOpen size={15} /> : <FaFolder size={15} />}
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <div className="text-sm font-medium truncate">{folder.name}</div>
-                            <div className="text-xs text-neutral-500">
-                              {folderPlaylists.length} playlists
-                              {folder.source === "spotify_client" ? " · Spotify" : ""}
-                            </div>
-                          </div>
-                        </button>
-                        <button
-                          data-focusable="true"
-                          onClick={() =>
-                            setAssigningPlaylistToFolder((curr) =>
-                              curr === folder.id ? null : folder.id,
-                            )
-                          }
-                          className="p-2 text-neutral-400 hover:text-green-400"
-                          title="Add playlist to folder"
-                        >
-                          <FaPlus size={11} />
-                        </button>
-                        <button
-                          data-focusable="true"
-                          onClick={(e) => handleDeleteFolder(e, folder)}
-                          className="p-2 mr-2 text-neutral-500 hover:text-red-400"
-                          title="Delete folder"
-                        >
-                          <FaTrash size={11} />
-                        </button>
-                      </div>
-
-                      {assigningPlaylistToFolder === folder.id && (
-                        <div className="px-4 py-2 bg-neutral-950/80 space-y-1 max-h-40 overflow-y-auto">
-                          <div className="text-[11px] text-neutral-400 mb-1">
-                            Select playlist to add to "{folder.name}":
-                          </div>
-                          {allPlaylists
-                            .filter((p) => !folder.playlist_ids.includes(p.id))
-                            .map((p) => (
-                              <button
-                                key={p.id}
-                                data-focusable="true"
-                                onClick={() => handleAddPlaylistToFolder(folder.id, p.id)}
-                                className="w-full text-left text-xs py-1 px-2 rounded hover:bg-neutral-800 truncate text-neutral-200"
-                              >
-                                + {p.name}
-                              </button>
-                            ))}
-                        </div>
-                      )}
-
-                      {isExpanded && (
-                        <div className="bg-neutral-950/40">
-                          {folderPlaylists.length === 0 ? (
-                            <div className="pl-10 pr-4 py-2 text-xs text-neutral-600">
-                              Empty folder — click + to add playlists
-                            </div>
-                          ) : (
-                            folderPlaylists.map((pl) => (
-                              <PlaylistRow key={pl.id} pl={pl} inFolderId={folder.id} />
-                            ))
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
+                {folders.map((folder) => renderFolderNode(folder, 0))}
 
                 {madeForYou.length > 0 && (
                   <>
@@ -876,6 +976,21 @@ export default function Sidebar({ open, onClose, onToast, onOpenAddToPlaylist }:
                     >
                       <FaRandom size={11} /> Shuffle
                     </button>
+                    {view === "playlist" && isSpotifyClientBackend && (
+                      <button
+                        data-focusable="true"
+                        disabled={mixingBusy}
+                        onClick={handleToggleNativeMix}
+                        className={`flex-1 flex items-center justify-center gap-1.5 text-xs font-semibold py-1.5 px-2.5 rounded-lg transition-colors ${
+                          activePlaylistMixed
+                            ? "bg-green-500 text-black hover:bg-green-400"
+                            : "bg-neutral-800 text-green-400 border border-green-500/40 hover:bg-neutral-700"
+                        }`}
+                        title="Toggle Native Spotify Playlist Mix"
+                      >
+                        {activePlaylistMixed ? "Mix: ON" : "Mix"}
+                      </button>
+                    )}
                   </div>
                 )}
               </div>

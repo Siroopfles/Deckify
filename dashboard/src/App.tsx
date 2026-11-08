@@ -36,6 +36,7 @@ import {
   fetchClientWindowStatus,
   getClientWindowScreenshotUrl,
   sendClientWindowInput,
+  pollGamepadEvents,
   playUris,
   type StatusResponse,
   type PlaylistTrack,
@@ -87,6 +88,10 @@ export default function App() {
   const [clientScreenBust, setClientScreenBust] = useState<number>(Date.now());
   const [clientWindowRunning, setClientWindowRunning] = useState(false);
   const [clientWindowTitle, setClientWindowTitle] = useState("");
+  const [clientWindowViewport, setClientWindowViewport] = useState<{ width: number; height: number }>({
+    width: 1280,
+    height: 800,
+  });
   const [clientTextInput, setClientTextInput] = useState("");
 
   // Gamepad state
@@ -178,6 +183,9 @@ export default function App() {
         if (!active) return;
         setClientWindowRunning(st.running);
         setClientWindowTitle(st.title || "Official Spotify Client");
+        if (st.viewport_width && st.viewport_height) {
+          setClientWindowViewport({ width: st.viewport_width, height: st.viewport_height });
+        }
         if (st.running) {
           setClientScreenBust(Date.now());
         }
@@ -186,7 +194,7 @@ export default function App() {
       }
     };
     refreshWindow();
-    const timer = setInterval(refreshWindow, 1200);
+    const timer = setInterval(refreshWindow, 450);
     return () => {
       active = false;
       clearInterval(timer);
@@ -433,24 +441,44 @@ export default function App() {
     async (e: React.MouseEvent<HTMLImageElement>) => {
       const rect = e.currentTarget.getBoundingClientRect();
       if (rect.width <= 0 || rect.height <= 0) return;
-      const scaleX = 1280 / rect.width;
-      const scaleY = 800 / rect.height;
+      const scaleX = clientWindowViewport.width / rect.width;
+      const scaleY = clientWindowViewport.height / rect.height;
       const x = Math.round((e.clientX - rect.left) * scaleX);
       const y = Math.round((e.clientY - rect.top) * scaleY);
       await sendClientWindowInput({ action: "click", x, y });
-      setTimeout(() => setClientScreenBust(Date.now()), 350);
+      setTimeout(() => setClientScreenBust(Date.now()), 160);
+      setTimeout(() => setClientScreenBust(Date.now()), 420);
     },
-    [],
+    [clientWindowViewport],
+  );
+
+  const handleClientCanvasWheel = useCallback(
+    async (e: React.WheelEvent<HTMLImageElement>) => {
+      const rect = e.currentTarget.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return;
+      const scaleX = clientWindowViewport.width / rect.width;
+      const scaleY = clientWindowViewport.height / rect.height;
+      const x = Math.round((e.clientX - rect.left) * scaleX);
+      const y = Math.round((e.clientY - rect.top) * scaleY);
+      await sendClientWindowInput({
+        action: "wheel",
+        x,
+        y,
+        delta_y: Math.round(e.deltaY || 120),
+      });
+      setTimeout(() => setClientScreenBust(Date.now()), 180);
+    },
+    [clientWindowViewport],
   );
 
   const handleClientSendText = useCallback(async () => {
     if (!clientTextInput) return;
     await sendClientWindowInput({ action: "text", text: clientTextInput });
     setClientTextInput("");
-    setTimeout(() => setClientScreenBust(Date.now()), 350);
+    setTimeout(() => setClientScreenBust(Date.now()), 200);
   }, [clientTextInput]);
 
-  // ── HTML5 Gamepad / Controller Navigation ────────────────────
+  // ── Controller Navigation (Linux /dev/input/js* + Keyboard + HTML5 Gamepad) ──
   useEffect(() => {
     const onConnect = () => setGamepadConnected(true);
     const onDisconnect = () => {
@@ -465,16 +493,22 @@ export default function App() {
     const prevButtons: Record<number, boolean> = {};
 
     const getVisibleFocusableElements = (): HTMLElement[] => {
-      // Scope to topmost active modal/drawer so focus doesn't jump behind modals
       let scopeRoot: ParentNode = document;
-      const modalEl = document.querySelector("[data-modal-scope='true']");
-      if (modalEl) {
-        scopeRoot = modalEl;
+      const modalScopes = Array.from(document.querySelectorAll<HTMLElement>("[data-modal-scope='true']"));
+      if (modalScopes.length > 0) {
+        scopeRoot = modalScopes[modalScopes.length - 1];
       }
       const candidates = Array.from(scopeRoot.querySelectorAll<HTMLElement>("[data-focusable='true']"));
       return candidates.filter((el) => {
         const rect = el.getBoundingClientRect();
-        return rect.width > 0 && rect.height > 0;
+        return (
+          rect.width > 0 &&
+          rect.height > 0 &&
+          rect.right > 0 &&
+          rect.left < window.innerWidth &&
+          rect.bottom > 0 &&
+          rect.top < window.innerHeight
+        );
       });
     };
 
@@ -588,6 +622,106 @@ export default function App() {
       }
     };
 
+    const dispatchGamepadAction = (action: string) => {
+      setGamepadConnected(true);
+      switch (action) {
+        case "up":
+        case "down":
+        case "left":
+        case "right":
+          moveFocus(action);
+          break;
+        case "a":
+          if (focusedElRef.current) {
+            focusedElRef.current.click();
+          } else {
+            moveFocus("down");
+          }
+          break;
+        case "b":
+          triggerBack();
+          break;
+        case "x":
+          triggerLikeOnFocusedOrCurrent();
+          break;
+        case "y":
+          triggerAddToPlaylistOnFocusedOrCurrent();
+          break;
+        case "lb":
+          handleControl("previous");
+          break;
+        case "rb":
+          handleControl("next");
+          break;
+        case "lt":
+          handleVolumeStep(-5);
+          break;
+        case "rt":
+          handleVolumeStep(5);
+          break;
+        case "select":
+          setSidebarOpen((v) => !v);
+          break;
+        case "start":
+          handleControl(status?.is_playing ? "pause" : "play");
+          break;
+        default:
+          break;
+      }
+    };
+
+    // 1. Keyboard / Steam Input Navigation
+    const onKeyDown = (e: KeyboardEvent) => {
+      const tag = (document.activeElement as HTMLElement | null)?.tagName?.toLowerCase();
+      const isInput = tag === "input" || tag === "textarea";
+      if (e.key === "Escape") {
+        e.preventDefault();
+        dispatchGamepadAction("b");
+        return;
+      }
+      if (isInput) return;
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        dispatchGamepadAction("up");
+      } else if (e.key === "ArrowDown") {
+        e.preventDefault();
+        dispatchGamepadAction("down");
+      } else if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        dispatchGamepadAction("left");
+      } else if (e.key === "ArrowRight") {
+        e.preventDefault();
+        dispatchGamepadAction("right");
+      } else if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        dispatchGamepadAction("a");
+      } else if (e.key === "Backspace") {
+        e.preventDefault();
+        dispatchGamepadAction("b");
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+
+    // 2. Backend Linux /dev/input/js* Polling (bypasses SteamOS CEF Gamepad API block)
+    let pollBusy = false;
+    const backendTimer = setInterval(async () => {
+      if (pollBusy || document.visibilityState !== "visible") return;
+      pollBusy = true;
+      try {
+        const res = await pollGamepadEvents();
+        if (res.ok && Array.isArray(res.events) && res.events.length > 0) {
+          for (const ev of res.events) {
+            dispatchGamepadAction(ev);
+          }
+        }
+      } catch {
+        // Ignore transient poll errors
+      } finally {
+        pollBusy = false;
+      }
+    }, 120);
+
+    // 3. Standard HTML5 Gamepad API fallback
     const pollGamepad = () => {
       const pads = navigator.getGamepads ? navigator.getGamepads() : [];
       const gp = pads[0] || pads[1] || pads[2] || pads[3];
@@ -598,69 +732,34 @@ export default function App() {
         const isPressed = (idx: number) => Boolean(gp.buttons[idx]?.pressed);
         const justPressed = (idx: number) => isPressed(idx) && !prevButtons[idx];
 
-        // D-Pad (12=Up, 13=Down, 14=Left, 15=Right) + Left Stick (axes 0, 1)
         const stickX = gp.axes[0] ?? 0;
         const stickY = gp.axes[1] ?? 0;
         if (now - lastMoveTime > 190) {
           if (isPressed(12) || stickY < -0.55) {
-            moveFocus("up");
+            dispatchGamepadAction("up");
             lastMoveTime = now;
           } else if (isPressed(13) || stickY > 0.55) {
-            moveFocus("down");
+            dispatchGamepadAction("down");
             lastMoveTime = now;
           } else if (isPressed(14) || stickX < -0.55) {
-            moveFocus("left");
+            dispatchGamepadAction("left");
             lastMoveTime = now;
           } else if (isPressed(15) || stickX > 0.55) {
-            moveFocus("right");
+            dispatchGamepadAction("right");
             lastMoveTime = now;
           }
         }
 
-        // A (0): Activate focused element
-        if (justPressed(0)) {
-          if (focusedElRef.current) {
-            focusedElRef.current.click();
-          } else {
-            moveFocus("down");
-          }
-        }
-        // B (1): Back / Close modal
-        if (justPressed(1)) {
-          triggerBack();
-        }
-        // X (2): Like focused or current track
-        if (justPressed(2)) {
-          triggerLikeOnFocusedOrCurrent();
-        }
-        // Y (3): Add to Playlist for focused or current track
-        if (justPressed(3)) {
-          triggerAddToPlaylistOnFocusedOrCurrent();
-        }
-        // LB (4): Previous track
-        if (justPressed(4)) {
-          handleControl("previous");
-        }
-        // RB (5): Next track
-        if (justPressed(5)) {
-          handleControl("next");
-        }
-        // LT (6): Volume -5%
-        if (justPressed(6)) {
-          handleVolumeStep(-5);
-        }
-        // RT (7): Volume +5%
-        if (justPressed(7)) {
-          handleVolumeStep(5);
-        }
-        // Select / View (8): Toggle Sidebar or Search
-        if (justPressed(8)) {
-          setSidebarOpen((v) => !v);
-        }
-        // Start / Menu (9): Play / Pause
-        if (justPressed(9)) {
-          handleControl(status?.is_playing ? "pause" : "play");
-        }
+        if (justPressed(0)) dispatchGamepadAction("a");
+        if (justPressed(1)) dispatchGamepadAction("b");
+        if (justPressed(2)) dispatchGamepadAction("x");
+        if (justPressed(3)) dispatchGamepadAction("y");
+        if (justPressed(4)) dispatchGamepadAction("lb");
+        if (justPressed(5)) dispatchGamepadAction("rb");
+        if (justPressed(6)) dispatchGamepadAction("lt");
+        if (justPressed(7)) dispatchGamepadAction("rt");
+        if (justPressed(8)) dispatchGamepadAction("select");
+        if (justPressed(9)) dispatchGamepadAction("start");
 
         for (let i = 0; i < gp.buttons.length; i++) {
           prevButtons[i] = Boolean(gp.buttons[i]?.pressed);
@@ -671,7 +770,9 @@ export default function App() {
 
     rafId = requestAnimationFrame(pollGamepad);
     return () => {
+      clearInterval(backendTimer);
       cancelAnimationFrame(rafId);
+      window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("gamepadconnected", onConnect);
       window.removeEventListener("gamepaddisconnected", onDisconnect);
     };
@@ -783,6 +884,7 @@ export default function App() {
         onClose={() => setSidebarOpen(false)}
         onToast={showToast}
         onOpenAddToPlaylist={handleOpenAddToPlaylist}
+        isSpotifyClientBackend={isSpotifyClientBackend}
       />
       <SearchOverlay
         open={searchOpen}
@@ -960,7 +1062,7 @@ export default function App() {
                 <div className="text-sm font-semibold flex items-center gap-2">
                   <span>{clientWindowTitle || "Official Spotify Client"}</span>
                   <span className="text-[10px] bg-green-500/20 text-green-400 px-2 py-0.5 rounded-full">
-                    Click image to interact · Scan QR with phone to log in
+                    1280×800 Live View · Click or Scroll directly
                   </span>
                 </div>
               </div>
@@ -979,6 +1081,7 @@ export default function App() {
                   src={getClientWindowScreenshotUrl(clientScreenBust)}
                   alt="Official Spotify Client Window"
                   onClick={handleClientCanvasClick}
+                  onWheel={handleClientCanvasWheel}
                   className="max-w-full max-h-[65vh] object-contain cursor-pointer select-none"
                 />
               ) : (
