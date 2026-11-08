@@ -304,6 +304,23 @@ class DeckifyFeatureTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(res["ok"])
             self.assertEqual(res["events"], [])
 
+    async def test_push_and_poll_gamepad_events(self):
+        push_res = self.plugin.push_gamepad_events(["down", "A", "invalid_key", "right"])
+        self.assertTrue(push_res["ok"])
+        self.assertEqual(push_res["pushed"], 3)  # down, a, right
+
+        callable_res = await self.plugin.push_gamepad_event("start")
+        self.assertTrue(callable_res["ok"])
+
+        with patch.object(main.os.path, "exists", return_value=False):
+            poll_res = await self.plugin.poll_gamepad_events()
+            self.assertTrue(poll_res["ok"])
+            self.assertEqual(poll_res["events"], ["down", "a", "right", "start"])
+
+            # Queue is now drained
+            poll_empty = await self.plugin.poll_gamepad_events()
+            self.assertEqual(poll_empty["events"], [])
+
 
 if __name__ == "__main__":
     unittest.main()
