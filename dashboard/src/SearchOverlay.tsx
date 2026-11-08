@@ -1,10 +1,11 @@
 import { useState, useCallback, useRef, useEffect } from "react";
-import { FaTimes, FaSearch, FaMusic, FaUser, FaCompactDisc, FaPlus, FaSlidersH } from "react-icons/fa";
+import { FaTimes, FaSearch, FaMusic, FaUser, FaCompactDisc, FaPlus, FaSlidersH, FaHeart, FaRegHeart } from "react-icons/fa";
 import {
   searchSpotify,
   playUris,
   playInContext,
   addToQueue,
+  toggleLikeTrack,
   startMixPlay,
   fetchPlaylistTracks,
   fetchAlbumTracks,
@@ -85,6 +86,25 @@ export default function SearchOverlay({ open, onClose, onToast }: Props) {
     }
   }, [onToast]);
 
+  const handleLikeTrack = useCallback(async (e: React.MouseEvent, t: PlaylistTrack) => {
+    e.stopPropagation();
+    if (!t.id) return;
+    const nextLiked = !t.is_liked;
+    const res = await toggleLikeTrack(t.id, nextLiked);
+    if (res.ok) {
+      setDrillTracks((prev) => prev.map((x) => (x.id === t.id ? { ...x, is_liked: res.is_liked } : x)));
+      setResults((prev) =>
+        prev
+          ? {
+              ...prev,
+              tracks: prev.tracks.map((x) => (x.id === t.id ? { ...x, is_liked: res.is_liked } : x)),
+            }
+          : prev,
+      );
+      onToast?.(res.is_liked ? `Saved "${t.name}"` : `Removed "${t.name}"`);
+    }
+  }, [onToast]);
+
   const openAlbum = useCallback(async (al: Album) => {
     setDrillView("album");
     setDrillTitle(al.name);
@@ -160,11 +180,11 @@ export default function SearchOverlay({ open, onClose, onToast }: Props) {
 
   const handleMixDrill = useCallback(async () => {
     if (drillContextUri && drillView !== "artist") {
-      await startMixPlay({ context_uri: drillContextUri, mix_mode: "fade", crossfade_seconds: 6, shuffle: true });
-      onToast?.(`Mix Mode started for ${drillTitle}`);
+      await startMixPlay({ context_uri: drillContextUri, mix_mode: "auto", crossfade_seconds: 6, shuffle: false });
+      onToast?.(`Playlist Mix (AUTO) started for ${drillTitle}`);
     } else if (drillTracks.length > 0) {
-      await startMixPlay({ uris: drillTracks.map((t) => t.uri), mix_mode: "fade", crossfade_seconds: 6, shuffle: true });
-      onToast?.(`Mix Mode started for ${drillTitle}`);
+      await startMixPlay({ uris: drillTracks.map((t) => t.uri), mix_mode: "auto", crossfade_seconds: 6, shuffle: false });
+      onToast?.(`Mix Mode (AUTO) started for ${drillTitle}`);
     }
   }, [drillContextUri, drillView, drillTracks, drillTitle, onToast]);
 
@@ -236,6 +256,15 @@ export default function SearchOverlay({ open, onClose, onToast }: Props) {
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
                         <span className="text-xs text-neutral-600">{formatMs(t.duration_ms)}</span>
+                        {t.id && (
+                          <button
+                            onClick={(e) => handleLikeTrack(e, t)}
+                            className={`p-1.5 ${t.is_liked ? "text-green-500" : "text-neutral-500 hover:text-white"}`}
+                            title={t.is_liked ? "Remove from Liked Songs" : "Save to Liked Songs"}
+                          >
+                            {t.is_liked ? <FaHeart size={12} /> : <FaRegHeart size={12} />}
+                          </button>
+                        )}
                         <button
                           onClick={(e) => handleQueueTrack(e, t)}
                           className="p-1.5 text-neutral-500 hover:text-green-400"
@@ -325,6 +354,15 @@ export default function SearchOverlay({ open, onClose, onToast }: Props) {
                         <div className="text-xs text-neutral-500 truncate">{t.artist}</div>
                       </div>
                       <span className="text-xs text-neutral-600 shrink-0">{formatMs(t.duration_ms)}</span>
+                      {t.id && (
+                        <button
+                          onClick={(e) => handleLikeTrack(e, t)}
+                          className={`p-1.5 shrink-0 ${t.is_liked ? "text-green-500" : "text-neutral-500 hover:text-white"}`}
+                          title={t.is_liked ? "Remove from Liked Songs" : "Save to Liked Songs"}
+                        >
+                          {t.is_liked ? <FaHeart size={12} /> : <FaRegHeart size={12} />}
+                        </button>
+                      )}
                       <button
                         onClick={(e) => handleQueueTrack(e, t)}
                         className="p-1.5 text-neutral-500 hover:text-green-400 shrink-0"

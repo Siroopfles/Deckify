@@ -78,11 +78,22 @@ const backendStartMixPlay = callable<[string | null, string[] | null, string, nu
   mix_mode?: string;
   crossfade_seconds?: number;
   shuffle_state?: boolean;
+  mixed_playlists?: Record<string, string>;
   error?: string;
 }>("start_mix_play");
+const backendTogglePlaylistMix = callable<[string, boolean | null, string], {
+  ok: boolean;
+  playlist_id?: string;
+  mix_enabled?: boolean;
+  mix_preset?: string;
+  mixed_playlists?: Record<string, string>;
+  error?: string;
+}>("toggle_playlist_mix");
 const backendGetDashboardUrl = callable<[], { ok: boolean; url?: string; error?: string }>("get_dashboard_url");
 const backendGetDevices = callable<[], { ok: boolean; devices?: SpotifyDevice[]; error?: string }>("get_devices");
 const backendTransferPlayback = callable<[string], { ok: boolean; error?: string }>("transfer_playback");
+
+type MixMode = "off" | "auto" | "fade" | "rise" | "blend" | "slam";
 
 interface Settings {
   device_name: string;
@@ -92,8 +103,9 @@ interface Settings {
   normalisation_pregain?: number;
   gapless?: boolean;
   autoplay?: boolean;
-  mix_mode?: "off" | "fade" | "rise";
+  mix_mode?: MixMode;
   crossfade_seconds?: number;
+  mixed_playlists?: Record<string, string>;
 }
 
 interface LibrespotEvent {
@@ -138,6 +150,7 @@ interface TrackItem {
   uri: string;
   duration_ms: number;
   image_url: string | null;
+  is_liked?: boolean;
 }
 
 interface PlaylistItem {
@@ -146,6 +159,8 @@ interface PlaylistItem {
   image_url: string | null;
   track_count: number;
   owner_id: string;
+  mix_enabled?: boolean;
+  mix_preset?: string;
 }
 
 type QuickTab = "none" | "playlists" | "liked" | "queue" | "search";
@@ -157,9 +172,12 @@ const BITRATE_OPTIONS = [
 ];
 
 const MIX_MODE_OPTIONS = [
-  { data: "off", label: "Off (Standard)" },
-  { data: "fade", label: "Smooth Fade (Crossfade)" },
-  { data: "rise", label: "Quick Rise (DJ Blend)" },
+  { data: "off", label: "Per-Playlist Mix Only (Default)" },
+  { data: "auto", label: "Auto Blend (Spotify Default)" },
+  { data: "fade", label: "Fade (Smooth Crossfade)" },
+  { data: "rise", label: "Rise (Energy Build-Up)" },
+  { data: "blend", label: "Blend (Balanced 50/50 Overlap)" },
+  { data: "slam", label: "Slam (On-Beat DJ Cut)" },
 ];
 
 function formatDuration(ms: number): string {
@@ -618,19 +636,34 @@ const Content: FC = () => {
   }, []);
 
   const handleMixPlayContext = useCallback(async (contextUri: string | null, uris: string[] | null, label: string) => {
-    const mode = settings.mix_mode && settings.mix_mode !== "off" ? settings.mix_mode : "fade";
+    const mode = settings.mix_mode && settings.mix_mode !== "off" ? settings.mix_mode : "auto";
     const cf = settings.crossfade_seconds && settings.crossfade_seconds > 0 ? settings.crossfade_seconds : 6;
-    const res = await backendStartMixPlay(contextUri, uris, mode, cf, true);
+    const res = await backendStartMixPlay(contextUri, uris, mode, cf, false);
     if (res.ok) {
-      setSettings((prev) => ({
-        ...prev,
-        mix_mode: (res.mix_mode as Settings["mix_mode"]) ?? "fade",
-        crossfade_seconds: res.crossfade_seconds ?? 6,
-      }));
-      setShuffleState(true);
+      if (res.mixed_playlists) {
+        setSettings((prev) => ({
+          ...prev,
+          mixed_playlists: res.mixed_playlists,
+          crossfade_seconds: res.crossfade_seconds ?? 6,
+        }));
+        setPlaylists((prev) =>
+          prev.map((p) =>
+            contextUri === `spotify:playlist:${p.id}`
+              ? { ...p, mix_enabled: true, mix_preset: mode }
+              : p,
+          ),
+        );
+      } else {
+        setSettings((prev) => ({
+          ...prev,
+          mix_mode: (res.mix_mode as MixMode) ?? "auto",
+          crossfade_seconds: res.crossfade_seconds ?? 6,
+        }));
+      }
+      setShuffleState(false);
       toaster.toast({
-        title: "Mix Mode Active",
-        body: `Mixing ${label} (${cf}s crossfade)`,
+        title: "Playlist Mix Active",
+        body: `Mixing ${label} (${mode.toUpperCase()} preset)`,
         duration: 2500,
         icon: <FaSpotify />,
       });
@@ -638,6 +671,48 @@ const Content: FC = () => {
       toaster.toast({ title: "Deckify", body: res.error ?? "Failed to start Mix", duration: 3000 });
     }
   }, [settings.mix_mode, settings.crossfade_seconds]);
+
+  const handleTogglePlaylistMixBtn = useCallback(async (pl: PlaylistItem) => {
+    const nextEnabled = !pl.mix_enabled;
+    const preset = settings.mix_mode && settings.mix_mode !== "off" ? settings.mix_mode : "auto";
+    const res = await backendTogglePlaylistMix(pl.id, nextEnabled, preset);
+    if (res.ok) {
+      setPlaylists((prev) =>
+        prev.map((p) => (p.id === pl.id ? { ...p, mix_enabled: res.mix_enabled, mix_preset: res.mix_preset } : p)),
+      );
+      if (res.mixed_playlists) {
+        setSettings((prev) => ({ ...prev, mixed_playlists: res.mixed_playlists }));
+      }
+      if (nextEnabled) {
+        await handleMixPlayContext(`spotify:playlist:${pl.id}`, null, pl.name);
+      } else {
+        toaster.toast({
+          title: "Playlist Mix Off",
+          body: `Disabled Mix for ${pl.name}`,
+          duration: 2000,
+          icon: <FaSpotify />,
+        });
+      }
+    }
+  }, [settings.mix_mode, handleMixPlayContext]);
+
+  const handleToggleItemLike = useCallback(async (track: TrackItem) => {
+    if (!track.id) return;
+    const nextLiked = !track.is_liked;
+    const res = await backendToggleLike(track.id, nextLiked);
+    if (res.ok) {
+      const updateList = (list: TrackItem[]) =>
+        list.map((t) => (t.id === track.id ? { ...t, is_liked: res.is_liked } : t));
+      setSearchResults(updateList);
+      setQueueTracks(updateList);
+      setLikedTracks(updateList);
+      if (trackMeta?.track_id === track.id) {
+        setIsLiked(Boolean(res.is_liked));
+      }
+    } else {
+      toaster.toast({ title: "Deckify", body: res.error ?? "Failed to update Library", duration: 3000 });
+    }
+  }, [trackMeta]);
 
   const playState = lastEvent ? playerEventToLabel(lastEvent.event, isPlaying) : "Idle";
   const trackId = lastEvent?.track_id ?? "—";
@@ -882,10 +957,17 @@ const Content: FC = () => {
                       {pl.name} ({pl.track_count})
                     </DialogButton>
                     <DialogButton
-                      style={{ minWidth: "auto", padding: "6px 10px", fontSize: "11px", color: "#1DB954" }}
-                      onClick={() => handleMixPlayContext(`spotify:playlist:${pl.id}`, null, pl.name)}
+                      style={{
+                        minWidth: "auto",
+                        padding: "6px 10px",
+                        fontSize: "11px",
+                        background: pl.mix_enabled ? "#1DB954" : undefined,
+                        color: pl.mix_enabled ? "#000" : "#1DB954",
+                        fontWeight: pl.mix_enabled ? 700 : 500,
+                      }}
+                      onClick={() => handleTogglePlaylistMixBtn(pl)}
                     >
-                      Mix
+                      {pl.mix_enabled ? `Mix: ${(pl.mix_preset || "auto").toUpperCase()}` : "Mix"}
                     </DialogButton>
                   </Focusable>
                 </PanelSectionRow>
@@ -981,6 +1063,12 @@ const Content: FC = () => {
                         {t.name} — {t.artist}
                       </DialogButton>
                       <DialogButton
+                        style={{ minWidth: "auto", padding: "6px 9px", fontSize: "11px", color: t.is_liked ? "#1DB954" : undefined }}
+                        onClick={() => handleToggleItemLike(t)}
+                      >
+                        {t.is_liked ? <FaHeart /> : <FaRegHeart />}
+                      </DialogButton>
+                      <DialogButton
                         style={{ minWidth: "auto", padding: "6px 10px", fontSize: "11px" }}
                         onClick={() => handleAddToQueue(t.uri, t.name)}
                       >
@@ -997,27 +1085,25 @@ const Content: FC = () => {
       <PanelSection title="Mixing & Audio">
         <PanelSectionRow>
           <DropdownItem
-            label="Mix Transition Mode"
-            description="Smoothly crossfade or blend between tracks"
+            label="Spotify Mix Transition Style"
+            description="Select preset (Auto, Fade, Rise, Blend, Slam) for Mixed playlists or global playback"
             rgOptions={MIX_MODE_OPTIONS}
             selectedOption={settings.mix_mode ?? "off"}
             onChange={(opt) => handleSettingChange("mix_mode", opt.data)}
           />
         </PanelSectionRow>
-        {settings.mix_mode && settings.mix_mode !== "off" && (
-          <PanelSectionRow>
-            <SliderField
-              label="Crossfade Duration"
-              value={settings.crossfade_seconds ?? 5}
-              min={1}
-              max={12}
-              step={1}
-              showValue
-              valueSuffix="s"
-              onChange={(val) => handleSettingChange("crossfade_seconds", val)}
-            />
-          </PanelSectionRow>
-        )}
+        <PanelSectionRow>
+          <SliderField
+            label="Transition Overlap Window"
+            value={settings.crossfade_seconds ?? 6}
+            min={1}
+            max={12}
+            step={1}
+            showValue
+            valueSuffix="s"
+            onChange={(val) => handleSettingChange("crossfade_seconds", val)}
+          />
+        </PanelSectionRow>
         <PanelSectionRow>
           <ToggleField
             label="Volume Normalization"
