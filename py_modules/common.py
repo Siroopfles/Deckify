@@ -3,7 +3,22 @@ import json
 import os
 import ssl
 
-import decky
+try:
+    import decky
+except ImportError:
+    from types import SimpleNamespace
+    decky = SimpleNamespace(
+        DECKY_PLUGIN_SETTINGS_DIR="/tmp",
+        DECKY_PLUGIN_DIR="/tmp",
+        DECKY_PLUGIN_RUNTIME_DIR="/tmp",
+        logger=SimpleNamespace(
+            info=lambda *a, **k: None,
+            warning=lambda *a, **k: None,
+            error=lambda *a, **k: None,
+            debug=lambda *a, **k: None,
+        ),
+        emit=lambda *a, **k: None,
+    )
 
 # Decky Loader (PyInstaller) injects LD_LIBRARY_PATH pointing to its bundled
 # libs which are older than the system's.  Subprocesses like openssl and
@@ -81,27 +96,11 @@ if _API_SSL_CTX is None:
     _API_SSL_CTX = ssl.create_default_context()
 
 
-def _get_settings_file() -> str:
-    import sys
-    main_mod = sys.modules.get("main")
-    if main_mod and hasattr(main_mod, "SETTINGS_FILE"):
-        return main_mod.SETTINGS_FILE
-    return SETTINGS_FILE
-
-
-def _get_default_settings() -> dict:
-    import sys
-    main_mod = sys.modules.get("main")
-    if main_mod and hasattr(main_mod, "DEFAULT_SETTINGS"):
-        return main_mod.DEFAULT_SETTINGS
-    return DEFAULT_SETTINGS
-
-
-def _load_settings() -> dict:
-    settings_file = _get_settings_file()
-    default_settings = _get_default_settings()
+def _load_settings(settings_file: str | None = None) -> dict:
+    target_file = settings_file or SETTINGS_FILE
+    default_settings = DEFAULT_SETTINGS
     try:
-        with open(settings_file, "r") as f:
+        with open(target_file, "r") as f:
             saved = json.load(f)
         for obsolete in ("mix_mode", "crossfade_seconds", "mixed_playlists"):
             saved.pop(obsolete, None)
@@ -132,10 +131,10 @@ def _load_settings() -> dict:
         return dict(default_settings)
 
 
-def _save_settings(settings: dict) -> None:
-    settings_file = _get_settings_file()
-    os.makedirs(os.path.dirname(settings_file), exist_ok=True)
-    with open(settings_file, "w") as f:
+def _save_settings(settings: dict, settings_file: str | None = None) -> None:
+    target_file = settings_file or SETTINGS_FILE
+    os.makedirs(os.path.dirname(target_file), exist_ok=True)
+    with open(target_file, "w") as f:
         json.dump(settings, f, indent=2)
 
 

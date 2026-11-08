@@ -1,4 +1,5 @@
 pnpm exec lint-staged
 pnpm run typecheck
+pnpm test
 pnpm --dir dashboard run build
 python3 -m unittest discover -s tests -p "test_*.py" 2>/dev/null || python -m unittest discover -s tests -p "test_*.py" 2>/dev/null || py -m unittest discover -s tests -p "test_*.py"

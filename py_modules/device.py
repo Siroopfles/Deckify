@@ -1,10 +1,14 @@
 import asyncio
+import inspect
 import os
 import socket
 import ssl
 import subprocess
 
-import decky
+try:
+    import decky
+except ImportError:
+    from py_modules.common import decky
 from py_modules.common import SSL_CERT, SSL_KEY
 
 
@@ -132,7 +136,7 @@ class SuspendResumeMonitor:
                             decky.logger.info("Steam Deck entering suspend (PrepareForSleep=true)")
                             if self.on_sleep:
                                 try:
-                                    if asyncio.iscoroutinefunction(self.on_sleep):
+                                    if inspect.iscoroutinefunction(self.on_sleep):
                                         await self.on_sleep()
                                     else:
                                         self.on_sleep()
@@ -143,7 +147,7 @@ class SuspendResumeMonitor:
                             if self.on_resume:
                                 try:
                                     await asyncio.sleep(1.5)
-                                    if asyncio.iscoroutinefunction(self.on_resume):
+                                    if inspect.iscoroutinefunction(self.on_resume):
                                         await self.on_resume()
                                     else:
                                         self.on_resume()

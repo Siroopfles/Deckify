@@ -2,7 +2,10 @@ import asyncio
 import json
 import urllib.parse
 
-import decky
+try:
+    import decky
+except ImportError:
+    from py_modules.common import decky
 
 
 class SSEManager:
