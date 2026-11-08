@@ -62,19 +62,107 @@ class DeckifyFeatureTests(unittest.IsolatedAsyncioTestCase):
             {"uris": "spotify:track:track-123"},
         )
 
-    async def test_playlist_mix_toggle_and_presets(self):
-        for preset in ("auto", "fade", "rise", "blend", "slam"):
-            res = await self.plugin.toggle_playlist_mix("pl-1", True, preset)
-            self.assertTrue(res["ok"])
-            self.assertTrue(res["mix_enabled"])
-            self.assertEqual(res["mix_preset"], preset)
-            self.plugin._context_uri = "spotify:playlist:pl-1"
-            self.assertEqual(self.plugin._get_active_mix_mode(), preset)
+    async def test_lossless_only_allowed_for_spotify_client_and_clean_backend_switching(self):
+        # 1. With librespot active, lossless must be rejected
+        self.plugin._settings["audio_backend"] = "librespot"
+        res_reject = await self.plugin.set_setting("audio_quality", "lossless")
+        self.assertFalse(res_reject["ok"])
+        self.assertIn("Official Spotify Client", res_reject["error"])
 
-        off_res = await self.plugin.toggle_playlist_mix("pl-1", False)
-        self.assertTrue(off_res["ok"])
-        self.assertFalse(off_res["mix_enabled"])
-        self.assertEqual(self.plugin._get_active_mix_mode(), "off")
+        # 2. Switch to spotify_client -> cleanly stops librespot & starts spotify_client
+        with patch.object(self.plugin, "start_spotify_client", new_callable=AsyncMock) as start_sc, \
+                patch.object(self.plugin, "start_librespot", new_callable=AsyncMock) as start_ls, \
+                patch.object(self.plugin, "_write_spotify_client_prefs"), \
+                patch.object(self.plugin, "_configure_pipewire_clock", new_callable=AsyncMock):
+            res_switch = await self.plugin.set_setting("audio_backend", "spotify_client")
+            self.assertTrue(res_switch["ok"])
+            self.assertEqual(self.plugin._settings["audio_backend"], "spotify_client")
+            start_sc.assert_awaited_once()
+
+            # 3. Now lossless is allowed!
+            res_lossless = await self.plugin.set_setting("audio_quality", "lossless")
+            self.assertTrue(res_lossless["ok"])
+            self.assertEqual(self.plugin._settings["audio_quality"], "lossless")
+
+            # 4. Switching back to librespot cleanly stops spotify_client and resets quality to 320
+            res_back = await self.plugin.set_setting("audio_backend", "librespot")
+            self.assertTrue(res_back["ok"])
+            self.assertEqual(self.plugin._settings["audio_backend"], "librespot")
+            self.assertEqual(self.plugin._settings["audio_quality"], "320")
+            self.assertEqual(self.plugin._settings["bitrate"], 320)
+            start_ls.assert_awaited_once()
+
+    def test_update_spotify_prefs_content_lossless_and_bitrates(self):
+        prefs = 'audio.play_bitrate_enumeration=4\nui.track_notifications_enabled=true\n'
+        updated = main._update_spotify_prefs_content(prefs, "lossless", True, True)
+        self.assertIn("audio.play_bitrate_enumeration=5", updated)
+        self.assertIn("audio.play_bitrate_non_metered_enumeration=5", updated)
+        self.assertIn("audio.sync_bitrate_enumeration=5", updated)
+        self.assertIn("audio.hifi_upgraded=true", updated)
+        self.assertIn("audio.gapless_v2=true", updated)
+        self.assertIn("audio.normalize_v2=true", updated)
+
+    def test_parse_pactl_sink_inputs_extracts_sample_rate_and_bit_depth(self):
+        sample_output = (
+            "Sink Input #142\n"
+            "\tDriver: PipeWire\n"
+            "\tSample Specification: s24le 2ch 44100Hz\n"
+            "\tProperties:\n"
+            '\t\tapplication.name = "Spotify"\n'
+        )
+        info = main._parse_pactl_sink_inputs(sample_output)
+        self.assertIsNotNone(info)
+        self.assertEqual(info["sample_spec"], "s24le 2ch 44100Hz")
+        self.assertEqual(info["format_label"], "24-bit · 44.1 kHz")
+        self.assertTrue(info["active"])
+
+    async def test_add_track_to_playlist(self):
+        self.execute.return_value = {"snapshot_id": "snap-1"}
+        res = await self.plugin.add_track_to_playlist("pl-abc", "3n3Ppam7vgaVa1iaRUc9Lp")
+        self.assertTrue(res["ok"])
+        self.execute.assert_awaited_once_with(
+            main._spotify_api_request,
+            "playlists/pl-abc/items",
+            "valid-token",
+            "POST",
+            None,
+            {"uris": ["spotify:track:3n3Ppam7vgaVa1iaRUc9Lp"]},
+        )
+
+    def test_parse_spotify_rootlist_folders_and_manage_folders(self):
+        raw_blob = (
+            b"header..."
+            b"spotify:start-group:f123:Workout%20Mixes\x00"
+            b"spotify:playlist:37i9dQZF1DX76Wlfdnj7AP\x00"
+            b"spotify:playlist:37i9dQZF1DX0XUsuxWHRQd\x00"
+            b"spotify:end-group:f123\x00"
+        )
+        parsed = main._parse_spotify_rootlist_folders(raw_blob)
+        self.assertEqual(len(parsed), 1)
+        self.assertEqual(parsed[0]["name"], "Workout Mixes")
+        self.assertEqual(
+            parsed[0]["playlist_ids"],
+            ["37i9dQZF1DX76Wlfdnj7AP", "37i9dQZF1DX0XUsuxWHRQd"],
+        )
+
+    async def test_manage_playlist_folder_crud(self):
+        with patch.object(self.plugin, "_sync_native_spotify_folders", return_value=[]):
+            res_create = await self.plugin.manage_playlist_folder("create", "", "Chill Vibes", "")
+            self.assertTrue(res_create["ok"])
+            self.assertEqual(len(res_create["folders"]), 1)
+            folder_id = res_create["folders"][0]["id"]
+
+            res_add = await self.plugin.manage_playlist_folder("add_playlist", folder_id, "", "pl-99")
+            self.assertTrue(res_add["ok"])
+            self.assertIn("pl-99", res_add["folders"][0]["playlist_ids"])
+
+            res_rem = await self.plugin.manage_playlist_folder("remove_playlist", folder_id, "", "pl-99")
+            self.assertTrue(res_rem["ok"])
+            self.assertNotIn("pl-99", res_rem["folders"][0]["playlist_ids"])
+
+            res_del = await self.plugin.manage_playlist_folder("delete", folder_id, "", "")
+            self.assertTrue(res_del["ok"])
+            self.assertEqual(len(res_del["folders"]), 0)
 
     async def test_queue_and_add_to_queue(self):
         self.execute.return_value = {
@@ -106,9 +194,10 @@ class DeckifyFeatureTests(unittest.IsolatedAsyncioTestCase):
         add_res = await self.plugin.add_to_queue("spotify:track:t2")
         self.assertTrue(add_res["ok"])
 
-    async def test_librespot_includes_mixing_and_normalisation_flags(self):
+    async def test_librespot_includes_normalisation_flags_and_no_simulated_mix(self):
         self.plugin._settings = {
             **main.DEFAULT_SETTINGS,
+            "audio_backend": "librespot",
             "device_name": "SteamMachine",
             "normalisation": True,
             "normalisation_pregain": 1.5,
@@ -121,6 +210,8 @@ class DeckifyFeatureTests(unittest.IsolatedAsyncioTestCase):
                 patch.object(main.os.path, "isfile", return_value=True), \
                 patch.object(main.subprocess, "Popen", return_value=process) as popen, \
                 patch.object(self.plugin, "_kill_stale_librespot"), \
+                patch.object(self.plugin, "_kill_spotify_client", new_callable=AsyncMock), \
+                patch.object(self.plugin, "_configure_pipewire_clock", new_callable=AsyncMock), \
                 patch.object(self.plugin, "_write_pid"), \
                 patch.object(self.plugin, "_start_monitor"):
             res = await self.plugin.start_librespot()
@@ -130,13 +221,8 @@ class DeckifyFeatureTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("--disable-gapless", cmd)
             self.assertIn("--autoplay", cmd)
             self.assertEqual(cmd[cmd.index("--autoplay") + 1], "on")
-
-    async def test_mix_settings_validation(self):
-        for mode in ("off", "auto", "fade", "rise", "blend", "slam"):
-            self.assertTrue((await self.plugin.set_setting("mix_mode", mode))["ok"])
-        self.assertFalse((await self.plugin.set_setting("mix_mode", "invalid"))["ok"])
-        self.assertTrue((await self.plugin.set_setting("crossfade_seconds", 99))["ok"])
-        self.assertEqual(self.plugin._settings["crossfade_seconds"], 12)
+            self.assertFalse(hasattr(self.plugin, "start_mix_play"))
+            self.assertFalse(hasattr(self.plugin, "toggle_playlist_mix"))
 
 
 if __name__ == "__main__":

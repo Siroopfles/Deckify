@@ -14,16 +14,25 @@ export interface TrackMeta {
   is_liked?: boolean;
 }
 
-export type MixMode = "off" | "auto" | "fade" | "rise" | "blend" | "slam";
+export type AudioBackend = "librespot" | "spotify_client";
+export type AudioQuality = "96" | "160" | "320" | "lossless";
 
-export interface MixSettings {
-  mix_mode: MixMode;
-  active_mix_mode?: MixMode;
-  crossfade_seconds: number;
+export interface AudioStreamInfo {
+  sample_spec?: string;
+  sample_rate_hz?: number;
+  bit_depth?: number;
+  is_lossless_rate?: boolean;
+  format_label?: string;
+}
+
+export interface EngineSettings {
+  audio_backend: AudioBackend;
+  audio_quality: AudioQuality;
+  bitrate: number;
   normalisation: boolean;
   gapless: boolean;
   autoplay: boolean;
-  mixed_playlists?: Record<string, string>;
+  spotify_client_installed?: boolean;
 }
 
 export interface SpotifyDevice {
@@ -37,6 +46,8 @@ export interface SpotifyDevice {
 export interface StatusResponse {
   authenticated: boolean;
   librespot_running: boolean;
+  spotify_client_running?: boolean;
+  audio_backend?: AudioBackend;
   play_state: string | null;
   track: TrackMeta | null;
   position_ms: number;
@@ -46,7 +57,8 @@ export interface StatusResponse {
   repeat_state?: "off" | "context" | "track";
   is_liked?: boolean;
   active_device?: { id: string; name: string; type: string } | null;
-  mix_settings?: MixSettings;
+  audio_stream_info?: AudioStreamInfo | null;
+  engine_settings?: EngineSettings;
 }
 
 export async function fetchStatus(): Promise<StatusResponse> {
@@ -100,8 +112,15 @@ export async function toggleLikeTrack(trackId?: string, liked?: boolean): Promis
   return jsonOrThrow(res);
 }
 
-export async function updateMixSettings(settings: Partial<MixSettings>): Promise<{ ok: boolean } & MixSettings> {
-  const res = await fetch("/api/mix", {
+export async function updateEngineSettings(
+  settings: Partial<EngineSettings>,
+): Promise<{
+  ok: boolean;
+  error?: string;
+  running?: boolean;
+  audio_stream_info?: AudioStreamInfo | null;
+} & Partial<EngineSettings>> {
+  const res = await fetch("/api/settings", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(settings),
@@ -109,49 +128,7 @@ export async function updateMixSettings(settings: Partial<MixSettings>): Promise
   return jsonOrThrow(res);
 }
 
-export async function togglePlaylistMix(
-  playlistId: string,
-  enabled?: boolean,
-  preset = "auto",
-): Promise<{
-  ok: boolean;
-  playlist_id?: string;
-  mix_enabled?: boolean;
-  mix_preset?: string;
-  mixed_playlists?: Record<string, string>;
-  error?: string;
-}> {
-  const res = await fetch("/api/playlist-mix", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ playlist_id: playlistId, enabled, preset }),
-  });
-  return jsonOrThrow(res);
-}
-
-export async function startMixPlay(params: {
-  context_uri?: string;
-  uris?: string[];
-  mix_mode?: MixMode;
-  crossfade_seconds?: number;
-  shuffle?: boolean;
-}): Promise<{
-  ok: boolean;
-  mix_mode?: string;
-  crossfade_seconds?: number;
-  shuffle_state?: boolean;
-  mixed_playlists?: Record<string, string>;
-  error?: string;
-}> {
-  const res = await fetch("/api/mix-play", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(params),
-  });
-  return jsonOrThrow(res);
-}
-
-// ── Playlist & Queue types & API ─────────────────────────────
+// ── Playlist, Folder & Queue types & API ─────────────────────
 
 export interface Playlist {
   id: string;
@@ -159,8 +136,13 @@ export interface Playlist {
   image_url: string | null;
   track_count: number;
   owner_id: string;
-  mix_enabled?: boolean;
-  mix_preset?: string;
+}
+
+export interface PlaylistFolder {
+  id: string;
+  name: string;
+  playlist_ids: string[];
+  source?: string;
 }
 
 export interface PlaylistTrack {
@@ -179,6 +161,12 @@ export interface PlaylistsResponse {
   playlists: Playlist[];
   total: number;
   offset: number;
+  error?: string;
+}
+
+export interface FoldersResponse {
+  ok: boolean;
+  folders: PlaylistFolder[];
   error?: string;
 }
 
@@ -207,6 +195,34 @@ export async function addToQueue(uri: string): Promise<{ ok: boolean; error?: st
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ uri }),
+  });
+  return jsonOrThrow(res);
+}
+
+export async function addTrackToPlaylist(playlistId: string, trackUri: string): Promise<{ ok: boolean; error?: string }> {
+  const res = await fetch("/api/playlist/add-item", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ playlist_id: playlistId, track_uri: trackUri }),
+  });
+  return jsonOrThrow(res);
+}
+
+export async function fetchFolders(): Promise<FoldersResponse> {
+  const res = await fetch("/api/folders");
+  return jsonOrThrow(res);
+}
+
+export async function manageFolder(params: {
+  action: "create" | "rename" | "delete" | "add_playlist" | "remove_playlist";
+  folder_id?: string;
+  name?: string;
+  playlist_id?: string;
+}): Promise<FoldersResponse> {
+  const res = await fetch("/api/folders", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(params),
   });
   return jsonOrThrow(res);
 }
@@ -249,6 +265,41 @@ export async function playUris(uris: string[], position = 0): Promise<{ ok: bool
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ uris, position }),
+  });
+  return jsonOrThrow(res);
+}
+
+// ── Official Spotify Client Remote Window API ────────────────
+
+export interface ClientWindowStatus {
+  ok: boolean;
+  running: boolean;
+  title?: string;
+  url?: string;
+  error?: string;
+}
+
+export async function fetchClientWindowStatus(): Promise<ClientWindowStatus> {
+  const res = await fetch("/api/client-window/status");
+  return jsonOrThrow(res);
+}
+
+export function getClientWindowScreenshotUrl(bust: number): string {
+  return `/api/client-window/screenshot?t=${bust}`;
+}
+
+export async function sendClientWindowInput(params: {
+  action: "click" | "wheel" | "text" | "key";
+  x?: number;
+  y?: number;
+  delta_y?: number;
+  text?: string;
+  key?: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  const res = await fetch("/api/client-window/input", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(params),
   });
   return jsonOrThrow(res);
 }

@@ -32,14 +32,30 @@ import {
   FaHeart,
   FaRegHeart,
   FaPlus,
+  FaListUl,
 } from "react-icons/fa";
 import { QRCodeSVG } from "qrcode.react";
+
+type AudioBackend = "librespot" | "spotify_client";
+type AudioQuality = "96" | "160" | "320" | "lossless";
+
+interface AudioStreamInfo {
+  sample_spec?: string;
+  sample_rate_hz?: number;
+  bit_depth?: number;
+  is_lossless_rate?: boolean;
+  format_label?: string;
+}
 
 const backendStart = callable<[], { ok: boolean; error?: string; pid?: number }>("start_librespot");
 const backendStop = callable<[], { ok: boolean }>("stop_librespot");
 const backendGetStatus = callable<[], {
   running: boolean;
+  librespot_running?: boolean;
+  spotify_client_running?: boolean;
+  audio_backend?: AudioBackend;
   binary_found: boolean;
+  spotify_client_installed?: boolean;
   settings: Settings;
   last_event: LibrespotEvent | null;
   track_meta: TrackMetadata | null;
@@ -51,6 +67,7 @@ const backendGetStatus = callable<[], {
   shuffle_state: boolean;
   repeat_state: "off" | "context" | "track";
   is_liked: boolean;
+  audio_stream_info?: AudioStreamInfo | null;
 }>("get_status");
 const backendSetSetting = callable<[string, unknown], { ok: boolean; settings?: Settings; error?: string }>("set_setting");
 const backendStartOAuth = callable<[], { ok: boolean; landing_url?: string; redirect_uri?: string; error?: string }>("start_oauth");
@@ -62,6 +79,7 @@ const backendSeekPlayback = callable<[number, string], { ok: boolean; position_m
 const backendSetShuffle = callable<[boolean, string], { ok: boolean; shuffle_state?: boolean; error?: string }>("set_shuffle");
 const backendSetRepeat = callable<[string, string], { ok: boolean; repeat_state?: string; error?: string }>("set_repeat");
 const backendToggleLike = callable<[string, boolean | null], { ok: boolean; is_liked?: boolean; error?: string }>("toggle_like_track");
+const backendAddTrackToPlaylist = callable<[string, string], { ok: boolean; error?: string }>("add_track_to_playlist");
 const backendGetQueue = callable<[], { ok: boolean; currently_playing?: TrackItem | null; queue?: TrackItem[]; error?: string }>("get_queue");
 const backendAddToQueue = callable<[string, string], { ok: boolean; error?: string }>("add_to_queue");
 const backendGetPlaylists = callable<[number], { ok: boolean; playlists?: PlaylistItem[]; total?: number; error?: string }>("get_playlists");
@@ -73,39 +91,20 @@ const backendSearchSpotify = callable<[string, string, number], {
   error?: string;
 }>("search_spotify");
 const backendPlayTracks = callable<[string | null, string | null, string[] | null, number], { ok: boolean; error?: string }>("play_tracks");
-const backendStartMixPlay = callable<[string | null, string[] | null, string, number, boolean], {
-  ok: boolean;
-  mix_mode?: string;
-  crossfade_seconds?: number;
-  shuffle_state?: boolean;
-  mixed_playlists?: Record<string, string>;
-  error?: string;
-}>("start_mix_play");
-const backendTogglePlaylistMix = callable<[string, boolean | null, string], {
-  ok: boolean;
-  playlist_id?: string;
-  mix_enabled?: boolean;
-  mix_preset?: string;
-  mixed_playlists?: Record<string, string>;
-  error?: string;
-}>("toggle_playlist_mix");
 const backendGetDashboardUrl = callable<[], { ok: boolean; url?: string; error?: string }>("get_dashboard_url");
 const backendGetDevices = callable<[], { ok: boolean; devices?: SpotifyDevice[]; error?: string }>("get_devices");
 const backendTransferPlayback = callable<[string], { ok: boolean; error?: string }>("transfer_playback");
 
-type MixMode = "off" | "auto" | "fade" | "rise" | "blend" | "slam";
-
 interface Settings {
   device_name: string;
+  audio_backend?: AudioBackend;
+  audio_quality?: AudioQuality;
   bitrate: number;
   spotify_client_id: string;
   normalisation?: boolean;
   normalisation_pregain?: number;
   gapless?: boolean;
   autoplay?: boolean;
-  mix_mode?: MixMode;
-  crossfade_seconds?: number;
-  mixed_playlists?: Record<string, string>;
 }
 
 interface LibrespotEvent {
@@ -119,6 +118,7 @@ interface LibrespotEvent {
 
 interface StatusPayload {
   running: boolean;
+  audio_backend?: AudioBackend;
   error?: string | null;
   auto_restarting?: boolean;
 }
@@ -159,25 +159,26 @@ interface PlaylistItem {
   image_url: string | null;
   track_count: number;
   owner_id: string;
-  mix_enabled?: boolean;
-  mix_preset?: string;
 }
 
-type QuickTab = "none" | "playlists" | "liked" | "queue" | "search";
+type QuickTab = "none" | "playlists" | "liked" | "queue" | "search" | "add_to_playlist";
 
-const BITRATE_OPTIONS = [
-  { data: 96, label: "96 kbps" },
-  { data: 160, label: "160 kbps" },
-  { data: 320, label: "320 kbps" },
+const AUDIO_BACKEND_OPTIONS = [
+  { data: "librespot", label: "librespot (Lightweight Connect Daemon)" },
+  { data: "spotify_client", label: "Official Spotify Client (Lossless + Native Mix)" },
 ];
 
-const MIX_MODE_OPTIONS = [
-  { data: "off", label: "Per-Playlist Mix Only (Default)" },
-  { data: "auto", label: "Auto Blend (Spotify Default)" },
-  { data: "fade", label: "Fade (Smooth Crossfade)" },
-  { data: "rise", label: "Rise (Energy Build-Up)" },
-  { data: "blend", label: "Blend (Balanced 50/50 Overlap)" },
-  { data: "slam", label: "Slam (On-Beat DJ Cut)" },
+const LIBRESPOT_QUALITY_OPTIONS = [
+  { data: "96", label: "Normal (96 kbps Ogg Vorbis)" },
+  { data: "160", label: "High (160 kbps Ogg Vorbis)" },
+  { data: "320", label: "Very High (320 kbps Ogg Vorbis)" },
+];
+
+const SPOTIFY_CLIENT_QUALITY_OPTIONS = [
+  { data: "96", label: "Normal (96 kbps)" },
+  { data: "160", label: "High (160 kbps)" },
+  { data: "320", label: "Very High (320 kbps)" },
+  { data: "lossless", label: "Lossless (Up to 24-bit / 44.1 kHz FLAC)" },
 ];
 
 function formatDuration(ms: number): string {
@@ -203,25 +204,27 @@ function playerEventToLabel(event: string | undefined, isPlaying: boolean): stri
     case "volume_set":
       return isPlaying ? "Playing" : "Paused";
     default:
-      return event ?? "Unknown";
+      return isPlaying ? "Playing" : (event ?? "Ready");
   }
 }
 
 const Content: FC = () => {
   const [running, setRunning] = useState(false);
   const [binaryFound, setBinaryFound] = useState(true);
+  const [spotifyClientInstalled, setSpotifyClientInstalled] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lastEvent, setLastEvent] = useState<LibrespotEvent | null>(null);
   const [settings, setSettings] = useState<Settings>({
     device_name: "",
+    audio_backend: "librespot",
+    audio_quality: "320",
     bitrate: 320,
     spotify_client_id: "",
     normalisation: true,
     gapless: true,
     autoplay: true,
-    mix_mode: "off",
-    crossfade_seconds: 5,
   });
+  const [audioStreamInfo, setAudioStreamInfo] = useState<AudioStreamInfo | null>(null);
   const [toggling, setToggling] = useState(false);
   const [deviceName, setDeviceName] = useState("");
   const [savingDeviceName, setSavingDeviceName] = useState(false);
@@ -240,7 +243,7 @@ const Content: FC = () => {
   const [restartNeeded, setRestartNeeded] = useState(false);
   const [devices, setDevices] = useState<SpotifyDevice[]>([]);
 
-  // Quick Browser state
+  // Quick Browser & Add-to-Playlist state
   const [quickTab, setQuickTab] = useState<QuickTab>("none");
   const [quickLoading, setQuickLoading] = useState(false);
   const [playlists, setPlaylists] = useState<PlaylistItem[]>([]);
@@ -248,6 +251,7 @@ const Content: FC = () => {
   const [queueTracks, setQueueTracks] = useState<TrackItem[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<TrackItem[]>([]);
+  const [pendingTrackForPlaylist, setPendingTrackForPlaylist] = useState<{ uri: string; name: string } | null>(null);
 
   const activeDeviceIdRef = useRef<string>("");
   const updateDevices = useCallback((devs: SpotifyDevice[]) => {
@@ -263,9 +267,15 @@ const Content: FC = () => {
     backendGetStatus().then((status) => {
       setRunning(status.running);
       setBinaryFound(status.binary_found);
+      if (status.spotify_client_installed !== undefined) {
+        setSpotifyClientInstalled(status.spotify_client_installed);
+      }
       setSettings((prev) => ({ ...prev, ...status.settings }));
       setDeviceName(status.settings.device_name);
       setLastEvent(status.last_event);
+      if (status.audio_stream_info !== undefined) {
+        setAudioStreamInfo(status.audio_stream_info ?? null);
+      }
       if (status.volume != null) setVolume(status.volume);
       if (status.track_meta) {
         setTrackMeta(status.track_meta);
@@ -305,6 +315,9 @@ const Content: FC = () => {
   useEffect(() => {
     const onStatus = (payload: StatusPayload) => {
       setRunning(payload.running);
+      if (payload.audio_backend) {
+        setSettings((prev) => ({ ...prev, audio_backend: payload.audio_backend }));
+      }
       setError(payload.error ?? null);
       if (payload.error) {
         toaster.toast({
@@ -441,8 +454,27 @@ const Content: FC = () => {
       if (!result.ok || !result.settings) throw new Error(result.error ?? "Could not save setting");
       setSettings((prev) => ({ ...prev, ...result.settings }));
       if (key === "device_name") setDeviceName(result.settings.device_name);
-      if (
-        (key === "device_name" || key === "bitrate" || key === "normalisation" || key === "gapless" || key === "autoplay")
+      if (key === "audio_backend") {
+        setRestartNeeded(false);
+        const st = await backendGetStatus();
+        setRunning(st.running);
+        setAudioStreamInfo(st.audio_stream_info ?? null);
+        toaster.toast({
+          title: "Deckify Audio Engine",
+          body:
+            value === "spotify_client"
+              ? "Switched to Official Spotify Client"
+              : "Switched to librespot",
+          duration: 3000,
+          icon: <FaSpotify />,
+        });
+        setTimeout(() => {
+          backendGetDevices().then((r) => {
+            if (r.ok && r.devices && r.devices.length > 0) updateDevices(r.devices);
+          });
+        }, 2500);
+      } else if (
+        (key === "device_name" || key === "audio_quality" || key === "bitrate" || key === "normalisation" || key === "gapless" || key === "autoplay")
         && running
       ) {
         setRestartNeeded(true);
@@ -450,7 +482,7 @@ const Content: FC = () => {
     } catch (err) {
       toaster.toast({ title: "Deckify", body: String(err), duration: 5000 });
     }
-  }, [running]);
+  }, [running, updateDevices]);
 
   const handleOAuthStart = useCallback(async () => {
     setOauthLoading(true);
@@ -550,6 +582,41 @@ const Content: FC = () => {
     }
   }, [trackMeta, isLiked]);
 
+  const handleOpenAddToPlaylistForTrack = useCallback(async (uri: string, name: string) => {
+    setPendingTrackForPlaylist({ uri, name });
+    setQuickTab("add_to_playlist");
+    if (playlists.length === 0) {
+      setQuickLoading(true);
+      try {
+        const res = await backendGetPlaylists(0);
+        if (res.ok && res.playlists) setPlaylists(res.playlists.slice(0, 25));
+      } finally {
+        setQuickLoading(false);
+      }
+    }
+  }, [playlists.length]);
+
+  const handleConfirmAddToPlaylist = useCallback(async (pl: PlaylistItem) => {
+    if (!pendingTrackForPlaylist) return;
+    const res = await backendAddTrackToPlaylist(pl.id, pendingTrackForPlaylist.uri);
+    if (res.ok) {
+      toaster.toast({
+        title: "Added to Playlist",
+        body: `Added "${pendingTrackForPlaylist.name}" to ${pl.name}`,
+        duration: 2500,
+        icon: <FaSpotify />,
+      });
+      setPendingTrackForPlaylist(null);
+      setQuickTab("none");
+    } else {
+      toaster.toast({
+        title: "Deckify",
+        body: res.error ?? "Could not add track to playlist",
+        duration: 3500,
+      });
+    }
+  }, [pendingTrackForPlaylist]);
+
   const handleVolumeChange = useCallback((value: number) => {
     setVolume(value);
     volumeChangeSourceRef.current = "user";
@@ -635,67 +702,6 @@ const Content: FC = () => {
     }
   }, []);
 
-  const handleMixPlayContext = useCallback(async (contextUri: string | null, uris: string[] | null, label: string) => {
-    const mode = settings.mix_mode && settings.mix_mode !== "off" ? settings.mix_mode : "auto";
-    const cf = settings.crossfade_seconds && settings.crossfade_seconds > 0 ? settings.crossfade_seconds : 6;
-    const res = await backendStartMixPlay(contextUri, uris, mode, cf, false);
-    if (res.ok) {
-      if (res.mixed_playlists) {
-        setSettings((prev) => ({
-          ...prev,
-          mixed_playlists: res.mixed_playlists,
-          crossfade_seconds: res.crossfade_seconds ?? 6,
-        }));
-        setPlaylists((prev) =>
-          prev.map((p) =>
-            contextUri === `spotify:playlist:${p.id}`
-              ? { ...p, mix_enabled: true, mix_preset: mode }
-              : p,
-          ),
-        );
-      } else {
-        setSettings((prev) => ({
-          ...prev,
-          mix_mode: (res.mix_mode as MixMode) ?? "auto",
-          crossfade_seconds: res.crossfade_seconds ?? 6,
-        }));
-      }
-      setShuffleState(false);
-      toaster.toast({
-        title: "Playlist Mix Active",
-        body: `Mixing ${label} (${mode.toUpperCase()} preset)`,
-        duration: 2500,
-        icon: <FaSpotify />,
-      });
-    } else {
-      toaster.toast({ title: "Deckify", body: res.error ?? "Failed to start Mix", duration: 3000 });
-    }
-  }, [settings.mix_mode, settings.crossfade_seconds]);
-
-  const handleTogglePlaylistMixBtn = useCallback(async (pl: PlaylistItem) => {
-    const nextEnabled = !pl.mix_enabled;
-    const preset = settings.mix_mode && settings.mix_mode !== "off" ? settings.mix_mode : "auto";
-    const res = await backendTogglePlaylistMix(pl.id, nextEnabled, preset);
-    if (res.ok) {
-      setPlaylists((prev) =>
-        prev.map((p) => (p.id === pl.id ? { ...p, mix_enabled: res.mix_enabled, mix_preset: res.mix_preset } : p)),
-      );
-      if (res.mixed_playlists) {
-        setSettings((prev) => ({ ...prev, mixed_playlists: res.mixed_playlists }));
-      }
-      if (nextEnabled) {
-        await handleMixPlayContext(`spotify:playlist:${pl.id}`, null, pl.name);
-      } else {
-        toaster.toast({
-          title: "Playlist Mix Off",
-          body: `Disabled Mix for ${pl.name}`,
-          duration: 2000,
-          icon: <FaSpotify />,
-        });
-      }
-    }
-  }, [settings.mix_mode, handleMixPlayContext]);
-
   const handleToggleItemLike = useCallback(async (track: TrackItem) => {
     if (!track.id) return;
     const nextLiked = !track.is_liked;
@@ -714,7 +720,15 @@ const Content: FC = () => {
     }
   }, [trackMeta]);
 
-  const playState = lastEvent ? playerEventToLabel(lastEvent.event, isPlaying) : "Idle";
+  const activeBackend: AudioBackend = settings.audio_backend ?? "librespot";
+  const isSpotifyClientBackend = activeBackend === "spotify_client";
+  const qualityOptions = isSpotifyClientBackend ? SPOTIFY_CLIENT_QUALITY_OPTIONS : LIBRESPOT_QUALITY_OPTIONS;
+  const selectedQuality: AudioQuality =
+    !isSpotifyClientBackend && settings.audio_quality === "lossless"
+      ? "320"
+      : (settings.audio_quality ?? String(settings.bitrate ?? 320) as AudioQuality);
+
+  const playState = lastEvent ? playerEventToLabel(lastEvent.event, isPlaying) : (isPlaying ? "Playing" : "Idle");
   const trackId = lastEvent?.track_id ?? "—";
   const showRichMedia = (authenticated || running) && trackMeta;
   const durationSec = Math.max(1, Math.floor(durationMs / 1000));
@@ -723,7 +737,7 @@ const Content: FC = () => {
   return (
     <>
       <PanelSection title="Deckify">
-        {!binaryFound && (
+        {!isSpotifyClientBackend && !binaryFound && (
           <PanelSectionRow>
             <Field
               label="librespot Not Found"
@@ -734,12 +748,27 @@ const Content: FC = () => {
           </PanelSectionRow>
         )}
 
+        {isSpotifyClientBackend && !spotifyClientInstalled && (
+          <PanelSectionRow>
+            <Field
+              label="Spotify Client Not Found"
+              description="Install Official Spotify Client via: flatpak install --user -y flathub com.spotify.Client"
+            >
+              <span style={{ color: "#ff4444" }}>Setup Required</span>
+            </Field>
+          </PanelSectionRow>
+        )}
+
         <PanelSectionRow>
           <ToggleField
-            label="Spotify Connect"
-            description={running ? "Running" : "Stopped"}
+            label={isSpotifyClientBackend ? "Official Spotify Client" : "Spotify Connect (librespot)"}
+            description={
+              running
+                ? `Running${audioStreamInfo?.format_label ? ` · ${audioStreamInfo.format_label}` : ""}`
+                : "Stopped"
+            }
             checked={running}
-            disabled={toggling || !binaryFound}
+            disabled={toggling || (!isSpotifyClientBackend && !binaryFound)}
             onChange={handleToggle}
           />
         </PanelSectionRow>
@@ -877,6 +906,23 @@ const Content: FC = () => {
                 >
                   {isLiked ? <FaHeart /> : <FaRegHeart />}
                 </DialogButton>
+                {trackMeta?.track_id && (
+                  <DialogButton
+                    style={{
+                      minWidth: "auto",
+                      padding: "8px 11px",
+                    }}
+                    onClick={(e: MouseEvent) => {
+                      (e.currentTarget as HTMLElement).blur();
+                      handleOpenAddToPlaylistForTrack(
+                        trackMeta.uri || `spotify:track:${trackMeta.track_id}`,
+                        trackMeta.name,
+                      );
+                    }}
+                  >
+                    <FaListUl />
+                  </DialogButton>
+                )}
               </Focusable>
             </PanelSectionRow>
 
@@ -945,31 +991,44 @@ const Content: FC = () => {
             </PanelSectionRow>
           )}
 
+          {!quickLoading && quickTab === "add_to_playlist" && pendingTrackForPlaylist && (
+            <>
+              <PanelSectionRow>
+                <Field
+                  label={`Add "${pendingTrackForPlaylist.name}" to:`}
+                  description="Select a playlist below"
+                />
+              </PanelSectionRow>
+              {playlists.map((pl) => (
+                <PanelSectionRow key={pl.id}>
+                  <ButtonItem
+                    label={pl.name}
+                    description={`${pl.track_count} tracks`}
+                    onClick={() => handleConfirmAddToPlaylist(pl)}
+                  >
+                    Add
+                  </ButtonItem>
+                </PanelSectionRow>
+              ))}
+              <PanelSectionRow>
+                <ButtonItem label="Cancel" onClick={() => { setPendingTrackForPlaylist(null); setQuickTab("none"); }}>
+                  Cancel
+                </ButtonItem>
+              </PanelSectionRow>
+            </>
+          )}
+
           {!quickLoading && quickTab === "playlists" && (
             <>
               {playlists.map((pl) => (
                 <PanelSectionRow key={pl.id}>
-                  <Focusable style={{ display: "flex", alignItems: "center", gap: "6px", width: "100%" }} flow-children="right">
-                    <DialogButton
-                      style={{ flex: 1, textAlign: "left", padding: "6px 10px", fontSize: "12px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-                      onClick={() => backendPlayTracks(`spotify:playlist:${pl.id}`, null, null, 0)}
-                    >
-                      {pl.name} ({pl.track_count})
-                    </DialogButton>
-                    <DialogButton
-                      style={{
-                        minWidth: "auto",
-                        padding: "6px 10px",
-                        fontSize: "11px",
-                        background: pl.mix_enabled ? "#1DB954" : undefined,
-                        color: pl.mix_enabled ? "#000" : "#1DB954",
-                        fontWeight: pl.mix_enabled ? 700 : 500,
-                      }}
-                      onClick={() => handleTogglePlaylistMixBtn(pl)}
-                    >
-                      {pl.mix_enabled ? `Mix: ${(pl.mix_preset || "auto").toUpperCase()}` : "Mix"}
-                    </DialogButton>
-                  </Focusable>
+                  <ButtonItem
+                    label={pl.name}
+                    description={`${pl.track_count} tracks`}
+                    onClick={() => backendPlayTracks(`spotify:playlist:${pl.id}`, null, null, 0)}
+                  >
+                    Play
+                  </ButtonItem>
                 </PanelSectionRow>
               ))}
             </>
@@ -979,20 +1038,12 @@ const Content: FC = () => {
             <>
               {likedTracks.length > 0 && (
                 <PanelSectionRow>
-                  <Focusable style={{ display: "flex", gap: "6px" }} flow-children="right">
-                    <DialogButton
-                      style={{ flex: 1, padding: "6px 10px", fontSize: "12px" }}
-                      onClick={() => backendPlayTracks(null, null, likedTracks.map((t) => t.uri), 0)}
-                    >
-                      Play Liked
-                    </DialogButton>
-                    <DialogButton
-                      style={{ flex: 1, padding: "6px 10px", fontSize: "12px", color: "#1DB954" }}
-                      onClick={() => handleMixPlayContext(null, likedTracks.map((t) => t.uri), "Liked Songs")}
-                    >
-                      Mix Liked
-                    </DialogButton>
-                  </Focusable>
+                  <ButtonItem
+                    label="Play All Liked Songs"
+                    onClick={() => backendPlayTracks(null, null, likedTracks.map((t) => t.uri), 0)}
+                  >
+                    Play Liked
+                  </ButtonItem>
                 </PanelSectionRow>
               )}
               {likedTracks.slice(0, 8).map((t, idx) => (
@@ -1003,6 +1054,12 @@ const Content: FC = () => {
                       onClick={() => backendPlayTracks(null, null, likedTracks.map((x) => x.uri), idx)}
                     >
                       {t.name} — {t.artist}
+                    </DialogButton>
+                    <DialogButton
+                      style={{ minWidth: "auto", padding: "6px 9px", fontSize: "11px" }}
+                      onClick={() => handleOpenAddToPlaylistForTrack(t.uri, t.name)}
+                    >
+                      <FaListUl />
                     </DialogButton>
                     <DialogButton
                       style={{ minWidth: "auto", padding: "6px 10px", fontSize: "11px" }}
@@ -1069,6 +1126,12 @@ const Content: FC = () => {
                         {t.is_liked ? <FaHeart /> : <FaRegHeart />}
                       </DialogButton>
                       <DialogButton
+                        style={{ minWidth: "auto", padding: "6px 9px", fontSize: "11px" }}
+                        onClick={() => handleOpenAddToPlaylistForTrack(t.uri, t.name)}
+                      >
+                        <FaListUl />
+                      </DialogButton>
+                      <DialogButton
                         style={{ minWidth: "auto", padding: "6px 10px", fontSize: "11px" }}
                         onClick={() => handleAddToQueue(t.uri, t.name)}
                       >
@@ -1082,32 +1145,33 @@ const Content: FC = () => {
         </PanelSection>
       )}
 
-      <PanelSection title="Mixing & Audio">
+      <PanelSection title="Audio Engine & Quality">
         <PanelSectionRow>
           <DropdownItem
-            label="Spotify Mix Transition Style"
-            description="Select preset (Auto, Fade, Rise, Blend, Slam) for Mixed playlists or global playback"
-            rgOptions={MIX_MODE_OPTIONS}
-            selectedOption={settings.mix_mode ?? "off"}
-            onChange={(opt) => handleSettingChange("mix_mode", opt.data)}
+            label="Audio Engine"
+            description="Official Spotify Client unlocks Lossless FLAC & native Spotify Playlist Mixing. Switching cleanly stops the other engine."
+            rgOptions={AUDIO_BACKEND_OPTIONS}
+            selectedOption={activeBackend}
+            onChange={(opt) => handleSettingChange("audio_backend", opt.data)}
           />
         </PanelSectionRow>
         <PanelSectionRow>
-          <SliderField
-            label="Transition Overlap Window"
-            value={settings.crossfade_seconds ?? 6}
-            min={1}
-            max={12}
-            step={1}
-            showValue
-            valueSuffix="s"
-            onChange={(val) => handleSettingChange("crossfade_seconds", val)}
+          <DropdownItem
+            label="Audio Quality"
+            description={
+              isSpotifyClientBackend
+                ? "Lossless streams up to 24-bit / 44.1 kHz FLAC via PipeWire"
+                : "Lossless is only available when using the Official Spotify Client engine"
+            }
+            rgOptions={qualityOptions}
+            selectedOption={selectedQuality}
+            onChange={(opt) => handleSettingChange("audio_quality", opt.data)}
           />
         </PanelSectionRow>
         <PanelSectionRow>
           <ToggleField
             label="Volume Normalization"
-            description="Play all tracks at matched loudness (recommended for Mixing)"
+            description="Play all tracks at matched loudness"
             checked={settings.normalisation ?? true}
             onChange={(checked) => handleSettingChange("normalisation", checked)}
           />
@@ -1122,7 +1186,7 @@ const Content: FC = () => {
         </PanelSectionRow>
         <PanelSectionRow>
           <ToggleField
-            label="Autoplay Endless Mix"
+            label="Autoplay Similar Music"
             description="Continue playing similar music when a playlist ends"
             checked={settings.autoplay ?? true}
             onChange={(checked) => handleSettingChange("autoplay", checked)}
@@ -1135,7 +1199,7 @@ const Content: FC = () => {
           <PanelSectionRow>
             <ButtonItem
               label="Reconnect Required"
-              description="New features (Like & Recently Played) need updated permissions."
+              description="New features (Add to Playlist & Like) need updated permissions."
               onClick={handleOAuthStart}
             >
               {oauthLoading ? "Waiting..." : "Reconnect"}
@@ -1233,22 +1297,13 @@ const Content: FC = () => {
           <PanelSectionRow>
             <ButtonItem
               label="Restart Required"
-              description="Settings changed. Restart librespot to apply."
+              description="Settings changed. Restart audio engine to apply."
               onClick={handleRestart}
             >
               Restart Now
             </ButtonItem>
           </PanelSectionRow>
         )}
-
-        <PanelSectionRow>
-          <DropdownItem
-            label="Audio Quality"
-            rgOptions={BITRATE_OPTIONS}
-            selectedOption={settings.bitrate}
-            onChange={(opt) => handleSettingChange("bitrate", opt.data)}
-          />
-        </PanelSectionRow>
       </PanelSection>
     </>
   );

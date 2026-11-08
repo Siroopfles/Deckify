@@ -1,8 +1,10 @@
 import asyncio
 import base64
+import glob
 import hashlib
 import json
 import os
+import re
 import secrets
 import socket
 import ssl
@@ -23,36 +25,51 @@ SETTINGS_FILE = os.path.join(decky.DECKY_PLUGIN_SETTINGS_DIR, "settings.json")
 LIBRESPOT_BIN = os.path.join(decky.DECKY_PLUGIN_DIR, "bin", "librespot")
 CACHE_DIR = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, "cache")
 LIBRESPOT_PID_FILE = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, "librespot.pid")
+SPOTIFY_CLIENT_PID_FILE = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, "spotify_client.pid")
 SSL_CERT = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, "cert.pem")
 SSL_KEY = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, "key.pem")
 
-VALID_MIX_MODES = ("off", "auto", "fade", "rise", "blend", "slam")
+VALID_AUDIO_BACKENDS = ("librespot", "spotify_client")
+VALID_LIBRESPOT_QUALITIES = ("96", "160", "320")
+VALID_SPOTIFY_CLIENT_QUALITIES = ("96", "160", "320", "lossless")
+
+SPOTIFY_FLATPAK_ID = "com.spotify.Client"
+SPOTIFY_CDP_PORT = 9229
+DECK_USER = "deck"
+DECK_UID = 1000
+DECK_HOME = "/home/deck"
+SPOTIFY_CLIENT_CONFIG_DIR = os.path.join(DECK_HOME, ".var", "app", SPOTIFY_FLATPAK_ID, "config", "spotify")
+SPOTIFY_CLIENT_CACHE_DIR = os.path.join(DECK_HOME, ".var", "app", SPOTIFY_FLATPAK_ID, "cache", "spotify")
 
 DEFAULT_SETTINGS = {
     "device_name": "",
+    "audio_backend": "librespot",
+    "audio_quality": "320",
     "bitrate": 320,
+    "bit_perfect_clock": True,
     "spotify_client_id": "",
     "normalisation": True,
     "normalisation_pregain": 0.0,
     "gapless": True,
     "autoplay": True,
-    "mix_mode": "off",
-    "crossfade_seconds": 6,
-    "mixed_playlists": {},
+    "playlist_folders": [],
 }
 
 # PulseAudio socket for root processes (deck user UID 1000)
 PULSE_SERVER = "unix:/run/user/1000/pulse/native"
+DBUS_SESSION_BUS_ADDRESS = "unix:path=/run/user/1000/bus"
+XDG_RUNTIME_DIR = "/run/user/1000"
 
 SPOTIFY_AUTH_URL = "https://accounts.spotify.com/authorize"
 SPOTIFY_TOKEN_URL = "https://accounts.spotify.com/api/token"
 SPOTIFY_API_BASE = "https://api.spotify.com/v1"
 SPOTIFY_SCOPES = (
     "user-read-currently-playing user-read-playback-state user-modify-playback-state "
-    "playlist-read-private playlist-read-collaborative user-library-read "
-    "user-library-modify user-follow-read user-read-recently-played"
+    "playlist-read-private playlist-read-collaborative playlist-modify-public "
+    "playlist-modify-private user-library-read user-library-modify "
+    "user-follow-read user-read-recently-played"
 )
-CURRENT_SCOPES_VERSION = 5
+CURRENT_SCOPES_VERSION = 6
 OAUTH_SERVER_PORT = 39281
 DASHBOARD_PORT = 39282
 DASHBOARD_DIR = os.path.join(decky.DECKY_PLUGIN_DIR, "dashboard", "dist")
@@ -110,10 +127,27 @@ def _load_settings() -> dict:
     try:
         with open(SETTINGS_FILE, "r") as f:
             saved = json.load(f)
+        for obsolete in ("mix_mode", "crossfade_seconds", "mixed_playlists"):
+            saved.pop(obsolete, None)
         merged = {**DEFAULT_SETTINGS, **saved}
         # Older versions saved this fixed default without offering a name editor.
         if merged["device_name"] == "Steam Deck" and not saved.get("device_name_customized"):
             merged["device_name"] = ""
+        if merged.get("audio_backend") not in VALID_AUDIO_BACKENDS:
+            merged["audio_backend"] = "librespot"
+        raw_q = str(merged.get("audio_quality") or merged.get("bitrate", 320)).lower()
+        if merged["audio_backend"] == "librespot":
+            if raw_q not in VALID_LIBRESPOT_QUALITIES:
+                raw_q = "320"
+            merged["audio_quality"] = raw_q
+            merged["bitrate"] = int(raw_q)
+        else:
+            if raw_q not in VALID_SPOTIFY_CLIENT_QUALITIES:
+                raw_q = "320"
+            merged["audio_quality"] = raw_q
+            merged["bitrate"] = 320 if raw_q == "lossless" else int(raw_q)
+        if not isinstance(merged.get("playlist_folders"), list):
+            merged["playlist_folders"] = []
         return merged
     except Exception:
         return dict(DEFAULT_SETTINGS)
@@ -123,6 +157,227 @@ def _save_settings(settings: dict) -> None:
     os.makedirs(os.path.dirname(SETTINGS_FILE), exist_ok=True)
     with open(SETTINGS_FILE, "w") as f:
         json.dump(settings, f, indent=2)
+
+
+def _update_spotify_prefs_content(
+    existing_text: str,
+    audio_quality: str,
+    gapless: bool = True,
+    normalisation: bool = True,
+) -> str:
+    """Update Spotify Desktop Client prefs text with quality, lossless, gapless, and normalization settings."""
+    enum_map = {"96": 2, "160": 3, "320": 4, "lossless": 5}
+    q_enum = enum_map.get(str(audio_quality).lower(), 4)
+    desired = {
+        "audio.play_bitrate_enumeration": str(q_enum),
+        "audio.play_bitrate_non_metered_enumeration": str(q_enum),
+        "audio.sync_bitrate_enumeration": str(q_enum),
+        "audio.play_bitrate_non_metered_migrated": "true",
+        "audio.hifi_upgraded": "true" if str(audio_quality).lower() == "lossless" else "false",
+        "audio.gapless_v2": "true" if gapless else "false",
+        "audio.normalize_v2": "true" if normalisation else "false",
+    }
+    lines = existing_text.splitlines() if existing_text else []
+    seen: set[str] = set()
+    out_lines: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        if "=" in stripped and not stripped.startswith("#"):
+            k = stripped.split("=", 1)[0].strip()
+            if k in desired:
+                out_lines.append(f"{k}={desired[k]}")
+                seen.add(k)
+                continue
+        out_lines.append(line)
+    for k, v in desired.items():
+        if k not in seen:
+            out_lines.append(f"{k}={v}")
+    return "\n".join(out_lines) + "\n"
+
+
+def _parse_pactl_sink_inputs(stdout: str) -> dict | None:
+    """Parse `pactl list sink-inputs` output for active Spotify or librespot audio stream details."""
+    if not stdout:
+        return None
+    blocks = re.split(r"(?=Sink Input #\d+)", stdout)
+    best: dict | None = None
+    for block in blocks:
+        if not block.strip():
+            continue
+        low = block.lower()
+        is_spotify = "com.spotify.client" in low or '"spotify"' in low
+        is_librespot = "librespot" in low
+        if not (is_spotify or is_librespot):
+            continue
+        spec_m = re.search(r"Sample Specification:\s*([^\r\n]+)", block)
+        resample_m = re.search(r"Resample method:\s*([^\r\n]+)", block)
+        corked_m = re.search(r"Corked:\s*([^\r\n]+)", block)
+        sample_spec = spec_m.group(1).strip() if spec_m else ""
+        resample_method = resample_m.group(1).strip() if resample_m else ""
+        corked = (corked_m.group(1).strip().lower() == "yes") if corked_m else False
+
+        # Format human-readable label e.g. "24-bit · 44.1 kHz" or "32-bit Float · 48.0 kHz"
+        parts = sample_spec.split()
+        fmt_raw = parts[0] if parts else ""
+        rate_raw = parts[2] if len(parts) > 2 else ""
+        fmt_map = {
+            "s16le": "16-bit",
+            "s24le": "24-bit",
+            "s24-32le": "24-bit",
+            "s32le": "32-bit",
+            "float32le": "32-bit Float",
+        }
+        fmt_str = fmt_map.get(fmt_raw, fmt_raw)
+        rate_str = rate_raw
+        if rate_raw.endswith("Hz"):
+            try:
+                hz = int(rate_raw[:-2])
+                rate_str = f"{hz / 1000:.1f} kHz"
+            except ValueError:
+                pass
+        label = f"{fmt_str} · {rate_str}".strip(" ·")
+        info = {
+            "application": "Spotify Client" if is_spotify else "librespot",
+            "sample_spec": sample_spec,
+            "format_label": label or sample_spec,
+            "resample_method": resample_method,
+            "active": not corked,
+        }
+        if not corked:
+            return info
+        best = info
+    return best
+
+
+def _parse_spotify_rootlist_folders(raw_bytes: bytes) -> list[dict]:
+    """Extract Spotify playlist folder hierarchy (start-group / end-group) from binary/text rootlist cache."""
+    if not raw_bytes:
+        return []
+    text = raw_bytes.decode("utf-8", errors="ignore")
+    token_re = re.compile(
+        r"spotify:(?:start-group:([A-Za-z0-9]+):([^\s\"'\\:\x00-\x1f]+)"
+        r"|end-group:([A-Za-z0-9]+)"
+        r"|playlist:([A-Za-z0-9]{22}))"
+    )
+    folders_by_id: dict[str, dict] = {}
+    stack: list[dict] = []
+    for m in token_re.finditer(text):
+        start_id, encoded_name, end_id, playlist_id = m.groups()
+        if start_id and encoded_name:
+            name = urllib.parse.unquote_plus(encoded_name).strip() or "Folder"
+            folder = folders_by_id.get(start_id)
+            if not folder:
+                folder = {"id": f"sp-{start_id}", "name": name, "playlist_ids": [], "source": "spotify"}
+                folders_by_id[start_id] = folder
+            stack.append(folder)
+        elif end_id:
+            if stack:
+                stack.pop()
+        elif playlist_id and stack:
+            curr = stack[-1]
+            if playlist_id not in curr["playlist_ids"]:
+                curr["playlist_ids"].append(playlist_id)
+    return [f for f in folders_by_id.values() if f["playlist_ids"]]
+
+
+def _cdp_get_page_target(port: int = SPOTIFY_CDP_PORT) -> dict | None:
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/json", timeout=2) as resp:
+            targets = json.loads(resp.read())
+        for t in targets:
+            if t.get("type") == "page" and t.get("webSocketDebuggerUrl"):
+                return t
+        return targets[0] if targets else None
+    except Exception:
+        return None
+
+
+def _cdp_call(method: str, params: dict | None = None, port: int = SPOTIFY_CDP_PORT, timeout: float = 4.0) -> dict | None:
+    """Invoke a Chrome DevTools Protocol method on the headless Spotify Client over raw WebSocket."""
+    target = _cdp_get_page_target(port)
+    if not target or not target.get("webSocketDebuggerUrl"):
+        return None
+    ws_url = target["webSocketDebuggerUrl"]
+    parsed = urllib.parse.urlparse(ws_url)
+    host = parsed.hostname or "127.0.0.1"
+    ws_port = parsed.port or port
+    path = parsed.path or "/"
+    sock = socket.create_connection((host, ws_port), timeout=timeout)
+    try:
+        key = base64.b64encode(os.urandom(16)).decode("ascii")
+        handshake = (
+            f"GET {path} HTTP/1.1\r\n"
+            f"Host: {host}:{ws_port}\r\n"
+            "Upgrade: websocket\r\n"
+            "Connection: Upgrade\r\n"
+            f"Sec-WebSocket-Key: {key}\r\n"
+            "Sec-WebSocket-Version: 13\r\n\r\n"
+        )
+        sock.sendall(handshake.encode("ascii"))
+        buf = b""
+        while b"\r\n\r\n" not in buf:
+            chunk = sock.recv(4096)
+            if not chunk:
+                return None
+            buf += chunk
+        leftover = buf.split(b"\r\n\r\n", 1)[1]
+
+        payload = json.dumps({"id": 1, "method": method, "params": params or {}}).encode("utf-8")
+        mask = os.urandom(4)
+        header = bytearray([0x81])
+        length = len(payload)
+        if length < 126:
+            header.append(0x80 | length)
+        elif length < 65536:
+            header.append(0x80 | 126)
+            header.extend(length.to_bytes(2, "big"))
+        else:
+            header.append(0x80 | 127)
+            header.extend(length.to_bytes(8, "big"))
+        header.extend(mask)
+        masked = bytes(b ^ mask[i % 4] for i, b in enumerate(payload))
+        sock.sendall(bytes(header) + masked)
+
+        # Read WebSocket frames until we get JSON message with id=1
+        raw = bytearray(leftover)
+        while True:
+            while len(raw) >= 2:
+                b1 = raw[1]
+                is_masked = (b1 & 0x80) != 0
+                plen = b1 & 0x7F
+                idx = 2
+                if plen == 126:
+                    if len(raw) < 4:
+                        break
+                    plen = int.from_bytes(raw[2:4], "big")
+                    idx = 4
+                elif plen == 127:
+                    if len(raw) < 10:
+                        break
+                    plen = int.from_bytes(raw[2:10], "big")
+                    idx = 10
+                if is_masked:
+                    idx += 4
+                if len(raw) < idx + plen:
+                    break
+                frame_data = bytes(raw[idx:idx + plen])
+                del raw[:idx + plen]
+                try:
+                    msg = json.loads(frame_data.decode("utf-8", errors="replace"))
+                    if msg.get("id") == 1:
+                        return msg.get("result")
+                except Exception:
+                    pass
+            chunk = sock.recv(65536)
+            if not chunk:
+                break
+            raw.extend(chunk)
+    finally:
+        try:
+            sock.close()
+        except Exception:
+            pass
+    return None
 
 
 def _get_lan_ip() -> str:
@@ -236,8 +491,34 @@ async def _exec(fn, *args, timeout=10):
         raise TimeoutError(f"Request timed out after {timeout}s")
 
 
+def _build_deck_command(cmd: list[str], extra_env: dict | None = None) -> tuple[list[str], dict]:
+    """Ensure user-level graphical/audio processes run as user `deck` (UID 1000) even when Decky runs as root."""
+    env = os.environ.copy()
+    env["XDG_RUNTIME_DIR"] = XDG_RUNTIME_DIR
+    env["DBUS_SESSION_BUS_ADDRESS"] = DBUS_SESSION_BUS_ADDRESS
+    env["PULSE_SERVER"] = PULSE_SERVER
+    env["HOME"] = DECK_HOME
+    if extra_env:
+        env.update(extra_env)
+    if hasattr(os, "geteuid") and os.geteuid() == 0:
+        env_args = [
+            f"XDG_RUNTIME_DIR={XDG_RUNTIME_DIR}",
+            f"DBUS_SESSION_BUS_ADDRESS={DBUS_SESSION_BUS_ADDRESS}",
+            f"PULSE_SERVER={PULSE_SERVER}",
+            f"HOME={DECK_HOME}",
+        ]
+        if extra_env:
+            for k, v in extra_env.items():
+                env_args.append(f"{k}={v}")
+        return ["runuser", "-u", DECK_USER, "--", "env", *env_args, *cmd], env
+    return cmd, env
+
+
 class Plugin:
     _process: subprocess.Popen | None = None
+    _kwin_process: subprocess.Popen | None = None
+    _spotify_client_process: subprocess.Popen | None = None
+    _virtual_display: str | None = None
     _monitor_task: asyncio.Task | None = None
     _api_poll_task: asyncio.Task | None = None
     _settings: dict = {}
@@ -262,8 +543,7 @@ class Plugin:
     _repeat_state: str = "off"
     _is_liked: bool = False
     _context_uri: str = ""
-    _mix_transitioning_track_id: str | None = None
-    _mix_task: asyncio.Task | None = None
+    _audio_stream_info: dict | None = None
     # Token refresh lock (initialized in _main)
     _token_refresh_lock: asyncio.Lock | None = None
     # Crash auto-restart state
@@ -287,23 +567,26 @@ class Plugin:
         await self._start_dashboard()
         if self._access_token:
             self._start_api_poll()
+        await self._sync_native_spotify_folders()
         await self.start_librespot()
 
     async def _unload(self):
         decky.logger.info("Deckify unloading")
+        await self._stop_monitor()
         await self._kill_librespot()
+        await self._kill_spotify_client()
         await self._stop_dashboard()
         await self._stop_oauth_server()
         await self._stop_api_poll()
-        await self._stop_monitor()
 
     async def _uninstall(self):
         decky.logger.info("Deckify uninstalling")
+        await self._stop_monitor()
         await self._kill_librespot()
+        await self._kill_spotify_client()
         await self._stop_dashboard()
         await self._stop_oauth_server()
         await self._stop_api_poll()
-        await self._stop_monitor()
 
     async def _migration(self):
         decky.logger.info("Deckify migrating")
@@ -319,11 +602,154 @@ class Plugin:
             os.path.join(decky.DECKY_USER_HOME, ".local", "share", "deckify"),
         )
 
-    # ── Callable methods (frontend → backend) ─────────────────
+    # ── Audio Engine management (librespot vs Official Spotify Client) ──
+
+    def _is_engine_running(self) -> bool:
+        backend = self._settings.get("audio_backend", "librespot")
+        if backend == "spotify_client":
+            return (
+                self._spotify_client_process is not None
+                and self._spotify_client_process.poll() is None
+            )
+        return self._process is not None and self._process.poll() is None
+
+    async def _configure_pipewire_clock(self, unlock_lossless: bool) -> None:
+        """Unlock 44.1kHz/88.2kHz/96kHz in PipeWire when Lossless is active, or restore default 48kHz."""
+        rates = "[ 44100 48000 88200 96000 ]" if unlock_lossless else "[ 48000 ]"
+        try:
+            cmd, env = _build_deck_command(["pw-metadata", "-n", "settings", "0", "clock.allowed-rates", rates])
+            await _exec(lambda: subprocess.run(cmd, env=env, capture_output=True, text=True), timeout=5)
+            decky.logger.info("PipeWire clock.allowed-rates set to %s", rates)
+        except Exception as e:
+            decky.logger.warning("Failed to configure PipeWire clock rates: %s", e)
+
+    def _write_spotify_client_prefs(self) -> None:
+        """Write audio quality and playback settings to the Official Spotify Client prefs files."""
+        try:
+            os.makedirs(SPOTIFY_CLIENT_CONFIG_DIR, exist_ok=True)
+            quality = str(self._settings.get("audio_quality", "320")).lower()
+            gapless = bool(self._settings.get("gapless", True))
+            normalisation = bool(self._settings.get("normalisation", True))
+
+            target_files = [os.path.join(SPOTIFY_CLIENT_CONFIG_DIR, "prefs")]
+            users_dir = os.path.join(SPOTIFY_CLIENT_CONFIG_DIR, "Users")
+            if os.path.isdir(users_dir):
+                for user_sub in os.listdir(users_dir):
+                    sub_path = os.path.join(users_dir, user_sub)
+                    if os.path.isdir(sub_path):
+                        target_files.append(os.path.join(sub_path, "prefs"))
+
+            for pfile in target_files:
+                existing = ""
+                if os.path.isfile(pfile):
+                    try:
+                        with open(pfile, "r", encoding="utf-8", errors="ignore") as f:
+                            existing = f.read()
+                    except Exception:
+                        pass
+                updated = _update_spotify_prefs_content(existing, quality, gapless, normalisation)
+                with open(pfile, "w", encoding="utf-8") as f:
+                    f.write(updated)
+                if hasattr(os, "chown") and hasattr(os, "geteuid") and os.geteuid() == 0:
+                    try:
+                        os.chown(pfile, DECK_UID, DECK_UID)
+                    except Exception:
+                        pass
+        except Exception as e:
+            decky.logger.warning("Failed to write Spotify client prefs: %s", e)
+
+    async def start_spotify_client(self) -> dict:
+        """Start the Official Spotify Linux Client headless in the background (stopping librespot first)."""
+        # Cleanly stop librespot so both engines never run simultaneously
+        await self._stop_monitor()
+        await self._kill_librespot()
+
+        if self._spotify_client_process and self._spotify_client_process.poll() is None:
+            return {"ok": True, "message": "already running", "audio_backend": "spotify_client"}
+
+        await self._kill_spotify_client()
+        self._write_spotify_client_prefs()
+
+        is_lossless = (
+            self._settings.get("audio_quality") == "lossless"
+            and bool(self._settings.get("bit_perfect_clock", True))
+        )
+        await self._configure_pipewire_clock(is_lossless)
+
+        try:
+            before_x = set(glob.glob("/tmp/.X11-unix/X*"))
+            kwin_cmd, kwin_env = _build_deck_command([
+                "kwin_wayland", "--virtual", "--xwayland",
+                "--socket", "wayland-spotify",
+                "--width", "1280", "--height", "800",
+            ])
+            self._kwin_process = subprocess.Popen(
+                kwin_cmd,
+                env=kwin_env,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            # Wait up to 3s for virtual Xwayland socket
+            disp = ":2"
+            for _ in range(15):
+                await asyncio.sleep(0.2)
+                after_x = set(glob.glob("/tmp/.X11-unix/X*"))
+                new_x = sorted(after_x - before_x)
+                if new_x:
+                    disp = ":" + new_x[0].split("X")[-1]
+                    break
+            self._virtual_display = disp
+
+            sp_cmd, sp_env = _build_deck_command(
+                [
+                    "flatpak", "run",
+                    "--nosocket=wayland",
+                    f"--env=DISPLAY={disp}",
+                    "--command=/app/extra/bin/spotify",
+                    SPOTIFY_FLATPAK_ID,
+                    f"--remote-debugging-port={SPOTIFY_CDP_PORT}",
+                ],
+                extra_env={"DISPLAY": disp},
+            )
+            sp_env.pop("WAYLAND_DISPLAY", None)
+            decky.logger.info("Starting Official Spotify Client on virtual display %s", disp)
+            self._spotify_client_process = subprocess.Popen(
+                sp_cmd,
+                env=sp_env,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except Exception as e:
+            msg = f"Failed to start Official Spotify Client: {e}"
+            decky.logger.error(msg)
+            await self._kill_spotify_client()
+            await decky.emit("librespot_status", {"running": False, "error": msg, "audio_backend": "spotify_client"})
+            return {"ok": False, "error": msg}
+
+        self._last_event = None
+        self._pa_volume_boosted = False
+        self._start_monitor()
+        await decky.emit("librespot_status", {"running": True, "error": None, "audio_backend": "spotify_client"})
+        decky.logger.info("Official Spotify Client started, pid=%d display=%s", self._spotify_client_process.pid, self._virtual_display)
+        return {"ok": True, "pid": self._spotify_client_process.pid, "audio_backend": "spotify_client"}
+
+    async def stop_spotify_client(self) -> dict:
+        await self._stop_monitor()
+        await self._kill_spotify_client()
+        self._last_event = None
+        await decky.emit("librespot_status", {"running": False, "error": None, "audio_backend": "spotify_client"})
+        return {"ok": True}
 
     async def start_librespot(self) -> dict:
+        if self._settings.get("audio_backend") == "spotify_client":
+            return await self.start_spotify_client()
+
+        # Ensure Official Spotify Client is cleanly stopped before starting librespot
+        await self._kill_spotify_client()
+        await self._configure_pipewire_clock(False)
+
         if self._process and self._process.poll() is None:
-            return {"ok": True, "message": "already running"}
+            return {"ok": True, "message": "already running", "audio_backend": "librespot"}
 
         self._kill_stale_librespot()
 
@@ -336,11 +762,14 @@ class Plugin:
         os.makedirs(CACHE_DIR, exist_ok=True)
 
         settings = self._settings
+        bitrate_str = str(settings.get("audio_quality", settings.get("bitrate", 320)))
+        if bitrate_str not in VALID_LIBRESPOT_QUALITIES:
+            bitrate_str = "320"
         cmd = [
             LIBRESPOT_BIN,
             "--name", settings.get("device_name") or socket.gethostname(),
             "--device-type", "computer",
-            "--bitrate", str(settings.get("bitrate", 320)),
+            "--bitrate", bitrate_str,
             "--backend", "pulseaudio",
             "--system-cache", CACHE_DIR,
         ]
@@ -377,37 +806,31 @@ class Plugin:
         self._pa_volume_boosted = False
         self._write_pid(self._process.pid)
         self._start_monitor()
-        await decky.emit("librespot_status", {"running": True, "error": None})
+        await decky.emit("librespot_status", {"running": True, "error": None, "audio_backend": "librespot"})
         decky.logger.info("librespot started, pid=%d", self._process.pid)
-        return {"ok": True, "pid": self._process.pid}
+        return {"ok": True, "pid": self._process.pid, "audio_backend": "librespot"}
 
     async def stop_librespot(self) -> dict:
         await self._stop_monitor()
         await self._kill_librespot()
+        await self._kill_spotify_client()
         self._last_event = None
         await decky.emit("librespot_status", {"running": False, "error": None})
         return {"ok": True}
 
-    def _get_active_mix_mode(self) -> str:
-        """Return the active Mix preset for the current playback context or global setting."""
-        mixed_map = self._settings.get("mixed_playlists")
-        if isinstance(mixed_map, dict) and self._context_uri.startswith("spotify:playlist:"):
-            pid = self._context_uri.split(":")[-1]
-            preset = mixed_map.get(pid)
-            if preset in VALID_MIX_MODES and preset != "off":
-                return preset
-        mode = self._settings.get("mix_mode", "off")
-        return mode if mode in VALID_MIX_MODES else "off"
+    async def switch_audio_backend(self, backend: str) -> dict:
+        """Cleanly shut down the previous backend and start the newly selected backend."""
+        return await self.set_setting("audio_backend", backend)
 
     async def get_status(self) -> dict:
-        running = self._process is not None and self._process.poll() is None
+        running = self._is_engine_running()
         is_playing = self._poll_play_state == "playing"
         position_ms = self._last_event.get("position_ms", 0) if self._last_event else 0
         duration_ms = self._last_event.get("duration_ms", 0) if self._last_event else 0
         public_keys = (
-            "device_name", "bitrate", "spotify_client_id",
-            "normalisation", "normalisation_pregain", "gapless",
-            "autoplay", "mix_mode", "crossfade_seconds", "mixed_playlists",
+            "device_name", "audio_backend", "audio_quality", "bitrate",
+            "bit_perfect_clock", "spotify_client_id", "normalisation",
+            "normalisation_pregain", "gapless", "autoplay", "playlist_folders",
         )
         return {
             "running": running,
@@ -424,7 +847,7 @@ class Plugin:
             "repeat_state": self._repeat_state,
             "is_liked": self._is_liked,
             "context_uri": self._context_uri,
-            "active_mix_mode": self._get_active_mix_mode(),
+            "audio_stream_info": self._audio_stream_info,
         }
 
     async def get_settings(self) -> dict:
@@ -433,32 +856,73 @@ class Plugin:
     async def set_setting(self, key: str, value) -> dict:
         if key not in DEFAULT_SETTINGS:
             return {"ok": False, "error": f"unknown setting: {key}"}
+        backend_changed = False
+        quality_changed = False
         if key == "device_name":
             if not isinstance(value, str) or any(ord(char) < 32 or ord(char) == 127 for char in value):
                 return {"ok": False, "error": "Device name must be text without control characters"}
             value = value.strip()
             self._settings["device_name_customized"] = True
-        elif key == "mix_mode":
-            if value not in VALID_MIX_MODES:
-                return {"ok": False, "error": "Invalid mix_mode"}
-        elif key == "crossfade_seconds":
+        elif key == "audio_backend":
+            value = str(value).strip().lower()
+            if value not in VALID_AUDIO_BACKENDS:
+                return {"ok": False, "error": f"Invalid audio_backend: {value}"}
+            prev_backend = self._settings.get("audio_backend", "librespot")
+            backend_changed = value != prev_backend
+            if value == "librespot" and self._settings.get("audio_quality") == "lossless":
+                self._settings["audio_quality"] = "320"
+                self._settings["bitrate"] = 320
+        elif key == "audio_quality":
+            value = str(value).strip().lower()
+            current_backend = self._settings.get("audio_backend", "librespot")
+            if current_backend == "librespot":
+                if value == "lossless":
+                    return {"ok": False, "error": "Lossless audio requires the Official Spotify Client backend"}
+                if value not in VALID_LIBRESPOT_QUALITIES:
+                    return {"ok": False, "error": f"Invalid audio_quality for librespot: {value}"}
+                self._settings["bitrate"] = int(value)
+            else:
+                if value not in VALID_SPOTIFY_CLIENT_QUALITIES:
+                    return {"ok": False, "error": f"Invalid audio_quality: {value}"}
+                self._settings["bitrate"] = 320 if value == "lossless" else int(value)
+            quality_changed = True
+        elif key == "bitrate":
             try:
-                value = max(0, min(12, int(value)))
+                bval = int(value)
             except (TypeError, ValueError):
-                return {"ok": False, "error": "crossfade_seconds must be an integer"}
-        elif key in ("normalisation", "gapless", "autoplay"):
+                return {"ok": False, "error": "bitrate must be 96, 160, or 320"}
+            if bval not in (96, 160, 320):
+                return {"ok": False, "error": "bitrate must be 96, 160, or 320"}
+            value = bval
+            self._settings["audio_quality"] = str(bval)
+            quality_changed = True
+        elif key in ("normalisation", "gapless", "autoplay", "bit_perfect_clock"):
             value = bool(value)
         elif key == "normalisation_pregain":
             try:
                 value = max(-10.0, min(10.0, float(value)))
             except (TypeError, ValueError):
                 return {"ok": False, "error": "normalisation_pregain must be a number"}
-        elif key == "mixed_playlists":
-            if not isinstance(value, dict):
-                return {"ok": False, "error": "mixed_playlists must be an object"}
+        elif key == "playlist_folders":
+            if not isinstance(value, list):
+                return {"ok": False, "error": "playlist_folders must be a list"}
         self._settings[key] = value
         _save_settings(self._settings)
         decky.logger.info("Setting updated: %s = %s", key, value)
+
+        if backend_changed:
+            # Cleanly stop the old backend and start the new one
+            if value == "spotify_client":
+                await self.start_spotify_client()
+            else:
+                await self.start_librespot()
+        elif quality_changed and self._settings.get("audio_backend") == "spotify_client":
+            self._write_spotify_client_prefs()
+            await self._configure_pipewire_clock(
+                self._settings.get("audio_quality") == "lossless"
+                and bool(self._settings.get("bit_perfect_clock", True))
+            )
+
         return {"ok": True, "settings": dict(self._settings)}
 
     # ── Playback control callable methods ────────────────────────
@@ -749,22 +1213,17 @@ class Plugin:
         try:
             data = await _exec(_spotify_api_request, "me/playlists", token, "GET", {"limit": 50, "offset": offset})
             items = data.get("items", []) if data else []
-            mixed_map = self._settings.get("mixed_playlists")
-            if not isinstance(mixed_map, dict):
-                mixed_map = {}
             playlists = []
             for p in items:
+                if not p:
+                    continue
                 images = p.get("images") or []
-                pid = p["id"]
-                preset = mixed_map.get(pid, "off")
                 playlists.append({
-                    "id": pid,
+                    "id": p["id"],
                     "name": p.get("name", ""),
                     "image_url": _image_url(images),
                     "track_count": (p.get("items") or p.get("tracks") or {}).get("total", 0),
                     "owner_id": p.get("owner", {}).get("id", ""),
-                    "mix_enabled": preset in VALID_MIX_MODES and preset != "off",
-                    "mix_preset": preset if preset in VALID_MIX_MODES and preset != "off" else "auto",
                 })
             total = data.get("total", 0) if data else 0
             return {"ok": True, "playlists": playlists, "total": total, "offset": offset}
@@ -804,6 +1263,276 @@ class Plugin:
             return {"ok": True, "tracks": tracks, "total": total, "offset": offset}
         except Exception as e:
             decky.logger.error("get_playlist_tracks failed: %s", e)
+            return {"ok": False, "error": str(e)}
+
+    async def add_track_to_playlist(self, playlist_id: str, track_uri: str) -> dict:
+        """Add a track URI to a playlist via Spotify's /playlists/{id}/items endpoint."""
+        token = await self._ensure_token()
+        if not token:
+            return {"ok": False, "error": "Not authenticated"}
+        pid = (playlist_id or "").strip()
+        if pid.startswith("spotify:playlist:"):
+            pid = pid.split(":")[-1]
+        uri = (track_uri or "").strip()
+        if uri and not uri.startswith("spotify:"):
+            uri = f"spotify:track:{uri}"
+        if not pid or not uri:
+            return {"ok": False, "error": "Missing playlist_id or track_uri"}
+        try:
+            try:
+                await _exec(
+                    _spotify_api_request,
+                    f"playlists/{pid}/items", token, "POST", None,
+                    {"uris": [uri]},
+                )
+            except urllib.error.HTTPError as e:
+                if e.code in (400, 404):
+                    await _exec(
+                        _spotify_api_request,
+                        f"playlists/{pid}/tracks", token, "POST", None,
+                        {"uris": [uri]},
+                    )
+                else:
+                    raise
+            return {"ok": True, "playlist_id": pid, "track_uri": uri}
+        except urllib.error.HTTPError as e:
+            return {"ok": False, "error": _parse_spotify_error(e)}
+        except Exception as e:
+            decky.logger.error("add_track_to_playlist(%s, %s) failed: %s", pid, uri, e)
+            return {"ok": False, "error": str(e)}
+
+    async def _sync_native_spotify_folders(self) -> list[dict]:
+        """Scan Official Spotify Client local cache/storage for rootlist folders and merge with saved folders."""
+        existing = self._settings.get("playlist_folders")
+        if not isinstance(existing, list):
+            existing = []
+        existing_by_id = {f.get("id"): dict(f) for f in existing if isinstance(f, dict) and f.get("id")}
+
+        def _scan_files() -> list[dict]:
+            discovered: list[dict] = []
+            search_roots = [SPOTIFY_CLIENT_CONFIG_DIR, SPOTIFY_CLIENT_CACHE_DIR]
+            for root_dir in search_roots:
+                if not os.path.isdir(root_dir):
+                    continue
+                for dirpath, _, filenames in os.walk(root_dir):
+                    for fn in filenames:
+                        if fn.endswith((".bnk", ".ldb", ".log", "prefs", ".json")):
+                            fpath = os.path.join(dirpath, fn)
+                            try:
+                                if os.path.getsize(fpath) > 8 * 1024 * 1024:
+                                    continue
+                                with open(fpath, "rb") as f:
+                                    raw = f.read()
+                                if b"start-group:" in raw:
+                                    parsed = _parse_spotify_rootlist_folders(raw)
+                                    if parsed:
+                                        discovered.extend(parsed)
+                            except Exception:
+                                pass
+            return discovered
+
+        try:
+            native_folders = await _exec(_scan_files, timeout=5)
+            changed = False
+            for nf in native_folders:
+                fid = nf["id"]
+                if fid not in existing_by_id:
+                    existing_by_id[fid] = nf
+                    changed = True
+                else:
+                    merged_pids = list(dict.fromkeys(existing_by_id[fid].get("playlist_ids", []) + nf.get("playlist_ids", [])))
+                    if merged_pids != existing_by_id[fid].get("playlist_ids"):
+                        existing_by_id[fid]["playlist_ids"] = merged_pids
+                        changed = True
+            folders_list = list(existing_by_id.values())
+            if changed:
+                self._settings["playlist_folders"] = folders_list
+                _save_settings(self._settings)
+            return folders_list
+        except Exception as e:
+            decky.logger.warning("Failed to scan native Spotify folders: %s", e)
+            return list(existing_by_id.values())
+
+    async def get_playlist_folders(self) -> dict:
+        folders = await self._sync_native_spotify_folders()
+        return {"ok": True, "folders": folders}
+
+    async def manage_playlist_folder(
+        self,
+        action: str,
+        folder_id: str = "",
+        name: str = "",
+        playlist_id: str = "",
+        folders: list | None = None,
+    ) -> dict:
+        """Create, rename, delete, or assign playlists to folders in Deckify."""
+        current: list[dict] = [
+            dict(f) for f in (self._settings.get("playlist_folders") or [])
+            if isinstance(f, dict) and f.get("id")
+        ]
+        act = (action or "").strip().lower()
+        if act == "save" and isinstance(folders, list):
+            current = [
+                {
+                    "id": str(f.get("id")),
+                    "name": str(f.get("name", "Folder")).strip() or "Folder",
+                    "playlist_ids": [str(x) for x in (f.get("playlist_ids") or []) if x],
+                }
+                for f in folders if isinstance(f, dict) and f.get("id")
+            ]
+        elif act == "create":
+            clean_name = (name or "").strip()
+            if not clean_name:
+                return {"ok": False, "error": "Folder name cannot be empty"}
+            new_id = f"folder-{secrets.token_hex(4)}"
+            current.append({
+                "id": new_id,
+                "name": clean_name,
+                "playlist_ids": [playlist_id] if playlist_id else [],
+            })
+        elif act == "rename":
+            clean_name = (name or "").strip()
+            if not clean_name:
+                return {"ok": False, "error": "Folder name cannot be empty"}
+            for f in current:
+                if f["id"] == folder_id:
+                    f["name"] = clean_name
+                    break
+            else:
+                return {"ok": False, "error": "Folder not found"}
+        elif act == "delete":
+            current = [f for f in current if f["id"] != folder_id]
+        elif act == "add_playlist":
+            if not folder_id or not playlist_id:
+                return {"ok": False, "error": "Missing folder_id or playlist_id"}
+            for f in current:
+                if f["id"] == folder_id:
+                    pids = list(f.get("playlist_ids") or [])
+                    if playlist_id not in pids:
+                        pids.append(playlist_id)
+                    f["playlist_ids"] = pids
+                    break
+            else:
+                return {"ok": False, "error": "Folder not found"}
+        elif act == "remove_playlist":
+            if not folder_id or not playlist_id:
+                return {"ok": False, "error": "Missing folder_id or playlist_id"}
+            for f in current:
+                if f["id"] == folder_id:
+                    f["playlist_ids"] = [x for x in (f.get("playlist_ids") or []) if x != playlist_id]
+                    break
+        else:
+            return {"ok": False, "error": f"Unknown folder action: {action}"}
+
+        self._settings["playlist_folders"] = current
+        _save_settings(self._settings)
+        return {"ok": True, "folders": current}
+
+    # ── Official Spotify Client Remote Window (CDP) ─────────────
+
+    async def get_client_window_status(self) -> dict:
+        running = (
+            self._spotify_client_process is not None
+            and self._spotify_client_process.poll() is None
+        )
+        if not running:
+            return {"ok": True, "running": False, "title": "", "url": "", "logged_in": False}
+        target = await _exec(_cdp_get_page_target, SPOTIFY_CDP_PORT, timeout=3)
+        if not target:
+            return {"ok": True, "running": True, "title": "Starting...", "url": "", "logged_in": False}
+        title = target.get("title", "")
+        url = target.get("url", "")
+        logged_in = "login.app.spotify.com" not in url and bool(url)
+        return {
+            "ok": True,
+            "running": True,
+            "title": title,
+            "url": url,
+            "logged_in": logged_in,
+        }
+
+    async def capture_client_window_screenshot(self) -> bytes | None:
+        if not self._spotify_client_process or self._spotify_client_process.poll() is not None:
+            return None
+        try:
+            res = await _exec(
+                _cdp_call,
+                "Page.captureScreenshot",
+                {"format": "jpeg", "quality": 80},
+                SPOTIFY_CDP_PORT,
+                timeout=4,
+            )
+            if res and res.get("data"):
+                return base64.b64decode(res["data"])
+        except Exception as e:
+            decky.logger.debug("Screenshot capture failed: %s", e)
+        return None
+
+    async def send_client_window_input(self, payload: dict) -> dict:
+        if not self._spotify_client_process or self._spotify_client_process.poll() is not None:
+            return {"ok": False, "error": "Official Spotify Client is not running"}
+        input_type = str(payload.get("type") or payload.get("action") or "").lower()
+        try:
+            if input_type == "click":
+                x = int(float(payload.get("x", 0)))
+                y = int(float(payload.get("y", 0)))
+                button = str(payload.get("button", "left"))
+
+                def _do_click():
+                    _cdp_call("Input.dispatchMouseEvent", {
+                        "type": "mouseMoved", "x": x, "y": y,
+                    })
+                    _cdp_call("Input.dispatchMouseEvent", {
+                        "type": "mousePressed", "x": x, "y": y,
+                        "button": button, "clickCount": 1,
+                    })
+                    _cdp_call("Input.dispatchMouseEvent", {
+                        "type": "mouseReleased", "x": x, "y": y,
+                        "button": button, "clickCount": 1,
+                    })
+
+                await _exec(_do_click, timeout=4)
+                return {"ok": True}
+            if input_type == "wheel":
+                x = int(float(payload.get("x", 640)))
+                y = int(float(payload.get("y", 400)))
+                delta_y = int(float(payload.get("deltaY", 120)))
+                await _exec(
+                    _cdp_call,
+                    "Input.dispatchMouseEvent",
+                    {"type": "mouseWheel", "x": x, "y": y, "deltaX": 0, "deltaY": delta_y},
+                    timeout=4,
+                )
+                return {"ok": True}
+            if input_type == "text":
+                text = str(payload.get("text", ""))
+                if text:
+                    await _exec(_cdp_call, "Input.insertText", {"text": text}, timeout=4)
+                return {"ok": True}
+            if input_type == "key":
+                key_name = str(payload.get("key", "Enter"))
+                vk_map = {"Enter": 13, "Backspace": 8, "Tab": 9, "Escape": 27}
+                vk = vk_map.get(key_name, 0)
+
+                def _do_key():
+                    _cdp_call("Input.dispatchKeyEvent", {
+                        "type": "rawKeyDown", "key": key_name,
+                        "windowsVirtualKeyCode": vk, "nativeVirtualKeyCode": vk,
+                    })
+                    if key_name == "Enter":
+                        _cdp_call("Input.dispatchKeyEvent", {
+                            "type": "char", "text": "\r", "unmodifiedText": "\r",
+                        })
+                    _cdp_call("Input.dispatchKeyEvent", {
+                        "type": "keyUp", "key": key_name,
+                        "windowsVirtualKeyCode": vk, "nativeVirtualKeyCode": vk,
+                    })
+
+                await _exec(_do_key, timeout=4)
+                return {"ok": True}
+            return {"ok": False, "error": f"Unknown input type: {input_type}"}
+        except Exception as e:
+            decky.logger.warning("send_client_window_input failed: %s", e)
             return {"ok": False, "error": str(e)}
 
     async def get_liked_tracks(self, offset: int = 0) -> dict:
@@ -1104,23 +1833,16 @@ class Plugin:
                     "image_url": _image_url(images),
                     "track_count": a.get("total_tracks", 0), "uri": a.get("uri", ""),
                 })
-            mixed_map = self._settings.get("mixed_playlists")
-            if not isinstance(mixed_map, dict):
-                mixed_map = {}
             playlists_out = []
             for p in data.get("playlists", {}).get("items", []):
                 if p is None:
                     continue
                 images = p.get("images") or []
-                pid = p["id"]
-                preset = mixed_map.get(pid, "off")
                 playlists_out.append({
-                    "id": pid, "name": p.get("name", ""),
+                    "id": p["id"], "name": p.get("name", ""),
                     "image_url": _image_url(images),
                     "track_count": (p.get("items") or p.get("tracks") or {}).get("total", 0),
                     "owner_id": p.get("owner", {}).get("id", ""),
-                    "mix_enabled": preset in VALID_MIX_MODES and preset != "off",
-                    "mix_preset": preset if preset in VALID_MIX_MODES and preset != "off" else "auto",
                 })
             return {"ok": True, "tracks": tracks, "artists": artists_out, "albums": albums_out, "playlists": playlists_out}
         except Exception as e:
@@ -1161,81 +1883,6 @@ class Plugin:
         except Exception as e:
             decky.logger.error("play_tracks failed: %s", e)
             return {"ok": False, "error": str(e)}
-
-    async def toggle_playlist_mix(
-        self,
-        playlist_id: str,
-        enabled: bool | None = None,
-        preset: str = "auto",
-    ) -> dict:
-        """Toggle or update Spotify Playlist Mix mode for a specific playlist."""
-        pid = (playlist_id or "").strip()
-        if pid.startswith("spotify:playlist:"):
-            pid = pid.split(":")[-1]
-        if not pid:
-            return {"ok": False, "error": "Missing playlist_id"}
-        mixed_map = self._settings.get("mixed_playlists")
-        if not isinstance(mixed_map, dict):
-            mixed_map = {}
-        else:
-            mixed_map = dict(mixed_map)
-        current_enabled = pid in mixed_map and mixed_map[pid] != "off"
-        target_enabled = (not current_enabled) if enabled is None else bool(enabled)
-        chosen_preset = preset if preset in VALID_MIX_MODES and preset != "off" else mixed_map.get(pid, "auto")
-        if chosen_preset not in VALID_MIX_MODES or chosen_preset == "off":
-            chosen_preset = "auto"
-        if target_enabled:
-            mixed_map[pid] = chosen_preset
-        else:
-            mixed_map.pop(pid, None)
-        self._settings["mixed_playlists"] = mixed_map
-        _save_settings(self._settings)
-        decky.logger.info("Playlist Mix updated: playlist=%s enabled=%s preset=%s", pid, target_enabled, chosen_preset)
-        return {
-            "ok": True,
-            "playlist_id": pid,
-            "mix_enabled": target_enabled,
-            "mix_preset": chosen_preset if target_enabled else "off",
-            "mixed_playlists": mixed_map,
-        }
-
-    async def start_mix_play(
-        self,
-        context_uri: str | None = None,
-        uris: list | None = None,
-        mix_mode: str = "auto",
-        crossfade_seconds: int = 6,
-        shuffle: bool = False,
-    ) -> dict:
-        """Start Spotify Playlist Mix playback in sequence with the selected transition preset."""
-        chosen_mode = mix_mode if mix_mode in VALID_MIX_MODES and mix_mode != "off" else "auto"
-        if context_uri and context_uri.startswith("spotify:playlist:"):
-            pid = context_uri.split(":")[-1]
-            mixed_map = self._settings.get("mixed_playlists")
-            if not isinstance(mixed_map, dict):
-                mixed_map = {}
-            else:
-                mixed_map = dict(mixed_map)
-            mixed_map[pid] = chosen_mode
-            self._settings["mixed_playlists"] = mixed_map
-        else:
-            self._settings["mix_mode"] = chosen_mode
-        if crossfade_seconds > 0:
-            self._settings["crossfade_seconds"] = max(1, min(12, int(crossfade_seconds)))
-        _save_settings(self._settings)
-
-        play_res = await self.play_tracks(context_uri=context_uri, uris=uris)
-        if not play_res.get("ok"):
-            return play_res
-        # In Spotify Playlist Mix, playlists play in their mixed track sequence (shuffle off by default)
-        await self.set_shuffle(bool(shuffle))
-        return {
-            "ok": True,
-            "mix_mode": chosen_mode,
-            "crossfade_seconds": self._settings["crossfade_seconds"],
-            "shuffle_state": self._shuffle_state,
-            "mixed_playlists": self._settings.get("mixed_playlists", {}),
-        }
 
     # ── Device callable methods ─────────────────────────────────
 
@@ -1404,6 +2051,25 @@ class Plugin:
                 offset = int(qs.get("offset", [0])[0])
                 result = await self.get_playlist_tracks(playlist_id, offset)
                 await self._send_json(writer, 200, result)
+            elif path == "/api/playlist/add-item" and method == "POST":
+                b = body_json or {}
+                pid = str(b.get("playlist_id") or qs.get("playlist_id", [""])[0])
+                uri = str(b.get("track_uri") or b.get("uri") or qs.get("track_uri", [""])[0])
+                result = await self.add_track_to_playlist(pid, uri)
+                await self._send_json(writer, 200, result)
+            elif path == "/api/folders" and method == "GET":
+                result = await self.get_playlist_folders()
+                await self._send_json(writer, 200, result)
+            elif path == "/api/folders" and method == "POST":
+                b = body_json or {}
+                result = await self.manage_playlist_folder(
+                    action=str(b.get("action", "create")),
+                    folder_id=str(b.get("folder_id", "")),
+                    name=str(b.get("name", "")),
+                    playlist_id=str(b.get("playlist_id", "")),
+                    folders=b.get("folders"),
+                )
+                await self._send_json(writer, 200, result)
             elif path == "/api/liked-tracks" and method == "GET":
                 offset = int(qs.get("offset", [0])[0])
                 result = await self.get_liked_tracks(offset)
@@ -1475,37 +2141,51 @@ class Plugin:
                 device_id = str(b.get("device_id") or qs.get("device_id", [""])[0])
                 result = await self.transfer_playback(device_id)
                 await self._send_json(writer, 200, result)
-            elif path == "/api/mix" and method == "POST":
+            elif path in ("/api/settings", "/api/mix") and method == "POST":
                 b = body_json or {}
-                for k in ("mix_mode", "crossfade_seconds", "normalisation", "gapless", "autoplay", "mixed_playlists"):
+                last_err = None
+                # Process audio_backend first so audio_quality validation sees the updated backend
+                ordered_keys = (
+                    "audio_backend", "audio_quality", "bitrate",
+                    "bit_perfect_clock", "normalisation", "gapless", "autoplay",
+                )
+                for k in ordered_keys:
                     if k in b:
-                        await self.set_setting(k, b[k])
+                        res = await self.set_setting(k, b[k])
+                        if not res.get("ok"):
+                            last_err = res.get("error")
                 await self._send_json(writer, 200, {
-                    "ok": True,
-                    "mix_mode": self._settings.get("mix_mode", "off"),
-                    "active_mix_mode": self._get_active_mix_mode(),
-                    "crossfade_seconds": self._settings.get("crossfade_seconds", 6),
+                    "ok": last_err is None,
+                    "error": last_err,
+                    "audio_backend": self._settings.get("audio_backend", "librespot"),
+                    "audio_quality": self._settings.get("audio_quality", "320"),
+                    "bitrate": self._settings.get("bitrate", 320),
+                    "bit_perfect_clock": self._settings.get("bit_perfect_clock", True),
                     "normalisation": self._settings.get("normalisation", True),
                     "gapless": self._settings.get("gapless", True),
                     "autoplay": self._settings.get("autoplay", True),
-                    "mixed_playlists": self._settings.get("mixed_playlists", {}),
                 })
-            elif path == "/api/playlist-mix" and method == "POST":
-                b = body_json or {}
-                pid = str(b.get("playlist_id") or qs.get("playlist_id", [""])[0])
-                enabled = b.get("enabled")
-                preset = str(b.get("preset") or qs.get("preset", ["auto"])[0])
-                result = await self.toggle_playlist_mix(pid, enabled, preset)
+            elif path == "/api/client-window/status" and method == "GET":
+                result = await self.get_client_window_status()
                 await self._send_json(writer, 200, result)
-            elif path == "/api/mix-play" and method == "POST":
-                b = body_json or {}
-                result = await self.start_mix_play(
-                    context_uri=b.get("context_uri"),
-                    uris=b.get("uris"),
-                    mix_mode=b.get("mix_mode", "auto"),
-                    crossfade_seconds=int(b.get("crossfade_seconds", self._settings.get("crossfade_seconds", 6))),
-                    shuffle=bool(b.get("shuffle", False)),
-                )
+            elif path == "/api/client-window/screenshot" and method == "GET":
+                img = await self.capture_client_window_screenshot()
+                if not img:
+                    await self._send_json(writer, 404, {"error": "Spotify Client window unavailable"})
+                else:
+                    header = (
+                        "HTTP/1.1 200 OK\r\n"
+                        "Content-Type: image/jpeg\r\n"
+                        f"Content-Length: {len(img)}\r\n"
+                        "Cache-Control: no-store\r\n"
+                        "Access-Control-Allow-Origin: *\r\n"
+                        "Connection: close\r\n\r\n"
+                    )
+                    writer.write(header.encode() + img)
+                    await writer.drain()
+                    writer.close()
+            elif path == "/api/client-window/input" and method == "POST":
+                result = await self.send_client_window_input(body_json or {})
                 await self._send_json(writer, 200, result)
             elif path == "/api/search" and method == "GET":
                 q = qs.get("q", [""])[0]
@@ -1564,19 +2244,20 @@ class Plugin:
         writer.close()
 
     async def _api_status(self, writer: asyncio.StreamWriter):
-        running = self._process is not None and self._process.poll() is None
+        running = self._is_engine_running()
         is_playing = self._poll_play_state == "playing"
 
         # Estimate position from last event
         position_ms = 0
-        duration_ms = 0
         if self._last_event:
             position_ms = self._last_event.get("position_ms", 0)
-            duration_ms = self._last_event.get("duration_ms", 0)
 
         data = {
             "authenticated": self._access_token is not None,
             "librespot_running": running,
+            "audio_backend": self._settings.get("audio_backend", "librespot"),
+            "audio_quality": self._settings.get("audio_quality", "320"),
+            "audio_stream_info": self._audio_stream_info,
             "play_state": self._poll_play_state,
             "track": self._track_meta,
             "position_ms": position_ms,
@@ -1587,14 +2268,14 @@ class Plugin:
             "is_liked": self._is_liked,
             "context_uri": self._context_uri,
             "active_device": self._active_device,
-            "mix_settings": {
-                "mix_mode": self._settings.get("mix_mode", "off"),
-                "active_mix_mode": self._get_active_mix_mode(),
-                "crossfade_seconds": self._settings.get("crossfade_seconds", 6),
+            "engine_settings": {
+                "audio_backend": self._settings.get("audio_backend", "librespot"),
+                "audio_quality": self._settings.get("audio_quality", "320"),
+                "bitrate": self._settings.get("bitrate", 320),
+                "bit_perfect_clock": self._settings.get("bit_perfect_clock", True),
                 "normalisation": self._settings.get("normalisation", True),
                 "gapless": self._settings.get("gapless", True),
                 "autoplay": self._settings.get("autoplay", True),
-                "mixed_playlists": self._settings.get("mixed_playlists", {}),
             },
         }
         await self._send_json(writer, 200, data)
@@ -1643,6 +2324,39 @@ class Plugin:
             return f.read()
 
     # ── Internal helpers ───────────────────────────────────────
+
+    async def _kill_spotify_client(self):
+        """Cleanly terminate the Official Spotify Client Flatpak and its virtual KWin display."""
+        sp_proc = self._spotify_client_process
+        self._spotify_client_process = None
+        if sp_proc and sp_proc.poll() is None:
+            decky.logger.info("Stopping Official Spotify Client pid=%d", sp_proc.pid)
+            try:
+                sp_proc.terminate()
+                sp_proc.wait(timeout=3)
+            except Exception:
+                try:
+                    sp_proc.kill()
+                except Exception:
+                    pass
+        try:
+            cmd, env = _build_deck_command(["flatpak", "kill", SPOTIFY_FLATPAK_ID])
+            await _exec(lambda: subprocess.run(cmd, env=env, capture_output=True), timeout=4)
+        except Exception:
+            pass
+
+        kw_proc = self._kwin_process
+        self._kwin_process = None
+        self._virtual_display = None
+        if kw_proc and kw_proc.poll() is None:
+            try:
+                kw_proc.terminate()
+                kw_proc.wait(timeout=3)
+            except Exception:
+                try:
+                    kw_proc.kill()
+                except Exception:
+                    pass
 
     async def _kill_librespot(self):
         proc = self._process
@@ -2042,27 +2756,6 @@ class Plugin:
             self._track_meta = meta
             await decky.emit("track_metadata", meta)
 
-        # Trigger Mix / Crossfade transition when approaching end of track
-        mix_mode = self._get_active_mix_mode()
-        crossfade_sec = int(self._settings.get("crossfade_seconds", 0) or 0)
-        if (
-            is_playing
-            and mix_mode in ("auto", "fade", "rise", "blend", "slam")
-            and crossfade_sec > 0
-            and duration_ms > (crossfade_sec * 2000 + 5000)
-            and track_id
-            and self._mix_transitioning_track_id != track_id
-        ):
-            crossfade_ms = crossfade_sec * 1000
-            remaining_ms = duration_ms - progress_ms
-            if 0 < remaining_ms <= (crossfade_ms + 3200):
-                self._mix_transitioning_track_id = track_id
-                if self._mix_task and not self._mix_task.done():
-                    self._mix_task.cancel()
-                self._mix_task = asyncio.get_event_loop().create_task(
-                    self._run_mix_transition(track_id, remaining_ms, crossfade_ms, mix_mode)
-                )
-
         new_state = "playing" if is_playing else "paused"
         if is_playing:
             # Always emit playing with latest position so frontend re-anchors
@@ -2104,6 +2797,22 @@ class Plugin:
             await decky.emit("librespot_event", event)
 
         return True
+
+    async def _refresh_audio_stream_info(self) -> None:
+        """Inspect PipeWire/PulseAudio sink-inputs to report live sample rate and bit depth."""
+        try:
+            env = os.environ.copy()
+            env["PULSE_SERVER"] = PULSE_SERVER
+            res = await _exec(
+                lambda: subprocess.run(
+                    ["pactl", "list", "sink-inputs"],
+                    capture_output=True, text=True, env=env,
+                ),
+                timeout=4,
+            )
+            self._audio_stream_info = _parse_pactl_sink_inputs(res.stdout)
+        except Exception:
+            pass
 
     async def _set_pa_volume_percent(self, percent: int) -> bool:
         """Set librespot's PulseAudio sink-input volume percentage."""
@@ -2148,76 +2857,8 @@ class Plugin:
             decky.logger.info("PA volume boosted to 150%%")
             self._pa_volume_boosted = True
 
-    async def _run_mix_transition(self, track_id: str, remaining_ms: int, crossfade_ms: int, mix_mode: str):
-        """Perform Spotify Mix transition (auto, fade, rise, blend, slam) across track handoff."""
-        try:
-            # Preset-specific timing & envelope parameters
-            # auto: trims dead air (~5s before end, cues ~2.5s into next track)
-            # fade: full smooth volume fade out/in from 0:00
-            # rise: holds energy longer, cues ~3.5s into next track, rapid swell
-            # blend: extended balanced envelope, cues ~1.5s into next track
-            # slam: tight DJ cut 3s before end -> cues ~2.5s into next track with minimal dip
-            preset_cfg = {
-                "auto":  {"window_scale": 0.85, "min_vol": 45,  "out_steps": 5, "in_steps": 4, "cue_ms": 2500},
-                "fade":  {"window_scale": 1.00, "min_vol": 30,  "out_steps": 6, "in_steps": 6, "cue_ms": 0},
-                "rise":  {"window_scale": 0.70, "min_vol": 60,  "out_steps": 4, "in_steps": 3, "cue_ms": 3500},
-                "blend": {"window_scale": 1.15, "min_vol": 50,  "out_steps": 6, "in_steps": 6, "cue_ms": 1500},
-                "slam":  {"window_scale": 0.45, "min_vol": 110, "out_steps": 2, "in_steps": 2, "cue_ms": 2500},
-            }.get(mix_mode, {"window_scale": 0.85, "min_vol": 45, "out_steps": 5, "in_steps": 4, "cue_ms": 2000})
-
-            effective_window_ms = int(max(1500, crossfade_ms * preset_cfg["window_scale"]))
-            wait_ms = max(0, remaining_ms - effective_window_ms)
-            if wait_ms > 0:
-                await asyncio.sleep(wait_ms / 1000.0)
-            if self._poll_track_id != track_id or self._poll_play_state != "playing":
-                return
-
-            decky.logger.info(
-                "Mix transition (preset=%s, window=%.1fs) starting for track %s",
-                mix_mode, effective_window_ms / 1000.0, track_id,
-            )
-            half_sec = max(0.3, (effective_window_ms / 1000.0) / 2.0)
-            out_steps = preset_cfg["out_steps"]
-            min_vol = preset_cfg["min_vol"]
-            step_delay = half_sec / out_steps
-
-            # 1. Fade out outgoing track on local PulseAudio sink
-            for i in range(1, out_steps + 1):
-                if self._poll_track_id != track_id:
-                    break
-                vol = int(150 - ((150 - min_vol) * (i / out_steps)))
-                await self._set_pa_volume_percent(vol)
-                await asyncio.sleep(step_delay)
-
-            # 2. Advance to incoming track if still on outgoing track
-            if self._poll_track_id == track_id and self._poll_play_state == "playing":
-                await self.control_playback("next")
-                await asyncio.sleep(0.35)
-
-            # 3. Cue incoming track past intro dead-air when preset specifies cue_ms
-            cue_ms = preset_cfg["cue_ms"]
-            if cue_ms > 0:
-                try:
-                    await self.seek_playback(cue_ms)
-                except Exception:
-                    pass
-
-            # 4. Ramp volume up on incoming track
-            in_steps = preset_cfg["in_steps"]
-            in_delay = (half_sec * 0.65 if mix_mode in ("rise", "slam") else half_sec) / in_steps
-            for i in range(1, in_steps + 1):
-                vol = int(min_vol + ((150 - min_vol) * (i / in_steps)))
-                await self._set_pa_volume_percent(vol)
-                await asyncio.sleep(in_delay)
-        except asyncio.CancelledError:
-            pass
-        except Exception as e:
-            decky.logger.warning("Mix transition error: %s", e)
-        finally:
-            await self._set_pa_volume_percent(150)
-
     async def _monitor_process(self):
-        """Monitor librespot process health and detect system sleep/wake."""
+        """Monitor active audio engine health and detect system sleep/wake."""
         self._stable_start = time.time()
         last_tick = time.time()
         MAX_CRASHES = 5
@@ -2231,21 +2872,31 @@ class Plugin:
                 elapsed = now - last_tick
                 last_tick = now
 
-                if elapsed > SUSPEND_THRESHOLD and self._process and self._process.poll() is None:
+                backend = self._settings.get("audio_backend", "librespot")
+                active_proc = self._spotify_client_process if backend == "spotify_client" else self._process
+
+                if elapsed > SUSPEND_THRESHOLD and active_proc and active_proc.poll() is None:
                     decky.logger.info(
-                        "System wake detected (gap=%.0fs), restarting librespot", elapsed,
+                        "System wake detected (gap=%.0fs), restarting %s", elapsed, backend,
                     )
-                    await self._kill_librespot()
-                    await self.start_librespot()
+                    if backend == "spotify_client":
+                        await self._kill_spotify_client()
+                        await self.start_spotify_client()
+                    else:
+                        await self._kill_librespot()
+                        await self.start_librespot()
                     self._crash_timestamps.clear()
                     self._stable_start = time.time()
                     last_tick = time.time()
                     continue
 
-                if self._process and self._process.poll() is not None:
-                    rc = self._process.returncode
-                    self._process = None
-                    msg = f"librespot exited unexpectedly (code {rc})"
+                if active_proc and active_proc.poll() is not None:
+                    rc = active_proc.returncode
+                    if backend == "spotify_client":
+                        self._spotify_client_process = None
+                    else:
+                        self._process = None
+                    msg = f"{backend} exited unexpectedly (code {rc})"
                     decky.logger.error(msg)
 
                     now = time.time()
@@ -2268,7 +2919,11 @@ class Plugin:
                             "auto_restarting": True,
                         })
                         await asyncio.sleep(delay)
-                        result = await self.start_librespot()
+                        result = (
+                            await self.start_spotify_client()
+                            if backend == "spotify_client"
+                            else await self.start_librespot()
+                        )
                         if result.get("ok"):
                             self._stable_start = time.time()
                             continue
@@ -2286,9 +2941,10 @@ class Plugin:
                         })
                         break
 
-                if not self._pa_volume_boosted:
+                if backend == "librespot" and not self._pa_volume_boosted:
                     await self._boost_pa_volume()
 
+                await self._refresh_audio_stream_info()
                 await asyncio.sleep(3)
         except asyncio.CancelledError:
             pass
