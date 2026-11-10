@@ -149,42 +149,31 @@ class PluginCornerCasesTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(res_top["ok"])
             self.assertEqual(len(res_top["tracks"]), 1)
 
-    # ── Dashboard Server Edge Routes & Error Responses ─────────
+    # ── Playback Controls & Settings Corner Cases ──────────────
 
-    async def test_dashboard_client_screenshot_success_and_fail(self):
-        # 1. Success -> returns image/jpeg
-        reader = MagicMock()
-        reader.read = AsyncMock(return_value=b"GET /api/client-window/screenshot HTTP/1.1\r\n\r\n")
-        writer = MagicMock()
-        writer.write = MagicMock()
-        writer.drain = AsyncMock()
+    async def test_control_playback_unauthenticated_and_invalid(self):
+        self.plugin._access_token = None
+        self.plugin._refresh_token = None
+        res = await self.plugin.control_playback("play")
+        self.assertFalse(res["ok"])
+        self.assertEqual(res["error"], "Not authenticated")
 
-        with patch.object(self.plugin, "capture_client_window_screenshot", new_callable=AsyncMock) as m_shot:
-            m_shot.return_value = b"\xff\xd8\xffimage_data"
-            await self.plugin._handle_dashboard_request(reader, writer)
-            written = writer.write.call_args[0][0]
-            self.assertIn(b"200 OK", written)
-            self.assertIn(b"image/jpeg", written)
+        self.plugin._access_token = "valid-token"
+        res_invalid = await self.plugin.control_playback("unknown_cmd")
+        self.assertFalse(res_invalid["ok"])
+        self.assertIn("Unknown action", res_invalid["error"])
 
-            # 2. Unavailable -> 404
-            m_shot.return_value = None
-            writer.reset_mock()
-            await self.plugin._handle_dashboard_request(reader, writer)
-            written_err = writer.write.call_args[0][0]
-            self.assertIn(b"404 Not Found", written_err)
+    async def test_settings_eq_preset_and_ducking_profiles(self):
+        res_eq = await self.plugin.set_setting("eq_preset", "bass")
+        self.assertTrue(res_eq["ok"])
+        self.assertEqual(self.plugin._settings["eq_preset"], "bass")
 
-    async def test_dashboard_spa_fallback_and_timeout(self):
-        # SPA routing serves index.html for non-api routes like /library
-        reader = MagicMock()
-        reader.read = AsyncMock(return_value=b"GET /library HTTP/1.1\r\n\r\n")
-        writer = MagicMock()
-        with patch.object(self.plugin, "_serve_static", new_callable=AsyncMock) as m_static:
-            await self.plugin._handle_dashboard_request(reader, writer)
-            m_static.assert_awaited_once_with(writer, "index.html")
+        # Invalid eq preset rejected
+        res_bad_eq = await self.plugin.set_setting("eq_preset", "invalid_preset")
+        self.assertFalse(res_bad_eq["ok"])
+        self.assertEqual(self.plugin._settings["eq_preset"], "bass")
 
-        # TimeoutError on reading request closes writer cleanly
-        reader_timeout = MagicMock()
-        reader_timeout.read = AsyncMock(side_effect=asyncio.TimeoutError())
-        writer_timeout = MagicMock()
-        await self.plugin._handle_dashboard_request(reader_timeout, writer_timeout)
-        writer_timeout.close.assert_called_once()
+        # Ducking profiles
+        res_prof = await self.plugin.set_setting("game_audio_profiles", {"game_123": 20})
+        self.assertTrue(res_prof["ok"])
+        self.assertEqual(self.plugin._settings["game_audio_profiles"], {"game_123": 20})

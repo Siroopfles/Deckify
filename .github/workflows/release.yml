@@ -57,9 +57,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: frontend
-          path: |
-            dist/index.js
-            dashboard/dist/
+          path: dist/index.js
 
   release:
     name: Package & Release
@@ -156,14 +154,12 @@ jobs:
         run: |
           mkdir -p staging/Deckify/dist
           mkdir -p staging/Deckify/bin
-          mkdir -p staging/Deckify/dashboard
           mkdir -p staging/Deckify/py_modules
 
           cp plugin.json main.py package.json staging/Deckify/
           cp -r py_modules/* staging/Deckify/py_modules/
           rm -rf staging/Deckify/py_modules/__pycache__
           cp artifacts/frontend/dist/index.js staging/Deckify/dist/
-          cp -r artifacts/frontend/dashboard/dist staging/Deckify/dashboard/dist
           cp artifacts/librespot/librespot staging/Deckify/bin/
           chmod +x staging/Deckify/bin/librespot
 

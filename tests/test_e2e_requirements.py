@@ -176,12 +176,12 @@ class TestTier1FeatureCoverage(unittest.IsolatedAsyncioTestCase):
     # ------------------------------------------------------------------------
 
     def test_r2_app_eliminates_75ms_gamepad_polling_interval(self):
-        """R2.1: dashboard/src/App.tsx does not use 75ms polling interval for gamepads."""
-        content = read_project_file("dashboard/src/App.tsx")
-        self.assertTrue(bool(content), "App.tsx must exist")
+        """R2.1: Native modal does not use 75ms polling interval for gamepads."""
+        content = read_project_file("src/components/DeckifyExpandedModal.tsx")
+        self.assertTrue(bool(content), "DeckifyExpandedModal.tsx must exist")
         self.assertFalse(
             bool(re.search(r"setInterval\s*\([^,]+,\s*75\s*\)", content)),
-            "App.tsx must not contain 75ms setInterval polling loop",
+            "Modal must not contain 75ms setInterval polling loop",
         )
 
     def test_r2_backend_sse_broadcasts_gamepad_event_format(self):
@@ -203,13 +203,13 @@ class TestTier1FeatureCoverage(unittest.IsolatedAsyncioTestCase):
             self.assertIsInstance(token, str)
 
     def test_r2_dashboard_subscribes_to_sse_events(self):
-        """R2.4: dashboard/src/api.ts or App.tsx subscribes to SSE /api/events."""
-        api_content = read_project_file("dashboard/src/api.ts")
-        app_content = read_project_file("dashboard/src/App.tsx")
-        combined = api_content + "\n" + app_content
+        """R2.4: Native architecture uses Decky event listeners instead of dashboard SSE."""
+        index_content = read_project_file("src/index.tsx")
+        modal_content = read_project_file("src/components/DeckifyExpandedModal.tsx")
+        combined = index_content + "\n" + modal_content
         self.assertTrue(
-            "/api/events" in combined or "EventSource" in combined or "subscribeToEvents" in combined,
-            "Dashboard must connect to SSE /api/events endpoint",
+            "addEventListener" in combined or "backendOn" in combined or "librespot_event" in combined,
+            "Native UI must subscribe to events via Decky event listeners",
         )
 
     def test_r2_multiple_gamepad_events_dispatched_in_single_push(self):
@@ -783,9 +783,10 @@ class TestTier2BoundaryAndCornerCases(unittest.IsolatedAsyncioTestCase):
 
     # --- R1 Boundaries ---
     def test_r1_b1_deploy_script_handles_dashboard_only_flag(self):
-        """R1.B1: deploy.sh --dashboard-only flag skips backend restart."""
+        """R1.B1: deploy.sh removes deprecated --dashboard-only flag and syncs native plugin."""
         content = read_project_file("deploy.sh")
-        self.assertIn("--dashboard-only", content)
+        self.assertNotIn("--dashboard-only", content)
+        self.assertIn("dist/index.js", content)
 
     def test_r1_b2_install_script_regex_matches_tarball_pattern(self):
         """R1.B2: install.sh regex correctly extracts release asset download URL."""

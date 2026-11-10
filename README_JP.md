@@ -36,23 +36,23 @@
 Steam Deck に [Decky Loader](https://github.com/SteamDeckHomebrew/decky-loader) がインストールされている必要があります。
 
 ```bash
-curl -fsSL https://deckify.advinn.co/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/Siroopfles/Deckify/main/install.sh | sh
 ```
 
-同じコマンドで既存のインストールを[最新リリース](https://github.com/adv-inn/Deckify/releases/latest)に更新できます。設定とログイン情報は保持されます。
+同じコマンドで既存のインストールを[最新リリース](https://github.com/Siroopfles/Deckify/releases/latest)に更新できます。設定とログイン情報は保持されます。
 
 ## アンインストール
 
 再インストール用に設定とデータを保持してプラグインを削除します：
 
 ```bash
-curl -fsSL https://deckify.advinn.co/uninstall.sh | sh
+curl -fsSL https://raw.githubusercontent.com/Siroopfles/Deckify/main/uninstall.sh | sh
 ```
 
 ログイン情報、設定、キャッシュ、証明書、ログ（旧バージョンの保存先を含む）も削除する場合は、`--purge` を追加してください：
 
 ```bash
-curl -fsSL https://deckify.advinn.co/uninstall.sh | sh -s -- --purge
+curl -fsSL https://raw.githubusercontent.com/Siroopfles/Deckify/main/uninstall.sh | sh -s -- --purge
 ```
 
 プラグインを削除済みの場合も、`--purge` でローカルの Deckify データを削除できます。どちらのモードも、アンインストール時に Decky Loader を一時停止して再起動します。
@@ -89,15 +89,16 @@ Deckify の **Settings → Device name** に Spotify Connect の表示名を入�
 
 ```bash
 pnpm i
-pnpm run build    # プラグインフロントエンド + ダッシュボードをビルド
+pnpm run build    # ネイティブプラグインバンドルをビルド (dist/index.js)
 ```
 
 ### チェック
 
 ```bash
-python -m unittest discover -s tests -v
+python3 -m unittest discover -s tests -v
 pnpm run typecheck
 pnpm run lint
+pnpm test
 ```
 
 アンインストールのテストでは特権コマンドをモック化しているため、インストール済みのプラグインやデータは削除されません。

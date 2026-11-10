@@ -56,10 +56,10 @@ class DeckifyFeatureTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(self.plugin._track_meta["is_liked"])
         self.execute.assert_awaited_once_with(
             main._spotify_api_request,
-            "me/library",
+            "me/tracks",
             "valid-token",
             "PUT",
-            {"uris": "spotify:track:track-123"},
+            {"ids": "track-123"},
         )
 
     async def test_lossless_only_allowed_for_spotify_client_and_clean_backend_switching(self):
@@ -274,7 +274,7 @@ class DeckifyFeatureTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(res["folders"]), 1)
         top = res["folders"][0]
         self.assertEqual(top["name"], "My playlists")
-        self.assertIn("/api/image?", top["playlists"][0]["image_url"])
+        self.assertTrue(top["playlists"][0]["image_url"].startswith("https://i.scdn.co/image/"))
         self.assertEqual(len(top["subfolders"]), 1)
         self.assertEqual(top["subfolders"][0]["name"], "Genre")
         self.assertTrue(top["subfolders"][0]["playlists"][0]["is_mixed"])
@@ -308,42 +308,43 @@ class DeckifyFeatureTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("Official Spotify Client", res["error"])
             mock_play.assert_awaited_once_with(context_uri="spotify:playlist:pl_fallback")
 
-    async def test_push_gamepad_events_sse_broadcast(self):
-        """Verify that push_gamepad_events broadcasts valid tokens to SSE manager."""
-        self.plugin._sse = MagicMock()
-        mock_coro = AsyncMock()
-        self.plugin._sse.broadcast = MagicMock(return_value=mock_coro())
-
-        res = self.plugin.push_gamepad_events(["a", "b", "invalid"])
+    async def test_control_playback_play_pause(self):
+        self.plugin._poll_play_state = "playing"
+        res = await self.plugin.control_playback("play_pause")
         self.assertTrue(res["ok"])
-        self.assertEqual(res["pushed"], 2)
-        self.plugin._sse.broadcast.assert_called_once_with("gamepad", {"events": ["a", "b"]})
-        # Let task run on current loop
-        await asyncio.sleep(0.01)
-        self.plugin._gamepad_queue.clear()
+        self.execute.assert_awaited_with(main._spotify_api_request, "me/player/pause", "valid-token", "PUT", None)
 
-    async def test_poll_gamepad_events_nonblocking(self):
-        with patch.object(main.os.path, "exists", return_value=False):
-            res = await self.plugin.poll_gamepad_events()
-            self.assertTrue(res["ok"])
-            self.assertEqual(res["events"], [])
+        self.plugin._poll_play_state = "paused"
+        res = await self.plugin.control_playback("play_pause")
+        self.assertTrue(res["ok"])
+        self.execute.assert_awaited_with(main._spotify_api_request, "me/player/play", "valid-token", "PUT", None)
 
-    async def test_push_and_poll_gamepad_events(self):
-        push_res = self.plugin.push_gamepad_events(["down", "A", "invalid_key", "right"])
-        self.assertTrue(push_res["ok"])
-        self.assertEqual(push_res["pushed"], 3)  # down, a, right
+    async def test_backend_sleep_timer(self):
+        res = await self.plugin.set_sleep_timer(15, shutdown_on_finish=True, end_of_track=False)
+        self.assertTrue(res["ok"])
+        self.assertTrue(res["sleep_timer"]["active"])
+        self.assertAlmostEqual(res["sleep_timer"]["remaining_seconds"], 15 * 60, delta=2)
+        self.assertTrue(res["sleep_timer"]["shutdown_on_finish"])
 
-        callable_res = await self.plugin.push_gamepad_event("start")
-        self.assertTrue(callable_res["ok"])
+        status = self.plugin.get_sleep_timer_status()
+        self.assertTrue(status["active"])
 
-        with patch.object(main.os.path, "exists", return_value=False):
-            poll_res = await self.plugin.poll_gamepad_events()
-            self.assertTrue(poll_res["ok"])
-            self.assertEqual(poll_res["events"], ["down", "a", "right", "start"])
+        # Cancel timer
+        cancel_res = await self.plugin.set_sleep_timer(None)
+        self.assertTrue(cancel_res["ok"])
+        self.assertFalse(cancel_res["sleep_timer"]["active"])
 
-            # Queue is now drained
-            poll_empty = await self.plugin.poll_gamepad_events()
-            self.assertEqual(poll_empty["events"], [])
+    async def test_create_and_remove_playlist_track(self):
+        self.execute.side_effect = [
+            {"id": "new_pl_id", "name": "Chill Beats"},
+            {"snapshot_id": "snap123"},
+        ]
+        create_res = await self.plugin.create_playlist("Chill Beats", public=True)
+        self.assertTrue(create_res["ok"])
+        self.assertEqual(create_res["playlist"]["id"], "new_pl_id")
+
+        remove_res = await self.plugin.remove_track_from_playlist("new_pl_id", "spotify:track:1234")
+        self.assertTrue(remove_res["ok"])
 
 
 if __name__ == "__main__":

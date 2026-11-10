@@ -3,10 +3,11 @@ import json
 import os
 import re
 import socket
+import subprocess
 import urllib.parse
 import urllib.request
 
-from py_modules.common import SPOTIFY_CDP_PORT, STEAM_CEF_PORT
+from py_modules.common import SPOTIFY_CDP_PORT
 
 
 def _update_spotify_prefs_content(
@@ -99,6 +100,61 @@ def _parse_pactl_sink_inputs(stdout: str) -> dict | None:
     return best
 
 
+def _get_pactl_sinks() -> list[dict]:
+    """Retrieve available audio output sinks via pactl."""
+    try:
+        proc = subprocess.run(
+            ["pactl", "list", "short", "sinks"],
+            capture_output=True,
+            text=True,
+            timeout=3,
+        )
+        if proc.returncode != 0:
+            return []
+        sinks = []
+        for line in proc.stdout.splitlines():
+            parts = line.strip().split("\t")
+            if len(parts) >= 2:
+                sinks.append({
+                    "id": parts[0],
+                    "name": parts[1],
+                    "module": parts[2] if len(parts) > 2 else "",
+                    "spec": parts[3] if len(parts) > 3 else "",
+                    "state": parts[4] if len(parts) > 4 else "",
+                })
+        return sinks
+    except Exception:
+        return []
+
+
+def _set_pactl_sink_input(target_sink: str) -> bool:
+    """Move all active Spotify/librespot sink inputs to target_sink."""
+    try:
+        proc = subprocess.run(
+            ["pactl", "list", "short", "sink-inputs"],
+            capture_output=True,
+            text=True,
+            timeout=3,
+        )
+        if proc.returncode != 0:
+            return False
+        success = True
+        for line in proc.stdout.splitlines():
+            parts = line.strip().split("\t")
+            if parts:
+                input_id = parts[0]
+                m_proc = subprocess.run(
+                    ["pactl", "move-sink-input", input_id, target_sink],
+                    capture_output=True,
+                    timeout=3,
+                )
+                if m_proc.returncode != 0:
+                    success = False
+        return success
+    except Exception:
+        return False
+
+
 def _cdp_get_page_target(port: int = SPOTIFY_CDP_PORT, target_title: str | None = None) -> dict | None:
     try:
         with urllib.request.urlopen(f"http://127.0.0.1:{port}/json", timeout=2) as resp:
@@ -122,7 +178,7 @@ def _cdp_call(
     target_title: str | None = None,
     timeout: float = 4.0,
 ) -> dict | None:
-    """Invoke a Chrome DevTools Protocol method on the headless Spotify Client or Steam CEF over raw WebSocket."""
+    """Invoke a Chrome DevTools Protocol method on the headless Spotify Client over raw WebSocket."""
     target = _cdp_get_page_target(port, target_title=target_title)
     if not target or not target.get("webSocketDebuggerUrl"):
         return None
@@ -195,6 +251,25 @@ def _cdp_call(
                     break
                 frame_data = bytes(raw[idx:idx + plen])
                 del raw[:idx + plen]
+
+                # Reply to Ping (0x9) with masked Pong (0xA)
+                if opcode == 0x9:
+                    pong_mask = os.urandom(4)
+                    pong_len = len(frame_data)
+                    pong_hdr = bytearray([0x8A])
+                    if pong_len < 126:
+                        pong_hdr.append(0x80 | pong_len)
+                    elif pong_len < 65536:
+                        pong_hdr.append(0x80 | 126)
+                        pong_hdr.extend(pong_len.to_bytes(2, "big"))
+                    else:
+                        pong_hdr.append(0x80 | 127)
+                        pong_hdr.extend(pong_len.to_bytes(8, "big"))
+                    pong_hdr.extend(pong_mask)
+                    pong_masked = bytes(b ^ pong_mask[i % 4] for i, b in enumerate(frame_data))
+                    sock.sendall(bytes(pong_hdr) + pong_masked)
+                    continue
+
                 if opcode in (0, 1, 2):
                     msg_chunks.extend(frame_data)
                     if fin:
@@ -224,7 +299,7 @@ def _cdp_evaluate(
     target_title: str | None = None,
     timeout: float = 5.0,
 ):
-    """Evaluate a JavaScript expression inside the running Official Spotify Client or Steam CEF via CDP."""
+    """Evaluate a JavaScript expression inside the running Official Spotify Client via CDP."""
     if isinstance(target_title, (int, float)):
         timeout = float(target_title)
         target_title = None
@@ -238,6 +313,44 @@ def _cdp_evaluate(
     if isinstance(res, dict) and "result" in res:
         return res["result"].get("value")
     return None
+
+
+def get_spotify_client_auth_status(port: int = SPOTIFY_CDP_PORT) -> dict:
+    """Inspect headless Official Spotify Client state via CDP for login and auth status."""
+    expr = """
+    (() => {
+      try {
+        const mainEl = document.querySelector('#main');
+        const userProfileEl = document.querySelector('[data-testid="user-widget-link"]') ||
+                              document.querySelector('[data-testid="username-element"]') ||
+                              document.querySelector('button[aria-label*="Profile"]');
+        const loginBtn = document.querySelector('[data-testid="login-button"]') ||
+                         document.querySelector('a[href*="/login"]');
+        const authUrl = loginBtn ? (loginBtn.href || window.location.href) : null;
+        const loggedIn = !!(mainEl || userProfileEl) && !loginBtn;
+        return {
+          running: true,
+          logged_in: loggedIn,
+          auth_url: authUrl,
+          title: document.title || ""
+        };
+      } catch (e) {
+        return { running: true, logged_in: false, error: String(e) };
+      }
+    })()
+    """
+    try:
+        val = _cdp_evaluate(expr, port=port, timeout=3.0)
+        if isinstance(val, dict):
+            return {
+                "ok": True,
+                "running": True,
+                "logged_in": val.get("logged_in", False),
+                "auth_url": val.get("auth_url"),
+            }
+    except Exception:
+        pass
+    return {"ok": False, "running": False, "logged_in": False, "auth_url": None}
 
 
 def _fetch_spotify_cdp_folder_tree(port: int = SPOTIFY_CDP_PORT) -> list[dict] | None:
@@ -326,53 +439,3 @@ def _fetch_spotify_cdp_folder_tree(port: int = SPOTIFY_CDP_PORT) -> list[dict] |
     except Exception:
         pass
     return None
-
-
-def _inject_steam_gamepad_bridge_sync() -> bool:
-    """Inject controller event bridge into Steam's SharedJSContext via CDP port 8080."""
-    expr = """
-    (() => {
-      if (window.__deckify_steam_gamepad_bridge_installed) {
-        return { ok: true, already: true };
-      }
-      const fc = window.FocusNavController;
-      const src = fc && fc.m_rgGamepadInputSources && fc.m_rgGamepadInputSources[0];
-      if (!src || !src.RegisterForGamepadButtonDown) {
-        return { ok: false, error: "no_src" };
-      }
-      const buttonMap = {
-        1: "a",
-        2: "b",
-        3: "x",
-        4: "y",
-        5: "lb",
-        6: "rb",
-        7: "lt",
-        8: "rt",
-        9: "up",
-        10: "down",
-        11: "left",
-        12: "right",
-        13: "select",
-        14: "start"
-      };
-      window.__deckify_steam_gamepad_bridge_installed = true;
-      src.RegisterForGamepadButtonDown((btn, srcType, ctrlIdx, isRepeat) => {
-        const isDir = btn >= 9 && btn <= 12;
-        if (isRepeat && !isDir) return;
-        const mapped = buttonMap[btn];
-        if (!mapped) return;
-        fetch("http://127.0.0.1:39282/api/gamepad/push", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ events: [mapped] })
-        }).catch(() => {});
-      });
-      return { ok: true, installed: true };
-    })()
-    """
-    try:
-        val = _cdp_evaluate(expr, port=STEAM_CEF_PORT, target_title="SharedJSContext", timeout=3.0)
-        return isinstance(val, dict) and val.get("ok") is True
-    except Exception:
-        return False

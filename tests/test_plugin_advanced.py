@@ -21,7 +21,6 @@ class PluginAdvancedTests(unittest.IsolatedAsyncioTestCase):
         self.plugin._refresh_token = "valid-refresh"
         self.plugin._token_expires_at = 9999999999
         self.plugin._settings = dict(main.DEFAULT_SETTINGS)
-        self.plugin._sse = MagicMock()
         self.execute = self.enterContext(patch.object(main, "_exec", new_callable=AsyncMock))
         self.save = self.enterContext(patch.object(main, "_save_settings"))
         self.emit = self.enterContext(patch.object(main.decky, "emit", new_callable=AsyncMock))
@@ -162,81 +161,43 @@ class PluginAdvancedTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.plugin._track_meta["artist"], "Tech Show")
         self.assertEqual(self.plugin._poll_play_state, "paused")
 
-    # ── Static Files & Image Serving ───────────────────────────
+    # ── Native Features & Backend Controls ─────────────────────
 
-    async def test_serve_image_success_and_error(self):
-        writer = MagicMock()
-        writer.write = MagicMock()
-        writer.drain = AsyncMock()
+    async def test_native_features_suite(self):
+        # 1. Play/Pause toggle
+        self.execute.return_value = {"ok": True}
+        self.plugin._poll_play_state = "playing"
+        res = await self.plugin.control_playback("play_pause")
+        self.assertTrue(res["ok"])
 
-        self.execute.return_value = ("image/jpeg", b"\xff\xd8\xff...")
-        await self.plugin._serve_image(writer, "https://i.scdn.co/image/abc")
-        written = writer.write.call_args[0][0]
-        self.assertIn(b"200 OK", written)
-        self.assertIn(b"image/jpeg", written)
+        self.plugin._poll_play_state = "paused"
+        res2 = await self.plugin.control_playback("play_pause")
+        self.assertTrue(res2["ok"])
 
-        self.execute.side_effect = RuntimeError("Invalid URL host")
-        await self.plugin._serve_image(writer, "https://evil.com/bad.png")
-        err_written = writer.write.call_args[0][0]
-        self.assertIn(b"502 Bad Gateway", err_written)
+        # 2. Sleep timer
+        status = self.plugin.get_sleep_timer_status()
+        self.assertFalse(status["active"])
 
-    async def test_serve_static_files(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            with patch.object(main, "DASHBOARD_DIR", tmpdir):
-                index_path = os.path.join(tmpdir, "index.html")
-                with open(index_path, "w", encoding="utf-8") as f:
-                    f.write("<html><body>Deckify</body></html>")
+        set_res = await self.plugin.set_sleep_timer(minutes=15)
+        self.assertTrue(set_res["ok"])
+        status2 = self.plugin.get_sleep_timer_status()
+        self.assertTrue(status2["active"])
+        self.assertGreater(status2["remaining_seconds"], 0)
 
-                writer = MagicMock()
-                writer.write = MagicMock()
-                writer.drain = AsyncMock()
+        # Cancel timer
+        cancel_res = await self.plugin.set_sleep_timer(minutes=0)
+        self.assertTrue(cancel_res["ok"])
+        status3 = self.plugin.get_sleep_timer_status()
+        self.assertFalse(status3["active"])
 
-                await self.plugin._serve_static(writer, "index.html")
-                written = writer.write.call_args[0][0]
-                self.assertIn(b"200 OK", written)
-                self.assertIn(b"text/html", written)
-                self.assertIn(b"Deckify", written)
+        # 3. Playlist management
+        self.execute.return_value = {"id": "new-p1", "name": "New Playlist"}
+        create_res = await self.plugin.create_playlist("New Playlist", public=False)
+        self.assertTrue(create_res["ok"])
 
-                # Missing file -> 404
-                await self.plugin._serve_static(writer, "missing.js")
-                not_found = writer.write.call_args[0][0]
-                self.assertIn(b"404 Not Found", not_found)
-
-    # ── Full Dashboard API Routes ──────────────────────────────
-
-    async def test_dashboard_api_routes_suite(self):
-        # Test all remaining routes through _handle_dashboard_request
-        routes_to_test = [
-            ("GET /api/folders HTTP/1.1\r\n\r\n", "get_playlist_folders", {"ok": True}),
-            ("GET /api/liked-tracks?offset=0 HTTP/1.1\r\n\r\n", "get_liked_tracks", {"ok": True}),
-            ("GET /api/episodes?offset=0 HTTP/1.1\r\n\r\n", "get_saved_episodes", {"ok": True}),
-            ("GET /api/albums?offset=0 HTTP/1.1\r\n\r\n", "get_saved_albums", {"ok": True}),
-            ("GET /api/albums/alb1/tracks?offset=0 HTTP/1.1\r\n\r\n", "get_album_tracks", {"ok": True}),
-            ("GET /api/artists HTTP/1.1\r\n\r\n", "get_followed_artists", {"ok": True}),
-            ("GET /api/artists/art1/albums?offset=0 HTTP/1.1\r\n\r\n", "get_artist_albums", {"ok": True}),
-            ("GET /api/artists/art1/top-tracks HTTP/1.1\r\n\r\n", "get_artist_top_tracks", {"ok": True}),
-            ("GET /api/recently-played?limit=20 HTTP/1.1\r\n\r\n", "get_recently_played", {"ok": True}),
-            ("GET /api/queue HTTP/1.1\r\n\r\n", "get_queue", {"ok": True}),
-            ("GET /api/devices HTTP/1.1\r\n\r\n", "get_devices", {"ok": True}),
-            ("GET /api/client-window/status HTTP/1.1\r\n\r\n", "get_client_window_status", {"ok": True}),
-            ("GET /api/gamepad/poll HTTP/1.1\r\n\r\n", "poll_gamepad_events", {"ok": True}),
-            ("GET /api/search?q=rock HTTP/1.1\r\n\r\n", "search_spotify", {"ok": True}),
-        ]
-
-        for req_raw, target_fn, ret_val in routes_to_test:
-            with self.subTest(route=req_raw):
-                reader = MagicMock()
-                reader.read = AsyncMock(return_value=req_raw.encode("utf-8"))
-                writer = MagicMock()
-                writer.write = MagicMock()
-                writer.drain = AsyncMock()
-
-                with patch.object(self.plugin, target_fn, new_callable=AsyncMock) as mock_target:
-                    mock_target.return_value = ret_val
-                    await self.plugin._handle_dashboard_request(reader, writer)
-                    mock_target.assert_awaited()
-                    written = writer.write.call_args[0][0]
-                    self.assertIn(b"200 OK", written)
+        self.execute.return_value = {"snapshot_id": "snap1"}
+        rem_res = await self.plugin.remove_track_from_playlist("new-p1", "spotify:track:t1")
+        self.assertTrue(rem_res["ok"])
 
     # ── Process & Backend Management ───────────────────────────
 

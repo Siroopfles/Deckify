@@ -11,7 +11,6 @@ from py_modules.common import (
     VALID_SPOTIFY_CLIENT_QUALITIES,
     SPOTIFY_FLATPAK_ID,
     SPOTIFY_CDP_PORT,
-    STEAM_CEF_PORT,
     DECK_USER,
     DECK_UID,
     DECK_HOME,
@@ -27,8 +26,6 @@ from py_modules.common import (
     SPOTIFY_SCOPES,
     CURRENT_SCOPES_VERSION,
     OAUTH_SERVER_PORT,
-    DASHBOARD_PORT,
-    DASHBOARD_DIR,
     MAX_IMAGE_BYTES,
     _API_SSL_CTX,
     _load_settings,
@@ -59,11 +56,13 @@ from py_modules.spotify import (
 from py_modules.engine import (
     _update_spotify_prefs_content,
     _parse_pactl_sink_inputs,
+    _get_pactl_sinks,
+    _set_pactl_sink_input,
     _cdp_get_page_target,
     _cdp_call,
     _cdp_evaluate,
+    get_spotify_client_auth_status,
     _fetch_spotify_cdp_folder_tree,
-    _inject_steam_gamepad_bridge_sync,
 )
 from py_modules.device import (
     resolve_device_hostname,
@@ -73,7 +72,6 @@ from py_modules.device import (
     shutdown_system_sync,
     SuspendResumeMonitor,
 )
-from py_modules.server import SSEManager
 
 __all__ = [
     "SETTINGS_FILE",
@@ -88,7 +86,6 @@ __all__ = [
     "VALID_SPOTIFY_CLIENT_QUALITIES",
     "SPOTIFY_FLATPAK_ID",
     "SPOTIFY_CDP_PORT",
-    "STEAM_CEF_PORT",
     "DECK_USER",
     "DECK_UID",
     "DECK_HOME",
@@ -104,8 +101,6 @@ __all__ = [
     "SPOTIFY_SCOPES",
     "CURRENT_SCOPES_VERSION",
     "OAUTH_SERVER_PORT",
-    "DASHBOARD_PORT",
-    "DASHBOARD_DIR",
     "MAX_IMAGE_BYTES",
     "_API_SSL_CTX",
     "_load_settings",
@@ -128,16 +123,17 @@ __all__ = [
     "_clear_lyrics_cache",
     "_update_spotify_prefs_content",
     "_parse_pactl_sink_inputs",
+    "_get_pactl_sinks",
+    "_set_pactl_sink_input",
     "_cdp_get_page_target",
     "_cdp_call",
     "_cdp_evaluate",
+    "get_spotify_client_auth_status",
     "_fetch_spotify_cdp_folder_tree",
-    "_inject_steam_gamepad_bridge_sync",
     "resolve_device_hostname",
     "_get_lan_ip",
     "_get_mdns_host",
     "_ensure_ssl_cert",
     "shutdown_system_sync",
     "SuspendResumeMonitor",
-    "SSEManager",
 ]

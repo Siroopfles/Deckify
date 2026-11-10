@@ -1,6 +1,11 @@
+import hashlib
+import os
 import urllib.parse
 import urllib.request
-from py_modules.common import DASHBOARD_PORT, MAX_IMAGE_BYTES, _API_SSL_CTX
+from py_modules.common import CACHE_DIR, MAX_IMAGE_BYTES, _API_SSL_CTX
+
+IMAGE_CACHE_DIR = os.path.join(CACHE_DIR, "images")
+MAX_IMAGE_CACHE_BYTES = 50 * 1024 * 1024
 
 
 def _validate_image_url(url: str) -> None:
@@ -23,15 +28,55 @@ class _ImageRedirectHandler(urllib.request.HTTPRedirectHandler):
 
 
 def _get_max_image_bytes() -> int:
-    import sys
-    main_mod = sys.modules.get("main")
-    if main_mod and hasattr(main_mod, "MAX_IMAGE_BYTES"):
-        return main_mod.MAX_IMAGE_BYTES
     return MAX_IMAGE_BYTES
+
+
+def _clean_image_cache_lru() -> None:
+    """Enforce 50 MB LRU limit on disk image cache."""
+    if not os.path.isdir(IMAGE_CACHE_DIR):
+        return
+    try:
+        entries = []
+        total_size = 0
+        for entry in os.scandir(IMAGE_CACHE_DIR):
+            if entry.is_file():
+                stat = entry.stat()
+                total_size += stat.st_size
+                entries.append((stat.st_atime, stat.st_size, entry.path))
+        if total_size <= MAX_IMAGE_CACHE_BYTES:
+            return
+        # Sort oldest accessed first
+        entries.sort(key=lambda x: x[0])
+        for _, size, path in entries:
+            try:
+                os.remove(path)
+                total_size -= size
+                if total_size <= MAX_IMAGE_CACHE_BYTES * 0.8:
+                    break
+            except OSError:
+                pass
+    except Exception:
+        pass
 
 
 def _fetch_spotify_image(url: str) -> tuple[str, bytes]:
     _validate_image_url(url)
+    # Check disk cache
+    url_hash = hashlib.sha256(url.encode("utf-8")).hexdigest()
+    cache_path = os.path.join(IMAGE_CACHE_DIR, f"{url_hash}.bin")
+    meta_path = os.path.join(IMAGE_CACHE_DIR, f"{url_hash}.meta")
+    if os.path.isfile(cache_path) and os.path.isfile(meta_path):
+        try:
+            with open(meta_path, "r", encoding="utf-8") as f:
+                content_type = f.read().strip()
+            with open(cache_path, "rb") as f:
+                body = f.read()
+            # Update atime
+            os.utime(cache_path, None)
+            return content_type, body
+        except Exception:
+            pass
+
     opener = urllib.request.build_opener(
         _ImageRedirectHandler(), urllib.request.HTTPSHandler(context=_API_SSL_CTX),
     )
@@ -43,6 +88,17 @@ def _fetch_spotify_image(url: str) -> tuple[str, bytes]:
         body = response.read(max_bytes + 1)
         if len(body) > max_bytes:
             raise RuntimeError("Spotify image exceeds the size limit")
+
+        try:
+            os.makedirs(IMAGE_CACHE_DIR, exist_ok=True)
+            with open(meta_path, "w", encoding="utf-8") as f:
+                f.write(content_type)
+            with open(cache_path, "wb") as f:
+                f.write(body)
+            _clean_image_cache_lru()
+        except Exception:
+            pass
+
         return content_type, body
 
 
@@ -52,8 +108,6 @@ def _proxy_spotify_image_url(raw_url: str | None) -> str | None:
     raw = raw_url.strip()
     if not raw:
         return None
-    if raw.startswith(f"http://127.0.0.1:{DASHBOARD_PORT}/api/image?"):
-        return raw
     if raw.startswith("spotify:image:"):
         img_id = raw.split("spotify:image:", 1)[1].strip()
         if img_id:
@@ -64,10 +118,9 @@ def _proxy_spotify_image_url(raw_url: str | None) -> str | None:
             raw = f"https://mosaic.scdn.co/300/{''.join(parts[:4])}"
     try:
         _validate_image_url(raw)
+        return raw
     except ValueError:
         return None
-    query = urllib.parse.urlencode({"url": raw})
-    return f"http://127.0.0.1:{DASHBOARD_PORT}/api/image?{query}"
 
 
 def _image_url(images: list) -> str | None:
@@ -83,7 +136,7 @@ def _image_url(images: list) -> str | None:
 
 
 def _proxy_folder_tree_images(folders: list[dict]) -> list[dict]:
-    """Recursively ensure all playlist image_urls in a folder tree use Deckify's image proxy."""
+    """Recursively ensure all playlist image_urls in a folder tree use direct valid HTTPS image URLs."""
     out: list[dict] = []
     for folder in folders or []:
         if not isinstance(folder, dict):
