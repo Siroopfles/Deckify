@@ -1,5 +1,6 @@
 import { FC } from "react";
 import { FaMusic, FaPlay, FaPause } from "react-icons/fa";
+import { DeckifyImage } from "./DeckifyExpandedModal";
 
 export interface OverlayTrack {
   name?: string;
@@ -59,9 +60,8 @@ export const DeckifyOverlay: FC<DeckifyOverlayProps> = ({
   return (
     <div style={posStyle} className="deckify-ingame-overlay">
       {art ? (
-        <img
+        <DeckifyImage
           src={art}
-          alt="Artwork"
           width={36}
           height={36}
           style={{ borderRadius: 6, objectFit: "cover", flexShrink: 0 }}

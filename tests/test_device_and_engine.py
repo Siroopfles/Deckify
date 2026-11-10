@@ -10,7 +10,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
-from py_modules import common, device, engine, images, server
+from py_modules import common, device, engine, images
 
 
 class DeviceModuleTests(unittest.IsolatedAsyncioTestCase):
@@ -244,38 +244,8 @@ Sink Input #1
             self.assertEqual(len(res), 1)
             self.assertEqual(res[0]["name"], "Playlists")
 
-    def test_inject_steam_gamepad_bridge_sync(self):
-        with patch.object(engine, "_cdp_evaluate", return_value={"ok": True}):
-            self.assertTrue(engine._inject_steam_gamepad_bridge_sync())
-        with patch.object(engine, "_cdp_evaluate", return_value=None):
-            self.assertFalse(engine._inject_steam_gamepad_bridge_sync())
 
-
-class ServerAndImagesModuleTests(unittest.IsolatedAsyncioTestCase):
-    async def test_sse_manager_broadcast_and_pruning(self):
-        mgr = server.SSEManager()
-
-        # Client 1: healthy writer
-        w1 = MagicMock()
-        w1.write = MagicMock()
-        w1.drain = AsyncMock()
-
-        # Client 2: broken writer (raises connection reset on drain)
-        w2 = MagicMock()
-        w2.write = MagicMock()
-        w2.drain = AsyncMock(side_effect=ConnectionResetError("Disconnected"))
-
-        await mgr.add_client(w1)
-        await mgr.add_client(w2)
-        self.assertEqual(len(mgr._clients), 2)
-
-        await mgr.broadcast("test_event", {"hello": "world"})
-        # w2 should have been pruned due to error
-        self.assertEqual(len(mgr._clients), 1)
-
-        await mgr.remove_client(w1)
-        self.assertEqual(len(mgr._clients), 0)
-
+class ImagesModuleTests(unittest.IsolatedAsyncioTestCase):
     def test_image_redirect_handler_limits(self):
         handler = images._ImageRedirectHandler()
         req = MagicMock()

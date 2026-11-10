@@ -4,12 +4,12 @@ import reactHooks from "eslint-plugin-react-hooks";
 
 export default tseslint.config(
   {
-    ignores: ["dist/", "dashboard/dist/", "node_modules/", "**/*.js"],
+    ignores: ["dist/", "node_modules/", "**/*.js"],
   },
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    files: ["src/**/*.{ts,tsx}", "dashboard/src/**/*.{ts,tsx}"],
+    files: ["src/**/*.{ts,tsx}"],
     plugins: {
       "react-hooks": reactHooks,
     },

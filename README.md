@@ -10,12 +10,14 @@
 
 ## Features
 
-- **Spotify Connect** — Steam Deck appears as a Spotify Connect device via [librespot](https://github.com/librespot-org/librespot)
-- **Playback Controls** — Play/pause, skip, previous, volume from the Quick Access panel
-- **Device Management** — View and transfer playback between Spotify Connect devices
-- **Custom Device Name** — Set the Spotify Connect display name or use the system hostname
-- **Web Dashboard** — Full Now Playing UI with library browsing in the Steam browser
-- **OAuth (PKCE)** — Secure Spotify login via QR code, no server required
+- **100% Native SteamOS UI** — Built natively for Steam Deck using `@decky/ui` with full gamepad, touch, and Steam menu integration
+- **Expanded Full-screen Modal** — Rich browsing experience with sidebar navigation (Now Playing, Playlists, Liked Songs, Recently Played, Artists, Albums, Podcasts, Search, Queue, Settings)
+- **Compact Quick Access Menu** — Lightweight mini-player in Decky's QAM panel with quick controls, seekbar, volume, and device switcher
+- **Multi-Source Synced Lyrics** — Real-time auto-scrolling lyrics with click-to-seek, backed by a 5-step waterfall (Spotify CDP, LRCLIB, NetEase, Musixmatch, Lyrics.ovh)
+- **In-Game Overlay & Gamepad Chords** — Floating Now Playing HUD overlay with customizable corner positioning and Steam chord shortcuts (`STEAM + D-Pad`)
+- **Advanced Audio & Gaming Ducking** — PipeWire output sink selection, equalizer presets (Flat, Bass Boost, Vocal, Gaming), bit-perfect 44.1/48kHz clock, and per-game auto-ducking volume profiles
+- **Spotify Connect & Headless Client** — Seamless playback via built-in `librespot` daemon or headless Official Spotify Client with CDP Zeroconf coupling
+- **OAuth (PKCE) Setup** — Fast mobile QR code login without any cloud servers or secrets
 
 ## Screenshots
 
@@ -36,23 +38,23 @@
 Requires [Decky Loader](https://github.com/SteamDeckHomebrew/decky-loader) installed on your Steam Deck.
 
 ```bash
-curl -fsSL https://deckify.advinn.co/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/Siroopfles/Deckify/main/install.sh | sh
 ```
 
-The same command updates an existing installation to the [latest published release](https://github.com/adv-inn/Deckify/releases/latest), preserving settings and saved login data.
+The same command updates an existing installation to the [latest published release](https://github.com/Siroopfles/Deckify/releases/latest), preserving settings and saved login data.
 
 ## Uninstall
 
 Remove the plugin while keeping its settings and data for reinstallation:
 
 ```bash
-curl -fsSL https://deckify.advinn.co/uninstall.sh | sh
+curl -fsSL https://raw.githubusercontent.com/Siroopfles/Deckify/main/uninstall.sh | sh
 ```
 
 To also delete saved login credentials, settings, cache, certificates, and logs (including legacy locations), explicitly opt into data removal:
 
 ```bash
-curl -fsSL https://deckify.advinn.co/uninstall.sh | sh -s -- --purge
+curl -fsSL https://raw.githubusercontent.com/Siroopfles/Deckify/main/uninstall.sh | sh -s -- --purge
 ```
 
 `--purge` can also clean up local Deckify data after the plugin has been removed. Both uninstall modes briefly stop and restart Decky Loader.
@@ -89,15 +91,16 @@ Each user must register a Spotify App at [developer.spotify.com](https://develop
 
 ```bash
 pnpm i
-pnpm run build    # builds plugin frontend + dashboard
+pnpm run build    # builds native plugin bundle (dist/index.js)
 ```
 
 ### Checks
 
 ```bash
-python -m unittest discover -s tests -v
+python3 -m unittest discover -s tests -v
 pnpm run typecheck
 pnpm run lint
+pnpm test
 ```
 
 The uninstall tests mock privileged commands; they do not remove the installed plugin or its data.

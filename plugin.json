@@ -1,11 +1,11 @@
 {
   "name": "Deckify",
-  "author": "0chencc",
+  "author": "Siroopfles",
   "flags": ["_root"],
   "api_version": 1,
   "publish": {
     "tags": ["spotify", "music"],
     "description": "A Spotify music manager for Steam Deck.",
-    "image": "https://raw.githubusercontent.com/adv-inn/Deckify/main/assets/logo.png"
+    "image": "https://raw.githubusercontent.com/Siroopfles/Deckify/main/assets/logo.png"
   }
 }

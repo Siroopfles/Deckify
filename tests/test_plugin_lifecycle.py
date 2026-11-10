@@ -21,7 +21,6 @@ class PluginLifecycleTests(unittest.IsolatedAsyncioTestCase):
         self.plugin._refresh_token = "valid-refresh"
         self.plugin._token_expires_at = 9999999999
         self.plugin._settings = dict(main.DEFAULT_SETTINGS)
-        self.plugin._sse = MagicMock()
         self.execute = self.enterContext(patch.object(main, "_exec", new_callable=AsyncMock))
         self.save = self.enterContext(patch.object(main, "_save_settings"))
         self.emit = self.enterContext(patch.object(main.decky, "emit", new_callable=AsyncMock))
@@ -30,14 +29,11 @@ class PluginLifecycleTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_main_lifecycle(self):
         with patch.object(main, "_load_settings", return_value={"access_token": "valid"}), \
-             patch.object(self.plugin, "_start_dashboard", new_callable=AsyncMock) as m_dash, \
-             patch.object(self.plugin, "_steam_gamepad_bridge_worker", new_callable=AsyncMock), \
              patch.object(self.plugin, "_start_api_poll") as m_poll, \
              patch.object(self.plugin, "_sync_native_spotify_folders", new_callable=AsyncMock) as m_folders, \
              patch.object(self.plugin, "start_librespot", new_callable=AsyncMock) as m_librespot, \
              patch.object(main, "SuspendResumeMonitor"):
             await self.plugin._main()
-            m_dash.assert_awaited_once()
             m_poll.assert_called_once()
             m_folders.assert_awaited_once()
             m_librespot.assert_awaited_once()
@@ -46,14 +42,12 @@ class PluginLifecycleTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(self.plugin, "_stop_monitor", new_callable=AsyncMock) as m_mon, \
              patch.object(self.plugin, "_kill_librespot", new_callable=AsyncMock) as m_klib, \
              patch.object(self.plugin, "_kill_spotify_client", new_callable=AsyncMock) as m_ksp, \
-             patch.object(self.plugin, "_stop_dashboard", new_callable=AsyncMock) as m_dash, \
              patch.object(self.plugin, "_stop_oauth_server", new_callable=AsyncMock) as m_oauth, \
              patch.object(self.plugin, "_stop_api_poll", new_callable=AsyncMock) as m_poll:
             await self.plugin._unload()
             m_mon.assert_awaited_once()
             m_klib.assert_awaited_once()
             m_ksp.assert_awaited_once()
-            m_dash.assert_awaited_once()
             m_oauth.assert_awaited_once()
             m_poll.assert_awaited_once()
 
@@ -193,11 +187,6 @@ class PluginLifecycleTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(res_logout["ok"])
             self.assertIsNone(self.plugin._access_token)
 
-        # 4. get_dashboard_url
-        dash = await self.plugin.get_dashboard_url()
-        self.assertTrue(dash["ok"])
-        self.assertIn("39282", dash["url"])
-
     async def test_handle_oauth_callback(self):
         writer = MagicMock()
         writer.write = MagicMock()
@@ -234,30 +223,15 @@ class PluginLifecycleTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(b"302 Found", redir_written)
         self.assertIn(b"Location: https://accounts.spotify.com/authorize", redir_written)
 
-    # ── Client Window Screenshot & Input ───────────────────────
+    # ── Client Window & CDP Auth Status ────────────────────────
 
     async def test_client_window_operations(self):
-        # 1. Status
-        self.execute.return_value = {"title": "Spotify", "url": "https://open.spotify.com"}
+        # 1. Status via CDP
+        self.execute.return_value = {"ok": True, "running": True, "logged_in": True, "auth_url": None}
         st = await self.plugin.get_client_window_status()
         self.assertTrue(st["ok"])
         self.assertTrue(st["logged_in"])
 
-        # 2. Screenshot
-        import base64
-        fake_img_b64 = base64.b64encode(b"\xff\xd8\xffdummy").decode("ascii")
-        self.execute.return_value = {"data": fake_img_b64}
-        shot = await self.plugin.capture_client_window_screenshot()
-        self.assertIsNotNone(shot)
-        self.assertTrue(shot.startswith(b"\xff\xd8\xff"))
-
-        # 3. Input click & key
-        self.execute.return_value = {}
-        click_res = await self.plugin.send_client_window_input({"type": "click", "x": 100, "y": 200})
-        self.assertTrue(click_res["ok"])
-
-        key_res = await self.plugin.send_client_window_input({"type": "key", "key": "Space"})
-        self.assertTrue(key_res["ok"])
-
-        bad_res = await self.plugin.send_client_window_input({"type": "unknown"})
-        self.assertFalse(bad_res["ok"])
+        auth_st = await self.plugin.get_spotify_client_auth_status()
+        self.assertTrue(auth_st["ok"])
+        self.assertTrue(auth_st["running"])

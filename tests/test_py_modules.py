@@ -24,7 +24,6 @@ with patch.dict("sys.modules", {"decky": SimpleNamespace(
         device,
         engine,
         images,
-        server,
         spotify,
     )
 
@@ -125,21 +124,19 @@ class PyModulesImagesTests(unittest.TestCase):
         self.assertIsNone(images._proxy_spotify_image_url("   "))
         self.assertIsNone(images._proxy_spotify_image_url("https://malicious.org/pic.png"))
 
-        # Already proxied
-        already = "http://127.0.0.1:39282/api/image?url=abc"
+        # Valid direct HTTPS scdn URL
+        already = "https://i.scdn.co/image/abc"
         self.assertEqual(images._proxy_spotify_image_url(already), already)
 
-        # spotify:image: URI
+        # spotify:image: URI -> direct https scdn URL
         sp_img = "spotify:image:ab67616d0000b273"
         proxied = images._proxy_spotify_image_url(sp_img)
-        self.assertIn("127.0.0.1:39282/api/image?", proxied)
-        self.assertIn("https%3A%2F%2Fi.scdn.co%2Fimage%2Fab67616d0000b273", proxied)
+        self.assertEqual(proxied, "https://i.scdn.co/image/ab67616d0000b273")
 
-        # spotify:mosaic: URI
+        # spotify:mosaic: URI -> direct mosaic URL
         sp_mosaic = "spotify:mosaic:ab67:1234:5678:9abc"
         proxied_mosaic = images._proxy_spotify_image_url(sp_mosaic)
-        self.assertIn("127.0.0.1:39282/api/image?", proxied_mosaic)
-        self.assertIn("mosaic.scdn.co%2F300%2Fab67123456789abc", proxied_mosaic)
+        self.assertEqual(proxied_mosaic, "https://mosaic.scdn.co/300/ab67123456789abc")
 
     def test_proxy_folder_tree_images(self):
         raw_tree = [
@@ -162,9 +159,9 @@ class PyModulesImagesTests(unittest.TestCase):
             }
         ]
         result = images._proxy_folder_tree_images(raw_tree)
-        self.assertIn("/api/image?", result[0]["playlists"][0]["image_url"])
+        self.assertEqual(result[0]["playlists"][0]["image_url"], "https://i.scdn.co/image/abcd1234efgh")
         self.assertIsNone(result[0]["playlists"][1]["image_url"])
-        self.assertIn("/api/image?", result[0]["subfolders"][0]["playlists"][0]["image_url"])
+        self.assertEqual(result[0]["subfolders"][0]["playlists"][0]["image_url"], "https://i.scdn.co/image/xyz")
 
 
 class PyModulesSpotifyTests(unittest.TestCase):
@@ -207,8 +204,10 @@ class PyModulesSpotifyTests(unittest.TestCase):
         err_fallback = HTTPError("http://example.com", 500, "Server Error", {}, io.BytesIO(b'broken'))
         self.assertEqual(spotify._parse_spotify_error(err_fallback), "Spotify API error: 500")
 
+    @patch("py_modules.spotify._fetch_spotify_cdp_lyrics", return_value=None)
     @patch("urllib.request.urlopen")
-    def test_fetch_lyrics_sync(self, mock_urlopen):
+    def test_fetch_lyrics_sync(self, mock_urlopen, mock_cdp):
+        spotify._clear_lyrics_cache()
         mock_resp = MagicMock()
         mock_resp.read.return_value = json.dumps({
             "syncedLyrics": "[00:10.00] Line 1\n[00:15.00] Line 2",
@@ -217,7 +216,7 @@ class PyModulesSpotifyTests(unittest.TestCase):
         mock_resp.__enter__.return_value = mock_resp
         mock_urlopen.return_value = mock_resp
 
-        res = spotify._fetch_lyrics_sync("Song", "Artist", duration_sec=180)
+        res = spotify._fetch_lyrics_sync("Unique Song", "Unique Artist", duration_sec=180)
         self.assertTrue(res["ok"])
         self.assertIn("Line 1", res["synced_lyrics"])
         self.assertEqual(res["plain_lyrics"], "Line 1\nLine 2")
@@ -310,7 +309,8 @@ class PyModulesSpotifyTests(unittest.TestCase):
         self.assertIn("Studio synced line", res["synced_lyrics"])
 
     @patch("urllib.request.urlopen")
-    def test_fetch_lyrics_sync_caching(self, mock_urlopen):
+    @patch("py_modules.spotify._fetch_spotify_cdp_lyrics", return_value=None)
+    def test_fetch_lyrics_sync_caching(self, mock_cdp, mock_urlopen):
         """Verify in-memory LRU cache prevents second network request."""
         spotify._clear_lyrics_cache()
 
@@ -324,11 +324,11 @@ class PyModulesSpotifyTests(unittest.TestCase):
 
         res1 = spotify._fetch_lyrics_sync("Cached Track", "Artist", duration_sec=180)
         self.assertTrue(res1["ok"])
-        self.assertEqual(mock_urlopen.call_count, 1)
+        initial_calls = mock_urlopen.call_count
 
         res2 = spotify._fetch_lyrics_sync("Cached Track", "Artist", duration_sec=180)
         self.assertTrue(res2["ok"])
-        self.assertEqual(mock_urlopen.call_count, 1)
+        self.assertEqual(mock_urlopen.call_count, initial_calls)
 
 
 class PyModulesDeviceTests(unittest.TestCase):
@@ -378,36 +378,23 @@ class PyModulesDeviceTests(unittest.TestCase):
         self.assertIsNone(err)
 
 
-class PyModulesServerTests(unittest.IsolatedAsyncioTestCase):
-    async def test_sse_manager_lifecycle(self):
-        mgr = server.SSEManager()
-        writer = MagicMock()
-        writer.write = Mock()
-        writer.drain = AsyncMock()
-        writer.close = Mock()
-        writer.wait_closed = AsyncMock()
+class PyModulesLyricsWaterfallTests(unittest.TestCase):
+    def test_fetch_lyrics_waterfall_fallback_and_offset(self):
+        spotify._clear_lyrics_cache()
+        with patch.object(spotify, "_fetch_spotify_cdp_lyrics", return_value=None), \
+             patch.object(spotify, "_http_lrclib_request", return_value=None), \
+             patch.object(spotify, "_fetch_netease_lyrics", return_value={"syncedLyrics": "[00:01.00] NetEase line", "plainLyrics": None}):
+            res = spotify._fetch_lyrics_sync("Waterfall Song", "Test Artist", duration_sec=180, provider_offset=0)
+            self.assertTrue(res["ok"])
+            self.assertEqual(res["source"], "NetEase")
+            self.assertIn("NetEase line", res["synced_lyrics"])
 
-        # Add client with initial status
-        await mgr.add_client(writer, initial_data={"status": "ok"})
-        self.assertIn(writer, mgr._clients)
-        writer.write.assert_called()
-        msg = writer.write.call_args[0][0].decode("utf-8")
-        self.assertIn("event: status", msg)
-        self.assertIn('"status": "ok"', msg)
-
-        # Broadcast update
-        await mgr.broadcast("track", {"title": "New Track"})
-        last_msg = writer.write.call_args[0][0].decode("utf-8")
-        self.assertIn("event: track", last_msg)
-        self.assertIn('"title": "New Track"', last_msg)
-
-        # Heartbeat
-        await mgr.send_heartbeats()
-        self.assertIn(b": keepalive\n\n", [c[0][0] for c in writer.write.call_args_list])
-
-        # Remove client
-        await mgr.remove_client(writer)
-        self.assertNotIn(writer, mgr._clients)
+        # Offset skips first 3 providers and tries Musixmatch
+        with patch.object(spotify, "_fetch_musixmatch_lyrics", return_value={"syncedLyrics": None, "plainLyrics": "Musixmatch plain"}):
+            res_offset = spotify._fetch_lyrics_sync("Waterfall Song", "Test Artist", duration_sec=180, provider_offset=3)
+            self.assertTrue(res_offset["ok"])
+            self.assertEqual(res_offset["source"], "Musixmatch")
+            self.assertEqual(res_offset["plain_lyrics"], "Musixmatch plain")
 
 
 class PyModulesEngineTests(unittest.TestCase):

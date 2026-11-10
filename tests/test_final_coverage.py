@@ -16,7 +16,7 @@ from urllib.error import HTTPError
 
 sys.path.insert(0, os.path.dirname(__file__))
 from test_token_refresh import main
-from py_modules import common, device, engine, server
+from py_modules import common, device, engine
 
 
 class FinalCoverageTests(unittest.IsolatedAsyncioTestCase):
@@ -27,7 +27,6 @@ class FinalCoverageTests(unittest.IsolatedAsyncioTestCase):
         self.plugin._refresh_token = "valid-refresh"
         self.plugin._token_expires_at = time.time() + 3600
         self.plugin._settings = dict(main.DEFAULT_SETTINGS)
-        self.plugin._sse = MagicMock()
         self.execute = self.enterContext(patch.object(main, "_exec", new_callable=AsyncMock))
         self.save = self.enterContext(patch.object(main, "_save_settings"))
         self.emit = self.enterContext(patch.object(main.decky, "emit", new_callable=AsyncMock))
@@ -54,25 +53,6 @@ class FinalCoverageTests(unittest.IsolatedAsyncioTestCase):
         finally:
             if os.path.exists(temp_path):
                 os.remove(temp_path)
-
-    # ── PyModules Server Coverage ─────────────────────────────
-
-    async def test_server_sse_empty_and_dead_clients(self):
-        mgr = server.SSEManager()
-        # Broadcast with no clients
-        await mgr.broadcast("test", {"hello": "world"})
-        # Heartbeats with no clients
-        await mgr.send_heartbeats()
-
-        # Add mock client that fails on heartbeat write
-        dead_writer = MagicMock()
-        dead_writer.drain = AsyncMock(side_effect=Exception("Broken pipe"))
-        dead_writer.write = MagicMock()
-        await mgr.add_client(dead_writer)
-        self.assertEqual(len(mgr._clients), 1)
-
-        await mgr.send_heartbeats()
-        self.assertEqual(len(mgr._clients), 0)
 
     # ── PyModules Device Coverage ─────────────────────────────
 
@@ -134,10 +114,6 @@ class FinalCoverageTests(unittest.IsolatedAsyncioTestCase):
 
             res = engine._cdp_call("Test.large", large_params)
             self.assertEqual(res, "ok")
-
-        # Test _inject_steam_gamepad_bridge_sync exception handler
-        with patch("py_modules.engine._cdp_evaluate", side_effect=Exception("CDP fail")):
-            self.assertFalse(engine._inject_steam_gamepad_bridge_sync())
 
         # Test _fetch_spotify_cdp_folder_tree exception handler
         with patch("py_modules.engine._cdp_evaluate", side_effect=Exception("CDP fail")):
@@ -375,99 +351,6 @@ class FinalCoverageTests(unittest.IsolatedAsyncioTestCase):
             res = await self.plugin.play_tracks(context_uri="spotify:album:123")
             self.assertTrue(res["ok"])
 
-    # ── Official Client Remote Window Status & Gamepad ────────
-
-    async def test_client_window_status_and_joystick_err(self):
-        # 1. Client not running
-        self.plugin._spotify_client_process = None
-        self.execute.return_value = None
-        stat1 = await self.plugin.get_client_window_status()
-        self.assertFalse(stat1["running"])
-
-        # 2. Client running but target is None (starting up)
-        mock_proc = MagicMock()
-        mock_proc.poll.return_value = None
-        self.plugin._spotify_client_process = mock_proc
-        self.execute.return_value = None
-        stat2 = await self.plugin.get_client_window_status()
-        self.assertTrue(stat2["running"])
-        self.assertEqual(stat2["title"], "Starting...")
-
-        # 3. Joystick read OSError closing fd
-        with patch("os.path.exists", return_value=True), \
-             patch("os.open", return_value=42), \
-             patch("os.close") as mock_close, \
-             patch("os.read", side_effect=OSError(errno.EBADF, "Bad file descriptor")):
-            evs = self.plugin._read_linux_joystick_events()
-            self.assertEqual(evs, [])
-            mock_close.assert_called()
-
-    # ── Dashboard Server Route Edge Cases ─────────────────────
-
-    async def test_dashboard_routes_and_edge_cases(self):
-        # Empty request closes writer
-        writer_empty = MagicMock()
-        writer_empty.close = MagicMock()
-        await self.plugin._handle_dashboard_request(AsyncMock(read=AsyncMock(return_value=b"")), writer_empty)
-        writer_empty.close.assert_called()
-
-        # Bad request line (< 2 parts)
-        writer_bad = MagicMock()
-        writer_bad.write = MagicMock()
-        writer_bad.drain = AsyncMock()
-        writer_bad.close = MagicMock()
-        await self.plugin._handle_dashboard_request(AsyncMock(read=AsyncMock(return_value=b"GARBAGE\r\n")), writer_bad)
-        self.assertIn(b"400 Bad Request", writer_bad.write.call_args[0][0])
-
-        # POST without required params: /api/control, /api/volume, /api/search
-        for req_bytes, exp_status in [
-            (b"POST /api/control HTTP/1.1\r\n\r\n", b"400 Bad Request"),
-            (b"POST /api/volume HTTP/1.1\r\n\r\n", b"400 Bad Request"),
-            (b"GET /api/search HTTP/1.1\r\n\r\n", b"400 Bad Request"),
-        ]:
-            writer = MagicMock()
-            writer.write = MagicMock()
-            writer.drain = AsyncMock()
-            writer.close = MagicMock()
-            await self.plugin._handle_dashboard_request(AsyncMock(read=AsyncMock(return_value=req_bytes)), writer)
-            self.assertIn(exp_status, writer.write.call_args[0][0])
-
-        # Path traversal in _serve_static returns 403
-        writer_trav = MagicMock()
-        writer_trav.write = MagicMock()
-        writer_trav.drain = AsyncMock()
-        writer_trav.close = MagicMock()
-        await self.plugin._serve_static(writer_trav, "../../secret.txt")
-        written = writer_trav.write.call_args[0][0]
-        self.assertIn(b"403", written)
-        self.assertIn(b"Forbidden", written)
-
-        # Test POST /api/native-mix
-        with patch.object(self.plugin, "set_native_playlist_mix", new_callable=AsyncMock) as m_mix:
-            m_mix.return_value = {"ok": True}
-            writer = MagicMock()
-            writer.write = MagicMock()
-            writer.drain = AsyncMock()
-            writer.close = MagicMock()
-            payload = json.dumps({"playlist_id": "pl1", "enabled": True, "play_now": False}).encode()
-            req = b"POST /api/native-mix HTTP/1.1\r\nContent-Length: " + str(len(payload)).encode() + b"\r\n\r\n" + payload
-            await self.plugin._handle_dashboard_request(AsyncMock(read=AsyncMock(return_value=req)), writer)
-            m_mix.assert_awaited()
-            self.assertIn(b"200 OK", writer.write.call_args[0][0])
-
-        # Test GET /api/events (SSE)
-        writer_sse = MagicMock()
-        writer_sse.write = MagicMock()
-        writer_sse.drain = AsyncMock()
-        self.plugin._sse = MagicMock(add_client=AsyncMock())
-        await self.plugin._serve_sse_events(writer_sse)
-        self.plugin._sse.add_client.assert_awaited()
-
-        # Test _broadcast_status_sse
-        self.plugin._sse.broadcast = AsyncMock()
-        await self.plugin._broadcast_status_sse()
-        self.plugin._sse.broadcast.assert_awaited()
-
     # ── Process Monitor & Stale Librespot ──────────────────────
 
     def test_kill_stale_librespot_process_alive(self):
@@ -542,74 +425,6 @@ class FinalCoverageTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.plugin._settings["spotify_client_id"], "my_client_id")
         self.assertIn(b"302 Found", writer_ok.write.call_args[0][0])
 
-    async def test_dashboard_lifecycle_and_advanced_routes(self):
-        # 1. get_dashboard_url when server is None
-        self.plugin._dashboard_server = None
-        d_err = await self.plugin.get_dashboard_url()
-        self.assertFalse(d_err["ok"])
-
-        # 2. _start_dashboard & _stop_dashboard
-        with patch("asyncio.start_server", new_callable=AsyncMock) as m_srv:
-            mock_server = MagicMock()
-            mock_server.wait_closed = AsyncMock()
-            m_srv.return_value = mock_server
-            await self.plugin._start_dashboard()
-            self.assertEqual(self.plugin._dashboard_server, mock_server)
-            # calling when already started does nothing
-            await self.plugin._start_dashboard()
-
-            await self.plugin._stop_dashboard()
-            self.assertIsNone(self.plugin._dashboard_server)
-
-        # 3. Invalid JSON body in POST
-        writer = MagicMock(write=MagicMock(), drain=AsyncMock(), close=MagicMock())
-        req_bad_json = b"POST /api/folders HTTP/1.1\r\n\r\n{invalid_json}"
-        await self.plugin._handle_dashboard_request(AsyncMock(read=AsyncMock(return_value=req_bad_json)), writer)
-
-        # 4. GET /api/playlists
-        with patch.object(self.plugin, "get_playlists", new_callable=AsyncMock) as m_pl:
-            m_pl.return_value = {"ok": True, "playlists": []}
-            w = MagicMock(write=MagicMock(), drain=AsyncMock(), close=MagicMock())
-            await self.plugin._handle_dashboard_request(AsyncMock(read=AsyncMock(return_value=b"GET /api/playlists?offset=5 HTTP/1.1\r\n\r\n")), w)
-            m_pl.assert_awaited_with(5)
-
-        # 5. GET /api/playlists/p123/tracks
-        with patch.object(self.plugin, "get_playlist_tracks", new_callable=AsyncMock) as m_pt:
-            m_pt.return_value = {"ok": True, "tracks": []}
-            w = MagicMock(write=MagicMock(), drain=AsyncMock(), close=MagicMock())
-            await self.plugin._handle_dashboard_request(AsyncMock(read=AsyncMock(return_value=b"GET /api/playlists/p123/tracks?offset=10 HTTP/1.1\r\n\r\n")), w)
-            m_pt.assert_awaited_with("p123", 10)
-
-        # 6. POST /api/playlist/add-item
-        with patch.object(self.plugin, "add_track_to_playlist", new_callable=AsyncMock) as m_add:
-            m_add.return_value = {"ok": True}
-            w = MagicMock(write=MagicMock(), drain=AsyncMock(), close=MagicMock())
-            body = json.dumps({"playlist_id": "pl99", "track_uri": "spotify:track:t99"}).encode()
-            req = b"POST /api/playlist/add-item HTTP/1.1\r\nContent-Length: 50\r\n\r\n" + body
-            await self.plugin._handle_dashboard_request(AsyncMock(read=AsyncMock(return_value=req)), w)
-            m_add.assert_awaited_with("pl99", "spotify:track:t99")
-
-        # 7. Static file serving (/ and /assets/)
-        with patch.object(self.plugin, "_serve_static", new_callable=AsyncMock) as m_stat:
-            w1 = MagicMock(close=MagicMock())
-            await self.plugin._handle_dashboard_request(AsyncMock(read=AsyncMock(return_value=b"GET / HTTP/1.1\r\n\r\n")), w1)
-            m_stat.assert_awaited_with(w1, "index.html")
-
-            w2 = MagicMock(close=MagicMock())
-            await self.plugin._handle_dashboard_request(AsyncMock(read=AsyncMock(return_value=b"GET /assets/index.js HTTP/1.1\r\n\r\n")), w2)
-            m_stat.assert_awaited_with(w2, "assets/index.js")
-
-        # 8. Timeout and generic Exception handling in _handle_dashboard_request
-        w_tmo = MagicMock(close=MagicMock())
-        reader_tmo = MagicMock(read=AsyncMock(side_effect=asyncio.TimeoutError))
-        await self.plugin._handle_dashboard_request(reader_tmo, w_tmo)
-        w_tmo.close.assert_called()
-
-        w_err = MagicMock(write=MagicMock(), drain=AsyncMock(), close=MagicMock())
-        reader_err = MagicMock(read=AsyncMock(side_effect=Exception("Critical parse error")))
-        await self.plugin._handle_dashboard_request(reader_err, w_err)
-        self.assertIn(b"500 Internal Server Error", w_err.write.call_args[0][0])
-
     async def test_tasks_lifecycle_management(self):
         # 1. Start monitor when already running
         mock_task = asyncio.create_task(asyncio.sleep(10))
@@ -641,14 +456,6 @@ class FinalCoverageTests(unittest.IsolatedAsyncioTestCase):
             await self.plugin._monitor_process()
             self.emit.assert_awaited()
             self.assertIn("Auto-restart limit reached", self.emit.call_args[0][1]["error"])
-
-    async def test_steam_gamepad_bridge_worker(self):
-        with patch.object(main, "_inject_steam_gamepad_bridge_sync"), \
-             patch("asyncio.sleep", side_effect=asyncio.CancelledError):
-            try:
-                await self.plugin._steam_gamepad_bridge_worker()
-            except asyncio.CancelledError:
-                pass
 
     async def test_oauth_connection_and_callback_exceptions(self):
         # 1. OAuth connection timeout

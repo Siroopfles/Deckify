@@ -44,8 +44,8 @@ class CenturyCoverageTests(unittest.IsolatedAsyncioTestCase):
             res = handler.redirect_request(req, None, 302, "Found", {}, "https://i.scdn.co/image/new")
             self.assertEqual(res, "ok")
 
-        # 2. _get_max_image_bytes from main
-        with patch.dict("sys.modules", {"main": SimpleNamespace(MAX_IMAGE_BYTES=12345)}):
+        # 2. _get_max_image_bytes from images
+        with patch("py_modules.images.MAX_IMAGE_BYTES", 12345):
             self.assertEqual(images._get_max_image_bytes(), 12345)
 
         # 3. _fetch_spotify_image with unsupported format
@@ -55,7 +55,7 @@ class CenturyCoverageTests(unittest.IsolatedAsyncioTestCase):
         with patch("urllib.request.build_opener") as mock_opener:
             mock_opener.return_value.open.return_value = mock_resp_unsupported
             with self.assertRaises(RuntimeError) as ctx:
-                images._fetch_spotify_image("https://i.scdn.co/image/test")
+                images._fetch_spotify_image("https://i.scdn.co/image/test_unsupported_fmt")
             self.assertIn("unsupported image format", str(ctx.exception))
 
         # 4. _fetch_spotify_image exceeding size limit
@@ -66,7 +66,7 @@ class CenturyCoverageTests(unittest.IsolatedAsyncioTestCase):
         with patch("urllib.request.build_opener") as mock_opener:
             mock_opener.return_value.open.return_value = mock_resp_large
             with self.assertRaises(RuntimeError) as ctx:
-                images._fetch_spotify_image("https://i.scdn.co/image/test")
+                images._fetch_spotify_image("https://i.scdn.co/image/test_unsupported_fmt")
             self.assertIn("exceeds the size limit", str(ctx.exception))
 
         # 5. _fetch_spotify_image valid return
@@ -228,20 +228,15 @@ class CenturyCoverageTests(unittest.IsolatedAsyncioTestCase):
             if os.path.exists(temp_path):
                 os.remove(temp_path)
 
-        # 2. _unload and _uninstall with active suspend_monitor and gamepad bridge
+        # 2. _unload and _uninstall with active suspend_monitor
         mock_mon = MagicMock(stop=AsyncMock())
-        mock_task = MagicMock(done=MagicMock(return_value=False), cancel=MagicMock())
         self.plugin._suspend_monitor = mock_mon
-        self.plugin._steam_gamepad_bridge_task = mock_task
         await self.plugin._unload()
         mock_mon.stop.assert_awaited()
-        mock_task.cancel.assert_called()
 
         self.plugin._suspend_monitor = mock_mon
-        self.plugin._steam_gamepad_bridge_task = mock_task
         await self.plugin._uninstall()
         mock_mon.stop.assert_awaited()
-        mock_task.cancel.assert_called()
 
         # 3. _on_deck_resume exception handling
         with patch.object(self.plugin, "_ensure_token", side_effect=Exception("Resume token fail")):
@@ -358,42 +353,10 @@ class CenturyCoverageTests(unittest.IsolatedAsyncioTestCase):
         r_mix = await self.plugin.set_native_playlist_mix("pl_mix", enabled=True)
         self.assertTrue(r_mix["ok"])
 
-        # 14. push_gamepad_events string and list (>100 to trigger cap)
-        self.assertEqual(self.plugin.push_gamepad_events("a")["pushed"], 1)
-        many_events = ["b"] * 105
-        res_pushed = self.plugin.push_gamepad_events(many_events)
-        self.assertEqual(res_pushed["pushed"], 105)
-        self.assertEqual(res_pushed["queued"], 100)
-        self.assertEqual((await self.plugin.push_gamepad_event("x"))["pushed"], 1)
-
-        # 15. _read_linux_joystick_events paths removal & OSError
-        self.plugin._js_fds["/dev/input/js0"] = 999
-        with patch("os.path.exists", return_value=False), patch("os.close"):
-            self.plugin._read_linux_joystick_events()
-            self.assertNotIn("/dev/input/js0", self.plugin._js_fds)
-
-        with patch("os.path.exists", return_value=True), patch("os.open", side_effect=OSError("Open err")):
-            self.plugin._read_linux_joystick_events()
-
-        # 16. poll_gamepad_events joystick exception
-        self.plugin._gamepad_queue.clear()
-        with patch.object(self.plugin, "_read_linux_joystick_events", side_effect=Exception("JS error")):
-            self.assertEqual((await self.plugin.poll_gamepad_events())["events"], [])
-
-        # 17. get_client_window_status CDP call exception
-        mock_proc = MagicMock(poll=MagicMock(return_value=None))
-        self.plugin._spotify_client_process = mock_proc
-        self.execute.side_effect = [
-            {"title": "Spot", "url": "https://spotify.com"},  # target
-            Exception("Emulation fail"),  # setDeviceMetricsOverride
-        ]
-        stat = await self.plugin.get_client_window_status()
-        self.assertTrue(stat["running"])
-        self.assertTrue(stat["logged_in"])
-
-        # 18. send_client_window_input invalid type and key error
-        self.assertFalse((await self.plugin.send_client_window_input({"type": "invalid"}))["ok"])
-        self.assertFalse((await self.plugin.send_client_window_input({"type": "key"}))["ok"])
+        # 17. get_spotify_client_auth_status
+        stat = await self.plugin.get_spotify_client_auth_status()
+        self.assertIn("running", stat)
+        self.assertIn("logged_in", stat)
 
         # 19. get_recently_played track None and seen uri
         self.execute.side_effect = [{
@@ -428,35 +391,6 @@ class CenturyCoverageTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(main, "_ensure_ssl_cert", return_value=(MagicMock(), None)), \
              patch("asyncio.start_server", side_effect=OSError("Port bound")):
             self.assertFalse((await self.plugin.start_oauth())["ok"])
-
-        # 23. _start_dashboard exception
-        with patch("asyncio.start_server", side_effect=Exception("Dash start fail")):
-            await self.plugin._start_dashboard()
-
-        # 24. _handle_dashboard_request image route & stream-info & client-window input
-        with patch.object(self.plugin, "_serve_image", new_callable=AsyncMock) as m_img:
-            w = MagicMock(close=MagicMock())
-            await self.plugin._handle_dashboard_request(AsyncMock(read=AsyncMock(return_value=b"GET /api/image?url=u HTTP/1.1\r\n\r\n")), w)
-            m_img.assert_awaited()
-
-        # POST /api/settings with invalid setting error
-        w_eng = MagicMock(write=MagicMock(), drain=AsyncMock(), close=MagicMock())
-        payload_eng = json.dumps({"audio_quality": "invalid_q"}).encode()
-        req_eng = b"POST /api/settings HTTP/1.1\r\nContent-Length: " + str(len(payload_eng)).encode() + b"\r\n\r\n" + payload_eng
-        await self.plugin._handle_dashboard_request(AsyncMock(read=AsyncMock(return_value=req_eng)), w_eng)
-        self.assertIn(b"200 OK", w_eng.write.call_args[0][0])
-
-        with patch.object(self.plugin, "send_client_window_input", new_callable=AsyncMock) as m_cwi:
-            m_cwi.return_value = {"ok": True}
-            w = MagicMock(write=MagicMock(), drain=AsyncMock(), close=MagicMock())
-            await self.plugin._handle_dashboard_request(AsyncMock(read=AsyncMock(return_value=b"POST /api/client-window/input HTTP/1.1\r\n\r\n{}")), w)
-            m_cwi.assert_awaited()
-
-        # 25. _serve_image ValueError handling
-        self.execute.side_effect = ValueError("Invalid URL")
-        w_img = MagicMock(write=MagicMock(), drain=AsyncMock(), close=MagicMock())
-        await self.plugin._serve_image(w_img, "invalid_url")
-        self.assertIn(b"400 Bad Request", w_img.write.call_args[0][0])
 
         # 26. _kill_spotify_client process termination exceptions
         kw = MagicMock(poll=MagicMock(return_value=None))
@@ -585,37 +519,6 @@ class CenturyCoverageTests(unittest.IsolatedAsyncioTestCase):
         self.execute.side_effect = Exception("Mix crash")
         self.assertFalse((await self.plugin.set_native_playlist_mix("p1"))["ok"])
 
-        # 8. _steam_gamepad_bridge_worker exception during worker
-        with patch.object(main, "_inject_steam_gamepad_bridge_sync", side_effect=Exception("Bridge fail")), \
-             patch("asyncio.sleep", side_effect=asyncio.CancelledError):
-            try:
-                await self.plugin._steam_gamepad_bridge_worker()
-            except asyncio.CancelledError:
-                pass
-
-        # 9. _read_linux_joystick_events close exceptions
-        self.plugin._js_fds["/dev/input/js0"] = 101
-        with patch("os.path.exists", return_value=False), patch("os.close", side_effect=Exception("Close fail")):
-            self.plugin._read_linux_joystick_events()
-
-        self.plugin._js_fds["/dev/input/js0"] = 102
-        with patch("os.path.exists", return_value=True), \
-             patch("os.read", side_effect=OSError(errno.EBADF, "Bad fd")), \
-             patch("os.close", side_effect=Exception("Close fail")):
-            self.plugin._read_linux_joystick_events()
-
-        # 10. poll_gamepad_events extending raw_js
-        with patch.object(self.plugin, "_read_linux_joystick_events", return_value=["up", "down"]):
-            evs = await self.plugin.poll_gamepad_events()
-            self.assertEqual(evs["events"], ["up", "down"])
-
-        # 11. capture_client_window_screenshot with data and with exception
-        self.execute.side_effect = [{"data": base64.b64encode(b"IMG").decode("ascii")}]
-        ss = await self.plugin.capture_client_window_screenshot()
-        self.assertEqual(ss, b"IMG")
-        self.execute.side_effect = Exception("Screenshot fail")
-        self.assertIsNone(await self.plugin.capture_client_window_screenshot())
-
         # 12. get_liked_tracks, get_saved_episodes, get_saved_albums with None items
         self.execute.side_effect = [{"items": [{"track": None}, {"track": {"id": "t1", "name": "T1"}}], "total": 1}]
         self.assertEqual(len((await self.plugin.get_liked_tracks())["tracks"]), 1)
@@ -638,20 +541,11 @@ class CenturyCoverageTests(unittest.IsolatedAsyncioTestCase):
             r_pt = await self.plugin.play_tracks(context_uri="c")
             self.assertTrue(r_pt["ok"])
 
-        # 14. _get_status_dict with last_event position_ms
+        # 14. get_status with last_event position_ms
+        self.plugin._process = None
         self.plugin._last_event = {"position_ms": 1234}
-        st_dict = self.plugin._get_status_dict()
+        st_dict = await self.plugin.get_status()
         self.assertEqual(st_dict["librespot_running"], False)
-
-        # 15. _serve_sse_events when self._sse is None
-        self.plugin._sse = None
-        w_sse = MagicMock(write=MagicMock(), drain=AsyncMock(), close=MagicMock())
-        await self.plugin._serve_sse_events(w_sse)
-        self.assertIsNotNone(self.plugin._sse)
-
-        # 16. _broadcast_status_sse exception handling
-        self.plugin._sse.broadcast = AsyncMock(side_effect=Exception("Broadcast fail"))
-        await self.plugin._broadcast_status_sse()
 
         # 17. _kill_spotify_client process terminate exception
         kw_proc = MagicMock(poll=MagicMock(return_value=None))
@@ -732,12 +626,6 @@ class CenturyCoverageTests(unittest.IsolatedAsyncioTestCase):
         self.execute.side_effect = urllib.error.HTTPError("url", 403, "Forbidden", {}, None)
         self.assertFalse((await self.plugin.play_tracks(context_uri="c"))["ok"])
 
-        # 25. GET /api/events in _handle_dashboard_request
-        w_events = MagicMock(write=MagicMock(), drain=AsyncMock(), close=MagicMock())
-        with patch.object(self.plugin, "_serve_sse_events", new_callable=AsyncMock) as m_sse:
-            await self.plugin._handle_dashboard_request(AsyncMock(read=AsyncMock(return_value=b"GET /api/events HTTP/1.1\r\n\r\n")), w_events)
-            m_sse.assert_awaited()
-
         # 26. _start_api_poll task creation & stop
         self.plugin._api_poll_task = None
         self.plugin._start_api_poll()
@@ -751,13 +639,3 @@ class CenturyCoverageTests(unittest.IsolatedAsyncioTestCase):
         with patch("time.time", side_effect=[100.0, 40.0]):
             tok = await self.plugin._ensure_token()
             self.assertEqual(tok, "tok_after_lock")
-
-        # 28. _steam_gamepad_bridge_worker CancelledError break
-        self.execute.side_effect = asyncio.CancelledError()
-        await self.plugin._steam_gamepad_bridge_worker()
-
-        # 29. capture_client_window_screenshot executing real closure
-        with patch.object(main, "_cdp_call", return_value={"data": base64.b64encode(b"SHOT").decode("ascii")}):
-            self.execute.side_effect = lambda fn, *a, **kw: fn(*a) if callable(fn) else None
-            shot_res = await self.plugin.capture_client_window_screenshot()
-            self.assertEqual(shot_res, b"SHOT")

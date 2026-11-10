@@ -485,22 +485,7 @@ class PluginApiTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(res["ok"])
             mock_start.assert_awaited_once()
 
-    # ── Gamepad Events & Power ─────────────────────────────────
-
-    async def test_push_and_poll_gamepad_events(self):
-        # Push list of events
-        self.plugin.push_gamepad_events(["a", "b"])
-        self.assertEqual(len(self.plugin._gamepad_queue), 2)
-
-        # Push single string
-        await self.plugin.push_gamepad_event("x")
-        self.assertEqual(len(self.plugin._gamepad_queue), 3)
-
-        # Poll returns and empties the queue
-        poll_res = await self.plugin.poll_gamepad_events()
-        self.assertTrue(poll_res["ok"])
-        self.assertEqual(poll_res["events"], ["a", "b", "x"])
-        self.assertEqual(len(self.plugin._gamepad_queue), 0)
+    # ── Power & Lifecycle ──────────────────────────────────────
 
     async def test_shutdown_system(self):
         async def fake_exec(fn, *a, **k):
@@ -518,13 +503,11 @@ class PluginApiTests(unittest.IsolatedAsyncioTestCase):
 
         with patch.object(self.plugin, "_ensure_token", new_callable=AsyncMock) as m_token, \
              patch.object(self.plugin, "_poll_playback", new_callable=AsyncMock) as m_poll, \
-             patch.object(self.plugin, "_refresh_audio_stream_info", new_callable=AsyncMock) as m_audio, \
-             patch.object(self.plugin, "_broadcast_status_sse", new_callable=AsyncMock) as m_sse:
+             patch.object(self.plugin, "_refresh_audio_stream_info", new_callable=AsyncMock) as m_audio:
             await self.plugin._on_deck_resume()
             m_token.assert_awaited_once()
             m_poll.assert_awaited_once()
             m_audio.assert_awaited_once()
-            m_sse.assert_awaited_once()
             self.emit.assert_awaited_with("deck_resumed")
 
     async def test_migration(self):
@@ -538,66 +521,18 @@ class PluginApiTests(unittest.IsolatedAsyncioTestCase):
             m_settings.assert_called_once()
             m_runtime.assert_called_once()
 
-    # ── Dashboard Server Request Router ────────────────────────
+    # ── Native Audio Sinks & CDP Auth Status ───────────────────
 
-    async def test_handle_dashboard_request_options(self):
-        reader = MagicMock()
-        reader.read = AsyncMock(return_value=b"OPTIONS /api/status HTTP/1.1\r\n\r\n")
-        writer = MagicMock()
-        writer.write = MagicMock()
-        writer.drain = AsyncMock()
+    async def test_audio_sinks_and_cdp_status(self):
+        self.execute.return_value = [{"name": "speakers", "description": "Speakers"}]
+        sinks = await self.plugin.get_audio_sinks()
+        self.assertTrue(sinks["ok"])
+        self.assertEqual(len(sinks["sinks"]), 1)
 
-        await self.plugin._handle_dashboard_request(reader, writer)
-        writer.write.assert_called()
-        written = writer.write.call_args[0][0]
-        self.assertIn(b"204 No Content", written)
-        self.assertIn(b"Access-Control-Allow-Methods", written)
+        self.execute.return_value = True
+        res = await self.plugin.set_audio_sink("speakers")
+        self.assertTrue(res["ok"])
 
-    async def test_handle_dashboard_request_api_status(self):
-        reader = MagicMock()
-        reader.read = AsyncMock(return_value=b"GET /api/status HTTP/1.1\r\n\r\n")
-        writer = MagicMock()
-        writer.write = MagicMock()
-        writer.drain = AsyncMock()
-
-        await self.plugin._handle_dashboard_request(reader, writer)
-        written = writer.write.call_args[0][0]
-        self.assertIn(b"200 OK", written)
-        self.assertIn(b"application/json", written)
-
-    async def test_handle_dashboard_request_api_control(self):
-        reader = MagicMock()
-        reader.read = AsyncMock(return_value=b"POST /api/control?action=play HTTP/1.1\r\n\r\n")
-        writer = MagicMock()
-        writer.write = MagicMock()
-        writer.drain = AsyncMock()
-
-        with patch.object(self.plugin, "control_playback", new_callable=AsyncMock) as mock_control:
-            mock_control.return_value = {"ok": True}
-            await self.plugin._handle_dashboard_request(reader, writer)
-            mock_control.assert_awaited_once_with("play")
-            written = writer.write.call_args[0][0]
-            self.assertIn(b"200 OK", written)
-
-    async def test_handle_dashboard_request_api_volume(self):
-        reader = MagicMock()
-        reader.read = AsyncMock(return_value=b"POST /api/volume?value=60 HTTP/1.1\r\n\r\n")
-        writer = MagicMock()
-        writer.write = MagicMock()
-        writer.drain = AsyncMock()
-
-        with patch.object(self.plugin, "set_volume", new_callable=AsyncMock) as mock_vol:
-            mock_vol.return_value = {"ok": True, "volume": 60}
-            await self.plugin._handle_dashboard_request(reader, writer)
-            mock_vol.assert_awaited_once_with(60)
-
-    async def test_handle_dashboard_request_404_not_found(self):
-        reader = MagicMock()
-        reader.read = AsyncMock(return_value=b"GET /api/unknown_endpoint HTTP/1.1\r\n\r\n")
-        writer = MagicMock()
-        writer.write = MagicMock()
-        writer.drain = AsyncMock()
-
-        await self.plugin._handle_dashboard_request(reader, writer)
-        written = writer.write.call_args[0][0]
-        self.assertIn(b"404 Not Found", written)
+        self.execute.return_value = {"authenticated": True, "running": True}
+        cdp_status = await self.plugin.get_spotify_client_auth_status()
+        self.assertTrue(cdp_status["authenticated"])

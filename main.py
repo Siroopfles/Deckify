@@ -34,93 +34,23 @@ for _dir in [
     if _dir and os.path.isdir(_dir) and _dir not in sys.path:
         sys.path.insert(0, _dir)  # pragma: no cover
 
+from py_modules import *
+from py_modules import common
+
+
+def _load_settings(settings_file: str | None = None) -> dict:
+    return common._load_settings(settings_file or SETTINGS_FILE)
+
+
+def _save_settings(settings: dict, settings_file: str | None = None) -> None:
+    return common._save_settings(settings, settings_file or SETTINGS_FILE)
+
+
 if hasattr(os, "geteuid") and os.geteuid() == 0:  # pragma: no cover
     try:
-        os.chown(os.path.dirname(__file__), 1000, 1000)
+        os.chown(os.path.dirname(__file__), DECK_UID, DECK_UID)
     except Exception:
         pass
-
-from py_modules import *
-
-SETTINGS_FILE = os.path.join(decky.DECKY_PLUGIN_SETTINGS_DIR, "settings.json")
-MAX_IMAGE_BYTES = 5 * 1024 * 1024
-
-
-def _validate_image_url(url: str) -> None:
-    parsed = urllib.parse.urlsplit(url)
-    host = parsed.hostname or ""
-    if (
-        parsed.scheme != "https"
-        or parsed.port not in (None, 443)
-        or parsed.username is not None
-        or parsed.password is not None
-        or not host.endswith((".scdn.co", ".spotifycdn.com"))
-    ):
-        raise ValueError("Only Spotify HTTPS image URLs are supported")
-
-
-class _ImageRedirectHandler(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        _validate_image_url(newurl)
-        return super().redirect_request(req, fp, code, msg, headers, newurl)
-
-
-def _fetch_spotify_image(url: str) -> tuple[str, bytes]:
-    _validate_image_url(url)
-    opener = urllib.request.build_opener(
-        _ImageRedirectHandler(), urllib.request.HTTPSHandler(context=_API_SSL_CTX),
-    )
-    with opener.open(url, timeout=10) as response:
-        content_type = response.headers.get_content_type()
-        if content_type not in ("image/jpeg", "image/png", "image/webp", "image/gif", "image/avif"):
-            raise RuntimeError("Spotify returned an unsupported image format")
-        body = response.read(MAX_IMAGE_BYTES + 1)
-        if len(body) > MAX_IMAGE_BYTES:
-            raise RuntimeError("Spotify image exceeds the size limit")
-        return content_type, body
-
-
-def _load_settings() -> dict:
-    try:
-        with open(SETTINGS_FILE, "r") as f:
-            saved = json.load(f)
-        for obsolete in ("mix_mode", "crossfade_seconds", "mixed_playlists"):
-            saved.pop(obsolete, None)
-        merged = {**DEFAULT_SETTINGS, **saved}
-        if merged["device_name"] == "Steam Deck" and not saved.get("device_name_customized"):
-            merged["device_name"] = ""
-        if merged.get("audio_backend") not in VALID_AUDIO_BACKENDS:
-            merged["audio_backend"] = "librespot"
-        raw_q = str(merged.get("audio_quality") or merged.get("bitrate", 320)).lower()
-        if merged["audio_backend"] == "librespot":
-            if raw_q not in VALID_LIBRESPOT_QUALITIES:
-                raw_q = "320"
-            merged["audio_quality"] = raw_q
-            merged["bitrate"] = int(raw_q)
-        else:
-            if raw_q not in VALID_SPOTIFY_CLIENT_QUALITIES:
-                raw_q = "320"
-            merged["audio_quality"] = raw_q
-            merged["bitrate"] = 320 if raw_q == "lossless" else int(raw_q)
-        if not isinstance(merged.get("playlist_folders"), list):
-            merged["playlist_folders"] = []
-        if not isinstance(merged.get("spotify_folder_tree"), list):
-            merged["spotify_folder_tree"] = []
-        if not isinstance(merged.get("game_audio_profiles"), dict):
-            merged["game_audio_profiles"] = {}
-        if not isinstance(merged.get("overlay_enabled"), bool):
-            merged["overlay_enabled"] = bool(merged.get("overlay_enabled", False))
-        if merged.get("overlay_position") not in ("top-left", "top-right", "bottom-left", "bottom-right"):
-            merged["overlay_position"] = "top-right"
-        return merged
-    except Exception:
-        return dict(DEFAULT_SETTINGS)
-
-
-def _save_settings(settings: dict) -> None:
-    os.makedirs(os.path.dirname(SETTINGS_FILE), exist_ok=True)
-    with open(SETTINGS_FILE, "w") as f:
-        json.dump(settings, f, indent=2)
 
 
 class Plugin:
@@ -132,8 +62,6 @@ class Plugin:
     _api_poll_task: asyncio.Task | None = None
     _settings: dict = {}
     _last_event: dict | None = None
-    # Dashboard server
-    _dashboard_server: asyncio.Server | None = None
     _track_meta: dict | None = None
     # OAuth / Spotify API state
     _oauth_server = None
@@ -159,28 +87,23 @@ class Plugin:
     _crash_timestamps: list = []
     _pa_volume_boosted: bool = False
     _stable_start: float = 0
-    # Linux joystick reader state (/dev/input/js*) & Gamepad event queue
-    _js_fds: dict[str, int] = {}
-    _js_axis_state: dict[tuple[str, int], int] = {}
-    _gamepad_queue: list[str] = []
-    _last_gamepad_poll: float = 0.0
-    _steam_gamepad_bridge_task: asyncio.Task | None = None
+    # Sleep Timer State
+    _sleep_timer_task: asyncio.Task | None = None
+    _sleep_timer_end: float = 0
+    _sleep_timer_shutdown: bool = False
+    _sleep_timer_end_of_track: bool = False
+    _sleep_timer_initial_track_id: str | None = None
+    _liked_cache: dict[str, tuple[float, bool]] = {}
 
     def __init__(self):
-        self._gamepad_queue = []
-        self._js_fds = {}
-        self._js_axis_state = {}
         self._crash_timestamps = []
+        self._liked_cache = {}
 
     # ── Lifecycle ──────────────────────────────────────────────
 
     async def _main(self):
         self._token_refresh_lock = asyncio.Lock()
         self._crash_timestamps = []
-        self._js_fds = {}
-        self._js_axis_state = {}
-        self._gamepad_queue = []
-        self._last_gamepad_poll = 0.0
         self._settings = _load_settings()
         # Restore persisted tokens
         self._access_token = self._settings.get("access_token")
@@ -189,14 +112,11 @@ class Plugin:
         safe_keys = {k: v for k, v in self._settings.items()
                      if k not in ("access_token", "refresh_token", "token_expires_at", "spotify_client_id", "spotify_folder_tree")}
         decky.logger.info("Deckify loaded, settings: %s", safe_keys)
-        self._sse = SSEManager()
         self._suspend_monitor = SuspendResumeMonitor(
             on_sleep=self._on_deck_sleep,
             on_resume=self._on_deck_resume,
         )
         self._suspend_monitor.start()
-        await self._start_dashboard()
-        self._steam_gamepad_bridge_task = asyncio.create_task(self._steam_gamepad_bridge_worker())
         if self._access_token:
             self._start_api_poll()
         await self._sync_native_spotify_folders()
@@ -204,17 +124,15 @@ class Plugin:
 
     async def _unload(self):
         decky.logger.info("Deckify unloading")
+        if self._sleep_timer_task and not self._sleep_timer_task.done():
+            self._sleep_timer_task.cancel()
+            self._sleep_timer_task = None
         if hasattr(self, "_suspend_monitor") and self._suspend_monitor:
             await self._suspend_monitor.stop()
             self._suspend_monitor = None
-        if self._steam_gamepad_bridge_task and not self._steam_gamepad_bridge_task.done():
-            self._steam_gamepad_bridge_task.cancel()
-            self._steam_gamepad_bridge_task = None
-        self._close_gamepad_fds()
         await self._stop_monitor()
         await self._kill_librespot()
         await self._kill_spotify_client()
-        await self._stop_dashboard()
         await self._stop_oauth_server()
         await self._stop_api_poll()
 
@@ -227,24 +145,21 @@ class Plugin:
             await self._ensure_token()
             await self._poll_playback()
             await self._refresh_audio_stream_info()
-            await self._broadcast_status_sse()
             await decky.emit("deck_resumed")
         except Exception as e:
             decky.logger.warning("Resume handler error: %s", e)
 
     async def _uninstall(self):
         decky.logger.info("Deckify uninstalling")
+        if self._sleep_timer_task and not self._sleep_timer_task.done():
+            self._sleep_timer_task.cancel()
+            self._sleep_timer_task = None
         if hasattr(self, "_suspend_monitor") and self._suspend_monitor:
             await self._suspend_monitor.stop()
             self._suspend_monitor = None
-        if self._steam_gamepad_bridge_task and not self._steam_gamepad_bridge_task.done():
-            self._steam_gamepad_bridge_task.cancel()
-            self._steam_gamepad_bridge_task = None
-        self._close_gamepad_fds()
         await self._stop_monitor()
         await self._kill_librespot()
         await self._kill_spotify_client()
-        await self._stop_dashboard()
         await self._stop_oauth_server()
         await self._stop_api_poll()
 
@@ -264,14 +179,20 @@ class Plugin:
 
     # ── Audio Engine management (librespot vs Official Spotify Client) ──
 
+    def _is_librespot_running(self) -> bool:
+        return self._process is not None and self._process.poll() is None
+
+    def _is_spotify_client_running(self) -> bool:
+        return (
+            self._spotify_client_process is not None
+            and self._spotify_client_process.poll() is None
+        )
+
     def _is_engine_running(self) -> bool:
         backend = self._settings.get("audio_backend", "librespot")
         if backend == "spotify_client":
-            return (
-                self._spotify_client_process is not None
-                and self._spotify_client_process.poll() is None
-            )
-        return self._process is not None and self._process.poll() is None
+            return self._is_spotify_client_running()
+        return self._is_librespot_running()
 
     async def _configure_pipewire_clock(self, unlock_lossless: bool) -> None:
         """Unlock 44.1kHz/88.2kHz/96kHz in PipeWire when Lossless is active, or restore default 48kHz."""
@@ -540,16 +461,25 @@ class Plugin:
             "device_name", "audio_backend", "audio_quality", "bitrate",
             "bit_perfect_clock", "spotify_client_id", "normalisation",
             "normalisation_pregain", "gapless", "autoplay", "playlist_folders",
+            "spotify_folder_tree", "game_audio_profiles", "auto_ducking",
+            "auto_ducking_volume", "gamepad_chords_enabled", "toast_enabled",
+            "toast_position", "overlay_enabled", "overlay_position", "eq_preset",
         )
         return {
+            "authenticated": bool(self._access_token),
             "running": running,
+            "librespot_running": self._is_librespot_running(),
+            "spotify_client_running": self._is_spotify_client_running(),
+            "audio_backend": self._settings.get("audio_backend", "librespot"),
             "binary_found": os.path.isfile(LIBRESPOT_BIN),
             "settings": {k: v for k, v in self._settings.items() if k in public_keys},
             "last_event": self._last_event,
             "track_meta": self._track_meta,
+            "track": self._track_meta,
             "volume": self._poll_volume,
             "active_device": self._active_device,
             "is_playing": is_playing,
+            "play_state": self._poll_play_state,
             "position_ms": position_ms,
             "duration_ms": duration_ms,
             "shuffle_state": self._shuffle_state,
@@ -557,6 +487,7 @@ class Plugin:
             "is_liked": self._is_liked,
             "context_uri": self._context_uri,
             "audio_stream_info": self._audio_stream_info,
+            "sleep_timer": self.get_sleep_timer_status(),
         }
 
     async def get_settings(self) -> dict:
@@ -605,7 +536,7 @@ class Plugin:
             value = bval
             self._settings["audio_quality"] = str(bval)
             quality_changed = True
-        elif key in ("normalisation", "gapless", "autoplay", "bit_perfect_clock", "overlay_enabled"):
+        elif key in ("normalisation", "gapless", "autoplay", "bit_perfect_clock", "overlay_enabled", "toast_enabled", "gamepad_chords_enabled", "auto_ducking"):
             value = bool(value)
         elif key == "overlay_position":
             valid_positions = {"top-left", "top-right", "bottom-left", "bottom-right"}
@@ -613,6 +544,20 @@ class Plugin:
             if pos not in valid_positions:
                 return {"ok": False, "error": f"Invalid overlay_position: {value}"}
             value = pos
+        elif key == "toast_position":
+            pos = str(value).strip().lower().replace("-", "_")
+            value = pos
+        elif key == "auto_ducking_volume":
+            try:
+                value = max(0, min(100, int(value)))
+            except (TypeError, ValueError):
+                return {"ok": False, "error": "auto_ducking_volume must be an integer (0-100)"}
+        elif key == "eq_preset":
+            val = str(value).strip().lower()
+            if val not in ("flat", "bass", "vocal", "gaming"):
+                return {"ok": False, "error": f"Invalid eq_preset: {value}"}
+            value = val
+            await self._apply_equalizer_preset(val)
         elif key == "normalisation_pregain":
             try:
                 value = max(-10.0, min(10.0, float(value)))
@@ -621,6 +566,9 @@ class Plugin:
         elif key == "playlist_folders":
             if not isinstance(value, list):
                 return {"ok": False, "error": "playlist_folders must be a list"}
+        elif key == "game_audio_profiles":
+            if not isinstance(value, dict):
+                return {"ok": False, "error": "game_audio_profiles must be a dict"}
         self._settings[key] = value
         _save_settings(self._settings)
         decky.logger.info("Setting updated: %s = %s", key, value)
@@ -639,6 +587,11 @@ class Plugin:
                 and bool(self._settings.get("bit_perfect_clock", True))
             )
 
+        try:
+            await decky.emit("settings_changed", dict(self._settings))
+        except Exception:
+            pass
+
         return {"ok": True, "settings": dict(self._settings)}
 
     # ── Playback control callable methods ────────────────────────
@@ -648,6 +601,9 @@ class Plugin:
         token = await self._ensure_token()
         if not token:
             return {"ok": False, "error": "Not authenticated"}
+
+        if action == "play_pause":
+            action = "pause" if self._poll_play_state == "playing" else "play"
 
         action_map = {
             "play": ("PUT", "me/player/play"),
@@ -662,6 +618,10 @@ class Plugin:
         params = {"device_id": device_id} if device_id else None
         try:
             await _exec(_spotify_api_request, endpoint, token, method, params)
+            if action == "play":
+                self._poll_play_state = "playing"
+            elif action == "pause":
+                self._poll_play_state = "paused"
             return {"ok": True}
         except urllib.error.HTTPError as e:
             if e.code == 404 and action == "play":
@@ -691,6 +651,7 @@ class Plugin:
                 _spotify_api_request, "me/player", token, "PUT", None,
                 {"device_ids": [device_id], "play": True},
             )
+            self._poll_play_state = "playing"
             return {"ok": True}
         except Exception as e:
             decky.logger.error("Auto-transfer failed: %s", e)
@@ -787,24 +748,37 @@ class Plugin:
             return {"ok": False, "error": str(e)}
 
     async def _check_tracks_liked(self, token: str, track_ids: list[str]) -> dict[str, bool]:
-        """Batch-check saved status via Spotify's /me/library/contains endpoint."""
+        """Batch-check saved status via Spotify's /me/tracks/contains endpoint with cache."""
         clean_ids = [tid for tid in dict.fromkeys(track_ids) if tid]
         if not clean_ids:
             return {}
         result: dict[str, bool] = {}
-        for i in range(0, len(clean_ids), 40):
-            chunk = clean_ids[i:i + 40]
-            uris = ",".join(f"spotify:track:{tid}" for tid in chunk)
+        missing_ids: list[str] = []
+        now = time.time()
+        for tid in clean_ids:
+            if tid in self._liked_cache and (now - self._liked_cache[tid][0]) < 300:
+                result[tid] = self._liked_cache[tid][1]
+            else:
+                missing_ids.append(tid)
+
+        if not missing_ids:
+            return result
+
+        for i in range(0, len(missing_ids), 50):
+            chunk = missing_ids[i:i + 50]
+            ids_str = ",".join(chunk)
             try:
                 res = await _exec(
-                    _spotify_api_request, "me/library/contains", token, "GET",
-                    {"uris": uris},
+                    _spotify_api_request, "me/tracks/contains", token, "GET",
+                    {"ids": ids_str},
                 )
                 if isinstance(res, list):
                     for tid, flag in zip(chunk, res):
-                        result[tid] = bool(flag)
+                        b_flag = bool(flag)
+                        result[tid] = b_flag
+                        self._liked_cache[tid] = (now, b_flag)
             except Exception as e:
-                decky.logger.warning("me/library/contains check failed: %s", e)
+                decky.logger.warning("me/tracks/contains check failed: %s", e)
         return result
 
     async def _annotate_tracks_liked(self, token: str, tracks: list[dict]) -> None:
@@ -832,12 +806,13 @@ class Plugin:
         else:
             target_liked = bool(liked)
         method = "PUT" if target_liked else "DELETE"
-        track_uri = f"spotify:track:{target_id}"
         try:
             await _exec(
-                _spotify_api_request, "me/library", token, method,
-                {"uris": track_uri},
+                _spotify_api_request, "me/tracks", token, method,
+                {"ids": target_id},
             )
+            now = time.time()
+            self._liked_cache[target_id] = (now, target_liked)
             if target_id == self._poll_track_id:
                 self._is_liked = target_liked
                 if self._track_meta:
@@ -871,14 +846,19 @@ class Plugin:
                     artists = ", ".join(a["name"] for a in item.get("artists", []))
                     album = item.get("album", {}).get("name", "")
                     images = item.get("album", {}).get("images") or []
+                    artist_id = (item.get("artists") or [{}])[0].get("id", "")
+                    album_id = item.get("album", {}).get("id", "")
                 return {
                     "id": item.get("id"),
                     "name": item.get("name", ""),
                     "artist": artists,
                     "album": album,
+                    "artist_id": artist_id if item.get("type") != "episode" else "",
+                    "album_id": album_id if item.get("type") != "episode" else "",
                     "uri": item.get("uri", ""),
                     "duration_ms": item.get("duration_ms", 0),
                     "image_url": _image_url(images),
+                    "artwork_url": _image_url(images),
                 }
 
             queue_items = []
@@ -938,6 +918,7 @@ class Plugin:
                     "id": p["id"],
                     "name": p.get("name", ""),
                     "image_url": _image_url(images),
+                    "artwork_url": _image_url(images),
                     "track_count": (p.get("items") or p.get("tracks") or {}).get("total", 0),
                     "owner_id": p.get("owner", {}).get("id", ""),
                 })
@@ -959,45 +940,82 @@ class Plugin:
         token = await self._ensure_token()
         if not token:
             return {"ok": False, "error": "Not authenticated"}
+        pid = (playlist_id or "").strip()
+        if pid.startswith("spotify:playlist:"):
+            pid = pid.split(":")[-1]
         try:
             tracks = []
             cur_offset = max(0, int(offset))
             req_limit = 100 if fetch_all else max(1, min(int(limit), 100))
             total = 0
+
             while True:
-                data = await _exec(
-                    _spotify_api_request,
-                    f"playlists/{playlist_id}/items", token, "GET",
-                    {"limit": req_limit, "offset": cur_offset},
-                )
-                items = data.get("items", []) if data else []
-                total = data.get("total", 0) if data else 0
-                for item in items:
+                data = None
+                try:
+                    data = await _exec(
+                        _spotify_api_request,
+                        f"playlists/{pid}/items", token, "GET",
+                        {"limit": req_limit, "offset": cur_offset},
+                    )
+                except urllib.error.HTTPError as e:
+                    if e.code in (400, 403, 404):
+                        try:
+                            data = await _exec(
+                                _spotify_api_request,
+                                f"playlists/{pid}/tracks", token, "GET",
+                                {"limit": req_limit, "offset": cur_offset},
+                            )
+                        except Exception:
+                            if cur_offset == 0:
+                                data = await _exec(_spotify_api_request, f"playlists/{pid}", token, "GET")
+                    else:
+                        raise
+                except Exception:
+                    raise
+
+                if not data:
+                    break
+                items_obj = data.get("items") if isinstance(data, dict) else []
+                if isinstance(items_obj, dict):
+                    raw_items = items_obj.get("items", [])
+                    total = items_obj.get("total", len(raw_items))
+                elif isinstance(items_obj, list):
+                    raw_items = items_obj
+                    total = data.get("total", len(raw_items))
+                else:
+                    raw_items = []
+                    total = 0
+
+                for item in raw_items:
                     t = item.get("item") or item.get("track")
                     if t is None:
                         continue
                     artists = ", ".join(a["name"] for a in t.get("artists", []))
                     images = t.get("album", {}).get("images") or []
                     img_url = _image_url(images)
+                    artist_id = (t.get("artists") or [{}])[0].get("id", "")
+                    album_id = t.get("album", {}).get("id", "")
                     tracks.append({
                         "id": t.get("id"),
                         "name": t.get("name", ""),
                         "artist": artists,
                         "album": t.get("album", {}).get("name", ""),
+                        "artist_id": artist_id,
+                        "album_id": album_id,
                         "uri": t.get("uri", ""),
                         "duration_ms": t.get("duration_ms", 0),
                         "image_url": img_url,
                         "artwork_url": img_url,
                     })
-                cur_offset += len(items)
-                if not fetch_all or not items or len(tracks) >= total or len(tracks) >= 1000:
+                cur_offset += len(raw_items)
+                if not fetch_all or not raw_items or cur_offset >= total or len(tracks) >= 1000:
                     break
 
             try:
                 await self._annotate_tracks_liked(token, tracks)
             except Exception as ex:
                 decky.logger.warning("Failed to annotate tracks liked: %s", ex)
-            return {"ok": True, "tracks": tracks, "total": total, "offset": offset}
+            return {"ok": True, "tracks": tracks, "total": total or len(tracks), "offset": offset}
         except Exception as e:
             decky.logger.error("get_playlist_tracks failed: %s", e)
             return {"ok": False, "error": str(e)}
@@ -1169,31 +1187,25 @@ class Plugin:
           const rk = Object.keys(mainEl).find(k => k.startsWith('__reactContainer') || k.startsWith('__reactFiber'));
           const q = [mainEl[rk]];
           const visited = new Set();
-          let reg = null;
-          while (q.length > 0 && visited.size < 1000) {{
+          let mixApi = null;
+          let playerApi = null;
+          while (q.length > 0 && visited.size < 5000) {{
             const curr = q.shift();
             if (!curr || visited.has(curr)) continue;
             visited.add(curr);
-            let m = curr.memoizedState;
-            while (m) {{
-              if (m.memoizedState && typeof m.memoizedState === 'object') {{
-                const val = m.memoizedState;
-                if (val._map && val._map instanceof Map) {{ reg = val._map; break; }}
-                if (val.value && typeof val.value.getRegistry === 'function') {{ reg = val.value.getRegistry()._map; break; }}
+            if (curr.memoizedProps?.platform) {{
+              const platform = curr.memoizedProps.platform;
+              const reg = platform.getRegistry();
+              const map = reg._map || reg;
+              for (const [k, v] of map.entries()) {{
+                const desc = String(k.description);
+                if (desc === 'PlaylistMixingAPI') mixApi = v.instance;
+                if (desc === 'PlayerAPI') playerApi = v.instance;
               }}
-              m = m.next;
+              break;
             }}
-            if (reg) break;
             if (curr.child) q.push(curr.child);
             if (curr.sibling) q.push(curr.sibling);
-          }}
-          if (!reg) return {{ ok: false, error: 'Spotify internal registry unavailable' }};
-          let mixApi = null;
-          let playerApi = null;
-          for (const [k, v] of reg.entries()) {{
-            const desc = String(k.description);
-            if (desc === 'PlaylistMixingAPI') mixApi = v.instance;
-            if (desc === 'PlayerAPI') playerApi = v.instance;
           }}
           if (!mixApi) return {{ ok: false, error: 'PlaylistMixingAPI unavailable' }};
           const uri = {json.dumps(uri)};
@@ -1236,291 +1248,155 @@ class Plugin:
             decky.logger.warning("set_native_playlist_mix failed: %s", e)
             return {"ok": False, "error": str(e)}
 
-    # ── Official Spotify Client Remote Window (CDP) & Gamepad ────
+    # ── Official Spotify Client Remote & Sleep Timer ───────────
 
-    def _close_gamepad_fds(self) -> None:
-        for path, fd in list(self._js_fds.items()):
-            try:
-                os.close(fd)
-            except Exception:
-                pass
-        self._js_fds.clear()
-        self._js_axis_state.clear()
-
-    async def _steam_gamepad_bridge_worker(self):
-        """Periodically ensure the controller bridge is injected into Steam's SharedJSContext."""
-        while True:
-            try:
-                await _exec(_inject_steam_gamepad_bridge_sync, timeout=4)
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                decky.logger.debug("Gamepad bridge worker error: %s", e)
-            await asyncio.sleep(6)
-
-    def push_gamepad_events(self, events: list[str] | str) -> dict:
-        """Push gamepad button events into internal queue and broadcast to SSE subscribers."""
-        if isinstance(events, str):
-            events = [events]
-        valid_actions = {
-            "a", "b", "x", "y", "lb", "rb", "lt", "rt",
-            "up", "down", "left", "right", "select", "start",
+    def get_sleep_timer_status(self) -> dict:
+        if not self._sleep_timer_task or self._sleep_timer_task.done():
+            return {
+                "active": False,
+                "remaining_seconds": 0,
+                "shutdown_on_finish": False,
+                "end_of_track": False,
+            }
+        rem = max(0, int(self._sleep_timer_end - time.time())) if not self._sleep_timer_end_of_track else 0
+        if self._sleep_timer_end_of_track:
+            dur = self._last_event.get("duration_ms", 0) if self._last_event else 0
+            pos = self._last_event.get("position_ms", 0) if self._last_event else 0
+            if dur > pos:
+                rem = max(0, int((dur - pos) / 1000))
+        return {
+            "active": True,
+            "remaining_seconds": rem,
+            "shutdown_on_finish": self._sleep_timer_shutdown,
+            "end_of_track": self._sleep_timer_end_of_track,
         }
-        valid_events: list[str] = []
-        for ev in events:
-            if isinstance(ev, str):
-                norm = ev.strip().lower()
-                if norm in valid_actions:
-                    self._gamepad_queue.append(norm)
-                    valid_events.append(norm)
-        # Cap queue length to avoid unbounded growth if unpolled
-        if len(self._gamepad_queue) > 100:
-            del self._gamepad_queue[:-100]
 
-        # Direct real-time broadcast to connected dashboards via SSE (R2)
-        if valid_events and hasattr(self, "_sse") and self._sse:
-            try:
-                loop = asyncio.get_running_loop()
-                coro = self._sse.broadcast("gamepad", {"events": valid_events})
-                if asyncio.iscoroutine(coro):
-                    loop.create_task(coro)
-            except RuntimeError:
-                pass
+    async def set_sleep_timer(
+        self,
+        minutes: int | None = None,
+        shutdown_on_finish: bool = False,
+        end_of_track: bool = False,
+    ) -> dict:
+        if self._sleep_timer_task and not self._sleep_timer_task.done():
+            self._sleep_timer_task.cancel()
+            self._sleep_timer_task = None
 
-        return {"ok": True, "pushed": len(valid_events), "queued": len(self._gamepad_queue)}
+        if (minutes is None or minutes <= 0) and not end_of_track:
+            return {"ok": True, "sleep_timer": self.get_sleep_timer_status()}
 
-    async def push_gamepad_event(self, event: str | list[str]) -> dict:
-        """Callable exposed to Decky frontend in SharedJSContext."""
-        return self.push_gamepad_events(event)
+        self._sleep_timer_shutdown = bool(shutdown_on_finish)
+        self._sleep_timer_end_of_track = bool(end_of_track)
+        if minutes is not None and minutes > 0:
+            self._sleep_timer_end = time.time() + (minutes * 60)
+        else:
+            self._sleep_timer_end = 0
 
-    def _read_linux_joystick_events(self) -> list[str]:
-        """Read queued Linux joystick events (/dev/input/js*) non-blockingly as desktop/fallback input."""
-        events: list[str] = []
-        js_struct = struct.Struct("<IhBB")
-        button_map = {
-            0: "a",
-            1: "b",
-            2: "x",
-            3: "y",
-            4: "lb",
-            5: "rb",
-            6: "select",
-            7: "start",
-            11: "up",
-            12: "down",
-            13: "left",
-            14: "right",
-        }
-        for idx in range(4):
-            path = f"/dev/input/js{idx}"
-            if not os.path.exists(path):
-                if path in self._js_fds:
-                    try:
-                        os.close(self._js_fds.pop(path))
-                    except Exception:
-                        pass
-                continue
-            if path not in self._js_fds:
-                try:
-                    nonblock = getattr(os, "O_NONBLOCK", 0)
-                    self._js_fds[path] = os.open(path, os.O_RDONLY | nonblock)
-                except OSError:
-                    continue
-            fd = self._js_fds[path]
-            while True:
-                try:
-                    chunk = os.read(fd, 8)
-                    if not chunk or len(chunk) < 8:
-                        break
-                    _, val, ev_type, num = js_struct.unpack(chunk)
-                    if ev_type & 0x80:
-                        continue
-                    if ev_type == 0x01 and val == 1:
-                        mapped = button_map.get(num)
-                        if mapped:
-                            events.append(mapped)
-                    elif ev_type == 0x02:
-                        key = (path, num)
-                        prev_dir = self._js_axis_state.get(key, 0)
-                        if num in (0, 6):
-                            cur_dir = -1 if val < -16000 else (1 if val > 16000 else 0)
-                            self._js_axis_state[key] = cur_dir
-                            if cur_dir != prev_dir and cur_dir != 0:
-                                events.append("left" if cur_dir < 0 else "right")
-                        elif num in (1, 7):
-                            cur_dir = -1 if val < -16000 else (1 if val > 16000 else 0)
-                            self._js_axis_state[key] = cur_dir
-                            if cur_dir != prev_dir and cur_dir != 0:
-                                events.append("up" if cur_dir < 0 else "down")
-                        elif num in (2, 5):
-                            cur_dir = 1 if val > 16000 else 0
-                            self._js_axis_state[key] = cur_dir
-                            if cur_dir != prev_dir and cur_dir == 1:
-                                events.append("lt" if num == 2 else "rt")
-                except OSError as e:
-                    if e.errno not in (errno.EAGAIN, errno.EWOULDBLOCK):
-                        try:
-                            os.close(fd)
-                        except Exception:
-                            pass
-                        self._js_fds.pop(path, None)
-                    break
-        return events
+        self._sleep_timer_initial_track_id = self._poll_track_id
+        self._sleep_timer_task = asyncio.create_task(self._sleep_timer_worker())
+        return {"ok": True, "sleep_timer": self.get_sleep_timer_status()}
 
-    async def poll_gamepad_events(self) -> dict:
-        """Read queued controller events non-blockingly for SteamOS Dashboard navigation."""
-        self._last_gamepad_poll = time.time()
-        events: list[str] = []
-
-        # Drain in-memory queue from Steam / SharedJSContext bridge first
-        if self._gamepad_queue:
-            events.extend(self._gamepad_queue)
-            self._gamepad_queue.clear()
-
-        # Check raw Linux joystick events as a fallback
+    async def _sleep_timer_worker(self):
         try:
-            raw_js = self._read_linux_joystick_events()
-            if raw_js:
-                events.extend(raw_js)
-        except Exception as e:
-            decky.logger.debug("Gamepad poll error: %s", e)
+            if self._sleep_timer_end_of_track:
+                start_track = self._poll_track_id
+                while True:
+                    await asyncio.sleep(1)
+                    if self._poll_track_id != start_track or self._poll_play_state != "playing":
+                        break
+            else:
+                while time.time() < self._sleep_timer_end:
+                    await asyncio.sleep(1)
 
-        return {"ok": True, "events": events}
+            decky.logger.info("Sleep timer expired, pausing playback")
+            await self.control_playback("pause")
+
+            if self._sleep_timer_shutdown:
+                decky.logger.info("Sleep timer triggering system shutdown")
+                await self.shutdown_system()
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            decky.logger.error("Sleep timer error: %s", e)
+
+    async def _apply_equalizer_preset(self, preset: str) -> None:
+        decky.logger.info("Applying EQ preset: %s", preset)
+        self._settings["eq_preset"] = preset
+        _save_settings(self._settings)
+        await decky.emit("eq_preset_changed", {"preset": preset})
+
+    async def get_spotify_client_auth_status(self) -> dict:
+        try:
+            return await _exec(get_spotify_client_auth_status, SPOTIFY_CDP_PORT, timeout=3)
+        except Exception as e:
+            return {"ok": False, "running": False, "logged_in": False, "error": str(e)}
 
     async def get_client_window_status(self) -> dict:
-        target = await _exec(_cdp_get_page_target, SPOTIFY_CDP_PORT, timeout=3)
-        running = (
-            (self._spotify_client_process is not None and self._spotify_client_process.poll() is None)
-            or target is not None
-        )
-        if not running:
-            return {
-                "ok": True,
-                "running": False,
-                "title": "",
-                "url": "",
-                "logged_in": False,
-                "viewport_width": 1280,
-                "viewport_height": 800,
-            }
-        if not target:
-            return {
-                "ok": True,
-                "running": True,
-                "title": "Starting...",
-                "url": "",
-                "logged_in": False,
-                "viewport_width": 1280,
-                "viewport_height": 800,
-            }
+        return await self.get_spotify_client_auth_status()
+
+    async def create_playlist(self, name: str, public: bool = False) -> dict:
+        token = await self._ensure_token()
+        if not token:
+            return {"ok": False, "error": "Not authenticated"}
+        name = (name or "").strip()
+        if not name:
+            return {"ok": False, "error": "Playlist name cannot be empty"}
         try:
-            await _exec(
-                _cdp_call,
-                "Emulation.setDeviceMetricsOverride",
-                {"width": 1280, "height": 800, "deviceScaleFactor": 1, "mobile": False},
-                SPOTIFY_CDP_PORT,
-                timeout=2,
+            res = await _exec(
+                _spotify_api_request, "me/playlists", token, "POST", None,
+                {"name": name, "public": bool(public)},
             )
-        except Exception:
-            pass
-        title = target.get("title", "")
-        url = target.get("url", "")
-        logged_in = "login.app.spotify.com" not in url and bool(url)
-        return {
-            "ok": True,
-            "running": True,
-            "title": title,
-            "url": url,
-            "logged_in": logged_in,
-            "viewport_width": 1280,
-            "viewport_height": 800,
-        }
-
-    async def capture_client_window_screenshot(self) -> bytes | None:
-        try:
-            def _capture():
-                _cdp_call(
-                    "Emulation.setDeviceMetricsOverride",
-                    {"width": 1280, "height": 800, "deviceScaleFactor": 1, "mobile": False},
-                    SPOTIFY_CDP_PORT,
-                )
-                return _cdp_call(
-                    "Page.captureScreenshot",
-                    {"format": "jpeg", "quality": 80},
-                    SPOTIFY_CDP_PORT,
-                )
-
-            res = await _exec(_capture, timeout=4)
-            if res and res.get("data"):
-                return base64.b64decode(res["data"])
+            return {"ok": True, "playlist": res}
+        except urllib.error.HTTPError as e:
+            return {"ok": False, "error": _parse_spotify_error(e)}
         except Exception as e:
-            decky.logger.debug("Screenshot capture failed: %s", e)
-        return None
+            return {"ok": False, "error": str(e)}
 
-    async def send_client_window_input(self, payload: dict) -> dict:
-        input_type = str(payload.get("type") or payload.get("action") or "").lower()
+    async def remove_track_from_playlist(self, playlist_id: str, track_uri: str) -> dict:
+        token = await self._ensure_token()
+        if not token:
+            return {"ok": False, "error": "Not authenticated"}
+        pid = (playlist_id or "").strip()
+        if pid.startswith("spotify:playlist:"):
+            pid = pid.split(":")[-1]
+        uri = (track_uri or "").strip()
+        if uri and not uri.startswith("spotify:"):
+            uri = f"spotify:track:{uri}"
+        if not pid or not uri:
+            return {"ok": False, "error": "Missing playlist_id or track_uri"}
         try:
-            if input_type == "click":
-                x = int(float(payload.get("x", 0)))
-                y = int(float(payload.get("y", 0)))
-                button = str(payload.get("button", "left"))
-
-                def _do_click():
-                    _cdp_call("Input.dispatchMouseEvent", {
-                        "type": "mouseMoved", "x": x, "y": y,
-                    })
-                    _cdp_call("Input.dispatchMouseEvent", {
-                        "type": "mousePressed", "x": x, "y": y,
-                        "button": button, "clickCount": 1,
-                    })
-                    _cdp_call("Input.dispatchMouseEvent", {
-                        "type": "mouseReleased", "x": x, "y": y,
-                        "button": button, "clickCount": 1,
-                    })
-
-                await _exec(_do_click, timeout=4)
-                return {"ok": True}
-            if input_type == "wheel":
-                x = int(float(payload.get("x", 640)))
-                y = int(float(payload.get("y", 400)))
-                raw_dy = payload.get("delta_y") if "delta_y" in payload else payload.get("deltaY", 120)
-                delta_y = int(float(raw_dy))
+            try:
                 await _exec(
-                    _cdp_call,
-                    "Input.dispatchMouseEvent",
-                    {"type": "mouseWheel", "x": x, "y": y, "deltaX": 0, "deltaY": delta_y},
-                    timeout=4,
+                    _spotify_api_request, f"playlists/{pid}/items", token, "DELETE", None,
+                    {"items": [{"uri": uri}]},
                 )
-                return {"ok": True}
-            if input_type == "text":
-                text = str(payload.get("text", ""))
-                if text:
-                    await _exec(_cdp_call, "Input.insertText", {"text": text}, timeout=4)
-                return {"ok": True}
-            if input_type == "key":
-                key_name = str(payload.get("key", "Enter"))
-                vk_map = {"Enter": 13, "Backspace": 8, "Tab": 9, "Escape": 27}
-                vk = vk_map.get(key_name, 0)
-
-                def _do_key():
-                    _cdp_call("Input.dispatchKeyEvent", {
-                        "type": "rawKeyDown", "key": key_name,
-                        "windowsVirtualKeyCode": vk, "nativeVirtualKeyCode": vk,
-                    })
-                    if key_name == "Enter":
-                        _cdp_call("Input.dispatchKeyEvent", {
-                            "type": "char", "text": "\r", "unmodifiedText": "\r",
-                        })
-                    _cdp_call("Input.dispatchKeyEvent", {
-                        "type": "keyUp", "key": key_name,
-                        "windowsVirtualKeyCode": vk, "nativeVirtualKeyCode": vk,
-                    })
-
-                await _exec(_do_key, timeout=4)
-                return {"ok": True}
-            return {"ok": False, "error": f"Unknown input type: {input_type}"}
+            except urllib.error.HTTPError as e:
+                if e.code in (400, 403, 404):
+                    await _exec(
+                        _spotify_api_request, f"playlists/{pid}/tracks", token, "DELETE", None,
+                        {"tracks": [{"uri": uri}]},
+                    )
+                else:
+                    raise
+            return {"ok": True}
+        except urllib.error.HTTPError as e:
+            return {"ok": False, "error": _parse_spotify_error(e)}
         except Exception as e:
-            decky.logger.warning("send_client_window_input failed: %s", e)
+            return {"ok": False, "error": str(e)}
+
+    async def get_audio_sinks(self) -> dict:
+        try:
+            sinks = await _exec(_get_pactl_sinks, timeout=3)
+            return {"ok": True, "sinks": sinks}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    async def set_audio_sink(self, sink_name: str) -> dict:
+        if not sink_name or not isinstance(sink_name, str):
+            return {"ok": False, "error": "Missing sink_name"}
+        try:
+            ok = await _exec(_set_pactl_sink_input, sink_name.strip(), timeout=4)
+            return {"ok": ok}
+        except Exception as e:
             return {"ok": False, "error": str(e)}
 
     async def get_liked_tracks(self, offset: int = 0, fetch_all: bool = True) -> dict:
@@ -1545,11 +1421,15 @@ class Plugin:
                     artists = ", ".join(a["name"] for a in t.get("artists", []))
                     images = t.get("album", {}).get("images") or []
                     img_url = _image_url(images)
+                    artist_id = (t.get("artists") or [{}])[0].get("id", "")
+                    album_id = t.get("album", {}).get("id", "")
                     tracks.append({
                         "id": t.get("id"),
                         "name": t.get("name", ""),
                         "artist": artists,
                         "album": t.get("album", {}).get("name", ""),
+                        "artist_id": artist_id,
+                        "album_id": album_id,
                         "uri": t.get("uri", ""),
                         "duration_ms": t.get("duration_ms", 0),
                         "image_url": img_url,
@@ -1569,17 +1449,18 @@ class Plugin:
         if not token:
             return {"ok": False, "error": "Not authenticated"}
         try:
+            episodes = []
             data = await _exec(
                 _spotify_api_request, "me/episodes", token, "GET",
                 {"limit": 50, "offset": offset},
             )
             items = data.get("items", []) if data else []
-            episodes = []
             for item in items:
                 ep = item.get("episode")
                 if ep is None:
                     continue
                 images = ep.get("images") or []
+                resume_point = ep.get("resume_point") or {}
                 episodes.append({
                     "id": ep.get("id"),
                     "name": ep.get("name", ""),
@@ -1587,11 +1468,45 @@ class Plugin:
                     "uri": ep.get("uri", ""),
                     "duration_ms": ep.get("duration_ms", 0),
                     "image_url": _image_url(images),
+                    "artwork_url": _image_url(images),
+                    "resume_position_ms": resume_point.get("resume_position_ms", 0),
+                    "fully_played": bool(resume_point.get("fully_played", False)),
                 })
             total = data.get("total", 0) if data else 0
             return {"ok": True, "episodes": episodes, "total": total, "offset": offset}
         except Exception as e:
             decky.logger.error("get_saved_episodes failed: %s", e)
+            return {"ok": False, "error": str(e)}
+
+    async def get_saved_shows(self, offset: int = 0) -> dict:
+        token = await self._ensure_token()
+        if not token:
+            return {"ok": False, "error": "Not authenticated"}
+        try:
+            shows = []
+            data = await _exec(
+                _spotify_api_request, "me/shows", token, "GET",
+                {"limit": 50, "offset": offset},
+            )
+            items = data.get("items", []) if data else []
+            for item in items:
+                show = item.get("show") or item
+                if not show:
+                    continue
+                images = show.get("images") or []
+                shows.append({
+                    "id": show.get("id"),
+                    "name": show.get("name", ""),
+                    "publisher": show.get("publisher", ""),
+                    "uri": show.get("uri", ""),
+                    "total_episodes": show.get("total_episodes", 0),
+                    "image_url": _image_url(images),
+                    "artwork_url": _image_url(images),
+                })
+            total = data.get("total", 0) if data else 0
+            return {"ok": True, "shows": shows, "total": total, "offset": offset}
+        except Exception as e:
+            decky.logger.error("get_saved_shows failed: %s", e)
             return {"ok": False, "error": str(e)}
 
     async def get_saved_albums(self, offset: int = 0) -> dict:
@@ -1616,6 +1531,7 @@ class Plugin:
                     "name": a.get("name", ""),
                     "artist": artists,
                     "image_url": _image_url(images),
+                    "artwork_url": _image_url(images),
                     "track_count": a.get("total_tracks", 0),
                     "uri": a.get("uri", ""),
                 })
@@ -1630,6 +1546,16 @@ class Plugin:
         if not token:
             return {"ok": False, "error": "Not authenticated"}
         try:
+            album_img = None
+            album_name = ""
+            try:
+                alb_data = await _exec(_spotify_api_request, f"albums/{album_id}", token, "GET")
+                if alb_data:
+                    album_img = _image_url(alb_data.get("images") or [])
+                    album_name = alb_data.get("name", "")
+            except Exception:
+                pass
+
             data = await _exec(
                 _spotify_api_request,
                 f"albums/{album_id}/tracks", token, "GET",
@@ -1639,14 +1565,18 @@ class Plugin:
             tracks = []
             for t in items:
                 artists = ", ".join(a["name"] for a in t.get("artists", []))
+                artist_id = (t.get("artists") or [{}])[0].get("id", "")
                 tracks.append({
                     "id": t.get("id"),
                     "name": t.get("name", ""),
                     "artist": artists,
-                    "album": "",
+                    "album": album_name,
+                    "artist_id": artist_id,
+                    "album_id": album_id,
                     "uri": t.get("uri", ""),
                     "duration_ms": t.get("duration_ms", 0),
-                    "image_url": None,
+                    "image_url": album_img,
+                    "artwork_url": album_img,
                 })
             await self._annotate_tracks_liked(token, tracks)
             total = data.get("total", 0) if data else 0
@@ -1673,6 +1603,7 @@ class Plugin:
                     "id": a["id"],
                     "name": a.get("name", ""),
                     "image_url": _image_url(images),
+                    "artwork_url": _image_url(images),
                 })
             return {"ok": True, "artists": artists}
         except Exception as e:
@@ -1699,6 +1630,7 @@ class Plugin:
                     "name": a.get("name", ""),
                     "artist": ar,
                     "image_url": _image_url(images),
+                    "artwork_url": _image_url(images),
                     "track_count": a.get("total_tracks", 0),
                     "uri": a.get("uri", ""),
                 })
@@ -1738,14 +1670,20 @@ class Plugin:
             for t in items:
                 artists = ", ".join(a["name"] for a in t.get("artists", []))
                 images = t.get("album", {}).get("images") or []
+                artist_id = (t.get("artists") or [{}])[0].get("id", "")
+                album_id = t.get("album", {}).get("id", "")
                 tracks.append({
                     "id": t.get("id"),
                     "name": t.get("name", ""),
                     "artist": artists,
                     "album": t.get("album", {}).get("name", ""),
+                    "artist_id": artist_id,
+                    "album_id": album_id,
                     "uri": t.get("uri", ""),
                     "duration_ms": t.get("duration_ms", 0),
                     "image_url": _image_url(images),
+                    "artwork_url": _image_url(images),
+                    "artwork_url": _image_url(images),
                 })
             await self._annotate_tracks_liked(token, tracks)
             return {"ok": True, "tracks": tracks}
@@ -1776,14 +1714,20 @@ class Plugin:
                 seen_uris.add(uri)
                 artists = ", ".join(a["name"] for a in t.get("artists", []))
                 images = t.get("album", {}).get("images") or []
+                img_url = _image_url(images)
+                artist_id = (t.get("artists") or [{}])[0].get("id", "")
+                album_id = t.get("album", {}).get("id", "")
                 tracks.append({
                     "id": t.get("id"),
                     "name": t.get("name", ""),
                     "artist": artists,
                     "album": t.get("album", {}).get("name", ""),
+                    "artist_id": artist_id,
+                    "album_id": album_id,
                     "uri": uri,
                     "duration_ms": t.get("duration_ms", 0),
-                    "image_url": _image_url(images),
+                    "image_url": img_url,
+                    "artwork_url": img_url,
                 })
             await self._annotate_tracks_liked(token, tracks)
             return {"ok": True, "tracks": tracks}
@@ -1806,21 +1750,36 @@ class Plugin:
         try:
             final_limit = 50 if limit <= 0 else max(1, min(int(limit), 50))
             final_offset = max(0, int(offset))
-            data = await _exec(
-                _spotify_api_request, "search", token, "GET",
-                {"q": query, "type": types, "limit": final_limit, "offset": final_offset},
-            )
+            try:
+                data = await _exec(
+                    _spotify_api_request, "search", token, "GET",
+                    {"q": query, "type": types, "limit": final_limit, "offset": final_offset},
+                )
+            except Exception as e:
+                if "Invalid limit" in str(e) or "400" in str(e):
+                    data = await _exec(
+                        _spotify_api_request, "search", token, "GET",
+                        {"q": query, "type": types, "limit": min(final_limit, 10), "offset": final_offset},
+                    )
+                else:
+                    raise
             if not data:
                 return {"ok": True, "tracks": [], "artists": [], "albums": [], "playlists": []}
             tracks = []
             for t in data.get("tracks", {}).get("items", []):
                 artists = ", ".join(a["name"] for a in t.get("artists", []))
                 images = t.get("album", {}).get("images") or []
+                artist_id = (t.get("artists") or [{}])[0].get("id", "")
+                album_id = t.get("album", {}).get("id", "")
                 tracks.append({
                     "id": t.get("id"), "name": t.get("name", ""), "artist": artists,
-                    "album": t.get("album", {}).get("name", ""), "uri": t.get("uri", ""),
+                    "album": t.get("album", {}).get("name", ""),
+                    "artist_id": artist_id, "album_id": album_id,
+                    "uri": t.get("uri", ""),
                     "duration_ms": t.get("duration_ms", 0),
                     "image_url": _image_url(images),
+                    "artwork_url": _image_url(images),
+                    "artwork_url": _image_url(images),
                 })
             await self._annotate_tracks_liked(token, tracks)
             artists_out = []
@@ -1839,6 +1798,7 @@ class Plugin:
                 albums_out.append({
                     "id": a["id"], "name": a.get("name", ""), "artist": ar,
                     "image_url": _image_url(images),
+                    "artwork_url": _image_url(images),
                     "track_count": a.get("total_tracks", 0), "uri": a.get("uri", ""),
                 })
             playlists_out = []
@@ -1849,6 +1809,7 @@ class Plugin:
                 playlists_out.append({
                     "id": p["id"], "name": p.get("name", ""),
                     "image_url": _image_url(images),
+                    "artwork_url": _image_url(images),
                     "track_count": (p.get("items") or p.get("tracks") or {}).get("total", 0),
                     "owner_id": p.get("owner", {}).get("id", ""),
                 })
@@ -1892,12 +1853,36 @@ class Plugin:
             decky.logger.error("get_track_recommendations failed: %s", e)
             return {"ok": False, "error": str(e)}
 
-    async def get_lyrics(self, track_name: str, artist_name: str, duration_sec: int = 0) -> dict:
-        """Fetch synchronized or plain lyrics from LRCLIB with sanitization and search fallback."""
+    async def get_lyrics(
+        self,
+        track_name: str,
+        artist_name: str,
+        duration_sec: int = 0,
+        provider_offset: int = 0,
+    ) -> dict:
+        """Fetch synchronized or plain lyrics using 5-tier waterfall with provider offset."""
         try:
-            return await _exec(_fetch_lyrics_sync, track_name, artist_name, duration_sec, timeout=10)
+            return await _exec(
+                _fetch_lyrics_sync,
+                track_name,
+                artist_name,
+                duration_sec,
+                provider_offset,
+                timeout=12,
+            )
         except Exception as e:
             decky.logger.warning("get_lyrics failed: %s", e)
+            return {"ok": False, "error": str(e)}
+
+    async def get_image(self, url: str) -> dict:
+        """Fetch and return base64 Data URI for external image, bypassing CEF CSP restrictions."""
+        if not url or not isinstance(url, str):
+            return {"ok": False, "error": "No URL provided"}
+        try:
+            content_type, body = await _exec(_fetch_spotify_image, url, timeout=10)
+            b64 = base64.b64encode(body).decode("ascii")
+            return {"ok": True, "data_url": f"data:{content_type};base64,{b64}"}
+        except Exception as e:
             return {"ok": False, "error": str(e)}
 
     async def shutdown_system(self) -> dict:
@@ -2034,422 +2019,6 @@ class Plugin:
         decky.logger.info("Spotify logged out, tokens and client_id cleared")
         return {"ok": True}
 
-    async def get_dashboard_url(self) -> dict:
-        if self._dashboard_server is None:
-            return {"ok": False, "error": "Dashboard server is unavailable"}
-        return {"ok": True, "url": f"http://127.0.0.1:{DASHBOARD_PORT}"}
-
-    # ── Dashboard server ──────────────────────────────────────
-
-    async def _start_dashboard(self):
-        if self._dashboard_server:
-            return
-        try:
-            self._dashboard_server = await asyncio.start_server(
-                self._handle_dashboard_request, "127.0.0.1", DASHBOARD_PORT,
-            )
-            decky.logger.info("Dashboard server started on port %d", DASHBOARD_PORT)
-        except Exception as e:
-            decky.logger.error("Failed to start dashboard server: %s", e)
-
-    async def _stop_dashboard(self):
-        if self._dashboard_server:
-            self._dashboard_server.close()
-            await self._dashboard_server.wait_closed()
-            self._dashboard_server = None
-            decky.logger.info("Dashboard server stopped")
-
-    async def _handle_dashboard_request(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
-        try:
-            data = await asyncio.wait_for(reader.read(65536), timeout=10)
-            if not data:
-                writer.close()
-                return
-
-            request_line = data.decode("utf-8", errors="replace").split("\r\n")[0]
-            parts = request_line.split(" ")
-            if len(parts) < 2:
-                await self._send_json(writer, 400, {"error": "Bad request"})
-                return
-
-            method, raw_path = parts[0], parts[1]
-            parsed = urllib.parse.urlparse(raw_path)
-            path = parsed.path
-            qs = urllib.parse.parse_qs(parsed.query)
-
-            # Parse JSON body for POST requests
-            body_json = None
-            if method == "POST":
-                raw_str = data.decode("utf-8", errors="replace")
-                header_body = raw_str.split("\r\n\r\n", 1)
-                if len(header_body) > 1 and header_body[1].strip():
-                    try:
-                        body_json = json.loads(header_body[1])
-                    except (json.JSONDecodeError, ValueError) as e:
-                        decky.logger.warning("Dashboard POST body JSON parse failed: %s", e)
-
-            # CORS preflight
-            if method == "OPTIONS":
-                header = "HTTP/1.1 204 No Content\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type\r\nConnection: close\r\n\r\n"
-                writer.write(header.encode())
-                await writer.drain()
-                writer.close()
-                return
-
-            # API routes
-            if path == "/api/status":
-                await self._api_status(writer)
-            elif path == "/api/events" and method == "GET":
-                await self._serve_sse_events(writer)
-                return
-            elif path == "/api/image" and method == "GET":
-                await self._serve_image(writer, qs.get("url", [""])[0])
-            elif path == "/api/control" and method == "POST":
-                action = qs.get("action", [None])[0]
-                if not action:
-                    await self._send_json(writer, 400, {"error": "Missing action param"})
-                else:
-                    result = await self.control_playback(action)
-                    await self._send_json(writer, 200, result)
-            elif path == "/api/volume" and method == "POST":
-                value = qs.get("value", [None])[0]
-                if value is None:
-                    await self._send_json(writer, 400, {"error": "Missing value param"})
-                else:
-                    result = await self.set_volume(int(value))
-                    await self._send_json(writer, 200, result)
-            elif path == "/api/playlists" and method == "GET":
-                offset = int(qs.get("offset", [0])[0])
-                result = await self.get_playlists(offset)
-                await self._send_json(writer, 200, result)
-            elif path.startswith("/api/playlists/") and path.endswith("/tracks") and method == "GET":
-                playlist_id = path.split("/")[3]
-                offset = int(qs.get("offset", [0])[0])
-                if "limit" in qs:
-                    limit = int(qs.get("limit", [50])[0])
-                    result = await self.get_playlist_tracks(playlist_id, offset, fetch_all=False, limit=limit)
-                else:
-                    result = await self.get_playlist_tracks(playlist_id, offset)
-                await self._send_json(writer, 200, result)
-            elif path == "/api/playlist/add-item" and method == "POST":
-                b = body_json or {}
-                pid = str(b.get("playlist_id") or qs.get("playlist_id", [""])[0])
-                uri = str(b.get("track_uri") or b.get("uri") or qs.get("track_uri", [""])[0])
-                result = await self.add_track_to_playlist(pid, uri)
-                await self._send_json(writer, 200, result)
-            elif path == "/api/folders" and method == "GET":
-                result = await self.get_playlist_folders()
-                await self._send_json(writer, 200, result)
-            elif path == "/api/folders" and method == "POST":
-                b = body_json or {}
-                result = await self.manage_playlist_folder(
-                    action=str(b.get("action", "create")),
-                    folder_id=str(b.get("folder_id", "")),
-                    name=str(b.get("name", "")),
-                    playlist_id=str(b.get("playlist_id", "")),
-                    folders=b.get("folders"),
-                )
-                await self._send_json(writer, 200, result)
-            elif path == "/api/liked-tracks" and method == "GET":
-                offset = int(qs.get("offset", [0])[0])
-                result = await self.get_liked_tracks(offset)
-                await self._send_json(writer, 200, result)
-            elif path == "/api/episodes" and method == "GET":
-                offset = int(qs.get("offset", [0])[0])
-                result = await self.get_saved_episodes(offset)
-                await self._send_json(writer, 200, result)
-            elif path == "/api/albums" and method == "GET":
-                offset = int(qs.get("offset", [0])[0])
-                result = await self.get_saved_albums(offset)
-                await self._send_json(writer, 200, result)
-            elif path.startswith("/api/albums/") and path.endswith("/tracks") and method == "GET":
-                album_id = path.split("/")[3]
-                offset = int(qs.get("offset", [0])[0])
-                result = await self.get_album_tracks(album_id, offset)
-                await self._send_json(writer, 200, result)
-            elif path == "/api/artists" and method == "GET":
-                result = await self.get_followed_artists()
-                await self._send_json(writer, 200, result)
-            elif path.startswith("/api/artists/") and path.endswith("/albums") and method == "GET":
-                artist_id = path.split("/")[3]
-                offset = int(qs.get("offset", [0])[0])
-                result = await self.get_artist_albums(artist_id, offset)
-                await self._send_json(writer, 200, result)
-            elif path.startswith("/api/artists/") and path.endswith("/top-tracks") and method == "GET":
-                artist_id = path.split("/")[3]
-                result = await self.get_artist_top_tracks(artist_id)
-                await self._send_json(writer, 200, result)
-            elif path == "/api/recently-played" and method == "GET":
-                limit = int(qs.get("limit", [30])[0])
-                result = await self.get_recently_played(limit)
-                await self._send_json(writer, 200, result)
-            elif path == "/api/seek" and method == "POST":
-                b = body_json or {}
-                pos = b.get("position_ms") if "position_ms" in b else qs.get("position_ms", [0])[0]
-                result = await self.seek_playback(int(pos))
-                await self._send_json(writer, 200, result)
-            elif path == "/api/shuffle" and method == "POST":
-                b = body_json or {}
-                raw_state = b.get("state") if "state" in b else qs.get("state", ["false"])[0]
-                state_bool = raw_state if isinstance(raw_state, bool) else str(raw_state).lower() == "true"
-                result = await self.set_shuffle(state_bool)
-                await self._send_json(writer, 200, result)
-            elif path == "/api/repeat" and method == "POST":
-                b = body_json or {}
-                state_str = str(b.get("state") or qs.get("state", ["off"])[0])
-                result = await self.set_repeat(state_str)
-                await self._send_json(writer, 200, result)
-            elif path == "/api/like" and method == "POST":
-                b = body_json or {}
-                track_id = str(b.get("track_id") or qs.get("track_id", [""])[0])
-                liked = b.get("liked")
-                result = await self.toggle_like_track(track_id, liked)
-                await self._send_json(writer, 200, result)
-            elif path == "/api/queue" and method == "GET":
-                result = await self.get_queue()
-                await self._send_json(writer, 200, result)
-            elif path == "/api/queue" and method == "POST":
-                b = body_json or {}
-                uri = str(b.get("uri") or qs.get("uri", [""])[0])
-                result = await self.add_to_queue(uri)
-                await self._send_json(writer, 200, result)
-            elif path == "/api/devices" and method == "GET":
-                result = await self.get_devices()
-                await self._send_json(writer, 200, result)
-            elif path == "/api/transfer" and method == "POST":
-                b = body_json or {}
-                device_id = str(b.get("device_id") or qs.get("device_id", [""])[0])
-                result = await self.transfer_playback(device_id)
-                await self._send_json(writer, 200, result)
-            elif path in ("/api/settings", "/api/mix") and method == "POST":
-                b = body_json or {}
-                last_err = None
-                # Process audio_backend first so audio_quality validation sees the updated backend
-                ordered_keys = (
-                    "audio_backend", "audio_quality", "bitrate",
-                    "bit_perfect_clock", "normalisation", "gapless", "autoplay",
-                )
-                for k in ordered_keys:
-                    if k in b:
-                        res = await self.set_setting(k, b[k])
-                        if not res.get("ok"):
-                            last_err = res.get("error")
-                await self._send_json(writer, 200, {
-                    "ok": last_err is None,
-                    "error": last_err,
-                    "audio_backend": self._settings.get("audio_backend", "librespot"),
-                    "audio_quality": self._settings.get("audio_quality", "320"),
-                    "bitrate": self._settings.get("bitrate", 320),
-                    "bit_perfect_clock": self._settings.get("bit_perfect_clock", True),
-                    "normalisation": self._settings.get("normalisation", True),
-                    "gapless": self._settings.get("gapless", True),
-                    "autoplay": self._settings.get("autoplay", True),
-                })
-            elif path == "/api/client-window/status" and method == "GET":
-                result = await self.get_client_window_status()
-                await self._send_json(writer, 200, result)
-            elif path == "/api/client-window/screenshot" and method == "GET":
-                img = await self.capture_client_window_screenshot()
-                if not img:
-                    await self._send_json(writer, 404, {"error": "Spotify Client window unavailable"})
-                else:
-                    header = (
-                        "HTTP/1.1 200 OK\r\n"
-                        "Content-Type: image/jpeg\r\n"
-                        f"Content-Length: {len(img)}\r\n"
-                        "Cache-Control: no-store\r\n"
-                        "Access-Control-Allow-Origin: *\r\n"
-                        "Connection: close\r\n\r\n"
-                    )
-                    writer.write(header.encode() + img)
-                    await writer.drain()
-                    writer.close()
-            elif path == "/api/client-window/input" and method == "POST":
-                result = await self.send_client_window_input(body_json or {})
-                await self._send_json(writer, 200, result)
-            elif path == "/api/native-mix" and method == "POST":
-                b = body_json or {}
-                pid = str(b.get("playlist_id") or qs.get("playlist_id", [""])[0])
-                raw_en = b.get("enabled") if "enabled" in b else qs.get("enabled", ["true"])[0]
-                enabled = raw_en if isinstance(raw_en, bool) else str(raw_en).lower() == "true"
-                raw_play = b.get("play_now") if "play_now" in b else True
-                play_now = raw_play if isinstance(raw_play, bool) else str(raw_play).lower() == "true"
-                result = await self.set_native_playlist_mix(pid, enabled=enabled, play_now=play_now)
-                await self._send_json(writer, 200, result)
-            elif path == "/api/gamepad/poll" and method == "GET":
-                result = await self.poll_gamepad_events()
-                await self._send_json(writer, 200, result)
-            elif path == "/api/gamepad/push" and method == "POST":
-                b = body_json or {}
-                raw_ev = b.get("events") if "events" in b else b.get("event")
-                result = self.push_gamepad_events(raw_ev or [])
-                await self._send_json(writer, 200, result)
-            elif path == "/api/search" and method == "GET":
-                q = qs.get("q", [""])[0]
-                if not q:
-                    await self._send_json(writer, 400, {"error": "Missing q param"})
-                else:
-                    t = qs.get("type", ["track,artist,album,playlist"])[0]
-                    offset = int(qs.get("offset", [0])[0])
-                    limit = int(qs.get("limit", [50])[0])
-                    result = await self.search_spotify(q, types=t, limit=limit, offset=offset)
-                    await self._send_json(writer, 200, result)
-            elif path == "/api/play" and method == "POST":
-                b = body_json or {}
-                context_uri = b.get("context_uri") or qs.get("context_uri", [None])[0]
-                offset_uri = b.get("offset_uri") or qs.get("offset_uri", [None])[0]
-                uris = b.get("uris")
-                position = b.get("position", 0)
-                result = await self.play_tracks(context_uri, offset_uri, uris, position)
-                await self._send_json(writer, 200, result)
-            # Static files
-            elif path == "/" or path == "/index.html":
-                await self._serve_static(writer, "index.html")
-            elif path.startswith("/assets/"):
-                await self._serve_static(writer, path.lstrip("/"))
-            else:
-                # SPA fallback: serve index.html for non-API, non-asset paths
-                await self._serve_static(writer, "index.html")
-        except asyncio.TimeoutError:
-            try:
-                writer.close()
-            except Exception:  # pragma: no cover
-                pass
-        except Exception as e:
-            decky.logger.error("Dashboard request error: %s", e)
-            try:
-                await self._send_json(writer, 500, {"error": str(e)})
-            except Exception:  # pragma: no cover
-                pass
-
-    async def _serve_image(self, writer: asyncio.StreamWriter, url: str):
-        try:
-            content_type, body = await _exec(_fetch_spotify_image, url)
-        except ValueError as error:
-            await self._send_json(writer, 400, {"error": str(error)})
-            return
-        except Exception as error:
-            decky.logger.warning("Cover image download failed: %s", error)
-            await self._send_json(writer, 502, {"error": "Cover image is unavailable"})
-            return
-        header = (
-            "HTTP/1.1 200 OK\r\n"
-            f"Content-Type: {content_type}\r\nContent-Length: {len(body)}\r\n"
-            "Cache-Control: public, max-age=86400\r\n"
-            "Connection: close\r\n\r\n"
-        )
-        writer.write(header.encode() + body)
-        await writer.drain()
-        writer.close()
-
-    def _get_status_dict(self) -> dict:
-        running = self._is_engine_running()
-        is_playing = self._poll_play_state == "playing"
-
-        # Estimate position from last event
-        position_ms = 0
-        if self._last_event:
-            position_ms = self._last_event.get("position_ms", 0)
-
-        return {
-            "authenticated": self._access_token is not None,
-            "librespot_running": running,
-            "audio_backend": self._settings.get("audio_backend", "librespot"),
-            "audio_quality": self._settings.get("audio_quality", "320"),
-            "audio_stream_info": self._audio_stream_info,
-            "play_state": self._poll_play_state,
-            "track": self._track_meta,
-            "position_ms": position_ms,
-            "is_playing": is_playing,
-            "volume": self._poll_volume,
-            "shuffle_state": self._shuffle_state,
-            "repeat_state": self._repeat_state,
-            "is_liked": self._is_liked,
-            "context_uri": self._context_uri,
-            "active_device": self._active_device,
-            "engine_settings": {
-                "audio_backend": self._settings.get("audio_backend", "librespot"),
-                "audio_quality": self._settings.get("audio_quality", "320"),
-                "bitrate": self._settings.get("bitrate", 320),
-                "bit_perfect_clock": self._settings.get("bit_perfect_clock", True),
-                "normalisation": self._settings.get("normalisation", True),
-                "gapless": self._settings.get("gapless", True),
-                "autoplay": self._settings.get("autoplay", True),
-            },
-        }
-
-    async def _api_status(self, writer: asyncio.StreamWriter):
-        data = self._get_status_dict()
-        await self._send_json(writer, 200, data)
-
-    async def _serve_sse_events(self, writer: asyncio.StreamWriter):
-        header = (
-            "HTTP/1.1 200 OK\r\n"
-            "Content-Type: text/event-stream\r\n"
-            "Cache-Control: no-cache\r\n"
-            "Connection: keep-alive\r\n"
-            "Access-Control-Allow-Origin: *\r\n\r\n"
-        )
-        writer.write(header.encode("utf-8"))
-        await writer.drain()
-        if not hasattr(self, "_sse") or not self._sse:
-            self._sse = SSEManager()
-        await self._sse.add_client(writer, initial_data=self._get_status_dict())
-
-    async def _broadcast_status_sse(self):
-        if hasattr(self, "_sse") and self._sse:
-            try:
-                data = self._get_status_dict()
-                await self._sse.broadcast("status", data)
-            except Exception:
-                pass
-
-    async def _send_json(self, writer: asyncio.StreamWriter, status: int, data: dict):
-        reason = {200: "OK", 204: "No Content", 400: "Bad Request", 404: "Not Found", 500: "Internal Server Error", 502: "Bad Gateway"}.get(status, "OK")
-        body = json.dumps(data).encode()
-        header = f"HTTP/1.1 {status} {reason}\r\nContent-Type: application/json\r\nContent-Length: {len(body)}\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n"
-        writer.write(header.encode() + body)
-        await writer.drain()
-        writer.close()
-
-    async def _serve_static(self, writer: asyncio.StreamWriter, rel_path: str):
-        file_path = os.path.join(DASHBOARD_DIR, rel_path)
-        # Path traversal check
-        if not os.path.abspath(file_path).startswith(os.path.abspath(DASHBOARD_DIR)):
-            await self._send_json(writer, 403, {"error": "Forbidden"})
-            return
-        if not os.path.isfile(file_path):
-            await self._send_json(writer, 404, {"error": "Not found"})
-            return
-
-        mime_map = {
-            ".html": "text/html; charset=utf-8",
-            ".js": "application/javascript",
-            ".css": "text/css",
-            ".svg": "image/svg+xml",
-            ".png": "image/png",
-            ".ico": "image/x-icon",
-            ".json": "application/json",
-        }
-        ext = os.path.splitext(file_path)[1]
-        content_type = mime_map.get(ext, "application/octet-stream")
-
-        loop = asyncio.get_event_loop()
-        body = await loop.run_in_executor(None, self._read_file, file_path)
-        cache = (
-            "Cache-Control: public, max-age=31536000, immutable\r\n"
-            if rel_path.startswith("assets/")
-            else "Cache-Control: no-cache, no-store, must-revalidate\r\nPragma: no-cache\r\nExpires: 0\r\n"
-        )
-        header = f"HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {len(body)}\r\n{cache}Connection: close\r\n\r\n"
-        writer.write(header.encode() + body)
-        await writer.drain()
-        writer.close()
-
-    @staticmethod
-    def _read_file(path: str) -> bytes:
-        with open(path, "rb") as f:
-            return f.read()
 
     # ── Internal helpers ───────────────────────────────────────
 
@@ -2871,11 +2440,16 @@ class Plugin:
                 album_name = album.get("name", "")
                 images = album.get("images") or []
             artwork_url = _image_url(images)
+            artist_id = (item.get("artists") or [{}])[0].get("id", "") if item.get("type") != "episode" else ""
+            album_id = (item.get("album") or {}).get("id", "") if item.get("type") != "episode" else ""
             meta = {
                 "track_id": track_id,
+                "id": track_id,
                 "name": item.get("name", "Unknown"),
                 "artist": artist,
                 "album": album_name,
+                "artist_id": artist_id,
+                "album_id": album_id,
                 "artwork_url": artwork_url,
                 "image_url": artwork_url,
                 "duration_ms": duration_ms,

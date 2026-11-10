@@ -36,23 +36,23 @@
 需要在 Steam Deck 上预先安装 [Decky Loader](https://github.com/SteamDeckHomebrew/decky-loader)。
 
 ```bash
-curl -fsSL https://deckify.advinn.co/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/Siroopfles/Deckify/main/install.sh | sh
 ```
 
-同一命令也可将现有安装更新至[最新发布版本](https://github.com/adv-inn/Deckify/releases/latest)，并保留配置和登录信息。
+同一命令也可将现有安装更新至[最新发布版本](https://github.com/Siroopfles/Deckify/releases/latest)，并保留配置和登录信息。
 
 ## 卸载
 
 移除插件并保留配置和数据，方便重新安装：
 
 ```bash
-curl -fsSL https://deckify.advinn.co/uninstall.sh | sh
+curl -fsSL https://raw.githubusercontent.com/Siroopfles/Deckify/main/uninstall.sh | sh
 ```
 
 如需同时删除登录信息、配置、缓存、证书和日志（含旧版存储位置），可选择添加 `--purge`：
 
 ```bash
-curl -fsSL https://deckify.advinn.co/uninstall.sh | sh -s -- --purge
+curl -fsSL https://raw.githubusercontent.com/Siroopfles/Deckify/main/uninstall.sh | sh -s -- --purge
 ```
 
 插件已移除后，仍可使用 `--purge` 清理本机 Deckify 数据。两种卸载模式执行时都会短暂停止并重新启动 Decky Loader。
@@ -89,15 +89,16 @@ curl -fsSL https://deckify.advinn.co/uninstall.sh | sh -s -- --purge
 
 ```bash
 pnpm i
-pnpm run build    # 构建插件前端 + 仪表盘
+pnpm run build    # 构建原生插件包 (dist/index.js)
 ```
 
 ### 检查
 
 ```bash
-python -m unittest discover -s tests -v
+python3 -m unittest discover -s tests -v
 pnpm run typecheck
 pnpm run lint
+pnpm test
 ```
 
 卸载测试使用模拟的特权命令，不会删除已安装的插件或其数据。

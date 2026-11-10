@@ -4,20 +4,32 @@ import os
 import ssl
 
 try:
+    import pwd
+except ImportError:
+    pwd = None
+
+async def _async_noop(*a, **k):
+    pass
+
+try:
     import decky
 except ImportError:
+    import tempfile
     from types import SimpleNamespace
+    _default_settings_dir = "/home/deck/homebrew/settings/Deckify" if os.path.isdir("/home/deck/homebrew/settings/Deckify") else tempfile.gettempdir()
+    _default_plugin_dir = "/home/deck/homebrew/plugins/Deckify" if os.path.isdir("/home/deck/homebrew/plugins/Deckify") else tempfile.gettempdir()
+    _default_runtime_dir = "/home/deck/homebrew/data/Deckify" if os.path.isdir("/home/deck/homebrew/data/Deckify") else tempfile.gettempdir()
     decky = SimpleNamespace(
-        DECKY_PLUGIN_SETTINGS_DIR="/tmp",
-        DECKY_PLUGIN_DIR="/tmp",
-        DECKY_PLUGIN_RUNTIME_DIR="/tmp",
+        DECKY_PLUGIN_SETTINGS_DIR=_default_settings_dir,
+        DECKY_PLUGIN_DIR=_default_plugin_dir,
+        DECKY_PLUGIN_RUNTIME_DIR=_default_runtime_dir,
         logger=SimpleNamespace(
             info=lambda *a, **k: None,
             warning=lambda *a, **k: None,
             error=lambda *a, **k: None,
             debug=lambda *a, **k: None,
         ),
-        emit=lambda *a, **k: None,
+        emit=_async_noop,
     )
 
 # Decky Loader (PyInstaller) injects LD_LIBRARY_PATH pointing to its bundled
@@ -39,10 +51,19 @@ VALID_SPOTIFY_CLIENT_QUALITIES = ("96", "160", "320", "lossless")
 
 SPOTIFY_FLATPAK_ID = "com.spotify.Client"
 SPOTIFY_CDP_PORT = 9229
-STEAM_CEF_PORT = 8080
-DECK_USER = "deck"
+
+# Dynamic Linux user and UID resolution
+DECK_USER = getattr(decky, "DECKY_USER", None) or os.environ.get("USER", "deck")
 DECK_UID = 1000
-DECK_HOME = "/home/deck"
+DECK_HOME = getattr(decky, "DECKY_USER_HOME", f"/home/{DECK_USER}")
+if pwd:
+    try:
+        _pw = pwd.getpwnam(DECK_USER)
+        DECK_UID = _pw.pw_uid
+        DECK_HOME = _pw.pw_dir
+    except Exception:
+        pass
+
 SPOTIFY_CLIENT_CONFIG_DIR = os.path.join(DECK_HOME, ".var", "app", SPOTIFY_FLATPAK_ID, "config", "spotify")
 SPOTIFY_CLIENT_CACHE_DIR = os.path.join(DECK_HOME, ".var", "app", SPOTIFY_FLATPAK_ID, "cache", "spotify")
 
@@ -67,12 +88,13 @@ DEFAULT_SETTINGS = {
     "toast_position": "top_right",
     "overlay_enabled": False,
     "overlay_position": "top-right",
+    "eq_preset": "flat",
 }
 
-# PulseAudio socket for root processes (deck user UID 1000)
-PULSE_SERVER = "unix:/run/user/1000/pulse/native"
-DBUS_SESSION_BUS_ADDRESS = "unix:path=/run/user/1000/bus"
-XDG_RUNTIME_DIR = "/run/user/1000"
+# PulseAudio socket for processes
+PULSE_SERVER = f"unix:/run/user/{DECK_UID}/pulse/native"
+DBUS_SESSION_BUS_ADDRESS = f"unix:path=/run/user/{DECK_UID}/bus"
+XDG_RUNTIME_DIR = f"/run/user/{DECK_UID}"
 
 SPOTIFY_AUTH_URL = "https://accounts.spotify.com/authorize"
 SPOTIFY_TOKEN_URL = "https://accounts.spotify.com/api/token"
@@ -85,8 +107,6 @@ SPOTIFY_SCOPES = (
 )
 CURRENT_SCOPES_VERSION = 6
 OAUTH_SERVER_PORT = 39281
-DASHBOARD_PORT = 39282
-DASHBOARD_DIR = os.path.join(decky.DECKY_PLUGIN_DIR, "dashboard", "dist")
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
 
 _API_SSL_CTX: ssl.SSLContext | None = None
@@ -132,6 +152,8 @@ def _load_settings(settings_file: str | None = None) -> dict:
             merged["overlay_enabled"] = bool(merged.get("overlay_enabled", False))
         if merged.get("overlay_position") not in ("top-left", "top-right", "bottom-left", "bottom-right"):
             merged["overlay_position"] = "top-right"
+        if merged.get("eq_preset") not in ("flat", "bass", "vocal", "gaming"):
+            merged["eq_preset"] = "flat"
         return merged
     except Exception:
         return dict(default_settings)
@@ -147,8 +169,9 @@ def _save_settings(settings: dict, settings_file: str | None = None) -> None:
 async def _exec(fn, *args, timeout=10):
     """Run blocking I/O in executor with asyncio-level timeout (covers DNS)."""
     try:
+        loop = asyncio.get_running_loop()
         return await asyncio.wait_for(
-            asyncio.get_event_loop().run_in_executor(None, fn, *args),
+            loop.run_in_executor(None, fn, *args),
             timeout=timeout,
         )
     except asyncio.TimeoutError:
@@ -156,7 +179,7 @@ async def _exec(fn, *args, timeout=10):
 
 
 def _build_deck_command(cmd: list[str], extra_env: dict | None = None) -> tuple[list[str], dict]:
-    """Ensure user-level graphical/audio processes run as user `deck` (UID 1000) even when Decky runs as root."""
+    """Ensure user-level graphical/audio processes run as user `DECK_USER` (dynamic UID) even when Decky runs as root."""
     env = os.environ.copy()
     env["XDG_RUNTIME_DIR"] = XDG_RUNTIME_DIR
     env["DBUS_SESSION_BUS_ADDRESS"] = DBUS_SESSION_BUS_ADDRESS
