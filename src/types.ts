@@ -1,6 +1,35 @@
 export type AudioBackend = "librespot" | "spotify_client";
 export type AudioQuality = "96" | "160" | "320" | "lossless";
 
+export type ViewMode =
+  | "now_playing"
+  | "lyrics"
+  | "playlists"
+  | "liked"
+  | "albums"
+  | "artists"
+  | "recent"
+  | "episodes"
+  | "search"
+  | "queue"
+  | "devices"
+  | "engine";
+
+export const ALL_MODES: ViewMode[] = [
+  "now_playing",
+  "lyrics",
+  "playlists",
+  "liked",
+  "albums",
+  "artists",
+  "recent",
+  "episodes",
+  "search",
+  "queue",
+  "devices",
+  "engine",
+];
+
 export type LyricsSource = "Spotify" | "LRCLIB" | "NetEase" | "Musixmatch" | "Lyrics.ovh";
 export type EqualizerPreset = "flat" | "bass" | "vocal" | "gaming";
 

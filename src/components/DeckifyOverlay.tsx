@@ -1,6 +1,6 @@
 import { FC } from "react";
 import { FaMusic, FaPlay, FaPause } from "react-icons/fa";
-import { DeckifyImage } from "./DeckifyExpandedModal";
+import { DeckifyImage } from "./common/DeckifyImage";
 
 export interface OverlayTrack {
   name?: string;
