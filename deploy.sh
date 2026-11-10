@@ -86,7 +86,7 @@ run_scp() {
 # ── Create remote plugin dir ─────────────────────────────────
 echo ""
 echo "--- Creating remote directory ---"
-run_ssh "sudo mkdir -p '${REMOTE_PLUGIN_DIR}/bin' '${REMOTE_PLUGIN_DIR}/dist' '${REMOTE_PLUGIN_DIR}/dashboard/dist/assets' && sudo chown -R deck:deck '${REMOTE_PLUGIN_DIR}'"
+run_ssh "sudo mkdir -p '${REMOTE_PLUGIN_DIR}/bin' '${REMOTE_PLUGIN_DIR}/dist' '${REMOTE_PLUGIN_DIR}/py_modules' '${REMOTE_PLUGIN_DIR}/dashboard/dist/assets' && sudo chown -R deck:deck '${REMOTE_PLUGIN_DIR}'"
 
 # ── Deploy plugin files via scp ──────────────────────────────
 echo ""
@@ -96,6 +96,9 @@ if ! $DASHBOARD_ONLY; then
     # Core plugin files
     run_scp "${SCRIPT_DIR}/main.py" "${SCRIPT_DIR}/package.json" \
         "${REMOTE}:${REMOTE_PLUGIN_DIR}/"
+
+    # Python backend modules
+    run_scp -r "${SCRIPT_DIR}/py_modules" "${REMOTE}:${REMOTE_PLUGIN_DIR}/"
 
     # plugin.json may be owned by root after plugin_loader restart; ignore errors
     run_scp "${SCRIPT_DIR}/plugin.json" "${REMOTE}:${REMOTE_PLUGIN_DIR}/" 2>/dev/null || \

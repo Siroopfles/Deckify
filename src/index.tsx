@@ -114,6 +114,8 @@ interface Settings {
   auto_ducking_volume?: number;
   gamepad_chords_enabled?: boolean;
   toast_enabled?: boolean;
+  overlay_enabled?: boolean;
+  overlay_position?: "top-left" | "top-right" | "bottom-left" | "bottom-right";
 }
 
 interface LibrespotEvent {
@@ -1304,6 +1306,14 @@ const Content: FC = () => {
             onChange={(checked) => handleSettingChange("gamepad_chords_enabled", checked)}
           />
         </PanelSectionRow>
+        <PanelSectionRow>
+          <ToggleField
+            label="In-Game HUD Overlay"
+            description="Display an on-screen mini player overlay while playing games."
+            checked={settings.overlay_enabled ?? false}
+            onChange={(checked) => handleSettingChange("overlay_enabled", checked)}
+          />
+        </PanelSectionRow>
       </PanelSection>
 
       <PanelSection title="Settings">
@@ -1436,11 +1446,16 @@ export default definePlugin(() => {
     try {
       const curStatus = await backendGetStatus().catch(() => null);
       if (curStatus?.settings?.toast_enabled === false) return;
+      const artwork = meta.artwork_url || meta.image_url;
       toaster.toast({
         title: meta.name,
         body: meta.artist ? `${meta.artist}` : "Deckify",
         duration: 3500,
-        logo: <FaSpotify color="#1db954" />,
+        logo: artwork ? (
+          <img src={artwork} width={28} height={28} style={{ borderRadius: 4, objectFit: "cover" }} />
+        ) : (
+          <FaSpotify color="#1db954" />
+        ),
       });
     } catch {}
   });

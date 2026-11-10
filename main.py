@@ -108,6 +108,10 @@ def _load_settings() -> dict:
             merged["spotify_folder_tree"] = []
         if not isinstance(merged.get("game_audio_profiles"), dict):
             merged["game_audio_profiles"] = {}
+        if not isinstance(merged.get("overlay_enabled"), bool):
+            merged["overlay_enabled"] = bool(merged.get("overlay_enabled", False))
+        if merged.get("overlay_position") not in ("top-left", "top-right", "bottom-left", "bottom-right"):
+            merged["overlay_position"] = "top-right"
         return merged
     except Exception:
         return dict(DEFAULT_SETTINGS)
@@ -161,6 +165,12 @@ class Plugin:
     _gamepad_queue: list[str] = []
     _last_gamepad_poll: float = 0.0
     _steam_gamepad_bridge_task: asyncio.Task | None = None
+
+    def __init__(self):
+        self._gamepad_queue = []
+        self._js_fds = {}
+        self._js_axis_state = {}
+        self._crash_timestamps = []
 
     # ── Lifecycle ──────────────────────────────────────────────
 
@@ -353,7 +363,7 @@ class Plugin:
         }})()
         """
         try:
-            await _exec(_cdp_evaluate, expr, SPOTIFY_CDP_PORT, 4.0, timeout=5)
+            await _exec(_cdp_evaluate, expr, SPOTIFY_CDP_PORT, None, 4.0, timeout=5)
         except Exception as e:
             decky.logger.debug("CDP quality sync failed: %s", e)
 
@@ -595,8 +605,14 @@ class Plugin:
             value = bval
             self._settings["audio_quality"] = str(bval)
             quality_changed = True
-        elif key in ("normalisation", "gapless", "autoplay", "bit_perfect_clock"):
+        elif key in ("normalisation", "gapless", "autoplay", "bit_perfect_clock", "overlay_enabled"):
             value = bool(value)
+        elif key == "overlay_position":
+            valid_positions = {"top-left", "top-right", "bottom-left", "bottom-right"}
+            pos = str(value).strip().lower().replace("_", "-")
+            if pos not in valid_positions:
+                return {"ok": False, "error": f"Invalid overlay_position: {value}"}
+            value = pos
         elif key == "normalisation_pregain":
             try:
                 value = max(-10.0, min(10.0, float(value)))
@@ -931,19 +947,28 @@ class Plugin:
             decky.logger.error("get_playlists failed: %s", e)
             return {"ok": False, "error": str(e)}
 
-    async def get_playlist_tracks(self, playlist_id: str, offset: int = 0, fetch_all: bool = True) -> dict:
+    async def get_playlist_tracks(
+        self,
+        playlist_id: str,
+        offset: int = 0,
+        fetch_all: bool = False,
+        limit: int = 50,
+    ) -> dict:
+        if not playlist_id or not str(playlist_id).strip():
+            return {"ok": False, "error": "Missing playlist_id"}
         token = await self._ensure_token()
         if not token:
             return {"ok": False, "error": "Not authenticated"}
         try:
             tracks = []
-            cur_offset = offset
+            cur_offset = max(0, int(offset))
+            req_limit = 100 if fetch_all else max(1, min(int(limit), 100))
             total = 0
             while True:
                 data = await _exec(
                     _spotify_api_request,
                     f"playlists/{playlist_id}/items", token, "GET",
-                    {"limit": 100, "offset": cur_offset},
+                    {"limit": req_limit, "offset": cur_offset},
                 )
                 items = data.get("items", []) if data else []
                 total = data.get("total", 0) if data else 0
@@ -968,7 +993,10 @@ class Plugin:
                 if not fetch_all or not items or len(tracks) >= total or len(tracks) >= 1000:
                     break
 
-            await self._annotate_tracks_liked(token, tracks)
+            try:
+                await self._annotate_tracks_liked(token, tracks)
+            except Exception as ex:
+                decky.logger.warning("Failed to annotate tracks liked: %s", ex)
             return {"ok": True, "tracks": tracks, "total": total, "offset": offset}
         except Exception as e:
             decky.logger.error("get_playlist_tracks failed: %s", e)
@@ -1112,21 +1140,33 @@ class Plugin:
 
     async def set_native_playlist_mix(self, playlist_id: str, enabled: bool = True, play_now: bool = True) -> dict:
         """Toggle native Spotify playlist mixing via Official Spotify Client CDP PlaylistMixingAPI."""
-        if self._settings.get("audio_backend") != "spotify_client":
-            return {"ok": False, "error": "Native Spotify Mix requires the Official Spotify Client backend"}
         pid = (playlist_id or "").strip()
         if pid.startswith("spotify:playlist:"):
             pid = pid.split(":")[-1]
         if not pid:
             return {"ok": False, "error": "Missing playlist_id"}
         uri = f"spotify:playlist:{pid}"
+
+        # Handle librespot, web player, or non-spotify_client backend
+        is_librespot_running = bool(self._process and self._process.poll() is None)
+        active_type = (self._active_device.get("type") or "").lower() if hasattr(self, "_active_device") and self._active_device else ""
+        is_web_player = active_type in ("webplayer", "web_player")
+
+        if self._settings.get("audio_backend") != "spotify_client" or is_librespot_running or is_web_player:
+            if play_now:
+                try:
+                    await self.play_tracks(context_uri=uri)
+                except Exception as ex:
+                    decky.logger.warning("Playback fallback for playlist mix failed: %s", ex)
+            return {"ok": False, "error": "Native Spotify Mix requires the Official Spotify Client backend"}
+
         enabled_js = "true" if enabled else "false"
         play_js = "true" if play_now else "false"
         expr = f"""
         (async () => {{
           const mainEl = document.getElementById('main');
           if (!mainEl) return {{ ok: false, error: 'Spotify UI not ready' }};
-          const rk = Object.keys(mainEl).find(k => k.startsWith('__reactContainer'));
+          const rk = Object.keys(mainEl).find(k => k.startsWith('__reactContainer') || k.startsWith('__reactFiber'));
           const q = [mainEl[rk]];
           const visited = new Set();
           let reg = null;
@@ -1173,7 +1213,7 @@ class Plugin:
         }})()
         """
         try:
-            res = await _exec(_cdp_evaluate, expr, SPOTIFY_CDP_PORT, 6.0, timeout=7)
+            res = await _exec(_cdp_evaluate, expr, SPOTIFY_CDP_PORT, None, 6.0, timeout=7)
             if isinstance(res, dict) and res.get("ok"):
                 # Update cached folder tree is_mixed state if present
                 def _update_mixed(nodes: list[dict]) -> None:
@@ -1219,24 +1259,35 @@ class Plugin:
             await asyncio.sleep(6)
 
     def push_gamepad_events(self, events: list[str] | str) -> dict:
-        """Push gamepad button events into the internal queue for Dashboard consumption."""
+        """Push gamepad button events into internal queue and broadcast to SSE subscribers."""
         if isinstance(events, str):
             events = [events]
-        count = 0
         valid_actions = {
             "a", "b", "x", "y", "lb", "rb", "lt", "rt",
             "up", "down", "left", "right", "select", "start",
         }
+        valid_events: list[str] = []
         for ev in events:
             if isinstance(ev, str):
                 norm = ev.strip().lower()
                 if norm in valid_actions:
                     self._gamepad_queue.append(norm)
-                    count += 1
+                    valid_events.append(norm)
         # Cap queue length to avoid unbounded growth if unpolled
         if len(self._gamepad_queue) > 100:
             del self._gamepad_queue[:-100]
-        return {"ok": True, "pushed": count, "queued": len(self._gamepad_queue)}
+
+        # Direct real-time broadcast to connected dashboards via SSE (R2)
+        if valid_events and hasattr(self, "_sse") and self._sse:
+            try:
+                loop = asyncio.get_running_loop()
+                coro = self._sse.broadcast("gamepad", {"events": valid_events})
+                if asyncio.iscoroutine(coro):
+                    loop.create_task(coro)
+            except RuntimeError:
+                pass
+
+        return {"ok": True, "pushed": len(valid_events), "queued": len(self._gamepad_queue)}
 
     async def push_gamepad_event(self, event: str | list[str]) -> dict:
         """Callable exposed to Decky frontend in SharedJSContext."""
@@ -1740,14 +1791,24 @@ class Plugin:
             decky.logger.error("get_recently_played failed: %s", e)
             return {"ok": False, "error": str(e)}
 
-    async def search_spotify(self, query: str, types: str = "track,artist,album,playlist", offset: int = 0) -> dict:
+    async def search_spotify(
+        self,
+        query: str,
+        types: str = "track,artist,album,playlist",
+        limit: int = 50,
+        offset: int = 0,
+    ) -> dict:
+        if not query or not str(query).strip():
+            return {"ok": True, "tracks": [], "artists": [], "albums": [], "playlists": []}
         token = await self._ensure_token()
         if not token:
             return {"ok": False, "error": "Not authenticated"}
         try:
+            final_limit = 50 if limit <= 0 else max(1, min(int(limit), 50))
+            final_offset = max(0, int(offset))
             data = await _exec(
                 _spotify_api_request, "search", token, "GET",
-                {"q": query, "type": types, "limit": 10, "offset": offset},
+                {"q": query, "type": types, "limit": final_limit, "offset": final_offset},
             )
             if not data:
                 return {"ok": True, "tracks": [], "artists": [], "albums": [], "playlists": []}
@@ -1765,9 +1826,11 @@ class Plugin:
             artists_out = []
             for a in data.get("artists", {}).get("items", []):
                 images = a.get("images") or []
+                raw_img = images[0].get("url") if images and isinstance(images, list) and isinstance(images[0], dict) else None
                 artists_out.append({
                     "id": a["id"], "name": a.get("name", ""),
-                    "image_url": _image_url(images),
+                    "uri": a.get("uri", f"spotify:artist:{a['id']}"),
+                    "image_url": _image_url(images) or raw_img,
                 })
             albums_out = []
             for a in data.get("albums", {}).get("items", []):
@@ -1830,24 +1893,11 @@ class Plugin:
             return {"ok": False, "error": str(e)}
 
     async def get_lyrics(self, track_name: str, artist_name: str, duration_sec: int = 0) -> dict:
-        """Fetch synchronized or plain lyrics from LRCLIB."""
-        def _fetch():
-            params = {"track_name": track_name, "artist_name": artist_name}
-            if duration_sec > 0:
-                params["duration"] = duration_sec
-            qs = urllib.parse.urlencode(params)
-            url = f"https://lrclib.net/api/get?{qs}"
-            req = urllib.request.Request(url, headers={"User-Agent": "Deckify/0.4.2 (SteamDeck; DeckyLoader)"})
-            with urllib.request.urlopen(req, timeout=5) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-                return {
-                    "ok": True,
-                    "synced_lyrics": data.get("syncedLyrics"),
-                    "plain_lyrics": data.get("plainLyrics"),
-                }
+        """Fetch synchronized or plain lyrics from LRCLIB with sanitization and search fallback."""
         try:
-            return await _exec(_fetch, timeout=6)
+            return await _exec(_fetch_lyrics_sync, track_name, artist_name, duration_sec, timeout=10)
         except Exception as e:
+            decky.logger.warning("get_lyrics failed: %s", e)
             return {"ok": False, "error": str(e)}
 
     async def shutdown_system(self) -> dict:
@@ -1860,10 +1910,20 @@ class Plugin:
         except Exception as e:
             return {"ok": False, "error": str(e)}
 
-    async def play_tracks(self, context_uri: str | None = None, offset_uri: str | None = None, uris: list | None = None, position: int = 0) -> dict:
+    async def play_tracks(
+        self,
+        context_uri: str | None = None,
+        offset_uri: str | None = None,
+        uris: list | None = None,
+        position: int = 0,
+    ) -> dict:
         token = await self._ensure_token()
         if not token:
             return {"ok": False, "error": "Not authenticated"}
+        # Handle flexible argument ordering if uris passed in place of offset_uri
+        if isinstance(offset_uri, list):
+            uris, offset_uri = offset_uri, None
+
         body = {}
         if context_uri:
             body["context_uri"] = context_uri
@@ -1874,6 +1934,8 @@ class Plugin:
             body["uris"] = uris
             if position > 0:
                 body["offset"] = {"position": position}
+        elif offset_uri and str(offset_uri).strip():
+            body["uris"] = [str(offset_uri).strip()]
         try:
             await _exec(
                 _spotify_api_request, "me/player/play", token, "PUT", None, body,
@@ -2063,7 +2125,11 @@ class Plugin:
             elif path.startswith("/api/playlists/") and path.endswith("/tracks") and method == "GET":
                 playlist_id = path.split("/")[3]
                 offset = int(qs.get("offset", [0])[0])
-                result = await self.get_playlist_tracks(playlist_id, offset)
+                if "limit" in qs:
+                    limit = int(qs.get("limit", [50])[0])
+                    result = await self.get_playlist_tracks(playlist_id, offset, fetch_all=False, limit=limit)
+                else:
+                    result = await self.get_playlist_tracks(playlist_id, offset)
                 await self._send_json(writer, 200, result)
             elif path == "/api/playlist/add-item" and method == "POST":
                 b = body_json or {}
@@ -2223,8 +2289,10 @@ class Plugin:
                 if not q:
                     await self._send_json(writer, 400, {"error": "Missing q param"})
                 else:
+                    t = qs.get("type", ["track,artist,album,playlist"])[0]
                     offset = int(qs.get("offset", [0])[0])
-                    result = await self.search_spotify(q, offset=offset)
+                    limit = int(qs.get("limit", [50])[0])
+                    result = await self.search_spotify(q, types=t, limit=limit, offset=offset)
                     await self._send_json(writer, 200, result)
             elif path == "/api/play" and method == "POST":
                 b = body_json or {}

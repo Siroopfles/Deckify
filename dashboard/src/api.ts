@@ -68,7 +68,8 @@ export async function fetchStatus(): Promise<StatusResponse> {
 
 export function subscribeToEvents(
   onStatus: (status: StatusResponse) => void,
-  onError?: (err: any) => void
+  onError?: (err: any) => void,
+  onGamepad?: (events: string[]) => void
 ): () => void {
   try {
     const es = new EventSource("/api/events");
@@ -78,6 +79,16 @@ export function subscribeToEvents(
         onStatus(data);
       } catch (err) {
         console.warn("Failed to parse SSE status data", err);
+      }
+    });
+    es.addEventListener("gamepad", (e: MessageEvent) => {
+      try {
+        const data = JSON.parse(e.data);
+        if (onGamepad && Array.isArray(data.events)) {
+          onGamepad(data.events);
+        }
+      } catch (err) {
+        console.warn("Failed to parse SSE gamepad data", err);
       }
     });
     es.onerror = (err) => {

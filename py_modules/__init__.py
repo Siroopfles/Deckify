@@ -53,6 +53,8 @@ from py_modules.spotify import (
     _parse_spotify_error,
     _parse_spotify_rootlist_folders,
     _fetch_lyrics_sync,
+    _sanitize_track_title,
+    _clear_lyrics_cache,
 )
 from py_modules.engine import (
     _update_spotify_prefs_content,
@@ -122,6 +124,8 @@ __all__ = [
     "_parse_spotify_error",
     "_parse_spotify_rootlist_folders",
     "_fetch_lyrics_sync",
+    "_sanitize_track_title",
+    "_clear_lyrics_cache",
     "_update_spotify_prefs_content",
     "_parse_pactl_sink_inputs",
     "_cdp_get_page_target",

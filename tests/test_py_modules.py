@@ -222,6 +222,114 @@ class PyModulesSpotifyTests(unittest.TestCase):
         self.assertIn("Line 1", res["synced_lyrics"])
         self.assertEqual(res["plain_lyrics"], "Line 1\nLine 2")
 
+    def test_sanitize_track_title(self):
+        """Test regex sanitization on common Spotify metadata noise strings."""
+        cases = [
+            ("Hotel California - 2013 Remaster", "Hotel California"),
+            ("Comfortably Numb - 2011 Remastered Version", "Comfortably Numb"),
+            ("In the End (Remastered)", "In the End"),
+            ("Yesterday (Remastered 2009)", "Yesterday"),
+            ("Time [2011 Remaster]", "Time"),
+            ("Empire State of Mind (feat. Alicia Keys)", "Empire State of Mind"),
+            ("Starboy [feat. Daft Punk]", "Starboy"),
+            ("Levitating (featuring Daft Punk)", "Levitating"),
+            ("Industry Baby (ft. Jack Harlow)", "Industry Baby"),
+            ("Song Title - feat. Artist", "Song Title"),
+            ("Song Title (Deluxe Edition)", "Song Title"),
+            ("Song Title - Deluxe Edition", "Song Title"),
+            ("Song Title (Live at Wembley)", "Song Title"),
+            ("Song Title - Live at the BBC", "Song Title"),
+            ("Song Title (Radio Edit)", "Song Title"),
+            ("Song Title - Single Version", "Song Title"),
+            ("Good Riddance (Time of Your Life)", "Good Riddance (Time of Your Life)"),
+            ("(Don't Fear) The Reaper", "(Don't Fear) The Reaper"),
+            ("Song Title - 2020 Remastered", "Song Title"),
+            ("Song Title (Anniversary Edition)", "Song Title"),
+            ("Song Title - Bonus Track", "Song Title"),
+        ]
+        for raw, expected in cases:
+            self.assertEqual(spotify._sanitize_track_title(raw), expected, f"Failed on {raw}")
+
+    @patch("urllib.request.urlopen")
+    def test_fetch_lyrics_sync_fallback_tiers(self, mock_urlopen):
+        """Verify fallback from Tier 1 (404) to Tier 2 and Tier 3 search."""
+        spotify._clear_lyrics_cache()
+
+        req_count = 0
+        def fake_urlopen(req, timeout=3.5, context=None):
+            nonlocal req_count
+            req_count += 1
+            url = req.full_url if hasattr(req, "full_url") else req.get_full_url()
+            if "duration=180" in url:
+                raise HTTPError(url, 404, "Not Found", {}, None)
+            mock_resp = MagicMock()
+            mock_resp.read.return_value = json.dumps({
+                "syncedLyrics": "[00:10.00] Fallback line",
+                "plainLyrics": "Fallback line",
+            }).encode("utf-8")
+            mock_resp.__enter__.return_value = mock_resp
+            return mock_resp
+
+        mock_urlopen.side_effect = fake_urlopen
+        res = spotify._fetch_lyrics_sync("Song (Remastered)", "Artist", duration_sec=180)
+        self.assertTrue(res["ok"])
+        self.assertIn("Fallback line", res["synced_lyrics"])
+        self.assertGreaterEqual(req_count, 2)
+
+    @patch("urllib.request.urlopen")
+    def test_fetch_lyrics_sync_search_q_tier(self, mock_urlopen):
+        """Verify Tier 3 /api/search?q= candidate ranking and selection."""
+        spotify._clear_lyrics_cache()
+
+        def fake_urlopen(req, timeout=3.5, context=None):
+            url = req.full_url if hasattr(req, "full_url") else req.get_full_url()
+            if "/api/get" in url:
+                raise HTTPError(url, 404, "Not Found", {}, None)
+            mock_resp = MagicMock()
+            mock_resp.read.return_value = json.dumps([
+                {
+                    "trackName": "Song (Live)",
+                    "artistName": "Artist",
+                    "duration": 300,
+                    "plainLyrics": "Live plain line",
+                },
+                {
+                    "trackName": "Song",
+                    "artistName": "Artist",
+                    "duration": 182,
+                    "syncedLyrics": "[00:10.00] Studio synced line",
+                    "plainLyrics": "Studio synced line",
+                },
+            ]).encode("utf-8")
+            mock_resp.__enter__.return_value = mock_resp
+            return mock_resp
+
+        mock_urlopen.side_effect = fake_urlopen
+        res = spotify._fetch_lyrics_sync("Song", "Artist", duration_sec=180)
+        self.assertTrue(res["ok"])
+        self.assertIn("Studio synced line", res["synced_lyrics"])
+
+    @patch("urllib.request.urlopen")
+    def test_fetch_lyrics_sync_caching(self, mock_urlopen):
+        """Verify in-memory LRU cache prevents second network request."""
+        spotify._clear_lyrics_cache()
+
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = json.dumps({
+            "syncedLyrics": "[00:05.00] Cached line",
+            "plainLyrics": "Cached line",
+        }).encode("utf-8")
+        mock_resp.__enter__.return_value = mock_resp
+        mock_urlopen.return_value = mock_resp
+
+        res1 = spotify._fetch_lyrics_sync("Cached Track", "Artist", duration_sec=180)
+        self.assertTrue(res1["ok"])
+        self.assertEqual(mock_urlopen.call_count, 1)
+
+        res2 = spotify._fetch_lyrics_sync("Cached Track", "Artist", duration_sec=180)
+        self.assertTrue(res2["ok"])
+        self.assertEqual(mock_urlopen.call_count, 1)
+
 
 class PyModulesDeviceTests(unittest.TestCase):
     def test_resolve_device_hostname(self):
@@ -308,6 +416,19 @@ class PyModulesEngineTests(unittest.TestCase):
             with patch.object(engine, "_cdp_call", return_value={"result": {"value": 42}}):
                 val = engine._cdp_evaluate("1 + 41")
                 self.assertEqual(val, 42)
+
+    def test_cdp_evaluate_positional_timeout_typeguard(self):
+        """Test that _cdp_evaluate treats a float passed as 3rd arg as timeout."""
+        with patch.object(engine, "_cdp_call", return_value={"result": {"value": 123}}) as mock_call:
+            val = engine._cdp_evaluate("expr", 9222, 6.0)
+            self.assertEqual(val, 123)
+            mock_call.assert_called_once_with(
+                "Runtime.evaluate",
+                {"expression": "expr", "awaitPromise": True, "returnByValue": True},
+                port=9222,
+                target_title=None,
+                timeout=6.0,
+            )
 
     def test_cdp_get_page_target(self):
         with patch("urllib.request.urlopen") as mock_open:

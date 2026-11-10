@@ -1,7 +1,7 @@
 import asyncio
 import tempfile
 import unittest
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 from test_token_refresh import main
 
@@ -297,6 +297,30 @@ class DeckifyFeatureTests(unittest.IsolatedAsyncioTestCase):
         allowed = await self.plugin.set_native_playlist_mix("pl_sub", True)
         self.assertTrue(allowed["ok"])
         self.assertTrue(allowed["is_mixed"])
+
+    async def test_set_native_playlist_mix_librespot_triggers_fallback_play(self):
+        """Verify that librespot active state triggers play_tracks fallback when play_now=True."""
+        self.plugin._settings["audio_backend"] = "librespot"
+        with patch.object(self.plugin, "play_tracks", new_callable=AsyncMock) as mock_play:
+            mock_play.return_value = {"ok": True}
+            res = await self.plugin.set_native_playlist_mix("pl_fallback", enabled=True, play_now=True)
+            self.assertFalse(res["ok"])
+            self.assertIn("Official Spotify Client", res["error"])
+            mock_play.assert_awaited_once_with(context_uri="spotify:playlist:pl_fallback")
+
+    async def test_push_gamepad_events_sse_broadcast(self):
+        """Verify that push_gamepad_events broadcasts valid tokens to SSE manager."""
+        self.plugin._sse = MagicMock()
+        mock_coro = AsyncMock()
+        self.plugin._sse.broadcast = MagicMock(return_value=mock_coro())
+
+        res = self.plugin.push_gamepad_events(["a", "b", "invalid"])
+        self.assertTrue(res["ok"])
+        self.assertEqual(res["pushed"], 2)
+        self.plugin._sse.broadcast.assert_called_once_with("gamepad", {"events": ["a", "b"]})
+        # Let task run on current loop
+        await asyncio.sleep(0.01)
+        self.plugin._gamepad_queue.clear()
 
     async def test_poll_gamepad_events_nonblocking(self):
         with patch.object(main.os.path, "exists", return_value=False):

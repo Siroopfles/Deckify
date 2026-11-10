@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
 
-REPO="adv-inn/Deckify"
+REPO="Siroopfles/Deckify"
 PLUGIN_DIR="$HOME/homebrew/plugins"
 INSTALL_DIR="$PLUGIN_DIR/Deckify"
 

@@ -65,6 +65,8 @@ DEFAULT_SETTINGS = {
     "gamepad_chords_enabled": True,
     "toast_enabled": True,
     "toast_position": "top_right",
+    "overlay_enabled": False,
+    "overlay_position": "top-right",
 }
 
 # PulseAudio socket for root processes (deck user UID 1000)
@@ -126,6 +128,10 @@ def _load_settings(settings_file: str | None = None) -> dict:
             merged["spotify_folder_tree"] = []
         if not isinstance(merged.get("game_audio_profiles"), dict):
             merged["game_audio_profiles"] = {}
+        if not isinstance(merged.get("overlay_enabled"), bool):
+            merged["overlay_enabled"] = bool(merged.get("overlay_enabled", False))
+        if merged.get("overlay_position") not in ("top-left", "top-right", "bottom-left", "bottom-right"):
+            merged["overlay_position"] = "top-right"
         return merged
     except Exception:
         return dict(default_settings)

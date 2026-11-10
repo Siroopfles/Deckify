@@ -727,24 +727,18 @@ export default function App() {
     };
     window.addEventListener("keydown", onKeyDown);
 
-    // 2. Backend controller polling (draining in-memory Steam queue + Linux joystick)
-    let pollBusy = false;
-    const backendTimer = setInterval(async () => {
-      if (pollBusy || document.visibilityState !== "visible") return;
-      pollBusy = true;
-      try {
-        const res = await pollGamepadEvents();
-        if (res.ok && Array.isArray(res.events) && res.events.length > 0) {
-          for (const ev of res.events) {
+    // 2. Real-time SSE controller event subscription (eliminating 75ms polling interval)
+    const unsubGamepadSSE = subscribeToEvents(
+      () => {},
+      () => {},
+      (events) => {
+        if (Array.isArray(events) && events.length > 0) {
+          for (const ev of events) {
             dispatchGamepadAction(ev);
           }
         }
-      } catch {
-        // Ignore transient poll errors
-      } finally {
-        pollBusy = false;
       }
-    }, 75);
+    );
 
     // 3. Ensure initial focus ring is clearly visible on mount / view switch
     const autoFocusTimer = setTimeout(() => {
@@ -807,7 +801,7 @@ export default function App() {
 
     rafId = requestAnimationFrame(pollGamepad);
     return () => {
-      clearInterval(backendTimer);
+      unsubGamepadSSE();
       clearTimeout(autoFocusTimer);
       cancelAnimationFrame(rafId);
       window.removeEventListener("keydown", onKeyDown);
