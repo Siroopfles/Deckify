@@ -27,7 +27,7 @@ This roadmap addresses key stability, UI/audio synchronization, and architectura
   1. `DeckifyExpandedModal.tsx` is broken down into modular tab components under `src/components/tabs/` and shared components under `src/components/common/`.
   2. `main.py` RPC routes and helpers are moved to modular files in `py_modules/`.
   3. All TypeScript checks, Vitest tests, Rollup bundling, and 316 backend Python unit tests pass with zero regressions.
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
 - [ ] 01-01: Modularize `DeckifyExpandedModal.tsx` into standalone tab views and shared components.
@@ -42,7 +42,7 @@ Plans:
   1. Artist pictures, playlist mosaics, track artwork, and podcast covers load reliably in Steam GamepadUI.
   2. Image requests are throttled (max 4-6 concurrent) and cached in JavaScript memory, preventing threadpool starvation and 429 errors.
   3. Rapid scrolling through large libraries does not cause image loading freezes or broken placeholders.
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
 - [ ] 02-01: Broaden image URL validation in `images.py` and implement request-throttling / in-memory cache in `DeckifyImage`.
@@ -56,7 +56,7 @@ Plans:
   1. Elapsed track time counts up every second in real time using local clock interpolation (`Date.now()`).
   2. Progress bar width smoothly reflects the live playback position.
   3. Users can focus the seek bar with the Steam Deck D-pad and step forward/backward in the track.
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
 - [ ] 03-01: Implement clock-interpolated position ticker hook and bind progress UI to live position.
@@ -70,7 +70,7 @@ Plans:
 **Success Criteria** (what must be TRUE):
   1. Selecting any track in the Queue tab plays that specific track rather than an incorrect offset or starting over.
   2. The Now Playing view and upcoming queue items immediately reflect the newly active song.
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
 - [ ] 04-01: Fix queue click handler and backend `play_tracks` offset/URI logic with immediate state refresh.
@@ -83,7 +83,7 @@ Plans:
 **Success Criteria** (what must be TRUE):
   1. Overlay toggle in Settings correctly enables or disables the HUD across game launches.
   2. HUD displays currently playing track title, artist, play/pause indicator, and album artwork.
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
 - [ ] 05-01: Fix HUD overlay mounting, settings subscription, and artwork schema resolution.
