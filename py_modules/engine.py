@@ -225,6 +225,9 @@ def _cdp_evaluate(
     timeout: float = 5.0,
 ):
     """Evaluate a JavaScript expression inside the running Official Spotify Client or Steam CEF via CDP."""
+    if isinstance(target_title, (int, float)):
+        timeout = float(target_title)
+        target_title = None
     res = _cdp_call(
         "Runtime.evaluate",
         {"expression": expression, "awaitPromise": True, "returnByValue": True},

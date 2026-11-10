@@ -73,7 +73,13 @@ def _proxy_spotify_image_url(raw_url: str | None) -> str | None:
 def _image_url(images: list) -> str | None:
     if not images:
         return None
-    return _proxy_spotify_image_url(images[0].get("url"))
+    candidates = [img for img in images if isinstance(img, dict) and img.get("url")]
+    if not candidates:
+        return None
+    medium = next((img for img in candidates if img.get("height") in (300, 240, 320)), None)
+    selected = medium or candidates[0]
+    raw = selected.get("url")
+    return _proxy_spotify_image_url(raw) or raw
 
 
 def _proxy_folder_tree_images(folders: list[dict]) -> list[dict]:

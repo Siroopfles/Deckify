@@ -43,6 +43,7 @@ __pycache__/
 yalc.lock
 
 .vscode/
+.agents/
 
 # Ignore output folder
 

@@ -143,7 +143,7 @@ const backendAddToQueue = callable<[string, string], { ok: boolean; error?: stri
 const backendAddTrackToPlaylist = callable<[string, string], { ok: boolean; error?: string }>("add_track_to_playlist");
 const backendGetPlaylists = callable<[number], { ok: boolean; playlists?: PlaylistItem[]; total?: number; error?: string }>("get_playlists");
 const backendGetPlaylistFolders = callable<[], { ok: boolean; folders?: FolderItem[]; error?: string }>("get_playlist_folders");
-const backendGetPlaylistTracks = callable<[string, number, boolean], { ok: boolean; tracks?: TrackItem[]; total?: number; is_mixed?: boolean; can_mix?: boolean; error?: string }>("get_playlist_tracks");
+const backendGetPlaylistTracks = callable<[string, number, boolean, number?], { ok: boolean; tracks?: TrackItem[]; total?: number; is_mixed?: boolean; can_mix?: boolean; error?: string }>("get_playlist_tracks");
 const backendSetNativeMix = callable<[string, boolean, boolean], { ok: boolean; is_mixed?: boolean; error?: string }>("set_native_playlist_mix");
 const backendManagePlaylistFolder = callable<[string, string, string, string], { ok: boolean; error?: string }>("manage_playlist_folder");
 const backendPlayTracks = callable<[string | null, string | null, string[] | null, number], { ok: boolean; error?: string }>("play_tracks");
@@ -256,11 +256,13 @@ function SidebarBtn({
 function InteractiveRow({
   children,
   onClick,
+  onFocus,
   active,
   style,
 }: {
   children: ReactNode;
   onClick: () => void;
+  onFocus?: () => void;
   active?: boolean;
   style?: any;
 }) {
@@ -270,9 +272,9 @@ function InteractiveRow({
       noFocusRing
       onClick={onClick}
       onActivate={onClick}
-      onFocus={() => setFocused(true)}
+      onFocus={() => { setFocused(true); onFocus?.(); }}
       onBlur={() => setFocused(false)}
-      onGamepadFocus={() => setFocused(true)}
+      onGamepadFocus={() => { setFocused(true); onFocus?.(); }}
       onGamepadBlur={() => setFocused(false)}
       style={{
         display: "flex",
@@ -417,6 +419,7 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
   activeArtistRef.current = activeArtist;
   const actionTrackRef = useRef<TrackItem | null>(null);
   actionTrackRef.current = actionTrack;
+  const focusedTrackRef = useRef<TrackItem | null>(null);
 
   const showToast = useCallback((msg: string) => {
     setToastMsg(msg);
@@ -548,11 +551,11 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
           setSyncedLyrics([]);
         } else {
           setSyncedLyrics([]);
-          setPlainLyrics("Geen songtekst gevonden.");
+          setPlainLyrics("No lyrics found.");
         }
       } else {
         setSyncedLyrics([]);
-        setPlainLyrics("Songtekst kon niet worden geladen.");
+        setPlainLyrics("Lyrics could not be loaded.");
       }
       setLoadingLyrics(false);
     });
@@ -581,7 +584,7 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
         if (prev === null || prev <= 1) {
           // Timer finished! Pause playback
           backendControlPlayback("pause", "");
-          showToast("Slaaptimer verstreken: Muziek gepauzeerd.");
+          showToast("Sleep timer expired: Music paused.");
           if (sleepTimerShutdownDeck) {
             backendShutdownSystem();
           }
@@ -657,12 +660,12 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
       const res = await backendSetNativeMix(activePlaylist.uri, targetMix, true);
       if (res.ok) {
         setActivePlaylist((prev) => (prev ? { ...prev, is_mixed: targetMix } : null));
-        showToast(targetMix ? "Native Mix geactiveerd!" : "Native Mix uitgeschakeld.");
+        showToast(targetMix ? "Native Mix activated!" : "Native Mix deactivated.");
       } else {
-        showToast(`Mix fout: ${res.error || "Mislukt"}`);
+        showToast(`Mix error: ${res.error || "Failed"}`);
       }
     } catch {
-      showToast("Fout bij toepassen van mix.");
+      showToast("Error applying mix.");
     } finally {
       setMixingBusy(false);
     }
@@ -698,7 +701,7 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
     if (!tid) return;
     const res = await backendToggleLike(tid, null);
     if (res.ok) {
-      showToast(res.is_liked ? "Toegevoegd aan Favorieten" : "Verwijderd uit Favorieten");
+      showToast(res.is_liked ? "Added to Liked Songs" : "Removed from Liked Songs");
       refreshStatus();
     }
   }, [status, showToast, refreshStatus]);
@@ -707,13 +710,13 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
     const current = status?.repeat_state || "off";
     const next = current === "off" ? "context" : current === "context" ? "track" : "off";
     await backendSetRepeat(next, "");
-    showToast(next === "track" ? "Herhalen: 1 nummer" : next === "context" ? "Herhalen: Aan" : "Herhalen: Uit");
+    showToast(next === "track" ? "Repeat: Track" : next === "context" ? "Repeat: Context" : "Repeat: Off");
     refreshStatus();
   }, [status, showToast, refreshStatus]);
 
   const handlePlayTrack = useCallback(async (uri: string, contextUri?: string) => {
     await backendPlayTracks(contextUri || null, uri, null, 0);
-    showToast("Afspelen gestart");
+    showToast("Playback started");
     refreshStatus();
   }, [showToast, refreshStatus]);
 
@@ -735,21 +738,21 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
   // Track Radio Generator
   const handleStartRadio = useCallback(async (t: TrackItem) => {
     if (!t.id) return;
-    showToast(`Radio starten voor ${t.name}...`);
+    showToast(`Starting radio for ${t.name}...`);
     try {
       const res = await backendGetTrackRecommendations(t.id, 25);
       if (res.ok && res.tracks && res.tracks.length > 0) {
         const uris = res.tracks.map((x) => x.uri).filter(Boolean) as string[];
         if (uris.length) {
           await backendPlayTracks(null, uris[0], uris, 0);
-          showToast(`Radio gestart (${uris.length} nummers)`);
+          showToast(`Radio started (${uris.length} tracks)`);
           refreshStatus();
         }
       } else {
-        showToast("Geen aanbevelingen gevonden.");
+        showToast("No recommendations found.");
       }
     } catch {
-      showToast("Fout bij ophalen van aanbevelingen.");
+      showToast("Error fetching recommendations.");
     }
     setActionTrack(null);
   }, [showToast, refreshStatus]);
@@ -759,9 +762,9 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
     if (!t.uri) return;
     const res = await backendAddToQueue(t.uri, "");
     if (res.ok) {
-      showToast(`Toegevoegd aan wachtrij: ${t.name}`);
+      showToast(`Added to queue: ${t.name}`);
     } else {
-      showToast(`Wachtrij fout: ${res.error || "Mislukt"}`);
+      showToast(`Queue error: ${res.error || "Failed"}`);
     }
     setActionTrack(null);
   }, [showToast]);
@@ -771,9 +774,9 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
     if (!actionTrack?.uri) return;
     const res = await backendAddTrackToPlaylist(playlistId, actionTrack.uri);
     if (res.ok) {
-      showToast(`Toegevoegd aan ${playlistName}`);
+      showToast(`Added to ${playlistName}`);
     } else {
-      showToast(`Fout bij toevoegen: ${res.error || "Mislukt"}`);
+      showToast(`Error adding: ${res.error || "Failed"}`);
     }
     setShowAddToPlaylistModal(false);
     setActionTrack(null);
@@ -784,19 +787,19 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
     if (!newFolderName.trim()) return;
     const res = await backendManagePlaylistFolder("create", "", newFolderName.trim(), "");
     if (res.ok) {
-      showToast(`Map '${newFolderName}' aangemaakt`);
+      showToast(`Folder '${newFolderName}' created`);
       setNewFolderName("");
       setCreatingFolder(false);
       loadFolders();
     } else {
-      showToast(`Fout: ${res.error || "Mislukt"}`);
+      showToast(`Error: ${res.error || "Failed"}`);
     }
   }, [newFolderName, showToast, loadFolders]);
 
   const handleDeleteFolder = useCallback(async (folderId: string, folderName: string) => {
     const res = await backendManagePlaylistFolder("delete", folderId, "", "");
     if (res.ok) {
-      showToast(`Map '${folderName}' verwijderd`);
+      showToast(`Folder '${folderName}' deleted`);
       loadFolders();
     }
   }, [showToast, loadFolders]);
@@ -847,7 +850,20 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
       }
       // If at root, let Steam close the modal
     }, true);
-  }, []);
+
+    el.addEventListener("vgp_onbuttondown", (e: any) => {
+      const button = e.detail?.button || e.button;
+      if (button === "Y") { /* action */ setActionTrack(focusedTrackRef.current || track); }
+      if (button === "X") { /* toggle like */ const t = focusedTrackRef.current || track; if (t?.id) handleToggleLike(t.id); }
+    });
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const button = (e.key === "y" || e.key === "Y") ? "Y" : (e.key === "x" || e.key === "X") ? "X" : "";
+      if (button === "Y") { /* action */ setActionTrack(focusedTrackRef.current || track); }
+      if (button === "X") { /* toggle like */ const t = focusedTrackRef.current || track; if (t?.id) handleToggleLike(t.id); }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+  }, [track, handleToggleLike]);
 
   const isPlaying = status?.is_playing;
   const audioBackend = status?.audio_backend || status?.settings?.audio_backend || "librespot";
@@ -920,6 +936,7 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
       <InteractiveRow
         key={t.id || t.uri || idx}
         onClick={() => handlePlayTrack(t.uri || "", contextUri)}
+        onFocus={() => { focusedTrackRef.current = t; }}
         style={{ gap: 12 }}
       >
         <span style={{ width: 22, fontSize: 12, opacity: 0.5, textAlign: "right" }}>{idx + 1}</span>
@@ -936,6 +953,15 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
             {t.artist}
           </div>
         </div>
+        <span
+          onClick={(e) => {
+            e.stopPropagation();
+            if (t.id) handleToggleLike(t.id);
+          }}
+          style={{ cursor: "pointer", padding: "4px 6px" }}
+        >
+          {t.is_liked ? <FaHeart size={13} color="#1db954" /> : <FaRegHeart size={13} color="#777" />}
+        </span>
         <span style={{ fontSize: 12, opacity: 0.5 }}>{formatMs(t.duration_ms || 0)}</span>
 
         {/* Action button */}
@@ -952,7 +978,7 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
             color: "#aaa",
           }}
         >
-          Opties (Y)
+          Options (Y)
         </span>
       </InteractiveRow>
     );
@@ -1023,23 +1049,23 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
 
               {/* Navigation Menu */}
               <Focusable flow-children="column" style={{ display: "flex", flexDirection: "column", gap: 1 }}>
-                <div style={{ fontSize: 10, fontWeight: 700, opacity: 0.4, padding: "4px 8px", textTransform: "uppercase", letterSpacing: 0.8 }}>Afspelen</div>
-                <SidebarBtn id="now_playing" label="Nu Spelend" icon={<FaPlay size={12} />} active={mode === "now_playing"} onSelect={handleSelectMode} />
-                <SidebarBtn id="lyrics" label="Songteksten" icon={<FaMicrophone size={12} />} active={mode === "lyrics"} onSelect={handleSelectMode} />
+                <div style={{ fontSize: 10, fontWeight: 700, opacity: 0.4, padding: "4px 8px", textTransform: "uppercase", letterSpacing: 0.8 }}>Playback</div>
+                <SidebarBtn id="now_playing" label="Now Playing" icon={<FaPlay size={12} />} active={mode === "now_playing"} onSelect={handleSelectMode} />
+                <SidebarBtn id="lyrics" label="Lyrics" icon={<FaMicrophone size={12} />} active={mode === "lyrics"} onSelect={handleSelectMode} />
 
-                <div style={{ fontSize: 10, fontWeight: 700, opacity: 0.4, padding: "8px 8px 4px", textTransform: "uppercase", letterSpacing: 0.8 }}>Bibliotheek</div>
-                <SidebarBtn id="playlists" label="Afspeellijsten" icon={<FaFolder size={12} />} active={mode === "playlists"} onSelect={handleSelectMode} />
-                <SidebarBtn id="liked" label="Favorieten" icon={<FaHeart size={12} />} active={mode === "liked"} onSelect={handleSelectMode} />
+                <div style={{ fontSize: 10, fontWeight: 700, opacity: 0.4, padding: "8px 8px 4px", textTransform: "uppercase", letterSpacing: 0.8 }}>Library</div>
+                <SidebarBtn id="playlists" label="Playlists" icon={<FaFolder size={12} />} active={mode === "playlists"} onSelect={handleSelectMode} />
+                <SidebarBtn id="liked" label="Liked Songs" icon={<FaHeart size={12} />} active={mode === "liked"} onSelect={handleSelectMode} />
                 <SidebarBtn id="albums" label="Albums" icon={<FaCompactDisc size={12} />} active={mode === "albums"} onSelect={handleSelectMode} />
-                <SidebarBtn id="artists" label="Artiesten" icon={<FaUser size={12} />} active={mode === "artists"} onSelect={handleSelectMode} />
-                <SidebarBtn id="recent" label="Recent Gespeeld" icon={<FaHistory size={12} />} active={mode === "recent"} onSelect={handleSelectMode} />
+                <SidebarBtn id="artists" label="Artists" icon={<FaUser size={12} />} active={mode === "artists"} onSelect={handleSelectMode} />
+                <SidebarBtn id="recent" label="Recently Played" icon={<FaHistory size={12} />} active={mode === "recent"} onSelect={handleSelectMode} />
                 <SidebarBtn id="episodes" label="Podcasts" icon={<FaPodcast size={12} />} active={mode === "episodes"} onSelect={handleSelectMode} />
 
-                <div style={{ fontSize: 10, fontWeight: 700, opacity: 0.4, padding: "8px 8px 4px", textTransform: "uppercase", letterSpacing: 0.8 }}>Controle</div>
-                <SidebarBtn id="search" label="Zoeken" icon={<FaSearch size={12} />} active={mode === "search"} onSelect={handleSelectMode} />
-                <SidebarBtn id="queue" label="Wachtrij" icon={<FaListUl size={12} />} active={mode === "queue"} onSelect={handleSelectMode} />
-                <SidebarBtn id="devices" label="Apparaten" icon={<FaTv size={12} />} active={mode === "devices"} onSelect={handleSelectMode} />
-                <SidebarBtn id="engine" label="Instellingen" icon={<FaCog size={12} />} active={mode === "engine"} onSelect={handleSelectMode} />
+                <div style={{ fontSize: 10, fontWeight: 700, opacity: 0.4, padding: "8px 8px 4px", textTransform: "uppercase", letterSpacing: 0.8 }}>Control</div>
+                <SidebarBtn id="search" label="Search" icon={<FaSearch size={12} />} active={mode === "search"} onSelect={handleSelectMode} />
+                <SidebarBtn id="queue" label="Queue" icon={<FaListUl size={12} />} active={mode === "queue"} onSelect={handleSelectMode} />
+                <SidebarBtn id="devices" label="Devices" icon={<FaTv size={12} />} active={mode === "devices"} onSelect={handleSelectMode} />
+                <SidebarBtn id="engine" label="Settings" icon={<FaCog size={12} />} active={mode === "engine"} onSelect={handleSelectMode} />
               </Focusable>
 
               {/* Now Playing Widget in Sidebar */}
@@ -1087,7 +1113,7 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
                 }}
               >
                 <FaTimes size={10} />
-                <span>Druk op (B) om te sluiten</span>
+                <span>Press (B) to close</span>
               </div>
             </Focusable>
 
@@ -1145,10 +1171,10 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
 
                   {/* Track Details */}
                   <h1 style={{ fontSize: 22, fontWeight: 800, margin: "0 0 4px 0", color: "#fff" }}>
-                    {track?.name || "Geen nummer actief"}
+                    {track?.name || "No active track"}
                   </h1>
                   <p style={{ fontSize: 15, opacity: 0.7, margin: "0 0 16px 0" }}>
-                    {track?.artist || "Kies een afspeellijst of album"}
+                    {track?.artist || "Choose a playlist or album"}
                   </p>
 
                   {/* Progress Bar & Seek Scrubbing */}
@@ -1242,13 +1268,13 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
                   <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
                     <FaMicrophone size={18} color="#1db954" />
                     <div>
-                      <h2 style={{ fontSize: 20, fontWeight: 800, margin: 0 }}>Songteksten</h2>
+                      <h2 style={{ fontSize: 20, fontWeight: 800, margin: 0 }}>Lyrics</h2>
                       <span style={{ fontSize: 12, opacity: 0.6 }}>{trackName} — {artistName}</span>
                     </div>
                   </div>
 
                   {loadingLyrics ? (
-                    <p style={{ opacity: 0.5 }}>Songteksten laden...</p>
+                    <p style={{ opacity: 0.5 }}>Loading lyrics...</p>
                   ) : syncedLyrics.length > 0 ? (
                     <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 12, padding: "20px 0" }}>
                       {syncedLyrics.map((line, idx) => {
@@ -1273,7 +1299,7 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
                     </div>
                   ) : (
                     <div style={{ whiteSpace: "pre-line", opacity: 0.7, fontSize: 15, lineHeight: 1.8 }}>
-                      {plainLyrics || "Geen songtekst beschikbaar."}
+                      {plainLyrics || "No lyrics available."}
                     </div>
                   )}
                 </div>
@@ -1283,27 +1309,27 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
               {mode === "playlists" && !activePlaylist && (
                 <div>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
-                    <h2 style={{ fontSize: 20, fontWeight: 800, margin: 0 }}>Mappen & Afspeellijsten</h2>
+                    <h2 style={{ fontSize: 20, fontWeight: 800, margin: 0 }}>Folders & Playlists</h2>
                     <InteractiveRow
                       onClick={() => setCreatingFolder(!creatingFolder)}
                       style={{ padding: "6px 12px", background: "#1db954", color: "#000", fontWeight: 700, fontSize: 12 }}
                     >
-                      <FaPlus size={10} /> Nieuwe Map
+                      <FaPlus size={10} /> New Folder
                     </InteractiveRow>
                   </div>
 
                   {creatingFolder && (
                     <div style={{ marginBottom: 16, padding: 12, borderRadius: 8, background: "rgba(255,255,255,0.06)", display: "flex", gap: 10, alignItems: "center" }}>
                       <TextField
-                        label="Mapnaam"
+                        label="Folder Name"
                         value={newFolderName}
                         onChange={(e) => setNewFolderName(e.target.value)}
                       />
                       <InteractiveRow onClick={handleCreateFolder} style={{ background: "#1db954", color: "#000", fontWeight: 700, padding: "8px 14px" }}>
-                        Opslaan
+                        Save
                       </InteractiveRow>
                       <InteractiveRow onClick={() => setCreatingFolder(false)} style={{ padding: "8px 12px" }}>
-                        Annuleren
+                        Cancel
                       </InteractiveRow>
                     </div>
                   )}
@@ -1325,11 +1351,11 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
                       onClick={() => setActivePlaylist(null)}
                       style={{ padding: "6px 12px", fontSize: 12 }}
                     >
-                      ← Terug (B)
+                      ← Back (B)
                     </InteractiveRow>
                     <div>
                       <h2 style={{ fontSize: 20, fontWeight: 800, margin: 0 }}>{activePlaylist.name}</h2>
-                      <span style={{ fontSize: 12, opacity: 0.6 }}>{playlistTracks.length} nummers (Volledig geladen)</span>
+                      <span style={{ fontSize: 12, opacity: 0.6 }}>{playlistTracks.length} tracks (Fully loaded)</span>
                     </div>
 
                     <InteractiveRow
@@ -1344,7 +1370,7 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
                         gap: 8,
                       }}
                     >
-                      <FaPlay size={11} /> Afspelen
+                      <FaPlay size={11} /> Play
                     </InteractiveRow>
 
                     {audioBackend === "spotify_client" && (
@@ -1359,13 +1385,13 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
                           gap: 8,
                         }}
                       >
-                        <FaMagic size={11} /> {mixingBusy ? "Bezig..." : activePlaylist.is_mixed ? "Mix Actief" : "Zet Mix Aan"}
+                        <FaMagic size={11} /> {mixingBusy ? "Processing..." : activePlaylist.is_mixed ? "Mix Active" : "Enable Mix"}
                       </InteractiveRow>
                     )}
                   </Focusable>
 
                   {loadingContent ? (
-                    <p style={{ opacity: 0.5 }}>Laden...</p>
+                    <p style={{ opacity: 0.5 }}>Loading...</p>
                   ) : (
                     <Focusable flow-children="column" style={{ display: "flex", flexDirection: "column", gap: 3 }}>
                       {playlistTracks.map((t, idx) => renderTrackItem(t, idx, activePlaylist.uri))}
@@ -1379,20 +1405,20 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
                 <div>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
                     <div>
-                      <h2 style={{ fontSize: 20, fontWeight: 800, margin: 0 }}>Favoriete Nummers</h2>
-                      <span style={{ fontSize: 12, opacity: 0.6 }}>{likedTracks.length} nummers</span>
+                      <h2 style={{ fontSize: 20, fontWeight: 800, margin: 0 }}>Liked Songs</h2>
+                      <span style={{ fontSize: 12, opacity: 0.6 }}>{likedTracks.length} tracks</span>
                     </div>
                     {likedTracks.length > 0 && (
                       <InteractiveRow
                         onClick={() => handlePlayTrack(likedTracks[0].uri || "")}
                         style={{ background: "#1db954", color: "#000", fontWeight: 700, padding: "8px 16px", borderRadius: 20, gap: 8 }}
                       >
-                        <FaPlay size={11} /> Speel Alles
+                        <FaPlay size={11} /> Play All
                       </InteractiveRow>
                     )}
                   </div>
                   {loadingContent ? (
-                    <p style={{ opacity: 0.5 }}>Favorieten laden...</p>
+                    <p style={{ opacity: 0.5 }}>Loading liked songs...</p>
                   ) : (
                     <Focusable flow-children="column" style={{ display: "flex", flexDirection: "column", gap: 3 }}>
                       {likedTracks.map((t, idx) => renderTrackItem(t, idx))}
@@ -1404,9 +1430,9 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
               {/* VIEW: ALBUMS */}
               {mode === "albums" && !activeAlbum && (
                 <div>
-                  <h2 style={{ fontSize: 20, fontWeight: 800, marginBottom: 16 }}>Opgeslagen Albums</h2>
+                  <h2 style={{ fontSize: 20, fontWeight: 800, marginBottom: 16 }}>Saved Albums</h2>
                   {loadingContent ? (
-                    <p style={{ opacity: 0.5 }}>Albums laden...</p>
+                    <p style={{ opacity: 0.5 }}>Loading albums...</p>
                   ) : (
                     <Focusable flow-children="column" style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                       {savedAlbums.map((alb) => (
@@ -1425,7 +1451,7 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
                               {alb.name}
                             </div>
                             <div style={{ fontSize: 11, opacity: 0.6 }}>
-                              {alb.artist} · {alb.track_count || 0} nummers
+                              {alb.artist} · {alb.track_count || 0} tracks
                             </div>
                           </div>
                         </InteractiveRow>
@@ -1440,7 +1466,7 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
                 <div>
                   <Focusable flow-children="row" style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 16 }}>
                     <InteractiveRow onClick={() => setActiveAlbum(null)} style={{ padding: "6px 12px", fontSize: 12 }}>
-                      ← Terug (B)
+                      ← Back (B)
                     </InteractiveRow>
                     <div>
                       <h2 style={{ fontSize: 20, fontWeight: 800, margin: 0 }}>{activeAlbum.name}</h2>
@@ -1450,7 +1476,7 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
                       onClick={() => handlePlayTrack("", activeAlbum.uri)}
                       style={{ marginLeft: "auto", background: "#1db954", color: "#000", fontWeight: 700, padding: "8px 16px", borderRadius: 20, gap: 8 }}
                     >
-                      <FaPlay size={11} /> Speel Album
+                      <FaPlay size={11} /> Play Album
                     </InteractiveRow>
                   </Focusable>
                   <Focusable flow-children="column" style={{ display: "flex", flexDirection: "column", gap: 3 }}>
@@ -1462,9 +1488,9 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
               {/* VIEW: ARTISTS */}
               {mode === "artists" && !activeArtist && (
                 <div>
-                  <h2 style={{ fontSize: 20, fontWeight: 800, marginBottom: 16 }}>Gevolgde Artiesten</h2>
+                  <h2 style={{ fontSize: 20, fontWeight: 800, marginBottom: 16 }}>Followed Artists</h2>
                   {loadingContent ? (
-                    <p style={{ opacity: 0.5 }}>Artiesten laden...</p>
+                    <p style={{ opacity: 0.5 }}>Loading artists...</p>
                   ) : (
                     <Focusable flow-children="column" style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                       {followedArtists.map((art) => (
@@ -1491,12 +1517,12 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
                 <div>
                   <Focusable flow-children="row" style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 16 }}>
                     <InteractiveRow onClick={() => setActiveArtist(null)} style={{ padding: "6px 12px", fontSize: 12 }}>
-                      ← Terug (B)
+                      ← Back (B)
                     </InteractiveRow>
                     <h2 style={{ fontSize: 22, fontWeight: 800, margin: 0 }}>{activeArtist.name}</h2>
                   </Focusable>
 
-                  <h3 style={{ fontSize: 14, fontWeight: 700, color: "#1db954", marginBottom: 10 }}>Populaire Nummers</h3>
+                  <h3 style={{ fontSize: 14, fontWeight: 700, color: "#1db954", marginBottom: 10 }}>Top Tracks</h3>
                   <Focusable flow-children="column" style={{ display: "flex", flexDirection: "column", gap: 3, marginBottom: 20 }}>
                     {artistTopTracks.map((t, idx) => renderTrackItem(t, idx))}
                   </Focusable>
@@ -1516,7 +1542,7 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
               {/* VIEW: RECENTLY PLAYED */}
               {mode === "recent" && (
                 <div>
-                  <h2 style={{ fontSize: 20, fontWeight: 800, marginBottom: 16 }}>Recent Afgespeeld</h2>
+                  <h2 style={{ fontSize: 20, fontWeight: 800, marginBottom: 16 }}>Recently Played</h2>
                   <Focusable flow-children="column" style={{ display: "flex", flexDirection: "column", gap: 3 }}>
                     {recentlyPlayed.map((t, idx) => renderTrackItem(t, idx))}
                   </Focusable>
@@ -1526,7 +1552,7 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
               {/* VIEW: PODCASTS */}
               {mode === "episodes" && (
                 <div>
-                  <h2 style={{ fontSize: 20, fontWeight: 800, marginBottom: 16 }}>Podcasts & Afleveringen</h2>
+                  <h2 style={{ fontSize: 20, fontWeight: 800, marginBottom: 16 }}>Podcasts & Episodes</h2>
                   <Focusable flow-children="column" style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                     {savedEpisodes.map((ep) => (
                       <InteractiveRow
@@ -1556,9 +1582,9 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
               {/* VIEW: SEARCH */}
               {mode === "search" && (
                 <div>
-                  <h2 style={{ fontSize: 20, fontWeight: 800, marginBottom: 16 }}>Zoeken</h2>
+                  <h2 style={{ fontSize: 20, fontWeight: 800, marginBottom: 16 }}>Search</h2>
                   <TextField
-                    label="Zoeken naar nummers, artiesten of albums..."
+                    label="Search for tracks, artists, or albums..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                   />
@@ -1566,7 +1592,7 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
                   {/* Results: Tracks */}
                   {searchResults.tracks && searchResults.tracks.length > 0 && (
                     <div style={{ marginTop: 20 }}>
-                      <h3 style={{ fontSize: 14, fontWeight: 700, color: "#1db954", marginBottom: 8 }}>Nummers</h3>
+                      <h3 style={{ fontSize: 14, fontWeight: 700, color: "#1db954", marginBottom: 8 }}>Tracks</h3>
                       <Focusable flow-children="column" style={{ display: "flex", flexDirection: "column", gap: 3 }}>
                         {searchResults.tracks.map((t, idx) => renderTrackItem(t, idx))}
                       </Focusable>
@@ -1576,7 +1602,7 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
                   {/* Results: Artists */}
                   {searchResults.artists && searchResults.artists.length > 0 && (
                     <div style={{ marginTop: 20 }}>
-                      <h3 style={{ fontSize: 14, fontWeight: 700, color: "#1db954", marginBottom: 8 }}>Artiesten</h3>
+                      <h3 style={{ fontSize: 14, fontWeight: 700, color: "#1db954", marginBottom: 8 }}>Artists</h3>
                       <Focusable flow-children="column" style={{ display: "flex", flexDirection: "column", gap: 3 }}>
                         {searchResults.artists.map((art) => (
                           <InteractiveRow key={art.id} onClick={() => handleOpenArtist(art)} style={{ gap: 10 }}>
@@ -1611,12 +1637,13 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
               {/* VIEW: QUEUE */}
               {mode === "queue" && (
                 <div>
-                  <h2 style={{ fontSize: 20, fontWeight: 800, marginBottom: 16 }}>Wachtrij</h2>
+                  <h2 style={{ fontSize: 20, fontWeight: 800, marginBottom: 16 }}>Queue</h2>
                   <Focusable flow-children="column" style={{ display: "flex", flexDirection: "column", gap: 3 }}>
                     {queueTracks.map((t, idx) => (
                       <InteractiveRow
                         key={t.id || idx}
                         onClick={() => handlePlayTrack(t.uri || "")}
+                        onFocus={() => { focusedTrackRef.current = t; }}
                         style={{ gap: 12 }}
                       >
                         <span style={{ width: 22, fontSize: 12, opacity: 0.5 }}>{idx + 1}</span>
@@ -1625,6 +1652,16 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
                           <div style={{ fontSize: 13, fontWeight: 600 }}>{t.name}</div>
                           <div style={{ fontSize: 11, opacity: 0.6 }}>{t.artist}</div>
                         </div>
+                        <span
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (t.id) handleToggleLike(t.id);
+                          }}
+                          style={{ cursor: "pointer", padding: "4px 6px" }}
+                        >
+                          {t.is_liked ? <FaHeart size={13} color="#1db954" /> : <FaRegHeart size={13} color="#777" />}
+                        </span>
+                        <span style={{ fontSize: 12, opacity: 0.5 }}>{formatMs(t.duration_ms || 0)}</span>
                       </InteractiveRow>
                     ))}
                   </Focusable>
@@ -1634,14 +1671,14 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
               {/* VIEW: DEVICES */}
               {mode === "devices" && (
                 <div>
-                  <h2 style={{ fontSize: 20, fontWeight: 800, marginBottom: 16 }}>Spotify Connect Apparaten</h2>
+                  <h2 style={{ fontSize: 20, fontWeight: 800, marginBottom: 16 }}>Spotify Connect Devices</h2>
                   <Focusable flow-children="column" style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                     {devices.map((d) => (
                       <InteractiveRow
                         key={d.id}
                         onClick={async () => {
                           await backendTransferPlayback(d.id);
-                          showToast(`Overgeschakeld naar ${d.name}`);
+                          showToast(`Transferred to ${d.name}`);
                           loadDevices();
                         }}
                         active={d.is_active}
@@ -1649,9 +1686,9 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
                       >
                         <div>
                           <div style={{ fontSize: 14, fontWeight: 700, color: d.is_active ? "#1db954" : "#fff" }}>{d.name}</div>
-                          <div style={{ fontSize: 11, opacity: 0.5 }}>{d.type} {d.is_active ? "· Actief" : ""}</div>
+                          <div style={{ fontSize: 11, opacity: 0.5 }}>{d.type} {d.is_active ? "· Active" : ""}</div>
                         </div>
-                        {d.is_active && <span style={{ fontSize: 12, color: "#1db954", fontWeight: 700 }}>Actief</span>}
+                        {d.is_active && <span style={{ fontSize: 12, color: "#1db954", fontWeight: 700 }}>Active</span>}
                       </InteractiveRow>
                     ))}
                   </Focusable>
@@ -1661,15 +1698,15 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
               {/* VIEW: SETTINGS & KILLER FEATURES CONFIG */}
               {mode === "engine" && (
                 <div style={{ maxWidth: 640 }}>
-                  <h2 style={{ fontSize: 20, fontWeight: 800, marginBottom: 16 }}>Instellingen & Extra Features</h2>
+                  <h2 style={{ fontSize: 20, fontWeight: 800, marginBottom: 16 }}>Settings & Extra Features</h2>
 
                   {/* Slaaptimer */}
                   <div style={{ marginBottom: 20, padding: 14, borderRadius: 10, background: "rgba(255,255,255,0.04)" }}>
                     <h3 style={{ fontSize: 14, fontWeight: 700, color: "#1db954", marginBottom: 6, display: "flex", alignItems: "center", gap: 8 }}>
-                      <FaClock /> Slaaptimer & Afsluiten
+                      <FaClock /> Sleep Timer & Power Off
                     </h3>
                     <p style={{ fontSize: 12, opacity: 0.6, marginBottom: 10 }}>
-                      Laat muziek vanzelf stoppen na een ingestelde tijd, ideaal voor het slapen gaan.
+                      Automatically stop music after a set timer, ideal for bedtime.
                     </p>
                     <Focusable flow-children="row" style={{ display: "flex", gap: 8, marginBottom: 10 }}>
                       {[15, 30, 45, 60].map((mins) => (
@@ -1677,7 +1714,7 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
                           key={mins}
                           onClick={() => {
                             setSleepTimerRemaining(mins * 60);
-                            showToast(`Slaaptimer ingesteld op ${mins} minuten`);
+                            showToast(`Sleep timer set to ${mins} minutes`);
                           }}
                           active={sleepTimerRemaining !== null && Math.ceil(sleepTimerRemaining / 60) === mins}
                           style={{ flex: 1, justifyContent: "center", fontSize: 12, fontWeight: 700 }}
@@ -1688,11 +1725,11 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
                       <InteractiveRow
                         onClick={() => {
                           setSleepTimerRemaining(null);
-                          showToast("Slaaptimer uitgeschakeld");
+                          showToast("Sleep timer turned off");
                         }}
                         style={{ padding: "8px 12px", fontSize: 12 }}
                       >
-                        Uit
+                        Off
                       </InteractiveRow>
                     </Focusable>
 
@@ -1704,10 +1741,10 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
                     >
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                         <FaPowerOff color={sleepTimerShutdownDeck ? "#1db954" : "#888"} />
-                        <span style={{ fontSize: 13, fontWeight: 600 }}>Sluit Steam Deck af wanneer timer afloopt</span>
+                        <span style={{ fontSize: 13, fontWeight: 600 }}>Power off Steam Deck when timer finishes</span>
                       </div>
                       <span style={{ fontSize: 12, fontWeight: 700, color: sleepTimerShutdownDeck ? "#1db954" : "#888" }}>
-                        {sleepTimerShutdownDeck ? "AAN" : "UIT"}
+                        {sleepTimerShutdownDeck ? "ON" : "OFF"}
                       </span>
                     </InteractiveRow>
                   </div>
@@ -1715,10 +1752,10 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
                   {/* Auto-Ducking (Game Audio Balance) */}
                   <div style={{ marginBottom: 20, padding: 14, borderRadius: 10, background: "rgba(255,255,255,0.04)" }}>
                     <h3 style={{ fontSize: 14, fontWeight: 700, color: "#1db954", marginBottom: 6 }}>
-                      🎮 Auto-Ducking (Game Audio Balans)
+                      🎮 Auto-Ducking (Game Audio Balance)
                     </h3>
                     <p style={{ fontSize: 12, opacity: 0.6, marginBottom: 10 }}>
-                      Verlaagt automatisch het geluidsvolume van de actieve game wanneer Spotify muziek speelt.
+                      Automatically ducks active game audio volume when Spotify is playing.
                     </p>
                     <InteractiveRow
                       onClick={() => setAutoDuckingEnabled(!autoDuckingEnabled)}
@@ -1727,7 +1764,7 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
                     >
                       <span style={{ fontSize: 13, fontWeight: 600 }}>Game Audio Ducking</span>
                       <span style={{ fontSize: 12, fontWeight: 700, color: autoDuckingEnabled ? "#1db954" : "#888" }}>
-                        {autoDuckingEnabled ? "AAN" : "UIT"}
+                        {autoDuckingEnabled ? "ON" : "OFF"}
                       </span>
                     </InteractiveRow>
                     {autoDuckingEnabled && (
@@ -1749,28 +1786,28 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
                   {/* In-Game Toast Notification Settings */}
                   <div style={{ marginBottom: 20, padding: 14, borderRadius: 10, background: "rgba(255,255,255,0.04)" }}>
                     <h3 style={{ fontSize: 14, fontWeight: 700, color: "#1db954", marginBottom: 6 }}>
-                      🔔 In-Game Notificatie Overlay
+                      🔔 In-Game Notification Overlay
                     </h3>
                     <p style={{ fontSize: 12, opacity: 0.6, marginBottom: 10 }}>
-                      Toon een subtiele pop-up met albumhoes en tracknaam bij wisseling van nummer.
+                      Show a subtle pop-up with album artwork and track name on song change.
                     </p>
                     <InteractiveRow
                       onClick={() => setToastNotificationEnabled(!toastNotificationEnabled)}
                       active={toastNotificationEnabled}
                       style={{ justifyContent: "space-between", marginBottom: 10 }}
                     >
-                      <span style={{ fontSize: 13, fontWeight: 600 }}>Toon melding bij ander nummer</span>
+                      <span style={{ fontSize: 13, fontWeight: 600 }}>Show toast on track change</span>
                       <span style={{ fontSize: 12, fontWeight: 700, color: toastNotificationEnabled ? "#1db954" : "#888" }}>
-                        {toastNotificationEnabled ? "AAN" : "UIT"}
+                        {toastNotificationEnabled ? "ON" : "OFF"}
                       </span>
                     </InteractiveRow>
                     {toastNotificationEnabled && (
                       <Focusable flow-children="row" style={{ display: "flex", gap: 8 }}>
                         {[
-                          { id: "bottom_right", label: "Rechtsonder" },
-                          { id: "top_right", label: "Rechtsboven" },
-                          { id: "bottom_left", label: "Linksonder" },
-                          { id: "top_left", label: "Linksboven" },
+                          { id: "bottom_right", label: "Bottom Right" },
+                          { id: "top_right", label: "Top Right" },
+                          { id: "bottom_left", label: "Bottom Left" },
+                          { id: "top_left", label: "Top Left" },
                         ].map((pos) => (
                           <InteractiveRow
                             key={pos.id}
@@ -1792,10 +1829,10 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
                     </h3>
                     <Focusable flow-children="row" style={{ display: "flex", gap: 8 }}>
                       {[
-                        { id: "flat", label: "Standaard" },
+                        { id: "flat", label: "Flat" },
                         { id: "bass", label: "Bass Boost" },
-                        { id: "vocal", label: "Stemhelder" },
-                        { id: "gaming", label: "Gaming Balans" },
+                        { id: "vocal", label: "Vocal Clarity" },
+                        { id: "gaming", label: "Gaming Balance" },
                       ].map((eq) => (
                         <InteractiveRow
                           key={eq.id}
@@ -1814,34 +1851,34 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
 
                   {/* Backend & Quality */}
                   <div style={{ marginBottom: 20, padding: 14, borderRadius: 10, background: "rgba(255,255,255,0.04)" }}>
-                    <h3 style={{ fontSize: 14, fontWeight: 700, color: "#1db954", marginBottom: 8 }}>Afspeel-backend</h3>
+                    <h3 style={{ fontSize: 14, fontWeight: 700, color: "#1db954", marginBottom: 8 }}>Playback Backend</h3>
                     <Focusable flow-children="row" style={{ display: "flex", gap: 10, marginBottom: 14 }}>
                       <InteractiveRow
                         onClick={async () => {
                           await backendSetSetting("audio_backend", "librespot");
-                          showToast("Overgeschakeld naar Librespot");
+                          showToast("Switched to Librespot");
                           refreshStatus();
                         }}
                         active={audioBackend === "librespot"}
                         style={{ flex: 1, justifyContent: "center", padding: "10px", fontWeight: 700 }}
                       >
-                        Librespot (Ingebouwd)
+                        Librespot (Built-in)
                       </InteractiveRow>
 
                       <InteractiveRow
                         onClick={async () => {
                           await backendSetSetting("audio_backend", "spotify_client");
-                          showToast("Overgeschakeld naar Officiële Spotify Client");
+                          showToast("Switched to Official Spotify Client");
                           refreshStatus();
                         }}
                         active={audioBackend === "spotify_client"}
                         style={{ flex: 1, justifyContent: "center", padding: "10px", fontWeight: 700 }}
                       >
-                        Officiële Spotify Client
+                        Official Spotify Client
                       </InteractiveRow>
                     </Focusable>
 
-                    <h3 style={{ fontSize: 14, fontWeight: 700, color: "#1db954", marginBottom: 8 }}>Audiokwaliteit</h3>
+                    <h3 style={{ fontSize: 14, fontWeight: 700, color: "#1db954", marginBottom: 8 }}>Audio Quality</h3>
                     <Focusable flow-children="row" style={{ display: "flex", gap: 8 }}>
                       {["96", "160", "320", "lossless"].map((q) => {
                         const active = audioQuality === q;
@@ -1852,7 +1889,7 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
                             onClick={async () => {
                               if (disabled) return;
                               await backendSetSetting("audio_quality", q);
-                              showToast(`Kwaliteit ingesteld op ${q === "lossless" ? "FLAC Lossless" : q + " kbps"}`);
+                              showToast(`Quality set to ${q === "lossless" ? "FLAC Lossless" : q + " kbps"}`);
                               refreshStatus();
                             }}
                             active={active}
@@ -1921,31 +1958,31 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
 
                 <InteractiveRow onClick={() => handlePlayTrack(actionTrack.uri || "")} style={{ gap: 10 }}>
                   <FaPlay size={12} color="#1db954" />
-                  <span>Speel Nummer Af</span>
+                  <span>Play Track</span>
                 </InteractiveRow>
 
                 <InteractiveRow onClick={() => handleAddToQueue(actionTrack)} style={{ gap: 10 }}>
                   <FaListUl size={12} />
-                  <span>Voeg toe aan Wachtrij</span>
+                  <span>Add to Queue</span>
                 </InteractiveRow>
 
                 <InteractiveRow onClick={() => setShowAddToPlaylistModal(true)} style={{ gap: 10 }}>
                   <FaFolder size={12} />
-                  <span>Voeg toe aan Afspeellijst...</span>
+                  <span>Add to Playlist...</span>
                 </InteractiveRow>
 
                 <InteractiveRow onClick={() => handleStartRadio(actionTrack)} style={{ gap: 10 }}>
                   <FaBroadcastTower size={12} color="#1db954" />
-                  <span>Start Track Radio (Aanbevelingen)</span>
+                  <span>Start Track Radio (Recommendations)</span>
                 </InteractiveRow>
 
                 <InteractiveRow onClick={() => handleToggleLike(actionTrack.id)} style={{ gap: 10 }}>
                   <FaHeart size={12} color="#1db954" />
-                  <span>Favoriet (Like) wisselen</span>
+                  <span>Toggle Favorite (Like)</span>
                 </InteractiveRow>
 
                 <InteractiveRow onClick={() => setActionTrack(null)} style={{ justifyContent: "center", marginTop: 4 }}>
-                  <span>Sluiten (B)</span>
+                  <span>Close (B)</span>
                 </InteractiveRow>
               </Focusable>
             </div>
@@ -1982,8 +2019,8 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
                   flexDirection: "column",
                 }}
               >
-                <h3 style={{ fontSize: 16, fontWeight: 800, margin: "0 0 4px 0" }}>Kies Afspeellijst</h3>
-                <p style={{ fontSize: 12, opacity: 0.6, margin: "0 0 14px 0" }}>Voeg &apos;{actionTrack.name}&apos; toe aan:</p>
+                <h3 style={{ fontSize: 16, fontWeight: 800, margin: "0 0 4px 0" }}>Choose Playlist</h3>
+                <p style={{ fontSize: 12, opacity: 0.6, margin: "0 0 14px 0" }}>Add &apos;{actionTrack.name}&apos; to:</p>
 
                 <Focusable flow-children="column" style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 3, marginBottom: 12 }}>
                   {allUserPlaylists.map((pl) => (
@@ -1999,7 +2036,7 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
                 </Focusable>
 
                 <InteractiveRow onClick={() => setShowAddToPlaylistModal(false)} style={{ justifyContent: "center" }}>
-                  <span>Terug</span>
+                  <span>Back</span>
                 </InteractiveRow>
               </Focusable>
             </div>
@@ -2043,10 +2080,10 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
               fontWeight: 600,
             }}
           >
-            <span><b style={{ color: "#fff", background: "rgba(255,255,255,0.15)", padding: "1px 6px", borderRadius: 4 }}>D-Pad</b> Navigeer</span>
-            <span><b style={{ color: "#1db954", background: "rgba(29, 185, 84, 0.2)", padding: "1px 6px", borderRadius: 4 }}>A</b> Selecteer / Play</span>
-            <span><b style={{ color: "#ff5555", background: "rgba(255, 85, 85, 0.2)", padding: "1px 6px", borderRadius: 4 }}>B</b> Terug / Sluiten</span>
-            <span><b style={{ color: "#ffaa00", background: "rgba(255, 170, 0, 0.2)", padding: "1px 6px", borderRadius: 4 }}>Y</b> Opties / Wachtrij</span>
+            <span><b style={{ color: "#fff", background: "rgba(255,255,255,0.15)", padding: "1px 6px", borderRadius: 4 }}>D-Pad</b> Navigate</span>
+            <span><b style={{ color: "#1db954", background: "rgba(29, 185, 84, 0.2)", padding: "1px 6px", borderRadius: 4 }}>A</b> Select / Play</span>
+            <span><b style={{ color: "#ff5555", background: "rgba(255, 85, 85, 0.2)", padding: "1px 6px", borderRadius: 4 }}>B</b> Back / Close</span>
+            <span><b style={{ color: "#ffaa00", background: "rgba(255, 170, 0, 0.2)", padding: "1px 6px", borderRadius: 4 }}>Y</b> Options / Action</span>
             <span><b style={{ color: "#55aaff", background: "rgba(85, 170, 255, 0.2)", padding: "1px 6px", borderRadius: 4 }}>X</b> Like</span>
             {sleepTimerRemaining !== null && (
               <span style={{ color: "#1db954" }}>
