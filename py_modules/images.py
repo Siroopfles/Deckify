@@ -7,6 +7,20 @@ from py_modules.common import CACHE_DIR, MAX_IMAGE_BYTES, _API_SSL_CTX
 IMAGE_CACHE_DIR = os.path.join(CACHE_DIR, "images")
 MAX_IMAGE_CACHE_BYTES = 50 * 1024 * 1024
 
+ALLOWED_SPOTIFY_DOMAINS = (
+    "scdn.co",
+    "spotifycdn.com",
+    "spotifycdn.net",
+    "spotify.com",
+)
+
+
+def _is_allowed_spotify_host(host: str) -> bool:
+    if not host:
+        return False
+    host = host.lower()
+    return any(host == domain or host.endswith("." + domain) for domain in ALLOWED_SPOTIFY_DOMAINS)
+
 
 def _validate_image_url(url: str) -> None:
     parsed = urllib.parse.urlsplit(url)
@@ -16,7 +30,7 @@ def _validate_image_url(url: str) -> None:
         or parsed.port not in (None, 443)
         or parsed.username is not None
         or parsed.password is not None
-        or not host.endswith((".scdn.co", ".spotifycdn.com"))
+        or not _is_allowed_spotify_host(host)
     ):
         raise ValueError("Only Spotify HTTPS image URLs are supported")
 
@@ -108,14 +122,18 @@ def _proxy_spotify_image_url(raw_url: str | None) -> str | None:
     raw = raw_url.strip()
     if not raw:
         return None
-    if raw.startswith("spotify:image:"):
+    if raw.startswith("spotify:image:mosaic:"):
+        parts = [p for p in raw.split("spotify:image:mosaic:")[1].split(":") if p]
+        if parts:
+            raw = f"https://mosaic.scdn.co/300/{''.join(parts[:4])}"
+    elif raw.startswith("spotify:mosaic:"):
+        parts = [p for p in raw.split("spotify:mosaic:")[1].split(":") if p]
+        if parts:
+            raw = f"https://mosaic.scdn.co/300/{''.join(parts[:4])}"
+    elif raw.startswith("spotify:image:"):
         img_id = raw.split("spotify:image:", 1)[1].strip()
         if img_id:
             raw = f"https://i.scdn.co/image/{img_id}"
-    elif raw.startswith("spotify:mosaic:"):
-        parts = [p for p in raw.split(":")[2:] if p]
-        if parts:
-            raw = f"https://mosaic.scdn.co/300/{''.join(parts[:4])}"
     try:
         _validate_image_url(raw)
         return raw
