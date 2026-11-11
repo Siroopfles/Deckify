@@ -14,9 +14,9 @@
 - [x] **IMG-02**: Add concurrency throttling (max 4-6 concurrent fetches) and an in-memory cache to `DeckifyImage` to eliminate RPC threadpool starvation and prevent Spotify HTTP 429 rate limit backoffs.
 
 ### Playback & Time Synchronization
-- [ ] **PLAY-01**: Implement smooth real-time Now Playing elapsed time ticker interpolated with local clock timestamps (`Date.now()`) so progress counts up seamlessly every second without freezing or jitter.
-- [ ] **PLAY-02**: Enable gamepad D-pad and controller scrubbing on the Now Playing seek bar using `@decky/ui` focusable controls, allowing stepping forward/backward in track position.
-- [ ] **PLAY-03**: Bind Now Playing progress bar and time labels to the live interpolated position state rather than stale backend polling snapshots.
+- [x] **PLAY-01**: Implement smooth real-time Now Playing elapsed time ticker interpolated with local clock timestamps (`Date.now()`) so progress counts up seamlessly every second without freezing or jitter.
+- [x] **PLAY-02**: Enable gamepad D-pad and controller scrubbing on the Now Playing seek bar using `@decky/ui` focusable controls, allowing stepping forward/backward in track position.
+- [x] **PLAY-03**: Bind Now Playing progress bar and time labels to the live interpolated position state rather than stale backend polling snapshots.
 
 ### Queue Management
 - [x] **QUEUE-01**: Fix track selection in the Queue view so clicking/selecting any queue item starts playback of that exact track.
@@ -49,9 +49,9 @@ Which phases cover which requirements. Populated during roadmap creation.
 | ARCH-02 | Phase 1 | Complete |
 | IMG-01 | Phase 2 | Complete |
 | IMG-02 | Phase 2 | Complete |
-| PLAY-01 | Phase 3 | Pending |
-| PLAY-02 | Phase 3 | Pending |
-| PLAY-03 | Phase 3 | Pending |
+| PLAY-01 | Phase 3 | Complete |
+| PLAY-02 | Phase 3 | Complete |
+| PLAY-03 | Phase 3 | Complete |
 | QUEUE-01 | Phase 4 | Complete |
 | QUEUE-02 | Phase 4 | Complete |
 | HUD-01 | Phase 5 | Pending |
