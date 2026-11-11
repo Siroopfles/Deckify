@@ -407,10 +407,9 @@ export const QueueTab: FC<QueueTabProps> = ({
 |---|-------|---------|---------------|
 | A1 | Spotify's distributed queue cursor settles within 600ms of `me/player/play` completion. | Architecture Patterns / D-03 | Very low; 600ms is well above the typical 200-400ms Spotify Connect sync window. If delayed, subsequent 10s poll reconciles state. |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Should the Now Playing card in `QueueTab` be interactive (clickable to navigate to `NowPlayingTab`)?**
-   - Recommendation: Make the Now Playing card focusable with an active halo and Like button action. Clicking the card can optionally switch mode to `"now_playing"`.
+1. **Should the Now Playing card in `QueueTab` be interactive (clickable to navigate to `NowPlayingTab`)?** — RESOLVED: The Now Playing card renders styled track info with a visible playing indicator and like toggle per D-02; clicks do not trigger tab navigation to avoid unexpected focus escapes, keeping the user in the Queue tab.
 
 ## Environment Availability
 
