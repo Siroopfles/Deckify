@@ -36,6 +36,12 @@ for _dir in [
 
 from py_modules import *
 from py_modules import common
+from py_modules import volume
+from py_modules import system
+from py_modules import rpc_playback
+from py_modules import rpc_library
+
+common._MAIN_MODULE = sys.modules[__name__]
 
 
 def _load_settings(settings_file: str | None = None) -> dict:
@@ -44,6 +50,10 @@ def _load_settings(settings_file: str | None = None) -> dict:
 
 def _save_settings(settings: dict, settings_file: str | None = None) -> None:
     return common._save_settings(settings, settings_file or SETTINGS_FILE)
+
+
+_default_save_settings = _save_settings
+_default_exec = _exec
 
 
 if hasattr(os, "geteuid") and os.geteuid() == 0:  # pragma: no cover
@@ -196,13 +206,7 @@ class Plugin:
 
     async def _configure_pipewire_clock(self, unlock_lossless: bool) -> None:
         """Unlock 44.1kHz/88.2kHz/96kHz in PipeWire when Lossless is active, or restore default 48kHz."""
-        rates = "[ 44100 48000 88200 96000 ]" if unlock_lossless else "[ 48000 ]"
-        try:
-            cmd, env = _build_deck_command(["pw-metadata", "-n", "settings", "0", "clock.allowed-rates", rates])
-            await _exec(lambda: subprocess.run(cmd, env=env, capture_output=True, text=True), timeout=5)
-            decky.logger.info("PipeWire clock.allowed-rates set to %s", rates)
-        except Exception as e:
-            decky.logger.warning("Failed to configure PipeWire clock rates: %s", e)
+        await volume.configure_pipewire_clock(unlock_lossless)
 
     def _write_spotify_client_prefs(self) -> None:
         """Write audio quality and playback settings to the Official Spotify Client prefs files."""
@@ -594,339 +598,45 @@ class Plugin:
 
         return {"ok": True, "settings": dict(self._settings)}
 
-    # ── Playback control callable methods ────────────────────────
+    # ── Playback control callable methods (Delegated to py_modules) ────
 
     async def control_playback(self, action: str, device_id: str = "") -> dict:
-        decky.logger.info("control_playback: action=%s device_id=%s", action, device_id)
-        token = await self._ensure_token()
-        if not token:
-            return {"ok": False, "error": "Not authenticated"}
-
-        if action == "play_pause":
-            action = "pause" if self._poll_play_state == "playing" else "play"
-
-        action_map = {
-            "play": ("PUT", "me/player/play"),
-            "pause": ("PUT", "me/player/pause"),
-            "next": ("POST", "me/player/next"),
-            "previous": ("POST", "me/player/previous"),
-        }
-        if action not in action_map:
-            return {"ok": False, "error": f"Unknown action: {action}"}
-
-        method, endpoint = action_map[action]
-        params = {"device_id": device_id} if device_id else None
-        try:
-            await _exec(_spotify_api_request, endpoint, token, method, params)
-            if action == "play":
-                self._poll_play_state = "playing"
-            elif action == "pause":
-                self._poll_play_state = "paused"
-            return {"ok": True}
-        except urllib.error.HTTPError as e:
-            if e.code == 404 and action == "play":
-                return await self._auto_transfer_and_play(token, device_id)
-            if e.code == 404:
-                return {"ok": False, "error": "No active device — connect via Spotify app first"}
-            return {"ok": False, "error": _parse_spotify_error(e)}
-        except Exception as e:
-            decky.logger.error("control_playback(%s) failed: %s", action, e)
-            return {"ok": False, "error": str(e)}
+        return await rpc_playback.control_playback(self, action, device_id)
 
     async def _auto_transfer_and_play(self, token: str, device_id: str = "") -> dict:
-        if not device_id:
-            try:
-                data = await _exec(_spotify_api_request, "me/player/devices", token)
-                devices = data.get("devices", []) if data else []
-                if devices:
-                    device_id = devices[0]["id"]
-                    decky.logger.info("No device_id provided, picked %s (%s)", devices[0].get("name"), device_id)
-            except Exception as e:
-                decky.logger.error("Failed to fetch devices for auto-transfer: %s", e)
-        if not device_id:
-            return {"ok": False, "error": "No active device — connect via Spotify app first"}
-        try:
-            decky.logger.info("Auto-transferring playback to %s", device_id)
-            await _exec(
-                _spotify_api_request, "me/player", token, "PUT", None,
-                {"device_ids": [device_id], "play": True},
-            )
-            self._poll_play_state = "playing"
-            return {"ok": True}
-        except Exception as e:
-            decky.logger.error("Auto-transfer failed: %s", e)
-            return {"ok": False, "error": "No active device — connect via Spotify app first"}
+        return await rpc_playback.auto_transfer_and_play(self, token, device_id)
 
     async def set_volume(self, volume_percent: int) -> dict:
-        token = await self._ensure_token()
-        if not token:
-            return {"ok": False, "error": "Not authenticated"}
-
-        volume_percent = max(0, min(100, int(volume_percent)))
-        try:
-            await _exec(
-                _spotify_api_request, "me/player/volume", token, "PUT",
-                {"volume_percent": volume_percent},
-            )
-            return {"ok": True}
-        except urllib.error.HTTPError as e:
-            if e.code == 404:
-                return {"ok": False, "error": "No active device found"}
-            return {"ok": False, "error": _parse_spotify_error(e)}
-        except Exception as e:
-            decky.logger.error("set_volume(%d) failed: %s", volume_percent, e)
-            return {"ok": False, "error": str(e)}
+        return await volume.set_volume(self, volume_percent)
 
     async def seek_playback(self, position_ms: int, device_id: str = "") -> dict:
-        token = await self._ensure_token()
-        if not token:
-            return {"ok": False, "error": "Not authenticated"}
-        position_ms = max(0, int(position_ms))
-        params: dict = {"position_ms": position_ms}
-        if device_id:
-            params["device_id"] = device_id
-        try:
-            await _exec(_spotify_api_request, "me/player/seek", token, "PUT", params)
-            if self._last_event:
-                self._last_event["position_ms"] = position_ms
-            return {"ok": True, "position_ms": position_ms}
-        except urllib.error.HTTPError as e:
-            if e.code == 404:
-                return {"ok": False, "error": "No active device found"}
-            return {"ok": False, "error": _parse_spotify_error(e)}
-        except Exception as e:
-            decky.logger.error("seek_playback(%d) failed: %s", position_ms, e)
-            return {"ok": False, "error": str(e)}
+        return await rpc_playback.seek_playback(self, position_ms, device_id)
 
     async def set_shuffle(self, state: bool, device_id: str = "") -> dict:
-        token = await self._ensure_token()
-        if not token:
-            return {"ok": False, "error": "Not authenticated"}
-        state_bool = bool(state)
-        params: dict = {"state": "true" if state_bool else "false"}
-        if device_id:
-            params["device_id"] = device_id
-        try:
-            await _exec(_spotify_api_request, "me/player/shuffle", token, "PUT", params)
-            self._shuffle_state = state_bool
-            await decky.emit("playback_modes", {
-                "shuffle_state": self._shuffle_state,
-                "repeat_state": self._repeat_state,
-            })
-            return {"ok": True, "shuffle_state": self._shuffle_state}
-        except urllib.error.HTTPError as e:
-            if e.code == 404:
-                return {"ok": False, "error": "No active device found"}
-            return {"ok": False, "error": _parse_spotify_error(e)}
-        except Exception as e:
-            decky.logger.error("set_shuffle(%s) failed: %s", state, e)
-            return {"ok": False, "error": str(e)}
+        return await rpc_playback.set_shuffle(self, state, device_id)
 
     async def set_repeat(self, state: str, device_id: str = "") -> dict:
-        token = await self._ensure_token()
-        if not token:
-            return {"ok": False, "error": "Not authenticated"}
-        if state not in ("off", "context", "track"):
-            return {"ok": False, "error": f"Invalid repeat state: {state}"}
-        params: dict = {"state": state}
-        if device_id:
-            params["device_id"] = device_id
-        try:
-            await _exec(_spotify_api_request, "me/player/repeat", token, "PUT", params)
-            self._repeat_state = state
-            await decky.emit("playback_modes", {
-                "shuffle_state": self._shuffle_state,
-                "repeat_state": self._repeat_state,
-            })
-            return {"ok": True, "repeat_state": self._repeat_state}
-        except urllib.error.HTTPError as e:
-            if e.code == 404:
-                return {"ok": False, "error": "No active device found"}
-            return {"ok": False, "error": _parse_spotify_error(e)}
-        except Exception as e:
-            decky.logger.error("set_repeat(%s) failed: %s", state, e)
-            return {"ok": False, "error": str(e)}
+        return await rpc_playback.set_repeat(self, state, device_id)
 
     async def _check_tracks_liked(self, token: str, track_ids: list[str]) -> dict[str, bool]:
-        """Batch-check saved status via Spotify's /me/tracks/contains endpoint with cache."""
-        clean_ids = [tid for tid in dict.fromkeys(track_ids) if tid]
-        if not clean_ids:
-            return {}
-        result: dict[str, bool] = {}
-        missing_ids: list[str] = []
-        now = time.time()
-        for tid in clean_ids:
-            if tid in self._liked_cache and (now - self._liked_cache[tid][0]) < 300:
-                result[tid] = self._liked_cache[tid][1]
-            else:
-                missing_ids.append(tid)
-
-        if not missing_ids:
-            return result
-
-        for i in range(0, len(missing_ids), 50):
-            chunk = missing_ids[i:i + 50]
-            ids_str = ",".join(chunk)
-            try:
-                res = await _exec(
-                    _spotify_api_request, "me/tracks/contains", token, "GET",
-                    {"ids": ids_str},
-                )
-                if isinstance(res, list):
-                    for tid, flag in zip(chunk, res):
-                        b_flag = bool(flag)
-                        result[tid] = b_flag
-                        self._liked_cache[tid] = (now, b_flag)
-            except Exception as e:
-                decky.logger.warning("me/tracks/contains check failed: %s", e)
-        return result
+        return await rpc_playback.check_tracks_liked(self, token, track_ids)
 
     async def _annotate_tracks_liked(self, token: str, tracks: list[dict]) -> None:
-        ids = [t.get("id") for t in tracks if t.get("id")]
-        liked_map = await self._check_tracks_liked(token, ids)
-        for t in tracks:
-            tid = t.get("id")
-            t["is_liked"] = bool(liked_map.get(tid, False)) if tid else False
+        await rpc_playback.annotate_tracks_liked(self, token, tracks)
 
     async def toggle_like_track(self, track_id: str = "", liked: bool | None = None) -> dict:
-        token = await self._ensure_token()
-        if not token:
-            return {"ok": False, "error": "Not authenticated"}
-        target_id = (track_id or self._poll_track_id or "").strip()
-        if target_id.startswith("spotify:track:"):
-            target_id = target_id.split(":")[-1]
-        if not target_id:
-            return {"ok": False, "error": "No active track"}
-        if liked is None:
-            if target_id == self._poll_track_id:
-                target_liked = not self._is_liked
-            else:
-                checked = await self._check_tracks_liked(token, [target_id])
-                target_liked = not checked.get(target_id, False)
-        else:
-            target_liked = bool(liked)
-        method = "PUT" if target_liked else "DELETE"
-        try:
-            await _exec(
-                _spotify_api_request, "me/tracks", token, method,
-                {"ids": target_id},
-            )
-            now = time.time()
-            self._liked_cache[target_id] = (now, target_liked)
-            if target_id == self._poll_track_id:
-                self._is_liked = target_liked
-                if self._track_meta:
-                    self._track_meta["is_liked"] = target_liked
-                    await decky.emit("track_metadata", self._track_meta)
-            return {"ok": True, "track_id": target_id, "is_liked": target_liked}
-        except urllib.error.HTTPError as e:
-            return {"ok": False, "error": _parse_spotify_error(e)}
-        except Exception as e:
-            decky.logger.error("toggle_like_track(%s) failed: %s", target_id, e)
-            return {"ok": False, "error": str(e)}
+        return await rpc_playback.toggle_like_track(self, track_id, liked)
 
     async def get_queue(self) -> dict:
-        token = await self._ensure_token()
-        if not token:
-            return {"ok": False, "error": "Not authenticated"}
-        try:
-            data = await _exec(_spotify_api_request, "me/player/queue", token, "GET")
-            if not data:
-                return {"ok": True, "currently_playing": None, "queue": []}
-
-            def _fmt(item: dict | None) -> dict | None:
-                if not item:
-                    return None
-                if item.get("type") == "episode":
-                    show = item.get("show") or {}
-                    artists = show.get("name", "Podcast")
-                    album = ""
-                    images = item.get("images") or show.get("images") or []
-                else:
-                    artists = ", ".join(a["name"] for a in item.get("artists", []))
-                    album = item.get("album", {}).get("name", "")
-                    images = item.get("album", {}).get("images") or []
-                    artist_id = (item.get("artists") or [{}])[0].get("id", "")
-                    album_id = item.get("album", {}).get("id", "")
-                return {
-                    "id": item.get("id"),
-                    "name": item.get("name", ""),
-                    "artist": artists,
-                    "album": album,
-                    "artist_id": artist_id if item.get("type") != "episode" else "",
-                    "album_id": album_id if item.get("type") != "episode" else "",
-                    "uri": item.get("uri", ""),
-                    "duration_ms": item.get("duration_ms", 0),
-                    "image_url": _image_url(images),
-                    "artwork_url": _image_url(images),
-                }
-
-            queue_items = []
-            for q in (data.get("queue") or [])[:30]:
-                formatted = _fmt(q)
-                if formatted:
-                    queue_items.append(formatted)
-            curr = _fmt(data.get("currently_playing"))
-            all_to_check = ([curr] if curr else []) + queue_items
-            await self._annotate_tracks_liked(token, all_to_check)
-            return {
-                "ok": True,
-                "currently_playing": curr,
-                "queue": queue_items,
-            }
-        except urllib.error.HTTPError as e:
-            return {"ok": False, "error": _parse_spotify_error(e)}
-        except Exception as e:
-            decky.logger.error("get_queue failed: %s", e)
-            return {"ok": False, "error": str(e)}
+        return await rpc_playback.get_queue(self)
 
     async def add_to_queue(self, uri: str, device_id: str = "") -> dict:
-        token = await self._ensure_token()
-        if not token:
-            return {"ok": False, "error": "Not authenticated"}
-        if not uri:
-            return {"ok": False, "error": "Missing track URI"}
-        params: dict = {"uri": uri}
-        if device_id:
-            params["device_id"] = device_id
-        try:
-            await _exec(_spotify_api_request, "me/player/queue", token, "POST", params)
-            return {"ok": True}
-        except urllib.error.HTTPError as e:
-            if e.code == 404:
-                return {"ok": False, "error": "No active device found"}
-            return {"ok": False, "error": _parse_spotify_error(e)}
-        except Exception as e:
-            decky.logger.error("add_to_queue(%s) failed: %s", uri, e)
-            return {"ok": False, "error": str(e)}
+        return await rpc_playback.add_to_queue(self, uri, device_id)
 
     # ── Playlist / context-play callable methods ─────────────────
 
     async def get_playlists(self, offset: int = 0) -> dict:
-        token = await self._ensure_token()
-        if not token:
-            return {"ok": False, "error": "Not authenticated"}
-        try:
-            data = await _exec(_spotify_api_request, "me/playlists", token, "GET", {"limit": 50, "offset": offset})
-            items = data.get("items", []) if data else []
-            playlists = []
-            for p in items:
-                if not p:
-                    continue
-                images = p.get("images") or []
-                playlists.append({
-                    "id": p["id"],
-                    "name": p.get("name", ""),
-                    "image_url": _image_url(images),
-                    "artwork_url": _image_url(images),
-                    "track_count": (p.get("items") or p.get("tracks") or {}).get("total", 0),
-                    "owner_id": p.get("owner", {}).get("id", ""),
-                })
-            total = data.get("total", 0) if data else 0
-            return {"ok": True, "playlists": playlists, "total": total, "offset": offset}
-        except Exception as e:
-            decky.logger.error("get_playlists failed: %s", e)
-            return {"ok": False, "error": str(e)}
+        return await rpc_library.get_playlists(self, offset)
 
     async def get_playlist_tracks(
         self,
@@ -935,154 +645,16 @@ class Plugin:
         fetch_all: bool = False,
         limit: int = 50,
     ) -> dict:
-        if not playlist_id or not str(playlist_id).strip():
-            return {"ok": False, "error": "Missing playlist_id"}
-        token = await self._ensure_token()
-        if not token:
-            return {"ok": False, "error": "Not authenticated"}
-        pid = (playlist_id or "").strip()
-        if pid.startswith("spotify:playlist:"):
-            pid = pid.split(":")[-1]
-        try:
-            tracks = []
-            cur_offset = max(0, int(offset))
-            req_limit = 100 if fetch_all else max(1, min(int(limit), 100))
-            total = 0
-
-            while True:
-                data = None
-                try:
-                    data = await _exec(
-                        _spotify_api_request,
-                        f"playlists/{pid}/items", token, "GET",
-                        {"limit": req_limit, "offset": cur_offset},
-                    )
-                except urllib.error.HTTPError as e:
-                    if e.code in (400, 403, 404):
-                        try:
-                            data = await _exec(
-                                _spotify_api_request,
-                                f"playlists/{pid}/tracks", token, "GET",
-                                {"limit": req_limit, "offset": cur_offset},
-                            )
-                        except Exception:
-                            if cur_offset == 0:
-                                data = await _exec(_spotify_api_request, f"playlists/{pid}", token, "GET")
-                    else:
-                        raise
-                except Exception:
-                    raise
-
-                if not data:
-                    break
-                items_obj = data.get("items") if isinstance(data, dict) else []
-                if isinstance(items_obj, dict):
-                    raw_items = items_obj.get("items", [])
-                    total = items_obj.get("total", len(raw_items))
-                elif isinstance(items_obj, list):
-                    raw_items = items_obj
-                    total = data.get("total", len(raw_items))
-                else:
-                    raw_items = []
-                    total = 0
-
-                for item in raw_items:
-                    t = item.get("item") or item.get("track")
-                    if t is None:
-                        continue
-                    artists = ", ".join(a["name"] for a in t.get("artists", []))
-                    images = t.get("album", {}).get("images") or []
-                    img_url = _image_url(images)
-                    artist_id = (t.get("artists") or [{}])[0].get("id", "")
-                    album_id = t.get("album", {}).get("id", "")
-                    tracks.append({
-                        "id": t.get("id"),
-                        "name": t.get("name", ""),
-                        "artist": artists,
-                        "album": t.get("album", {}).get("name", ""),
-                        "artist_id": artist_id,
-                        "album_id": album_id,
-                        "uri": t.get("uri", ""),
-                        "duration_ms": t.get("duration_ms", 0),
-                        "image_url": img_url,
-                        "artwork_url": img_url,
-                    })
-                cur_offset += len(raw_items)
-                if not fetch_all or not raw_items or cur_offset >= total or len(tracks) >= 1000:
-                    break
-
-            try:
-                await self._annotate_tracks_liked(token, tracks)
-            except Exception as ex:
-                decky.logger.warning("Failed to annotate tracks liked: %s", ex)
-            return {"ok": True, "tracks": tracks, "total": total or len(tracks), "offset": offset}
-        except Exception as e:
-            decky.logger.error("get_playlist_tracks failed: %s", e)
-            return {"ok": False, "error": str(e)}
+        return await rpc_library.get_playlist_tracks(self, playlist_id, offset, fetch_all, limit)
 
     async def add_track_to_playlist(self, playlist_id: str, track_uri: str) -> dict:
-        """Add a track URI to a playlist via Spotify's /playlists/{id}/items endpoint."""
-        token = await self._ensure_token()
-        if not token:
-            return {"ok": False, "error": "Not authenticated"}
-        pid = (playlist_id or "").strip()
-        if pid.startswith("spotify:playlist:"):
-            pid = pid.split(":")[-1]
-        uri = (track_uri or "").strip()
-        if uri and not uri.startswith("spotify:"):
-            uri = f"spotify:track:{uri}"
-        if not pid or not uri:
-            return {"ok": False, "error": "Missing playlist_id or track_uri"}
-        try:
-            try:
-                await _exec(
-                    _spotify_api_request,
-                    f"playlists/{pid}/items", token, "POST", None,
-                    {"uris": [uri]},
-                )
-            except urllib.error.HTTPError as e:
-                if e.code in (400, 404):
-                    await _exec(
-                        _spotify_api_request,
-                        f"playlists/{pid}/tracks", token, "POST", None,
-                        {"uris": [uri]},
-                    )
-                else:
-                    raise
-            return {"ok": True, "playlist_id": pid, "track_uri": uri}
-        except urllib.error.HTTPError as e:
-            return {"ok": False, "error": _parse_spotify_error(e)}
-        except Exception as e:
-            decky.logger.error("add_track_to_playlist(%s, %s) failed: %s", pid, uri, e)
-            return {"ok": False, "error": str(e)}
+        return await rpc_library.add_track_to_playlist(self, playlist_id, track_uri)
 
     async def _sync_native_spotify_folders(self) -> list[dict]:
-        """Extract recursive playlist folders from Official Spotify Client CDP RootlistAPI (cached across backends) and merge custom folders."""
-        custom_folders = [
-            dict(f) for f in (self._settings.get("playlist_folders") or [])
-            if isinstance(f, dict) and f.get("id") and f.get("source") not in ("spotify", "spotify_client")
-        ]
-        cached_tree = self._settings.get("spotify_folder_tree")
-        if not isinstance(cached_tree, list):
-            cached_tree = []
-
-        # Attempt live extraction via Official Spotify Client CDP if available
-        try:
-            cdp_tree = await _exec(_fetch_spotify_cdp_folder_tree, SPOTIFY_CDP_PORT, timeout=6)
-            if isinstance(cdp_tree, list) and len(cdp_tree) > 0:
-                proxied_tree = _proxy_folder_tree_images(cdp_tree)
-                if proxied_tree != cached_tree:
-                    self._settings["spotify_folder_tree"] = proxied_tree
-                    _save_settings(self._settings)
-                cached_tree = proxied_tree
-        except Exception as e:
-            decky.logger.debug("Live CDP folder sync skipped: %s", e)
-
-        return _proxy_folder_tree_images(cached_tree) + custom_folders
+        return await rpc_library.sync_native_spotify_folders(self)
 
     async def get_playlist_folders(self) -> dict:
-        folders = await self._sync_native_spotify_folders()
-        return {"ok": True, "folders": folders}
+        return await rpc_library.get_playlist_folders(self)
 
     async def manage_playlist_folder(
         self,
@@ -1092,184 +664,15 @@ class Plugin:
         playlist_id: str = "",
         folders: list | None = None,
     ) -> dict:
-        """Create, rename, delete, or assign playlists to custom folders in Deckify."""
-        current: list[dict] = [
-            dict(f) for f in (self._settings.get("playlist_folders") or [])
-            if isinstance(f, dict) and f.get("id") and f.get("source") not in ("spotify", "spotify_client")
-        ]
-        act = (action or "").strip().lower()
-        if act == "save" and isinstance(folders, list):
-            current = [
-                {
-                    "id": str(f.get("id")),
-                    "name": str(f.get("name", "Folder")).strip() or "Folder",
-                    "playlist_ids": [str(x) for x in (f.get("playlist_ids") or []) if x],
-                }
-                for f in folders if isinstance(f, dict) and f.get("id") and f.get("source") not in ("spotify", "spotify_client")
-            ]
-        elif act == "create":
-            clean_name = (name or "").strip()
-            if not clean_name:
-                return {"ok": False, "error": "Folder name cannot be empty"}
-            new_id = f"folder-{secrets.token_hex(4)}"
-            current.append({
-                "id": new_id,
-                "name": clean_name,
-                "playlist_ids": [playlist_id] if playlist_id else [],
-            })
-        elif act == "rename":
-            clean_name = (name or "").strip()
-            if not clean_name:
-                return {"ok": False, "error": "Folder name cannot be empty"}
-            for f in current:
-                if f["id"] == folder_id:
-                    f["name"] = clean_name
-                    break
-            else:
-                return {"ok": False, "error": "Folder not found"}
-        elif act == "delete":
-            current = [f for f in current if f["id"] != folder_id]
-        elif act == "add_playlist":
-            if not folder_id or not playlist_id:
-                return {"ok": False, "error": "Missing folder_id or playlist_id"}
-            for f in current:
-                if f["id"] == folder_id:
-                    pids = list(f.get("playlist_ids") or [])
-                    if playlist_id not in pids:
-                        pids.append(playlist_id)
-                    f["playlist_ids"] = pids
-                    break
-            else:
-                return {"ok": False, "error": "Folder not found"}
-        elif act == "remove_playlist":
-            if not folder_id or not playlist_id:
-                return {"ok": False, "error": "Missing folder_id or playlist_id"}
-            for f in current:
-                if f["id"] == folder_id:
-                    f["playlist_ids"] = [x for x in (f.get("playlist_ids") or []) if x != playlist_id]
-                    break
-        else:
-            return {"ok": False, "error": f"Unknown folder action: {action}"}
-
-        self._settings["playlist_folders"] = current
-        _save_settings(self._settings)
-        native_tree = _proxy_folder_tree_images(self._settings.get("spotify_folder_tree") or [])
-        return {"ok": True, "folders": native_tree + current}
+        return await rpc_library.manage_playlist_folder(self, action, folder_id, name, playlist_id, folders)
 
     async def set_native_playlist_mix(self, playlist_id: str, enabled: bool = True, play_now: bool = True) -> dict:
-        """Toggle native Spotify playlist mixing via Official Spotify Client CDP PlaylistMixingAPI."""
-        pid = (playlist_id or "").strip()
-        if pid.startswith("spotify:playlist:"):
-            pid = pid.split(":")[-1]
-        if not pid:
-            return {"ok": False, "error": "Missing playlist_id"}
-        uri = f"spotify:playlist:{pid}"
-
-        # Handle librespot, web player, or non-spotify_client backend
-        is_librespot_running = bool(self._process and self._process.poll() is None)
-        active_type = (self._active_device.get("type") or "").lower() if hasattr(self, "_active_device") and self._active_device else ""
-        is_web_player = active_type in ("webplayer", "web_player")
-
-        if self._settings.get("audio_backend") != "spotify_client" or is_librespot_running or is_web_player:
-            if play_now:
-                try:
-                    await self.play_tracks(context_uri=uri)
-                except Exception as ex:
-                    decky.logger.warning("Playback fallback for playlist mix failed: %s", ex)
-            return {"ok": False, "error": "Native Spotify Mix requires the Official Spotify Client backend"}
-
-        enabled_js = "true" if enabled else "false"
-        play_js = "true" if play_now else "false"
-        expr = f"""
-        (async () => {{
-          const mainEl = document.getElementById('main');
-          if (!mainEl) return {{ ok: false, error: 'Spotify UI not ready' }};
-          const rk = Object.keys(mainEl).find(k => k.startsWith('__reactContainer') || k.startsWith('__reactFiber'));
-          const q = [mainEl[rk]];
-          const visited = new Set();
-          let mixApi = null;
-          let playerApi = null;
-          while (q.length > 0 && visited.size < 5000) {{
-            const curr = q.shift();
-            if (!curr || visited.has(curr)) continue;
-            visited.add(curr);
-            if (curr.memoizedProps?.platform) {{
-              const platform = curr.memoizedProps.platform;
-              const reg = platform.getRegistry();
-              const map = reg._map || reg;
-              for (const [k, v] of map.entries()) {{
-                const desc = String(k.description);
-                if (desc === 'PlaylistMixingAPI') mixApi = v.instance;
-                if (desc === 'PlayerAPI') playerApi = v.instance;
-              }}
-              break;
-            }}
-            if (curr.child) q.push(curr.child);
-            if (curr.sibling) q.push(curr.sibling);
-          }}
-          if (!mixApi) return {{ ok: false, error: 'PlaylistMixingAPI unavailable' }};
-          const uri = {json.dumps(uri)};
-          const enable = {enabled_js};
-          try {{
-            if (typeof mixApi.setAutoMix === 'function') await mixApi.setAutoMix(uri, enable);
-          }} catch (e) {{}}
-          try {{
-            if (typeof mixApi.setMixState === 'function') await mixApi.setMixState(uri, enable);
-          }} catch (e) {{}}
-          if ({play_js} && playerApi && typeof playerApi.play === 'function') {{
-            try {{
-              await playerApi.play({{ uri }}, {{}}, {{}});
-            }} catch (e) {{}}
-          }}
-          return {{ ok: true, playlist_id: {json.dumps(pid)}, uri, is_mixed: enable }};
-        }})()
-        """
-        try:
-            res = await _exec(_cdp_evaluate, expr, SPOTIFY_CDP_PORT, None, 6.0, timeout=7)
-            if isinstance(res, dict) and res.get("ok"):
-                # Update cached folder tree is_mixed state if present
-                def _update_mixed(nodes: list[dict]) -> None:
-                    for folder in nodes:
-                        for pl in folder.get("playlists") or []:
-                            if pl.get("id") == pid:
-                                pl["is_mixed"] = bool(enabled)
-                        if folder.get("subfolders"):
-                            _update_mixed(folder["subfolders"])
-
-                tree = self._settings.get("spotify_folder_tree")
-                if isinstance(tree, list):
-                    _update_mixed(tree)
-                    _save_settings(self._settings)
-                return res
-            if isinstance(res, dict):
-                return res
-            return {"ok": False, "error": "Official Spotify Client did not respond over CDP"}
-        except Exception as e:
-            decky.logger.warning("set_native_playlist_mix failed: %s", e)
-            return {"ok": False, "error": str(e)}
+        return await rpc_library.set_native_playlist_mix(self, playlist_id, enabled, play_now)
 
     # ── Official Spotify Client Remote & Sleep Timer ───────────
 
     def get_sleep_timer_status(self) -> dict:
-        if not self._sleep_timer_task or self._sleep_timer_task.done():
-            return {
-                "active": False,
-                "remaining_seconds": 0,
-                "shutdown_on_finish": False,
-                "end_of_track": False,
-            }
-        rem = max(0, int(self._sleep_timer_end - time.time())) if not self._sleep_timer_end_of_track else 0
-        if self._sleep_timer_end_of_track:
-            dur = self._last_event.get("duration_ms", 0) if self._last_event else 0
-            pos = self._last_event.get("position_ms", 0) if self._last_event else 0
-            if dur > pos:
-                rem = max(0, int((dur - pos) / 1000))
-        return {
-            "active": True,
-            "remaining_seconds": rem,
-            "shutdown_on_finish": self._sleep_timer_shutdown,
-            "end_of_track": self._sleep_timer_end_of_track,
-        }
+        return system.get_sleep_timer_status(self)
 
     async def set_sleep_timer(
         self,
@@ -1277,463 +680,58 @@ class Plugin:
         shutdown_on_finish: bool = False,
         end_of_track: bool = False,
     ) -> dict:
-        if self._sleep_timer_task and not self._sleep_timer_task.done():
-            self._sleep_timer_task.cancel()
-            self._sleep_timer_task = None
-
-        if (minutes is None or minutes <= 0) and not end_of_track:
-            return {"ok": True, "sleep_timer": self.get_sleep_timer_status()}
-
-        self._sleep_timer_shutdown = bool(shutdown_on_finish)
-        self._sleep_timer_end_of_track = bool(end_of_track)
-        if minutes is not None and minutes > 0:
-            self._sleep_timer_end = time.time() + (minutes * 60)
-        else:
-            self._sleep_timer_end = 0
-
-        self._sleep_timer_initial_track_id = self._poll_track_id
-        self._sleep_timer_task = asyncio.create_task(self._sleep_timer_worker())
-        return {"ok": True, "sleep_timer": self.get_sleep_timer_status()}
+        return await system.set_sleep_timer(self, minutes, shutdown_on_finish, end_of_track)
 
     async def _sleep_timer_worker(self):
-        try:
-            if self._sleep_timer_end_of_track:
-                start_track = self._poll_track_id
-                while True:
-                    await asyncio.sleep(1)
-                    if self._poll_track_id != start_track or self._poll_play_state != "playing":
-                        break
-            else:
-                while time.time() < self._sleep_timer_end:
-                    await asyncio.sleep(1)
-
-            decky.logger.info("Sleep timer expired, pausing playback")
-            await self.control_playback("pause")
-
-            if self._sleep_timer_shutdown:
-                decky.logger.info("Sleep timer triggering system shutdown")
-                await self.shutdown_system()
-        except asyncio.CancelledError:
-            pass
-        except Exception as e:
-            decky.logger.error("Sleep timer error: %s", e)
+        return await system.sleep_timer_worker(self)
 
     async def _apply_equalizer_preset(self, preset: str) -> None:
-        decky.logger.info("Applying EQ preset: %s", preset)
-        self._settings["eq_preset"] = preset
-        _save_settings(self._settings)
-        await decky.emit("eq_preset_changed", {"preset": preset})
+        await volume.apply_equalizer_preset(self, preset)
 
     async def get_spotify_client_auth_status(self) -> dict:
-        try:
-            return await _exec(get_spotify_client_auth_status, SPOTIFY_CDP_PORT, timeout=3)
-        except Exception as e:
-            return {"ok": False, "running": False, "logged_in": False, "error": str(e)}
+        return await system.get_client_auth_status()
 
     async def get_client_window_status(self) -> dict:
-        return await self.get_spotify_client_auth_status()
+        return await system.get_client_auth_status()
 
     async def create_playlist(self, name: str, public: bool = False) -> dict:
-        token = await self._ensure_token()
-        if not token:
-            return {"ok": False, "error": "Not authenticated"}
-        name = (name or "").strip()
-        if not name:
-            return {"ok": False, "error": "Playlist name cannot be empty"}
-        try:
-            res = await _exec(
-                _spotify_api_request, "me/playlists", token, "POST", None,
-                {"name": name, "public": bool(public)},
-            )
-            return {"ok": True, "playlist": res}
-        except urllib.error.HTTPError as e:
-            return {"ok": False, "error": _parse_spotify_error(e)}
-        except Exception as e:
-            return {"ok": False, "error": str(e)}
+        return await rpc_library.create_playlist(self, name, public)
 
     async def remove_track_from_playlist(self, playlist_id: str, track_uri: str) -> dict:
-        token = await self._ensure_token()
-        if not token:
-            return {"ok": False, "error": "Not authenticated"}
-        pid = (playlist_id or "").strip()
-        if pid.startswith("spotify:playlist:"):
-            pid = pid.split(":")[-1]
-        uri = (track_uri or "").strip()
-        if uri and not uri.startswith("spotify:"):
-            uri = f"spotify:track:{uri}"
-        if not pid or not uri:
-            return {"ok": False, "error": "Missing playlist_id or track_uri"}
-        try:
-            try:
-                await _exec(
-                    _spotify_api_request, f"playlists/{pid}/items", token, "DELETE", None,
-                    {"items": [{"uri": uri}]},
-                )
-            except urllib.error.HTTPError as e:
-                if e.code in (400, 403, 404):
-                    await _exec(
-                        _spotify_api_request, f"playlists/{pid}/tracks", token, "DELETE", None,
-                        {"tracks": [{"uri": uri}]},
-                    )
-                else:
-                    raise
-            return {"ok": True}
-        except urllib.error.HTTPError as e:
-            return {"ok": False, "error": _parse_spotify_error(e)}
-        except Exception as e:
-            return {"ok": False, "error": str(e)}
+        return await rpc_library.remove_track_from_playlist(self, playlist_id, track_uri)
 
     async def get_audio_sinks(self) -> dict:
-        try:
-            sinks = await _exec(_get_pactl_sinks, timeout=3)
-            return {"ok": True, "sinks": sinks}
-        except Exception as e:
-            return {"ok": False, "error": str(e)}
+        return await volume.get_audio_sinks()
 
     async def set_audio_sink(self, sink_name: str) -> dict:
-        if not sink_name or not isinstance(sink_name, str):
-            return {"ok": False, "error": "Missing sink_name"}
-        try:
-            ok = await _exec(_set_pactl_sink_input, sink_name.strip(), timeout=4)
-            return {"ok": ok}
-        except Exception as e:
-            return {"ok": False, "error": str(e)}
+        return await volume.set_audio_sink(sink_name)
 
     async def get_liked_tracks(self, offset: int = 0, fetch_all: bool = True) -> dict:
-        token = await self._ensure_token()
-        if not token:
-            return {"ok": False, "error": "Not authenticated"}
-        try:
-            tracks = []
-            cur_offset = offset
-            total = 0
-            while True:
-                data = await _exec(
-                    _spotify_api_request, "me/tracks", token, "GET",
-                    {"limit": 50, "offset": cur_offset},
-                )
-                items = data.get("items", []) if data else []
-                total = data.get("total", 0) if data else 0
-                for item in items:
-                    t = item.get("track")
-                    if t is None:
-                        continue
-                    artists = ", ".join(a["name"] for a in t.get("artists", []))
-                    images = t.get("album", {}).get("images") or []
-                    img_url = _image_url(images)
-                    artist_id = (t.get("artists") or [{}])[0].get("id", "")
-                    album_id = t.get("album", {}).get("id", "")
-                    tracks.append({
-                        "id": t.get("id"),
-                        "name": t.get("name", ""),
-                        "artist": artists,
-                        "album": t.get("album", {}).get("name", ""),
-                        "artist_id": artist_id,
-                        "album_id": album_id,
-                        "uri": t.get("uri", ""),
-                        "duration_ms": t.get("duration_ms", 0),
-                        "image_url": img_url,
-                        "artwork_url": img_url,
-                        "is_liked": True,
-                    })
-                cur_offset += len(items)
-                if not fetch_all or not items or len(tracks) >= total or len(tracks) >= 1000:
-                    break
-            return {"ok": True, "tracks": tracks, "total": total, "offset": offset}
-        except Exception as e:
-            decky.logger.error("get_liked_tracks failed: %s", e)
-            return {"ok": False, "error": str(e)}
+        return await rpc_library.get_liked_tracks(self, offset, fetch_all)
 
     async def get_saved_episodes(self, offset: int = 0) -> dict:
-        token = await self._ensure_token()
-        if not token:
-            return {"ok": False, "error": "Not authenticated"}
-        try:
-            episodes = []
-            data = await _exec(
-                _spotify_api_request, "me/episodes", token, "GET",
-                {"limit": 50, "offset": offset},
-            )
-            items = data.get("items", []) if data else []
-            for item in items:
-                ep = item.get("episode")
-                if ep is None:
-                    continue
-                images = ep.get("images") or []
-                resume_point = ep.get("resume_point") or {}
-                episodes.append({
-                    "id": ep.get("id"),
-                    "name": ep.get("name", ""),
-                    "show_name": ep.get("show", {}).get("name", ""),
-                    "uri": ep.get("uri", ""),
-                    "duration_ms": ep.get("duration_ms", 0),
-                    "image_url": _image_url(images),
-                    "artwork_url": _image_url(images),
-                    "resume_position_ms": resume_point.get("resume_position_ms", 0),
-                    "fully_played": bool(resume_point.get("fully_played", False)),
-                })
-            total = data.get("total", 0) if data else 0
-            return {"ok": True, "episodes": episodes, "total": total, "offset": offset}
-        except Exception as e:
-            decky.logger.error("get_saved_episodes failed: %s", e)
-            return {"ok": False, "error": str(e)}
+        return await rpc_library.get_saved_episodes(self, offset)
 
     async def get_saved_shows(self, offset: int = 0) -> dict:
-        token = await self._ensure_token()
-        if not token:
-            return {"ok": False, "error": "Not authenticated"}
-        try:
-            shows = []
-            data = await _exec(
-                _spotify_api_request, "me/shows", token, "GET",
-                {"limit": 50, "offset": offset},
-            )
-            items = data.get("items", []) if data else []
-            for item in items:
-                show = item.get("show") or item
-                if not show:
-                    continue
-                images = show.get("images") or []
-                shows.append({
-                    "id": show.get("id"),
-                    "name": show.get("name", ""),
-                    "publisher": show.get("publisher", ""),
-                    "uri": show.get("uri", ""),
-                    "total_episodes": show.get("total_episodes", 0),
-                    "image_url": _image_url(images),
-                    "artwork_url": _image_url(images),
-                })
-            total = data.get("total", 0) if data else 0
-            return {"ok": True, "shows": shows, "total": total, "offset": offset}
-        except Exception as e:
-            decky.logger.error("get_saved_shows failed: %s", e)
-            return {"ok": False, "error": str(e)}
+        return await rpc_library.get_saved_shows(self, offset)
 
     async def get_saved_albums(self, offset: int = 0) -> dict:
-        token = await self._ensure_token()
-        if not token:
-            return {"ok": False, "error": "Not authenticated"}
-        try:
-            data = await _exec(
-                _spotify_api_request, "me/albums", token, "GET",
-                {"limit": 50, "offset": offset},
-            )
-            items = data.get("items", []) if data else []
-            albums = []
-            for item in items:
-                a = item.get("album")
-                if a is None:
-                    continue
-                images = a.get("images") or []
-                artists = ", ".join(ar["name"] for ar in a.get("artists", []))
-                albums.append({
-                    "id": a["id"],
-                    "name": a.get("name", ""),
-                    "artist": artists,
-                    "image_url": _image_url(images),
-                    "artwork_url": _image_url(images),
-                    "track_count": a.get("total_tracks", 0),
-                    "uri": a.get("uri", ""),
-                })
-            total = data.get("total", 0) if data else 0
-            return {"ok": True, "albums": albums, "total": total, "offset": offset}
-        except Exception as e:
-            decky.logger.error("get_saved_albums failed: %s", e)
-            return {"ok": False, "error": str(e)}
+        return await rpc_library.get_saved_albums(self, offset)
 
     async def get_album_tracks(self, album_id: str, offset: int = 0) -> dict:
-        token = await self._ensure_token()
-        if not token:
-            return {"ok": False, "error": "Not authenticated"}
-        try:
-            album_img = None
-            album_name = ""
-            try:
-                alb_data = await _exec(_spotify_api_request, f"albums/{album_id}", token, "GET")
-                if alb_data:
-                    album_img = _image_url(alb_data.get("images") or [])
-                    album_name = alb_data.get("name", "")
-            except Exception:
-                pass
-
-            data = await _exec(
-                _spotify_api_request,
-                f"albums/{album_id}/tracks", token, "GET",
-                {"limit": 50, "offset": offset},
-            )
-            items = data.get("items", []) if data else []
-            tracks = []
-            for t in items:
-                artists = ", ".join(a["name"] for a in t.get("artists", []))
-                artist_id = (t.get("artists") or [{}])[0].get("id", "")
-                tracks.append({
-                    "id": t.get("id"),
-                    "name": t.get("name", ""),
-                    "artist": artists,
-                    "album": album_name,
-                    "artist_id": artist_id,
-                    "album_id": album_id,
-                    "uri": t.get("uri", ""),
-                    "duration_ms": t.get("duration_ms", 0),
-                    "image_url": album_img,
-                    "artwork_url": album_img,
-                })
-            await self._annotate_tracks_liked(token, tracks)
-            total = data.get("total", 0) if data else 0
-            return {"ok": True, "tracks": tracks, "total": total, "offset": offset}
-        except Exception as e:
-            decky.logger.error("get_album_tracks failed: %s", e)
-            return {"ok": False, "error": str(e)}
+        return await rpc_library.get_album_tracks(self, album_id, offset)
 
     async def get_followed_artists(self) -> dict:
-        token = await self._ensure_token()
-        if not token:
-            return {"ok": False, "error": "Not authenticated"}
-        try:
-            data = await _exec(
-                _spotify_api_request, "me/following", token, "GET",
-                {"type": "artist", "limit": 50},
-            )
-            artists_data = data.get("artists", {}) if data else {}
-            items = artists_data.get("items", [])
-            artists = []
-            for a in items:
-                images = a.get("images") or []
-                artists.append({
-                    "id": a["id"],
-                    "name": a.get("name", ""),
-                    "image_url": _image_url(images),
-                    "artwork_url": _image_url(images),
-                })
-            return {"ok": True, "artists": artists}
-        except Exception as e:
-            decky.logger.error("get_followed_artists failed: %s", e)
-            return {"ok": False, "error": str(e)}
+        return await rpc_library.get_followed_artists(self)
 
     async def get_artist_albums(self, artist_id: str, offset: int = 0) -> dict:
-        token = await self._ensure_token()
-        if not token:
-            return {"ok": False, "error": "Not authenticated"}
-        try:
-            data = await _exec(
-                _spotify_api_request,
-                f"artists/{artist_id}/albums", token, "GET",
-                {"limit": 10, "offset": offset, "include_groups": "album,single"},
-            )
-            items = data.get("items", []) if data else []
-            albums = []
-            for a in items:
-                images = a.get("images") or []
-                ar = ", ".join(x["name"] for x in a.get("artists", []))
-                albums.append({
-                    "id": a["id"],
-                    "name": a.get("name", ""),
-                    "artist": ar,
-                    "image_url": _image_url(images),
-                    "artwork_url": _image_url(images),
-                    "track_count": a.get("total_tracks", 0),
-                    "uri": a.get("uri", ""),
-                })
-            total = data.get("total", 0) if data else 0
-            return {"ok": True, "albums": albums, "total": total, "offset": offset}
-        except Exception as e:
-            decky.logger.error("get_artist_albums failed: %s", e)
-            return {"ok": False, "error": str(e)}
+        return await rpc_library.get_artist_albums(self, artist_id, offset)
 
     async def get_artist_top_tracks(self, artist_id: str) -> dict:
-        token = await self._ensure_token()
-        if not token:
-            return {"ok": False, "error": "Not authenticated"}
-        try:
-            items = []
-            try:
-                data = await _exec(
-                    _spotify_api_request,
-                    f"artists/{artist_id}/top-tracks", token, "GET",
-                )
-                items = data.get("tracks", []) if data else []
-            except urllib.error.HTTPError as e:
-                if e.code == 403:
-                    artist_info = await _exec(
-                        _spotify_api_request, f"artists/{artist_id}", token, "GET",
-                    )
-                    artist_name = (artist_info or {}).get("name", "")
-                    if artist_name:
-                        search_data = await _exec(
-                            _spotify_api_request, "search", token, "GET",
-                            {"q": f"artist:{artist_name}", "type": "track", "limit": 10},
-                        )
-                        items = (search_data or {}).get("tracks", {}).get("items", [])
-                else:
-                    raise
-            tracks = []
-            for t in items:
-                artists = ", ".join(a["name"] for a in t.get("artists", []))
-                images = t.get("album", {}).get("images") or []
-                artist_id = (t.get("artists") or [{}])[0].get("id", "")
-                album_id = t.get("album", {}).get("id", "")
-                tracks.append({
-                    "id": t.get("id"),
-                    "name": t.get("name", ""),
-                    "artist": artists,
-                    "album": t.get("album", {}).get("name", ""),
-                    "artist_id": artist_id,
-                    "album_id": album_id,
-                    "uri": t.get("uri", ""),
-                    "duration_ms": t.get("duration_ms", 0),
-                    "image_url": _image_url(images),
-                    "artwork_url": _image_url(images),
-                    "artwork_url": _image_url(images),
-                })
-            await self._annotate_tracks_liked(token, tracks)
-            return {"ok": True, "tracks": tracks}
-        except Exception as e:
-            decky.logger.error("get_artist_top_tracks failed: %s", e)
-            return {"ok": False, "error": str(e)}
+        return await rpc_library.get_artist_top_tracks(self, artist_id)
 
     async def get_recently_played(self, limit: int = 30) -> dict:
-        token = await self._ensure_token()
-        if not token:
-            return {"ok": False, "error": "Not authenticated"}
-        try:
-            data = await _exec(
-                _spotify_api_request,
-                "me/player/recently-played", token, "GET",
-                {"limit": max(1, min(50, int(limit)))},
-            )
-            items = data.get("items", []) if data else []
-            tracks = []
-            seen_uris: set[str] = set()
-            for item in items:
-                t = item.get("track")
-                if not t:
-                    continue
-                uri = t.get("uri", "")
-                if uri in seen_uris:
-                    continue
-                seen_uris.add(uri)
-                artists = ", ".join(a["name"] for a in t.get("artists", []))
-                images = t.get("album", {}).get("images") or []
-                img_url = _image_url(images)
-                artist_id = (t.get("artists") or [{}])[0].get("id", "")
-                album_id = t.get("album", {}).get("id", "")
-                tracks.append({
-                    "id": t.get("id"),
-                    "name": t.get("name", ""),
-                    "artist": artists,
-                    "album": t.get("album", {}).get("name", ""),
-                    "artist_id": artist_id,
-                    "album_id": album_id,
-                    "uri": uri,
-                    "duration_ms": t.get("duration_ms", 0),
-                    "image_url": img_url,
-                    "artwork_url": img_url,
-                })
-            await self._annotate_tracks_liked(token, tracks)
-            return {"ok": True, "tracks": tracks}
-        except Exception as e:
-            decky.logger.error("get_recently_played failed: %s", e)
-            return {"ok": False, "error": str(e)}
+        return await rpc_library.get_recently_played(self, limit)
 
     async def search_spotify(
         self,
@@ -1742,116 +740,10 @@ class Plugin:
         limit: int = 50,
         offset: int = 0,
     ) -> dict:
-        if not query or not str(query).strip():
-            return {"ok": True, "tracks": [], "artists": [], "albums": [], "playlists": []}
-        token = await self._ensure_token()
-        if not token:
-            return {"ok": False, "error": "Not authenticated"}
-        try:
-            final_limit = 50 if limit <= 0 else max(1, min(int(limit), 50))
-            final_offset = max(0, int(offset))
-            try:
-                data = await _exec(
-                    _spotify_api_request, "search", token, "GET",
-                    {"q": query, "type": types, "limit": final_limit, "offset": final_offset},
-                )
-            except Exception as e:
-                if "Invalid limit" in str(e) or "400" in str(e):
-                    data = await _exec(
-                        _spotify_api_request, "search", token, "GET",
-                        {"q": query, "type": types, "limit": min(final_limit, 10), "offset": final_offset},
-                    )
-                else:
-                    raise
-            if not data:
-                return {"ok": True, "tracks": [], "artists": [], "albums": [], "playlists": []}
-            tracks = []
-            for t in data.get("tracks", {}).get("items", []):
-                artists = ", ".join(a["name"] for a in t.get("artists", []))
-                images = t.get("album", {}).get("images") or []
-                artist_id = (t.get("artists") or [{}])[0].get("id", "")
-                album_id = t.get("album", {}).get("id", "")
-                tracks.append({
-                    "id": t.get("id"), "name": t.get("name", ""), "artist": artists,
-                    "album": t.get("album", {}).get("name", ""),
-                    "artist_id": artist_id, "album_id": album_id,
-                    "uri": t.get("uri", ""),
-                    "duration_ms": t.get("duration_ms", 0),
-                    "image_url": _image_url(images),
-                    "artwork_url": _image_url(images),
-                    "artwork_url": _image_url(images),
-                })
-            await self._annotate_tracks_liked(token, tracks)
-            artists_out = []
-            for a in data.get("artists", {}).get("items", []):
-                images = a.get("images") or []
-                raw_img = images[0].get("url") if images and isinstance(images, list) and isinstance(images[0], dict) else None
-                artists_out.append({
-                    "id": a["id"], "name": a.get("name", ""),
-                    "uri": a.get("uri", f"spotify:artist:{a['id']}"),
-                    "image_url": _image_url(images) or raw_img,
-                })
-            albums_out = []
-            for a in data.get("albums", {}).get("items", []):
-                images = a.get("images") or []
-                ar = ", ".join(x["name"] for x in a.get("artists", []))
-                albums_out.append({
-                    "id": a["id"], "name": a.get("name", ""), "artist": ar,
-                    "image_url": _image_url(images),
-                    "artwork_url": _image_url(images),
-                    "track_count": a.get("total_tracks", 0), "uri": a.get("uri", ""),
-                })
-            playlists_out = []
-            for p in data.get("playlists", {}).get("items", []):
-                if p is None:
-                    continue
-                images = p.get("images") or []
-                playlists_out.append({
-                    "id": p["id"], "name": p.get("name", ""),
-                    "image_url": _image_url(images),
-                    "artwork_url": _image_url(images),
-                    "track_count": (p.get("items") or p.get("tracks") or {}).get("total", 0),
-                    "owner_id": p.get("owner", {}).get("id", ""),
-                })
-            return {"ok": True, "tracks": tracks, "artists": artists_out, "albums": albums_out, "playlists": playlists_out}
-        except Exception as e:
-            decky.logger.error("search_spotify failed: %s", e)
-            return {"ok": False, "error": str(e)}
+        return await rpc_library.search_spotify(self, query, types, limit, offset)
 
     async def get_track_recommendations(self, seed_track_id: str, limit: int = 25) -> dict:
-        """Fetch track recommendations based on a seed track."""
-        token = await self._ensure_token()
-        if not token:
-            return {"ok": False, "error": "Not authenticated"}
-        clean_seed = (seed_track_id or "").strip()
-        if clean_seed.startswith("spotify:track:"):
-            clean_seed = clean_seed.split(":")[-1]
-        try:
-            data = await _exec(
-                _spotify_api_request, "recommendations", token, "GET",
-                {"seed_tracks": clean_seed, "limit": min(100, max(1, limit))},
-            )
-            items = data.get("tracks", []) if data else []
-            tracks = []
-            for t in items:
-                artists = ", ".join(a["name"] for a in t.get("artists", []))
-                images = t.get("album", {}).get("images") or []
-                img_url = _image_url(images)
-                tracks.append({
-                    "id": t.get("id"),
-                    "name": t.get("name", ""),
-                    "artist": artists,
-                    "album": t.get("album", {}).get("name", ""),
-                    "uri": t.get("uri", ""),
-                    "duration_ms": t.get("duration_ms", 0),
-                    "image_url": img_url,
-                    "artwork_url": img_url,
-                })
-            await self._annotate_tracks_liked(token, tracks)
-            return {"ok": True, "tracks": tracks}
-        except Exception as e:
-            decky.logger.error("get_track_recommendations failed: %s", e)
-            return {"ok": False, "error": str(e)}
+        return await rpc_library.get_track_recommendations(self, seed_track_id, limit)
 
     async def get_lyrics(
         self,
@@ -1860,40 +752,13 @@ class Plugin:
         duration_sec: int = 0,
         provider_offset: int = 0,
     ) -> dict:
-        """Fetch synchronized or plain lyrics using 5-tier waterfall with provider offset."""
-        try:
-            return await _exec(
-                _fetch_lyrics_sync,
-                track_name,
-                artist_name,
-                duration_sec,
-                provider_offset,
-                timeout=12,
-            )
-        except Exception as e:
-            decky.logger.warning("get_lyrics failed: %s", e)
-            return {"ok": False, "error": str(e)}
+        return await rpc_library.get_lyrics(self, track_name, artist_name, duration_sec, provider_offset)
 
     async def get_image(self, url: str) -> dict:
-        """Fetch and return base64 Data URI for external image, bypassing CEF CSP restrictions."""
-        if not url or not isinstance(url, str):
-            return {"ok": False, "error": "No URL provided"}
-        try:
-            content_type, body = await _exec(_fetch_spotify_image, url, timeout=10)
-            b64 = base64.b64encode(body).decode("ascii")
-            return {"ok": True, "data_url": f"data:{content_type};base64,{b64}"}
-        except Exception as e:
-            return {"ok": False, "error": str(e)}
+        return await rpc_library.get_image(url)
 
     async def shutdown_system(self) -> dict:
-        """Power off the Steam Deck / Steam Machine cleanly."""
-        try:
-            def _poweroff():
-                subprocess.Popen(["systemctl", "poweroff"])
-            await _exec(_poweroff, timeout=3)
-            return {"ok": True}
-        except Exception as e:
-            return {"ok": False, "error": str(e)}
+        return await system.shutdown_system()
 
     async def play_tracks(
         self,
@@ -1902,75 +767,13 @@ class Plugin:
         uris: list | None = None,
         position: int = 0,
     ) -> dict:
-        token = await self._ensure_token()
-        if not token:
-            return {"ok": False, "error": "Not authenticated"}
-        # Handle flexible argument ordering if uris passed in place of offset_uri
-        if isinstance(offset_uri, list):
-            uris, offset_uri = offset_uri, None
-
-        body = {}
-        if context_uri:
-            body["context_uri"] = context_uri
-            if offset_uri:
-                body["offset"] = {"uri": offset_uri}
-            self._context_uri = context_uri
-        elif uris:
-            body["uris"] = uris
-            if position > 0:
-                body["offset"] = {"position": position}
-        elif offset_uri and str(offset_uri).strip():
-            body["uris"] = [str(offset_uri).strip()]
-        try:
-            await _exec(
-                _spotify_api_request, "me/player/play", token, "PUT", None, body,
-            )
-            return {"ok": True}
-        except urllib.error.HTTPError as e:
-            if e.code == 404:
-                transfer_res = await self._auto_transfer_and_play(token)
-                if transfer_res.get("ok") and body:
-                    try:
-                        await asyncio.sleep(0.5)
-                        await _exec(_spotify_api_request, "me/player/play", token, "PUT", None, body)
-                        return {"ok": True}
-                    except Exception:
-                        pass
-                return transfer_res
-            return {"ok": False, "error": _parse_spotify_error(e)}
-        except Exception as e:
-            decky.logger.error("play_tracks failed: %s", e)
-            return {"ok": False, "error": str(e)}
-
-    # ── Device callable methods ─────────────────────────────────
+        return await rpc_playback.play_tracks(self, context_uri, offset_uri, uris, position)
 
     async def get_devices(self) -> dict:
-        token = await self._ensure_token()
-        if not token:
-            return {"ok": False, "error": "Not authenticated"}
-        try:
-            data = await _exec(_spotify_api_request, "me/player/devices", token)
-            devices = data.get("devices", []) if data else []
-            return {"ok": True, "devices": devices}
-        except Exception as e:
-            decky.logger.error("get_devices failed: %s", e)
-            return {"ok": False, "error": str(e)}
+        return await rpc_playback.get_devices(self)
 
     async def transfer_playback(self, device_id: str) -> dict:
-        token = await self._ensure_token()
-        if not token:
-            return {"ok": False, "error": "Not authenticated"}
-        try:
-            await _exec(
-                _spotify_api_request, "me/player", token, "PUT", None,
-                {"device_ids": [device_id]},
-            )
-            return {"ok": True}
-        except urllib.error.HTTPError as e:
-            return {"ok": False, "error": _parse_spotify_error(e)}
-        except Exception as e:
-            decky.logger.error("transfer_playback failed: %s", e)
-            return {"ok": False, "error": str(e)}
+        return await rpc_playback.transfer_playback(self, device_id)
 
     # ── OAuth callable methods ─────────────────────────────────
 
@@ -2503,62 +1306,15 @@ class Plugin:
 
     async def _refresh_audio_stream_info(self) -> None:
         """Inspect PipeWire/PulseAudio sink-inputs to report live sample rate and bit depth."""
-        try:
-            env = os.environ.copy()
-            env["PULSE_SERVER"] = PULSE_SERVER
-            res = await _exec(
-                lambda: subprocess.run(
-                    ["pactl", "list", "sink-inputs"],
-                    capture_output=True, text=True, env=env,
-                ),
-                timeout=4,
-            )
-            self._audio_stream_info = _parse_pactl_sink_inputs(res.stdout)
-        except Exception:
-            pass
+        await volume.refresh_audio_stream_info(self)
 
     async def _set_pa_volume_percent(self, percent: int) -> bool:
         """Set librespot's PulseAudio sink-input volume percentage."""
-        if not self._process:
-            return False
-        pid = self._process.pid
-        try:
-            env = os.environ.copy()
-            env["PULSE_SERVER"] = PULSE_SERVER
-
-            def _list_sinks():
-                return subprocess.run(
-                    ["pactl", "list", "sink-inputs"],
-                    capture_output=True, text=True, env=env,
-                )
-
-            result = await _exec(_list_sinks)
-            sink_input_id = None
-            current_id = None
-            for line in result.stdout.splitlines():
-                line = line.strip()
-                if line.startswith("Sink Input #"):
-                    current_id = line.split("#")[1]
-                elif "application.process.id" in line and f'"{pid}"' in line:
-                    sink_input_id = current_id
-                    break
-            if sink_input_id:
-                def _set_vol():
-                    return subprocess.run(
-                        ["pactl", "set-sink-input-volume", sink_input_id, f"{int(percent)}%"],
-                        capture_output=True, text=True, env=env,
-                    )
-                await _exec(_set_vol)
-                return True
-        except Exception as e:
-            decky.logger.warning("Failed to set PA volume to %d%%: %s", percent, e)
-        return False
+        return await volume.set_pa_volume_percent(self, percent)
 
     async def _boost_pa_volume(self):
         """Set librespot's PulseAudio sink-input to 150% for audible volume."""
-        if await self._set_pa_volume_percent(150):
-            decky.logger.info("PA volume boosted to 150%%")
-            self._pa_volume_boosted = True
+        await volume.boost_pa_volume(self)
 
     async def _monitor_process(self):
         """Monitor active audio engine health and detect system sleep/wake."""

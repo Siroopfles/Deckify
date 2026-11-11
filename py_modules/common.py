@@ -159,15 +159,36 @@ def _load_settings(settings_file: str | None = None) -> dict:
         return dict(default_settings)
 
 
-def _save_settings(settings: dict, settings_file: str | None = None) -> None:
+_MAIN_MODULE = None
+
+
+def _get_main_attr(name):
+    if _MAIN_MODULE and hasattr(_MAIN_MODULE, name):
+        return getattr(_MAIN_MODULE, name)
+    import sys
+    main_mod = sys.modules.get("main")
+    if main_mod and hasattr(main_mod, name):
+        return getattr(main_mod, name)
+    return None
+
+
+def _save_settings_impl(settings: dict, settings_file: str | None = None) -> None:
     target_file = settings_file or SETTINGS_FILE
     os.makedirs(os.path.dirname(target_file), exist_ok=True)
     with open(target_file, "w") as f:
         json.dump(settings, f, indent=2)
 
 
-async def _exec(fn, *args, timeout=10):
-    """Run blocking I/O in executor with asyncio-level timeout (covers DNS)."""
+def _save_settings(settings: dict, settings_file: str | None = None) -> None:
+    target_save = _get_main_attr("_save_settings")
+    default_save = _get_main_attr("_default_save_settings")
+    if target_save and target_save is not default_save and target_save is not _save_settings:
+        return target_save(settings, settings_file)
+    return _save_settings_impl(settings, settings_file)
+
+
+async def _exec_impl(fn, *args, **kwargs):
+    timeout = kwargs.get("timeout", 10)
     try:
         loop = asyncio.get_running_loop()
         return await asyncio.wait_for(
@@ -176,6 +197,18 @@ async def _exec(fn, *args, timeout=10):
         )
     except asyncio.TimeoutError:
         raise TimeoutError(f"Request timed out after {timeout}s")
+
+
+async def _exec(fn, *args, **kwargs):
+    """Run blocking I/O in executor with asyncio-level timeout (covers DNS)."""
+    target_exec = _get_main_attr("_exec")
+    default_exec = _get_main_attr("_default_exec")
+    if target_exec and target_exec is not default_exec and target_exec is not _exec:
+        res = target_exec(fn, *args, **kwargs) if kwargs else target_exec(fn, *args)
+        if asyncio.iscoroutine(res):
+            return await res
+        return res
+    return await _exec_impl(fn, *args, **kwargs)
 
 
 def _build_deck_command(cmd: list[str], extra_env: dict | None = None) -> tuple[list[str], dict]:
