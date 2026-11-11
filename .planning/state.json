@@ -1,0 +1,38 @@
+{
+  "contract": "1.0.0",
+  "flavor": "core",
+  "milestone": null,
+  "phases": [
+    {
+      "number": "1",
+      "name": "Architecture & Monolith Decoupling",
+      "status": "pending"
+    },
+    {
+      "number": "2",
+      "name": "Artwork & Image Pipeline Stabilization",
+      "status": "pending"
+    },
+    {
+      "number": "3",
+      "name": "Live Playback Ticker & Gamepad Seekbar Scrubbing",
+      "status": "pending"
+    },
+    {
+      "number": "4",
+      "name": "Queue Navigation & Live State Synchronization",
+      "status": "pending"
+    },
+    {
+      "number": "5",
+      "name": "In-Game HUD Overlay Restoration",
+      "status": "pending"
+    }
+  ],
+  "next": {
+    "command": "/gsd-progress --next",
+    "label": "Advance to the next step",
+    "reason": "Phase 2 of 5 · 20% · executing"
+  },
+  "updated_at": "2026-11-11T17:43:54.535Z"
+}
