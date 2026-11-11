@@ -1,88 +1,22 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 
-export class ImageLruCache {
-  private map = new Map<string, string>();
-  constructor(private capacity: number = 200) {}
+vi.mock("@decky/api", () => ({
+  callable: () => vi.fn(),
+}));
 
-  get(key: string): string | undefined {
-    const val = this.map.get(key);
-    if (val !== undefined) {
-      this.map.delete(key);
-      this.map.set(key, val);
-    }
-    return val;
-  }
-
-  set(key: string, value: string): void {
-    if (this.map.has(key)) {
-      this.map.delete(key);
-    } else if (this.map.size >= this.capacity) {
-      const oldestKey = this.map.keys().next().value;
-      if (oldestKey !== undefined) {
-        this.map.delete(oldestKey);
-      }
-    }
-    this.map.set(key, value);
-  }
-
-  has(key: string): boolean {
-    return this.map.has(key);
-  }
-
-  clear(): void {
-    this.map.clear();
-  }
-
-  get size(): number {
-    return this.map.size;
-  }
-}
-
-export class ImageRequestQueue {
-  private activeCount = 0;
-  private queue: Array<() => void> = [];
-
-  constructor(private maxConcurrent: number = 4) {}
-
-  enqueue<T>(task: () => Promise<T>): Promise<T> {
-    return new Promise<T>((resolve, reject) => {
-      const run = () => {
-        this.activeCount++;
-        task()
-          .then(resolve)
-          .catch(reject)
-          .finally(() => {
-            this.activeCount--;
-            this.next();
-          });
-      };
-
-      if (this.activeCount < this.maxConcurrent) {
-        run();
-      } else {
-        this.queue.push(run);
-      }
-    });
-  }
-
-  private next(): void {
-    if (this.queue.length > 0 && this.activeCount < this.maxConcurrent) {
-      const nextTask = this.queue.shift();
-      if (nextTask) nextTask();
-    }
-  }
-
-  get pending(): number {
-    return this.queue.length;
-  }
-
-  get active(): number {
-    return this.activeCount;
-  }
-}
+import {
+  ImageLruCache,
+  ImageRequestQueue,
+  imgMemoryCache,
+  imgRequestQueue,
+} from "./imagePipeline";
 
 describe("DeckifyImage Pipeline", () => {
   describe("ImageLruCache", () => {
+    it("exports default imgMemoryCache with capacity 200", () => {
+      expect(imgMemoryCache).toBeInstanceOf(ImageLruCache);
+    });
+
     it("stores and retrieves items correctly", () => {
       const cache = new ImageLruCache(3);
       cache.set("url1", "data:image/1");
@@ -136,6 +70,10 @@ describe("DeckifyImage Pipeline", () => {
   });
 
   describe("ImageRequestQueue", () => {
+    it("exports default imgRequestQueue with maxConcurrent 4", () => {
+      expect(imgRequestQueue).toBeInstanceOf(ImageRequestQueue);
+    });
+
     it("limits concurrent executions to maxConcurrent", async () => {
       const queue = new ImageRequestQueue(2);
       let active = 0;
