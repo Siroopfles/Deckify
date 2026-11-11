@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef, FC } from "react";
+import { useEffect, useState, useCallback, FC } from "react";
 import {
   PanelSection,
   PanelSectionRow,
@@ -24,6 +24,8 @@ import {
 import { registerSteamMenu } from "./steamMenu";
 import { DeckifyExpandedModal } from "./components/DeckifyExpandedModal";
 import { DeckifyOverlay } from "./components/DeckifyOverlay";
+import { usePlaybackClock } from "./hooks/usePlaybackClock";
+import { formatMs } from "./components/common/InteractiveRow";
 import {
   FaMusic,
   FaSpotify,
@@ -59,14 +61,6 @@ const backendToggleLike = callable<[string, boolean | null], { ok: boolean; is_l
 const backendGetDevices = callable<[], { ok: boolean; devices?: SpotifyDevice[]; error?: string }>("get_devices");
 const backendTransferPlayback = callable<[string], { ok: boolean; error?: string }>("transfer_playback");
 
-function formatDuration(ms: number): string {
-  if (!ms || ms <= 0) return "0:00";
-  const sec = Math.floor(ms / 1000);
-  const m = Math.floor(sec / 60);
-  const s = sec % 60;
-  return `${m}:${s < 10 ? "0" : ""}${s}`;
-}
-
 let bigOpen = false;
 const openExpandedView = () => {
   if (bigOpen) return;
@@ -87,7 +81,7 @@ const Content: FC = () => {
   const [audioStreamInfo, setAudioStreamInfo] = useState<AudioStreamInfo | null>(null);
   const [trackMeta, setTrackMeta] = useState<TrackMeta | null>(null);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
-  const [positionMs, setPositionMs] = useState<number>(0);
+  const [serverPositionMs, setServerPositionMs] = useState<number>(0);
   const [durationMs, setDurationMs] = useState<number>(0);
   const [volume, setVolume] = useState<number>(50);
   const [devices, setDevices] = useState<SpotifyDevice[]>([]);
@@ -107,7 +101,17 @@ const Content: FC = () => {
     autoplay: true,
   });
 
-  const seekTimerRef = useRef<any>(null);
+  const clock = usePlaybackClock({
+    serverPositionMs,
+    isPlaying,
+    durationMs,
+    trackId: trackMeta?.track_id || trackMeta?.id,
+    onSeekCommit: async (targetMs) => {
+      try {
+        await backendSeekPlayback(targetMs, "");
+      } catch {}
+    },
+  });
 
   const refreshStatus = useCallback(async () => {
     try {
@@ -120,7 +124,7 @@ const Content: FC = () => {
       const t = status.track || status.track_meta;
       if (t) setTrackMeta(t);
       setIsPlaying(Boolean(status.is_playing));
-      setPositionMs(status.position_ms || 0);
+      setServerPositionMs(status.position_ms || 0);
       setDurationMs(status.duration_ms || t?.duration_ms || 0);
       if (typeof status.volume === "number") setVolume(status.volume);
       setShuffleState(Boolean(status.shuffle_state));
@@ -157,20 +161,6 @@ const Content: FC = () => {
     return () => clearInterval(interval);
   }, [refreshStatus, refreshDevices]);
 
-  // Position interpolation when playing
-  useEffect(() => {
-    if (!isPlaying) {
-      if (seekTimerRef.current) clearInterval(seekTimerRef.current);
-      return;
-    }
-    seekTimerRef.current = setInterval(() => {
-      setPositionMs((prev) => (durationMs > 0 ? Math.min(durationMs, prev + 1000) : prev + 1000));
-    }, 1000);
-    return () => {
-      if (seekTimerRef.current) clearInterval(seekTimerRef.current);
-    };
-  }, [isPlaying, durationMs]);
-
   const handleToggleEngine = async (enable: boolean) => {
     setToggling(true);
     setError(null);
@@ -204,16 +194,12 @@ const Content: FC = () => {
     refreshStatus();
   };
 
-  const handleSeek = async (sec: number) => {
-    const targetMs = sec * 1000;
-    setPositionMs(targetMs);
-    await backendSeekPlayback(targetMs, "");
+  const handleSeek = (sec: number) => {
+    clock.scrubTo(sec * 1000);
   };
 
-  const handleSeekDelta = async (deltaSec: number) => {
-    const target = Math.max(0, positionMs + deltaSec * 1000);
-    setPositionMs(target);
-    await backendSeekPlayback(target, "");
+  const handleSeekDelta = (deltaSec: number) => {
+    clock.scrubDelta(deltaSec * 1000);
   };
 
   const handleToggleShuffle = async () => {
@@ -258,6 +244,7 @@ const Content: FC = () => {
 
   const isPodcast = trackMeta?.album === "" || trackMeta?.uri?.includes(":episode:");
   const activeBackend = settings.audio_backend || "librespot";
+  const positionMs = clock.positionMs;
   const durationSec = Math.floor(durationMs / 1000);
   const positionSec = Math.floor(positionMs / 1000);
 
@@ -344,7 +331,7 @@ const Content: FC = () => {
               <PanelSectionRow>
                 <div style={{ width: "100%" }}>
                   <SliderField
-                    label={`${formatDuration(positionMs)} / ${formatDuration(durationMs)}`}
+                    label={`${formatMs(clock.positionMs)} / ${formatMs(durationMs)}`}
                     value={positionSec}
                     min={0}
                     max={durationSec}
@@ -352,7 +339,7 @@ const Content: FC = () => {
                     onChange={handleSeek}
                   />
                   {isPodcast && (
-                    <Focusable flow-children="row" style={{ display: "flex", justifyContent: "center", gap: 10, marginTop: 4 }}>
+                    <Focusable flow-children="horizontal" style={{ display: "flex", justifyContent: "center", gap: 10, marginTop: 4 }}>
                       <DialogButton style={{ minWidth: "auto", padding: "4px 10px", fontSize: 11 }} onClick={() => handleSeekDelta(-15)}>
                         -15s
                       </DialogButton>
