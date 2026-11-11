@@ -42,10 +42,10 @@ Plans:
   1. Artist pictures, playlist mosaics, track artwork, and podcast covers load reliably in Steam GamepadUI.
   2. Image requests are throttled (max 4-6 concurrent) and cached in JavaScript memory, preventing threadpool starvation and 429 errors.
   3. Rapid scrolling through large libraries does not cause image loading freezes or broken placeholders.
-**Plans**: 2 plans
+**Plans:** 1 plan
 
 Plans:
-- [ ] 02-01: Broaden image URL validation in `images.py` and implement request-throttling / in-memory cache in `DeckifyImage`.
+- [ ] 02-01-PLAN.md — Broaden Spotify CDN image validation, mosaic URI handling, and frontend concurrency throttling queue with LRU cache.
 
 ### Phase 3: Live Playback Ticker & Gamepad Seekbar Scrubbing
 **Goal**: Ensure smooth real-time elapsed time display and gamepad controller scrubbing on Now Playing.
