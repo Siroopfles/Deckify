@@ -81,7 +81,7 @@ async def set_pa_volume_percent(plugin, percent: int) -> bool:
 
 async def boost_pa_volume(plugin):
     """Set librespot's PulseAudio sink-input to 150% for audible volume."""
-    if await set_pa_volume_percent(plugin, 150):
+    if await plugin._set_pa_volume_percent(150):
         decky.logger.info("PA volume boosted to 150%%")
         plugin._pa_volume_boosted = True
 

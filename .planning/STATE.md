@@ -1,12 +1,12 @@
 ---
 gsd_state_version: '1.0'
-status: in_progress
+status: ready_for_next_phase
 progress:
   total_phases: 5
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 7
-  completed_plans: 1
-  percent: 14
+  completed_plans: 2
+  percent: 29
 ---
 
 # Project State
@@ -16,43 +16,39 @@ progress:
 See: [.planning/PROJECT.md](file:///C:/Users/djdje/Deckify/.planning/PROJECT.md) (updated 2026-11-10)
 
 **Core value:** Rock-solid Spotify playback and responsive, reliable controller navigation on Steam Deck without UI lag, broken images, or desynchronized playback states.
-**Current focus:** Phase 1: Architecture & Monolith Decoupling
+**Current focus:** Phase 2: Artwork & Image Pipeline Stabilization
 
 ## Current Position
 
-Phase: 1 of 5 (Architecture & Monolith Decoupling)
-Plan: 1 of 2 completed (Plan 01-01 completed; Plan 01-02 backend modularization in progress)
-Status: In progress
-Last activity: 2026-11-10 — Frontend decomposition complete (Plan 01-01), backend submodules created (Plan 01-02).
+Phase: 1 of 5 (Architecture & Monolith Decoupling) — COMPLETE
+Plan: 2 of 2 completed (Plan 01-01 frontend & Plan 01-02 backend complete)
+Status: Phase 1 Verified. Ready for Phase 2.
+Last activity: 2026-11-11 — Plan 01-02 completed and Phase 1 verified (316/316 unit tests passing, typecheck clean, rollup clean).
 
-Progress: [█▒░░░░░░░░] 14%
+Progress: [███░░░░░░░] 29%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 1
+- Total plans completed: 2
 - Average duration: ~25 min
-- Total execution time: 0.5 hours
+- Total execution time: 1.0 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 1. Architecture & Monolith Decoupling | 1/2 | 25m | 25m |
+| 1. Architecture & Monolith Decoupling | 2/2 | 50m | 25m |
 | 2. Artwork & Image Pipeline Stabilization | 0/1 | - | - |
 | 3. Live Playback Ticker & Gamepad Seekbar Scrubbing | 0/2 | - | - |
 | 4. Queue Navigation & Live State Synchronization | 0/1 | - | - |
 | 5. In-Game HUD Overlay Restoration | 0/1 | - | - |
 
 **Recent Trend:**
-- Trend: Plan 01-01 verified and committed (`b6b4b52`). Plan 01-02 backend modules created.
+- Trend: Plan 01-01 verified and committed (`b6b4b52`). Plan 01-02 backend modularization verified (316/316 tests passing). Phase 1 verified.
 
 ## Session Handoff & Next Steps
 
 When resuming:
-1. Continue Plan 01-02:
-   - Create `py_modules/rpc_library.py` (extract library endpoints from `main.py`).
-   - Wire `main.py`'s `Plugin` methods to delegate to `py_modules/volume.py`, `py_modules/system.py`, `py_modules/rpc_playback.py`, and `py_modules/rpc_library.py`.
-   - Verify `& "C:\Users\djdje\AppData\Local\Python\pythoncore-3.14-64\python.exe" -m unittest discover tests` (all 316 unit tests must continue to pass).
-   - Commit Plan 01-02 and create `01-02-SUMMARY.md`.
-2. Proceed to Phase 1 Verification (`01-VERIFICATION.md`) and advance to Phase 2.
+1. Stage and commit Plan 01-02 and Phase 1 verification artifacts.
+2. Advance to Phase 2: Artwork & Image Pipeline Stabilization.

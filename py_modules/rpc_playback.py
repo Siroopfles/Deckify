@@ -68,7 +68,7 @@ async def control_playback(plugin, action: str, device_id: str = "") -> dict:
         return {"ok": True}
     except urllib.error.HTTPError as e:
         if e.code == 404 and action == "play":
-            return await auto_transfer_and_play(plugin, token, device_id)
+            return await plugin._auto_transfer_and_play(token, device_id)
         if e.code == 404:
             return {"ok": False, "error": "No active device — connect via Spotify app first"}
         return {"ok": False, "error": _parse_spotify_error(e)}
@@ -191,7 +191,7 @@ async def check_tracks_liked(plugin, token: str, track_ids: list[str]) -> dict[s
 async def annotate_tracks_liked(plugin, token: str, tracks: list[dict]) -> None:
     """Enrich a track collection with is_liked flags."""
     ids = [t.get("id") for t in tracks if t.get("id")]
-    liked_map = await check_tracks_liked(plugin, token, ids)
+    liked_map = await plugin._check_tracks_liked(token, ids)
     for t in tracks:
         tid = t.get("id")
         t["is_liked"] = bool(liked_map.get(tid, False)) if tid else False
@@ -211,7 +211,7 @@ async def toggle_like_track(plugin, track_id: str = "", liked: bool | None = Non
         if target_id == plugin._poll_track_id:
             target_liked = not plugin._is_liked
         else:
-            checked = await check_tracks_liked(plugin, token, [target_id])
+            checked = await plugin._check_tracks_liked(token, [target_id])
             target_liked = not checked.get(target_id, False)
     else:
         target_liked = bool(liked)
@@ -282,7 +282,7 @@ async def get_queue(plugin) -> dict:
                 queue_items.append(formatted)
         curr = _fmt(data.get("currently_playing"))
         all_to_check = ([curr] if curr else []) + queue_items
-        await annotate_tracks_liked(plugin, token, all_to_check)
+        await plugin._annotate_tracks_liked(token, all_to_check)
         return {
             "ok": True,
             "currently_playing": curr,
@@ -351,7 +351,7 @@ async def play_tracks(
         return {"ok": True}
     except urllib.error.HTTPError as e:
         if e.code == 404:
-            transfer_res = await auto_transfer_and_play(plugin, token)
+            transfer_res = await plugin._auto_transfer_and_play(token)
             if transfer_res.get("ok") and body:
                 try:
                     await asyncio.sleep(0.5)

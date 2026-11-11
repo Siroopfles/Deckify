@@ -10,7 +10,7 @@ This roadmap addresses key stability, UI/audio synchronization, and architectura
 - Integer phases (1, 2, 3, 4, 5): Planned milestone work
 - Decimal phases (e.g. 2.1): Urgent insertions (marked with INSERTED)
 
-- [ ] **Phase 1: Architecture & Monolith Decoupling** - Refactor `DeckifyExpandedModal.tsx` and `main.py` into modular components and modules with zero test regressions.
+- [x] **Phase 1: Architecture & Monolith Decoupling** - Refactor `DeckifyExpandedModal.tsx` and `main.py` into modular components and modules with zero test regressions.
 - [ ] **Phase 2: Artwork & Image Pipeline Stabilization** - Expand CDN validation and add request throttling/in-memory caching for CEF image loading.
 - [ ] **Phase 3: Live Playback Ticker & Gamepad Seekbar Scrubbing** - Interpolate live elapsed playback time and enable D-pad seek scrubbing.
 - [ ] **Phase 4: Queue Navigation & Live State Synchronization** - Fix queue track clicking and ensure instant playback & queue refresh.
@@ -30,8 +30,8 @@ This roadmap addresses key stability, UI/audio synchronization, and architectura
 **Plans**: 2 plans
 
 Plans:
-- [ ] 01-01: Modularize `DeckifyExpandedModal.tsx` into standalone tab views and shared components.
-- [ ] 01-02: Modularize `main.py` entrypoint into focused `py_modules/` files and verify backend test suite.
+- [x] 01-01: Modularize `DeckifyExpandedModal.tsx` into standalone tab views and shared components.
+- [x] 01-02: Modularize `main.py` entrypoint into focused `py_modules/` files and verify backend test suite.
 
 ### Phase 2: Artwork & Image Pipeline Stabilization
 **Goal**: Eliminate missing artwork across all views by fixing CEF CSP domain filtering and adding client-side request throttling.
