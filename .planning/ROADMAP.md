@@ -97,6 +97,15 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 |-------|----------------|--------|-----------|
 | 1. Architecture & Monolith Decoupling | 2/2 | Complete | 2026-11-10 |
 | 2. Artwork & Image Pipeline Stabilization | 1/1 | Complete | 2026-11-11 |
-| 3. Live Playback Ticker & Gamepad Seekbar Scrubbing | 0/2 | Not started | - |
-| 4. Queue Navigation & Live State Synchronization | 0/1 | Not started | - |
-| 5. In-Game HUD Overlay Restoration | 0/1 | Not started | - |
+| 3. Live Playback Ticker & Gamepad Seekbar Scrubbing | 2/2 | Complete | 2026-11-11 |
+| 4. Queue Navigation & Live State Synchronization | 1/1 | Complete | 2026-11-11 |
+| 5. In-Game HUD Overlay Restoration | 0/1 | Ready to execute | - |
+
+## Backlog & Future Milestones
+
+See [.planning/IDEAS.md](file:///C:/Users/djdje/Deckify/.planning/IDEAS.md) for the full **Deckify Master Feature & Upgrade Plan** (38+ structured ideas across 5 strategic pillars):
+1. **Audio, PipeWire & Afspelen:** Echte PipeWire filter-chain EQ, smooth fading ducking, Steamcord voice ducking, in-game cutscene auto-pause, crossfade, BPM badges, podcast speed/chapters, gentle sleep timer fade, lokale muziek/Steam soundtracks, auto dock audio switching.
+2. **In-Game Integratie, Chords & Overlays:** In-Game Overlay 2.0 (lyrics line, peek mode), configureerbare chords + haptics, game-specifieke soundtracks per appId, QAM pinned playlists, L2/R2 seeking & alfabetisch scrollen, Search/Queue gamepad shortcuts, live Steam menu position switcher.
+3. **Chrome DevTools Protocol (CDP), Bibliotheek & Lyrics:** Offline downloads via `OfflineAPI`, interactief queue-beheer (reorder/delete/clear), echte Spotify synced LRC data via CDP, tweetalige/karaoke NetEase lyrics, Spotify Canvas video-loops, recommendations fallback, Discover Weekly / Home discovery tab, release radar, custom playlist folders UI, in-playlist filter/sort, podcast drilldown.
+4. **UI, Visuals & TV / Steam Machine Experience:** Split-view TV / Steam Machine 10-foot mode (Now Playing + Lyrics naast elkaar), Spotify Jam QR-code, live audio ambient glow/spectrum visualizer, dynamische kleurthema's o.b.v. albumcover, context-sprong vanuit mini-player/sidebar, virtuele lijsten voor 1000+ nummers, meertaligheid (i18n).
+5. **Systeem, Power-Management, Smarthome & Diagnostics:** Event-driven librespot (`--onevent`), Pocket Mode (scherm uit / audio aan), batterij-bewuste eco-switch, suspend bookmark herstel, Wi-Fi reconnect watchdog, MPRIS2 D-Bus bridge voor bluetooth headsets, lokale webhook/MQTT smart home events, 1-klik Flatpak installer, multi-account switcher, cache storage dashboard, import/export settings & folders, live diagnostics log viewer in UI.
