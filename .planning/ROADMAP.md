@@ -70,10 +70,10 @@ Plans:
 **Success Criteria** (what must be TRUE):
   1. Selecting any track in the Queue tab plays that specific track rather than an incorrect offset or starting over.
   2. The Now Playing view and upcoming queue items immediately reflect the newly active song.
-**Plans**: 2 plans
+**Plans**: 1 plan
 
 Plans:
-- [ ] 04-01: Fix queue click handler and backend `play_tracks` offset/URI logic with immediate state refresh.
+- [ ] 04-01-PLAN.md — Fix queue click handler, RPC play_tracks binding, and optimistic state synchronization with dedicated Now Playing presentation.
 
 ### Phase 5: In-Game HUD Overlay Restoration
 **Goal**: Restore the Deckify floating HUD overlay during gameplay and GamepadUI navigation.
