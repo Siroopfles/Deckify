@@ -83,10 +83,10 @@ Plans:
 **Success Criteria** (what must be TRUE):
   1. Overlay toggle in Settings correctly enables or disables the HUD across game launches.
   2. HUD displays currently playing track title, artist, play/pause indicator, and album artwork.
-**Plans**: 2 plans
+**Plans**: 1 plan
 
 Plans:
-- [ ] 05-01: Fix HUD overlay mounting, settings subscription, and artwork schema resolution.
+- [ ] 05-01-PLAN.md — Fix HUD overlay mounting, concurrent state polling, auto-hide/pause-grace timers, progress bar, and QAM controls.
 
 ## Progress
 
