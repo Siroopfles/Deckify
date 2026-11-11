@@ -10,6 +10,8 @@ import {
   PlaylistItem,
   SyncedLine,
   TrackItem,
+  TrackMeta,
+  StatusResponse,
   ViewMode,
   ALL_MODES,
 } from "../types";
@@ -45,7 +47,7 @@ const FULL_BLEED = {
 };
 
 // RPC Callables
-const backendPlayTracks = callable<[string | null, string | null, string[] | null, number], { ok: boolean; error?: string }>("play_track");
+const backendPlayTracks = callable<[string | null, string | null, string[] | null, number], { ok: boolean; error?: string }>("play_tracks");
 const backendControlPlayback = callable<[string, string], { ok: boolean; error?: string }>("control_playback");
 const backendSetVolume = callable<[number], { ok: boolean; error?: string }>("set_volume");
 const backendSetRepeat = callable<[string, string], { ok: boolean; error?: string }>("set_repeat");
@@ -75,7 +77,7 @@ const backendSetNativeMix = callable<[string, boolean, boolean], { ok: boolean; 
 
 export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeModal }) => {
   const [mode, setMode] = useState<ViewMode>("now_playing");
-  const { status, currentPositionMs, refreshStatus, clock } = usePlaybackStatus();
+  const { status, setStatus, currentPositionMs, refreshStatus, clock } = usePlaybackStatus();
 
   // Drill-down states
   const [activePlaylist, setActivePlaylist] = useState<PlaylistItem | null>(null);
@@ -212,8 +214,14 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
     else if (mode === "artists") loadArtists();
     else if (mode === "recent") loadRecent();
     else if (mode === "episodes") loadEpisodes();
-    else if (mode === "queue") loadQueue();
-  }, [mode, loadLikedTracks, loadAlbums, loadArtists, loadRecent, loadEpisodes, loadQueue]);
+  }, [mode, loadLikedTracks, loadAlbums, loadArtists, loadRecent, loadEpisodes]);
+
+  useEffect(() => {
+    if (mode !== "queue") return undefined;
+    loadQueue();
+    const interval = setInterval(loadQueue, 10000);
+    return () => clearInterval(interval);
+  }, [mode, loadQueue]);
 
   // Drill-down open handlers
   const handleOpenPlaylist = useCallback(async (pl: PlaylistItem) => {
@@ -395,7 +403,58 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
     refreshStatus();
   }, [showToast, refreshStatus]);
 
-  const handlePlayQueueTrack = handlePlayTrack;
+  const handlePlayQueueTrack = useCallback(async (clickedTrack: TrackItem, idx: number) => {
+    const remaining = queueTracks.slice(idx + 1);
+    setQueueTracks(remaining);
+
+    setStatus((prev) => {
+      const promotedMeta: TrackMeta = {
+        name: clickedTrack.name || "",
+        artist: clickedTrack.artist || "",
+        album: clickedTrack.album || "",
+        artwork_url: clickedTrack.artwork_url || clickedTrack.image_url || null,
+        image_url: clickedTrack.image_url || clickedTrack.artwork_url || null,
+        duration_ms: clickedTrack.duration_ms || 0,
+        uri: clickedTrack.uri,
+        id: clickedTrack.id,
+        track_id: clickedTrack.id,
+        is_liked: clickedTrack.is_liked,
+      };
+      return prev
+        ? {
+            ...prev,
+            is_playing: true,
+            position_ms: 0,
+            track: promotedMeta,
+            track_meta: promotedMeta,
+          }
+        : ({
+            is_playing: true,
+            position_ms: 0,
+            track: promotedMeta,
+            track_meta: promotedMeta,
+          } as StatusResponse);
+    });
+
+    const uris = queueTracks.slice(idx).map((x) => x.uri).filter(Boolean) as string[];
+    try {
+      const res = await backendPlayTracks(null, null, uris, 0);
+      if (res && !res.ok && res.error) {
+        showToast(res.error);
+      } else {
+        showToast("Playback started");
+      }
+    } catch {
+      showToast("Failed to start playback");
+    }
+
+    refreshStatus();
+
+    setTimeout(async () => {
+      await loadQueue();
+      await refreshStatus();
+    }, 600);
+  }, [queueTracks, setStatus, showToast, refreshStatus, loadQueue]);
 
   const handleSeekDelta = useCallback((seconds: number) => {
     clock.scrubDelta(seconds * 1000);
@@ -831,7 +890,10 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
               {mode === "queue" && (
                 <QueueTab
                   queueTracks={queueTracks}
-                  handlePlayTrack={handlePlayQueueTrack}
+                  currentlyPlaying={status?.track_meta || status?.track}
+                  isPlaying={Boolean(status?.is_playing)}
+                  handlePlayQueueTrack={handlePlayQueueTrack}
+                  handlePlayTrack={handlePlayTrack}
                   handleToggleLike={handleToggleLike}
                   onFocusTrack={(t) => { focusedTrackRef.current = t; }}
                 />

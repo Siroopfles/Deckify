@@ -769,6 +769,8 @@ class Plugin:
     ) -> dict:
         return await rpc_playback.play_tracks(self, context_uri, offset_uri, uris, position)
 
+    play_track = play_tracks
+
     async def get_devices(self) -> dict:
         return await rpc_playback.get_devices(self)
 
