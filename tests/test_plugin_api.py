@@ -420,6 +420,22 @@ class PluginApiTests(unittest.IsolatedAsyncioTestCase):
             {"uris": ["spotify:track:1", "spotify:track:2"], "offset": {"position": 5000}},
         )
 
+    async def test_play_track_alias_and_delegation(self):
+        self.assertEqual(self.plugin.play_track, self.plugin.play_tracks)
+        self.execute.return_value = {}
+        res = await self.plugin.play_track(
+            uris=["spotify:track:queue1", "spotify:track:queue2"], position=0
+        )
+        self.assertTrue(res["ok"])
+        self.execute.assert_awaited_with(
+            main._spotify_api_request,
+            "me/player/play",
+            "valid-token",
+            "PUT",
+            None,
+            {"uris": ["spotify:track:queue1", "spotify:track:queue2"]},
+        )
+
     async def test_get_devices_and_transfer_playback(self):
         self.execute.return_value = {
             "devices": [
