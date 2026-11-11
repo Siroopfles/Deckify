@@ -1,12 +1,16 @@
 import { useCallback, useEffect, useState } from "react";
 import { callable } from "@decky/api";
 import { StatusResponse } from "../types";
+import { usePlaybackClock } from "./usePlaybackClock";
 
 export const backendGetStatus = callable<[], StatusResponse>("get_status");
+export const backendSeekPlayback = callable<
+  [number, string],
+  { ok: boolean; position_ms?: number; error?: string }
+>("seek_playback");
 
 export function usePlaybackStatus() {
   const [status, setStatus] = useState<StatusResponse | null>(null);
-  const [currentPositionMs, setCurrentPositionMs] = useState<number>(0);
 
   const refreshStatus = useCallback(async () => {
     try {
@@ -15,23 +19,22 @@ export function usePlaybackStatus() {
     } catch {}
   }, []);
 
-  useEffect(() => {
-    if (status?.position_ms !== undefined) {
-      setCurrentPositionMs(status.position_ms);
-    }
-  }, [status?.position_ms]);
+  const track = status?.track || status?.track_meta;
+  const durationMs = (status as any)?.duration_ms || track?.duration_ms || 0;
+  const isPlaying = Boolean(status?.is_playing);
+  const trackId = track?.track_id || track?.id;
 
-  useEffect(() => {
-    if (!status?.is_playing) return;
-    const interval = setInterval(() => {
-      setCurrentPositionMs((prev) => {
-        const duration = (status?.track || status?.track_meta)?.duration_ms || 0;
-        if (duration > 0 && prev >= duration) return prev;
-        return prev + 1000;
-      });
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [status?.is_playing, status?.track, status?.track_meta]);
+  const clock = usePlaybackClock({
+    serverPositionMs: status?.position_ms ?? 0,
+    isPlaying,
+    durationMs,
+    trackId,
+    onSeekCommit: async (targetMs) => {
+      try {
+        await backendSeekPlayback(targetMs, "");
+      } catch {}
+    },
+  });
 
   useEffect(() => {
     refreshStatus();
@@ -42,8 +45,8 @@ export function usePlaybackStatus() {
   return {
     status,
     setStatus,
-    currentPositionMs,
-    setCurrentPositionMs,
+    currentPositionMs: clock.positionMs,
     refreshStatus,
+    clock,
   };
 }
