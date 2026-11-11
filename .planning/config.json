@@ -3,6 +3,9 @@
   "granularity": "standard",
   "parallelization": false,
   "commit_docs": true,
+  "git": {
+    "allow_default_branch_commits": true
+  },
   "model_profile": "inherit",
   "workflow": {
     "research": true,

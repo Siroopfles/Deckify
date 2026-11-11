@@ -19,8 +19,8 @@
 - [ ] **PLAY-03**: Bind Now Playing progress bar and time labels to the live interpolated position state rather than stale backend polling snapshots.
 
 ### Queue Management
-- [ ] **QUEUE-01**: Fix track selection in the Queue view so clicking/selecting any queue item starts playback of that exact track.
-- [ ] **QUEUE-02**: Ensure selecting a queue track immediately updates the Now Playing view and re-synchronizes the upcoming queue list in real time.
+- [x] **QUEUE-01**: Fix track selection in the Queue view so clicking/selecting any queue item starts playback of that exact track.
+- [x] **QUEUE-02**: Ensure selecting a queue track immediately updates the Now Playing view and re-synchronizes the upcoming queue list in real time.
 
 ### In-Game HUD Overlay
 - [ ] **HUD-01**: Ensure the Deckify in-game HUD overlay mounts reliably in Steam GamepadUI gamescope, respects the settings toggle, and auto-hides or displays according to configuration.
@@ -52,8 +52,8 @@ Which phases cover which requirements. Populated during roadmap creation.
 | PLAY-01 | Phase 3 | Pending |
 | PLAY-02 | Phase 3 | Pending |
 | PLAY-03 | Phase 3 | Pending |
-| QUEUE-01 | Phase 4 | Pending |
-| QUEUE-02 | Phase 4 | Pending |
+| QUEUE-01 | Phase 4 | Complete |
+| QUEUE-02 | Phase 4 | Complete |
 | HUD-01 | Phase 5 | Pending |
 | HUD-02 | Phase 5 | Pending |
 

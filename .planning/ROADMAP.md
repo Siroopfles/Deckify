@@ -73,7 +73,7 @@ Plans:
 **Plans**: 1 plan
 
 Plans:
-- [ ] 04-01-PLAN.md — Fix queue click handler, RPC play_tracks binding, and optimistic state synchronization with dedicated Now Playing presentation.
+- [x] 04-01-PLAN.md — Fix queue click handler, RPC play_tracks binding, and optimistic state synchronization with dedicated Now Playing presentation.
 
 ### Phase 5: In-Game HUD Overlay Restoration
 **Goal**: Restore the Deckify floating HUD overlay during gameplay and GamepadUI navigation.
