@@ -1,4 +1,4 @@
-import { FC } from "react";
+import { FC, useState } from "react";
 import { Focusable } from "@decky/ui";
 import {
   FaSpotify,
@@ -15,7 +15,8 @@ import {
 } from "react-icons/fa";
 import { StatusResponse } from "../../types";
 import { DeckifyImage } from "../common/DeckifyImage";
-import { InteractiveRow, RoundBtn, formatMs } from "../common/InteractiveRow";
+import { InteractiveRow, RoundBtn, focusHalo, formatMs } from "../common/InteractiveRow";
+import { getScrubStepMs } from "../../hooks/usePlaybackClock";
 
 export interface NowPlayingTabProps {
   status: StatusResponse | null;
@@ -28,6 +29,7 @@ export interface NowPlayingTabProps {
   handleSeekDelta: (seconds: number) => void;
   handleVolumeDelta: (delta: number) => void;
   onSetShuffle: (state: boolean) => void;
+  onSeekPlayback?: (timeMs: number) => void;
 }
 
 export const NowPlayingTab: FC<NowPlayingTabProps> = ({
@@ -41,12 +43,20 @@ export const NowPlayingTab: FC<NowPlayingTabProps> = ({
   handleSeekDelta,
   handleVolumeDelta,
   onSetShuffle,
+  onSeekPlayback,
 }) => {
+  const [isFocused, setIsFocused] = useState(false);
+  const [, setIsScrubbing] = useState(false);
+
   const track = status?.track_meta || status?.track;
   const artwork = track?.artwork_url || track?.image_url;
   const isPlaying = Boolean(status?.is_playing);
   const streamInfo = (status as any)?.stream_info || status?.audio_stream_info;
   const isLossless = streamInfo?.is_lossless_rate;
+
+  const progressPercent = track?.duration_ms && track.duration_ms > 0
+    ? Math.min(100, Math.max(0, (currentPositionMs / track.duration_ms) * 100))
+    : 0;
 
   return (
     <div
@@ -119,25 +129,89 @@ export const NowPlayingTab: FC<NowPlayingTabProps> = ({
       {track?.duration_ms && track.duration_ms > 0 && (
         <div style={{ width: "100%", marginBottom: 16 }}>
           <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, opacity: 0.6, marginBottom: 4 }}>
-            <span>{formatMs(status?.position_ms || currentPositionMs || 0)}</span>
+            <span>{formatMs(currentPositionMs)}</span>
             <span>{formatMs(track.duration_ms)}</span>
           </div>
-          <InteractiveRow
-            onClick={() => {}}
-            onKeyDown={(e) => {
-              if (e.key === "ArrowLeft") handleSeekDelta(-10);
-              if (e.key === "ArrowRight") handleSeekDelta(10);
+
+          <Focusable
+            noFocusRing
+            tabIndex={0}
+            onFocus={() => setIsFocused(true)}
+            onBlur={() => {
+              setIsFocused(false);
+              setIsScrubbing(false);
             }}
-            style={{ width: "100%", height: 10, background: "rgba(255,255,255,0.15)", borderRadius: 5, padding: 0, overflow: "hidden" }}
+            onGamepadFocus={() => setIsFocused(true)}
+            onGamepadBlur={() => {
+              setIsFocused(false);
+              setIsScrubbing(false);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "ArrowLeft") {
+                e.preventDefault?.();
+                e.stopPropagation?.();
+                setIsScrubbing(true);
+                const stepMs = getScrubStepMs(track.duration_ms);
+                handleSeekDelta(-stepMs / 1000);
+              } else if (e.key === "ArrowRight") {
+                e.preventDefault?.();
+                e.stopPropagation?.();
+                setIsScrubbing(true);
+                const stepMs = getScrubStepMs(track.duration_ms);
+                handleSeekDelta(stepMs / 1000);
+              }
+            }}
+            onClick={(e) => {
+              const rect = e.currentTarget.getBoundingClientRect();
+              if (rect.width > 0) {
+                const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+                const targetMs = pct * track.duration_ms;
+                if (onSeekPlayback) {
+                  onSeekPlayback(targetMs);
+                } else {
+                  handleSeekDelta((targetMs - currentPositionMs) / 1000);
+                }
+              }
+            }}
+            style={{
+              width: "100%",
+              height: 12,
+              background: "rgba(255,255,255,0.15)",
+              borderRadius: 6,
+              cursor: "pointer",
+              padding: 0,
+              overflow: "visible",
+              ...focusHalo(isFocused),
+            }}
           >
+            {/* Live fill bar bound to currentPositionMs */}
             <div
               style={{
-                width: `${Math.min(100, (((status?.position_ms || currentPositionMs || 0)) / track.duration_ms) * 100)}%`,
+                width: `${progressPercent}%`,
                 height: "100%",
                 background: "#1db954",
+                borderRadius: 6,
+                position: "relative",
               }}
-            />
-          </InteractiveRow>
+            >
+              {/* Visible thumb handle */}
+              <div
+                style={{
+                  position: "absolute",
+                  right: -6,
+                  top: isFocused ? -3 : -2,
+                  width: isFocused ? 18 : 16,
+                  height: isFocused ? 18 : 16,
+                  borderRadius: "50%",
+                  background: "#fff",
+                  boxShadow: isFocused
+                    ? "0 0 0 2px #1db954, 0 2px 8px rgba(0,0,0,0.8)"
+                    : "0 2px 6px rgba(0,0,0,0.6)",
+                  transition: "width 0.1s ease, height 0.1s ease, top 0.1s ease, box-shadow 0.1s ease",
+                }}
+              />
+            </div>
+          </Focusable>
 
           {/* Scrub controls */}
           <Focusable flow-children="horizontal" style={{ display: "flex", justifyContent: "center", gap: 12, marginTop: 8 }}>
