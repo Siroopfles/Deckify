@@ -11,7 +11,7 @@ This roadmap addresses key stability, UI/audio synchronization, and architectura
 - Decimal phases (e.g. 2.1): Urgent insertions (marked with INSERTED)
 
 - [x] **Phase 1: Architecture & Monolith Decoupling** - Refactor `DeckifyExpandedModal.tsx` and `main.py` into modular components and modules with zero test regressions.
-- [ ] **Phase 2: Artwork & Image Pipeline Stabilization** - Expand CDN validation and add request throttling/in-memory caching for CEF image loading.
+- [x] **Phase 2: Artwork & Image Pipeline Stabilization** - Expand CDN validation and add request throttling/in-memory caching for CEF image loading.
 - [ ] **Phase 3: Live Playback Ticker & Gamepad Seekbar Scrubbing** - Interpolate live elapsed playback time and enable D-pad seek scrubbing.
 - [ ] **Phase 4: Queue Navigation & Live State Synchronization** - Fix queue track clicking and ensure instant playback & queue refresh.
 - [ ] **Phase 5: In-Game HUD Overlay Restoration** - Restore in-game HUD overlay mounting, settings persistence, and cover art display.
@@ -45,7 +45,7 @@ Plans:
 **Plans:** 1 plan
 
 Plans:
-- [ ] 02-01-PLAN.md — Broaden Spotify CDN image validation, mosaic URI handling, and frontend concurrency throttling queue with LRU cache.
+- [x] 02-01-PLAN.md — Broaden Spotify CDN image validation, mosaic URI handling, and frontend concurrency throttling queue with LRU cache.
 
 ### Phase 3: Live Playback Ticker & Gamepad Seekbar Scrubbing
 **Goal**: Ensure smooth real-time elapsed time display and gamepad controller scrubbing on Now Playing.
@@ -95,8 +95,8 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Architecture & Monolith Decoupling | 0/2 | Not started | - |
-| 2. Artwork & Image Pipeline Stabilization | 0/1 | Not started | - |
+| 1. Architecture & Monolith Decoupling | 2/2 | Complete | 2026-11-10 |
+| 2. Artwork & Image Pipeline Stabilization | 1/1 | Complete | 2026-11-11 |
 | 3. Live Playback Ticker & Gamepad Seekbar Scrubbing | 0/2 | Not started | - |
 | 4. Queue Navigation & Live State Synchronization | 0/1 | Not started | - |
 | 5. In-Game HUD Overlay Restoration | 0/1 | Not started | - |
