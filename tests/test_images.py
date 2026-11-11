@@ -30,11 +30,47 @@ class ImageTests(unittest.TestCase):
         direct_mosaic = _proxy_spotify_image_url(mosaic)
         self.assertTrue(direct_mosaic.startswith("https://mosaic.scdn.co/300/"))
 
+    def test_spotify_cdn_domains(self):
+        from py_modules import images
+        if not hasattr(images, "ALLOWED_SPOTIFY_DOMAINS"):
+            self.skipTest("Waiting for ALLOWED_SPOTIFY_DOMAINS in Task 2")
+        valid_urls = [
+            "https://i.scdn.co/image/abc",
+            "https://mosaic.scdn.co/300/1234",
+            "https://image-cdn-ak.spotifycdn.com/image/xyz",
+            "https://image-cdn-fa.spotifycdn.com/image/xyz",
+            "https://pickasso.spotifycdn.com/image/xyz",
+            "https://seeded-session-images.scdn.co/v1/img/track/123",
+            "https://image-cdn-ak.spotifycdn.net/image/xyz",
+            "https://spotify.com/image/xyz",
+            "https://scdn.co/image/xyz",
+            "https://spotifycdn.com/image/xyz",
+        ]
+        for url in valid_urls:
+            with self.subTest(url=url):
+                _validate_image_url(url)
+
+    def test_mosaic_and_spotify_uri_variations(self):
+        from py_modules import images
+        if not hasattr(images, "ALLOWED_SPOTIFY_DOMAINS"):
+            self.skipTest("Waiting for mosaic normalization in Task 2")
+        self.assertEqual(
+            _proxy_spotify_image_url("spotify:image:mosaic:abc:def:ghi:jkl"),
+            "https://mosaic.scdn.co/300/abcdefghijkl",
+        )
+        self.assertEqual(
+            _proxy_spotify_image_url("spotify:mosaic:abc:def"),
+            "https://mosaic.scdn.co/300/abcdef",
+        )
+
     def test_non_spotify_urls_are_rejected_before_fetch(self):
         urls = [
             "http://i.scdn.co/image/a",
             "https://127.0.0.1/a",
             "https://i.scdn.co.example.com/a",
+            "https://fake-scdn.co/a",
+            "https://scdn.co.attacker.com/a",
+            "https://spotifycdn.com.evil.org/a",
             "file:///etc/passwd",
             "https://user:password@i.scdn.co/a",
             "https://i.scdn.co:1337/a",
