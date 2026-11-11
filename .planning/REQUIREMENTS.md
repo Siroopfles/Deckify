@@ -10,8 +10,8 @@
 - [ ] **ARCH-02**: Refactor monolithic `main.py` (~2,600 LOC) into focused backend modules under `py_modules/` (separating RPC routing, volume management, process supervision, and image fetching) while keeping all 316 unit tests passing.
 
 ### Media & Artwork (CEF CSP Compatibility)
-- [ ] **IMG-01**: Expand image URL validation and proxying in `py_modules/images.py` to support all Spotify CDN variants (`image-cdn-ak.spotifycdn.com`, `mosaic.scdn.co`, `seeded-session-images.scdn.co`) and podcast cover hosts.
-- [ ] **IMG-02**: Add concurrency throttling (max 4-6 concurrent fetches) and an in-memory cache to `DeckifyImage` to eliminate RPC threadpool starvation and prevent Spotify HTTP 429 rate limit backoffs.
+- [x] **IMG-01**: Expand image URL validation and proxying in `py_modules/images.py` to support all Spotify CDN variants (`image-cdn-ak.spotifycdn.com`, `mosaic.scdn.co`, `seeded-session-images.scdn.co`) and podcast cover hosts.
+- [x] **IMG-02**: Add concurrency throttling (max 4-6 concurrent fetches) and an in-memory cache to `DeckifyImage` to eliminate RPC threadpool starvation and prevent Spotify HTTP 429 rate limit backoffs.
 
 ### Playback & Time Synchronization
 - [ ] **PLAY-01**: Implement smooth real-time Now Playing elapsed time ticker interpolated with local clock timestamps (`Date.now()`) so progress counts up seamlessly every second without freezing or jitter.
@@ -45,10 +45,10 @@ Which phases cover which requirements. Populated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| ARCH-01 | Phase 1 | Pending |
-| ARCH-02 | Phase 1 | Pending |
-| IMG-01 | Phase 2 | Pending |
-| IMG-02 | Phase 2 | Pending |
+| ARCH-01 | Phase 1 | Complete |
+| ARCH-02 | Phase 1 | Complete |
+| IMG-01 | Phase 2 | Complete |
+| IMG-02 | Phase 2 | Complete |
 | PLAY-01 | Phase 3 | Pending |
 | PLAY-02 | Phase 3 | Pending |
 | PLAY-03 | Phase 3 | Pending |
