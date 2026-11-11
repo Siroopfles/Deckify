@@ -56,10 +56,11 @@ Plans:
   1. Elapsed track time counts up every second in real time using local clock interpolation (`Date.now()`).
   2. Progress bar width smoothly reflects the live playback position.
   3. Users can focus the seek bar with the Steam Deck D-pad and step forward/backward in the track.
-**Plans**: 1 plan
+**Plans**: 2 plans
 
 Plans:
-- [ ] 03-01-PLAN.md — Implement live playback clock interpolation, drift gating, debounced seeking, and wire into Now Playing & QAM.
+- [x] 03-01-PLAN.md — Implement live playback clock interpolation, drift gating, debounced seeking, and wire into Now Playing & QAM.
+- [x] 03-02-PLAN.md — Wire debounced seeking, optimistic updates, and post-seek suppression into DeckifyExpandedModal.
 
 ### Phase 4: Queue Navigation & Live State Synchronization
 **Goal**: Fix queue track selection so clicking any song in the queue immediately starts playing it and refreshes state.
