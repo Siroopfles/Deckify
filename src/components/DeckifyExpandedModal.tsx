@@ -47,7 +47,6 @@ const FULL_BLEED = {
 // RPC Callables
 const backendPlayTracks = callable<[string | null, string | null, string[] | null, number], { ok: boolean; error?: string }>("play_track");
 const backendControlPlayback = callable<[string, string], { ok: boolean; error?: string }>("control_playback");
-const backendSeekPlayback = callable<[number, string], { ok: boolean; error?: string }>("seek_playback");
 const backendSetVolume = callable<[number], { ok: boolean; error?: string }>("set_volume");
 const backendSetRepeat = callable<[string, string], { ok: boolean; error?: string }>("set_repeat");
 const backendSetShuffle = callable<[boolean, string], { ok: boolean; error?: string }>("set_shuffle");
@@ -76,7 +75,7 @@ const backendSetNativeMix = callable<[string, boolean, boolean], { ok: boolean; 
 
 export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeModal }) => {
   const [mode, setMode] = useState<ViewMode>("now_playing");
-  const { status, currentPositionMs, refreshStatus } = usePlaybackStatus();
+  const { status, currentPositionMs, refreshStatus, clock } = usePlaybackStatus();
 
   // Drill-down states
   const [activePlaylist, setActivePlaylist] = useState<PlaylistItem | null>(null);
@@ -398,17 +397,13 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
 
   const handlePlayQueueTrack = handlePlayTrack;
 
-  const handleSeekDelta = useCallback(async (seconds: number) => {
-    const cur = status?.position_ms || 0;
-    const target = Math.max(0, cur + seconds * 1000);
-    await backendSeekPlayback(target, "");
-    refreshStatus();
-  }, [status, refreshStatus]);
+  const handleSeekDelta = useCallback((seconds: number) => {
+    clock.scrubDelta(seconds * 1000);
+  }, [clock]);
 
-  const handleSeekPlayback = useCallback(async (timeMs: number) => {
-    await backendSeekPlayback(timeMs, "");
-    refreshStatus();
-  }, [refreshStatus]);
+  const handleSeekPlayback = useCallback((timeMs: number) => {
+    clock.scrubTo(timeMs);
+  }, [clock]);
 
   const handleVolumeDelta = useCallback(async (delta: number) => {
     const cur = typeof status?.volume === "number" ? status.volume : 50;
@@ -716,6 +711,7 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
                   handleSeekDelta={handleSeekDelta}
                   handleVolumeDelta={handleVolumeDelta}
                   onSetShuffle={handleSetShuffle}
+                  onSeekPlayback={handleSeekPlayback}
                 />
               )}
 
