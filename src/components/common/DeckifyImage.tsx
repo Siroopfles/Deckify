@@ -1,16 +1,47 @@
-import { ReactNode, useEffect, useState } from "react";
-import { callable } from "@decky/api";
+import { CSSProperties, ReactNode, useEffect, useState } from "react";
+import { FaMusic } from "react-icons/fa";
+import {
+  ImageLruCache,
+  ImageRequestQueue,
+  imgMemoryCache,
+  imgRequestQueue,
+  imgPending,
+  fetchWithQueueAndCache,
+} from "./imagePipeline";
 
-const backendGetImage = callable<[string], { ok: boolean; data_url?: string; error?: string }>("get_image");
+export {
+  ImageLruCache,
+  ImageRequestQueue,
+  imgMemoryCache,
+  imgRequestQueue,
+  imgPending,
+};
 
-export const imgMemoryCache = new Map<string, string>();
-export const imgPending = new Map<string, Promise<string | null>>();
+const SHIMMER_STYLE_ID = "deckify-image-shimmer-style";
+
+function ensureShimmerStyle(): void {
+  if (typeof document === "undefined") return;
+  if (document.getElementById(SHIMMER_STYLE_ID)) return;
+  const styleEl = document.createElement("style");
+  styleEl.id = SHIMMER_STYLE_ID;
+  styleEl.textContent = `
+    @keyframes deckifyShimmer {
+      0% { background-color: #1a1a1a; }
+      50% { background-color: #2a2a2a; }
+      100% { background-color: #1a1a1a; }
+    }
+    .deckify-image-skeleton {
+      animation: deckifyShimmer 1.5s ease-in-out infinite;
+    }
+  `;
+  document.head.appendChild(styleEl);
+}
 
 export interface DeckifyImageProps {
   src?: string | null;
   width?: number | string;
   height?: number | string;
-  style?: any;
+  style?: CSSProperties | any;
   className?: string;
   fallback?: ReactNode;
 }
@@ -28,41 +59,38 @@ export function DeckifyImage({
     if (src.startsWith("data:") || src.startsWith("http://127.0.0.1")) return src;
     return imgMemoryCache.get(src) || null;
   });
+  const [isLoading, setIsLoading] = useState<boolean>(() => {
+    if (!src) return false;
+    if (src.startsWith("data:") || src.startsWith("http://127.0.0.1")) return false;
+    return !imgMemoryCache.has(src);
+  });
 
   useEffect(() => {
+    ensureShimmerStyle();
     if (!src) {
       setDataUrl(null);
+      setIsLoading(false);
       return;
     }
     if (src.startsWith("data:") || src.startsWith("http://127.0.0.1")) {
       setDataUrl(src);
+      setIsLoading(false);
       return;
     }
     const cached = imgMemoryCache.get(src);
     if (cached) {
       setDataUrl(cached);
+      setIsLoading(false);
       return;
     }
 
+    setIsLoading(true);
     let active = true;
-    let promise = imgPending.get(src);
-    if (!promise) {
-      promise = backendGetImage(src)
-        .then((res) => {
-          if (res.ok && res.data_url) {
-            imgMemoryCache.set(src, res.data_url);
-            return res.data_url;
-          }
-          return null;
-        })
-        .finally(() => {
-          imgPending.delete(src);
-        });
-      imgPending.set(src, promise);
-    }
 
-    promise.then((du) => {
-      if (active && du) setDataUrl(du);
+    fetchWithQueueAndCache(src).then((du) => {
+      if (!active) return;
+      setDataUrl(du);
+      setIsLoading(false);
     });
 
     return () => {
@@ -70,20 +98,36 @@ export function DeckifyImage({
     };
   }, [src]);
 
-  if (!dataUrl) {
-    if (fallback) {
-      return (
-        <div style={{ width, height, display: "flex", alignItems: "center", justifyContent: "center", ...style }}>
-          {fallback}
-        </div>
-      );
-    }
+  if (dataUrl) {
+    return (
+      <img
+        src={dataUrl}
+        width={width}
+        height={height}
+        style={{ objectFit: "cover", flexShrink: 0, ...style }}
+        className={className}
+        onError={() => setDataUrl(null)}
+      />
+    );
+  }
+
+  if (fallback) {
+    return (
+      <div style={{ width, height, display: "flex", alignItems: "center", justifyContent: "center", ...style }}>
+        {fallback}
+      </div>
+    );
+  }
+
+  if (isLoading) {
     return (
       <div
+        className="deckify-image-skeleton"
         style={{
           width,
           height,
-          background: "rgba(255,255,255,0.06)",
+          backgroundColor: "#1a1a1a",
+          animation: "deckifyShimmer 1.5s ease-in-out infinite",
           borderRadius: (style as any)?.borderRadius || 4,
           flexShrink: 0,
           ...style,
@@ -92,13 +136,22 @@ export function DeckifyImage({
     );
   }
 
+  const iconSize = typeof width === "number" ? Math.max(12, Math.floor(width * 0.4)) : 14;
   return (
-    <img
-      src={dataUrl}
-      width={width}
-      height={height}
-      style={{ objectFit: "cover", flexShrink: 0, ...style }}
-      className={className}
-    />
+    <div
+      style={{
+        width,
+        height,
+        background: "rgba(255, 255, 255, 0.05)",
+        borderRadius: (style as any)?.borderRadius || 4,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        flexShrink: 0,
+        ...style,
+      }}
+    >
+      <FaMusic size={iconSize} color="rgba(255, 255, 255, 0.3)" />
+    </div>
   );
 }
