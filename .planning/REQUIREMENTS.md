@@ -6,8 +6,8 @@
 ## v1 Requirements
 
 ### Architecture & Refactoring
-- [ ] **ARCH-01**: Refactor monolithic `DeckifyExpandedModal.tsx` (~2,959 LOC) into clean, modular components under `src/components/tabs/` and `src/components/common/` while preserving full feature parity and zero regression in test suites.
-- [ ] **ARCH-02**: Refactor monolithic `main.py` (~2,600 LOC) into focused backend modules under `py_modules/` (separating RPC routing, volume management, process supervision, and image fetching) while keeping all 316 unit tests passing.
+- [x] **ARCH-01**: Refactor monolithic `DeckifyExpandedModal.tsx` (~2,959 LOC) into clean, modular components under `src/components/tabs/` and `src/components/common/` while preserving full feature parity and zero regression in test suites.
+- [x] **ARCH-02**: Refactor monolithic `main.py` (~2,600 LOC) into focused backend modules under `py_modules/` (separating RPC routing, volume management, process supervision, and image fetching) while keeping all 316 unit tests passing.
 
 ### Media & Artwork (CEF CSP Compatibility)
 - [x] **IMG-01**: Expand image URL validation and proxying in `py_modules/images.py` to support all Spotify CDN variants (`image-cdn-ak.spotifycdn.com`, `mosaic.scdn.co`, `seeded-session-images.scdn.co`) and podcast cover hosts.
@@ -23,8 +23,8 @@
 - [x] **QUEUE-02**: Ensure selecting a queue track immediately updates the Now Playing view and re-synchronizes the upcoming queue list in real time.
 
 ### In-Game HUD Overlay
-- [ ] **HUD-01**: Ensure the Deckify in-game HUD overlay mounts reliably in Steam GamepadUI gamescope, respects the settings toggle, and auto-hides or displays according to configuration.
-- [ ] **HUD-02**: Correctly resolve and render album artwork and playback state indicators (playing/paused) in the HUD overlay.
+- [x] **HUD-01**: Ensure the Deckify in-game HUD overlay mounts reliably in Steam GamepadUI gamescope, respects the settings toggle, and auto-hides or displays according to configuration.
+- [x] **HUD-02**: Correctly resolve and render album artwork and playback state indicators (playing/paused) in the HUD overlay.
 
 ## v2 Requirements
 - **LYRIC-01**: Offline lyrics caching for recently played tracks.
@@ -54,8 +54,8 @@ Which phases cover which requirements. Populated during roadmap creation.
 | PLAY-03 | Phase 3 | Complete |
 | QUEUE-01 | Phase 4 | Complete |
 | QUEUE-02 | Phase 4 | Complete |
-| HUD-01 | Phase 5 | Pending |
-| HUD-02 | Phase 5 | Pending |
+| HUD-01 | Phase 5 | Complete |
+| HUD-02 | Phase 5 | Complete |
 
 **Coverage:**
 - v1 requirements: 11 total
