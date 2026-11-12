@@ -6,7 +6,7 @@
     {
       "number": "6",
       "name": "Smooth Audio Ducking Engine & PipeWire Fader",
-      "status": "pending"
+      "status": "in_progress"
     },
     {
       "number": "7",
@@ -36,8 +36,8 @@
   ],
   "next": {
     "command": "/gsd-progress --next",
-    "label": "Advance to the next step (plan phase 06)",
-    "reason": "Phase 1 of 6 — needs a plan"
+    "label": "Advance to the next step",
+    "reason": "Phase 1 of 6 · executing"
   },
-  "updated_at": "2026-11-12T09:40:37.594Z"
+  "updated_at": "2026-11-12T10:05:50.570Z"
 }
