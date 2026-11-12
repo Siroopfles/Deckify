@@ -13,9 +13,9 @@
 - [x] **DUCK-02**: User experiences automatic volume ducking when active microphone or voice chat streams (Discord, Steamcord, Steam Voice) are detected, with decay hold hysteresis.
 
 ### Game-Specific Soundtracks
-- [ ] **SOUND-01**: User can bind a Spotify playlist or album to a specific Steam game `appId` in Deckify settings with custom auto-play preference.
-- [ ] **SOUND-02**: User experiences automatic soundtrack playback upon game launch via `SteamClient.Apps.RegisterForAppLifetimeNotifications` with launcher debounce (3-5s).
-- [ ] **SOUND-03**: User experiences seamless restoration of their pre-game playback state (or automatic pause) when the game exits.
+- [x] **SOUND-01**: User can bind a Spotify playlist or album to a specific Steam game `appId` in Deckify settings with custom auto-play preference.
+- [x] **SOUND-02**: User experiences automatic soundtrack playback upon game launch via `SteamClient.Apps.RegisterForAppLifetimeNotifications` with launcher debounce (3-5s).
+- [x] **SOUND-03**: User experiences seamless restoration of their pre-game playback state (or automatic pause) when the game exits.
 
 ### Controller Ergonomics & Trigger Navigation
 - [ ] **CTRL-01**: User can pull L2 or R2 triggers in playback views (`NowPlayingTab`, `LyricsTab`) to execute blind -10s or +10s seeking without losing D-pad controller focus.
@@ -60,9 +60,9 @@
 |-------------|-------|:------:|
 | DUCK-01 | Phase 6 | Complete |
 | DUCK-02 | Phase 6 | Complete |
-| SOUND-01 | Phase 7 | Pending |
-| SOUND-02 | Phase 7 | Pending |
-| SOUND-03 | Phase 7 | Pending |
+| SOUND-01 | Phase 7 | Complete |
+| SOUND-02 | Phase 7 | Complete |
+| SOUND-03 | Phase 7 | Complete |
 | CTRL-01 | Phase 8 | Pending |
 | CTRL-02 | Phase 8 | Pending |
 | CTRL-03 | Phase 8 | Pending |
