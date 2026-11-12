@@ -86,7 +86,7 @@ Plans:
 **Plans**: 1 plan
 
 Plans:
-- [ ] 05-01-PLAN.md — Fix HUD overlay mounting, concurrent state polling, auto-hide/pause-grace timers, progress bar, and QAM controls.
+- [x] 05-01-PLAN.md — Fix HUD overlay mounting, concurrent state polling, auto-hide/pause-grace timers, progress bar, and QAM controls.
 
 ## Progress
 
@@ -99,7 +99,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 2. Artwork & Image Pipeline Stabilization | 1/1 | Complete | 2026-11-11 |
 | 3. Live Playback Ticker & Gamepad Seekbar Scrubbing | 2/2 | Complete | 2026-11-11 |
 | 4. Queue Navigation & Live State Synchronization | 1/1 | Complete | 2026-11-11 |
-| 5. In-Game HUD Overlay Restoration | 0/1 | Ready to execute | - |
+| 5. In-Game HUD Overlay Restoration | 1/1 | Complete | 2026-11-12 |
 
 ## Backlog & Future Milestones
 
