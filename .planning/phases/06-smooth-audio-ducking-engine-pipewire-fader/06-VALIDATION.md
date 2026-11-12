@@ -40,14 +40,12 @@ created: "2026-11-12"
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 06-01-01 | 01 | 0 | DUCK-01, DUCK-02 | T-06-01 | Wave 0 test stubs with input validation test cases | unit | `py -m unittest tests/test_volume.py` | ❌ W0 | ⬜ pending |
-| 06-01-02 | 01 | 1 | DUCK-01 | T-06-01 | Cosine easing volume curve calculation and non-blocking fade down/up | unit | `py -m unittest tests/test_volume.py -k test_volume_fader` | ❌ W0 | ⬜ pending |
-| 06-01-03 | 01 | 1 | DUCK-01 | T-06-01 | One-time sink input resolution and caching without repeat list subprocesses | unit | `py -m unittest tests/test_volume.py -k test_sink_input_caching` | ❌ W0 | ⬜ pending |
-| 06-01-04 | 01 | 1 | DUCK-01 | T-06-02 | Interruption safety: cancels in-flight fade and ramps from mid-flight volume | unit | `py -m unittest tests/test_volume.py -k test_fade_interruption` | ❌ W0 | ⬜ pending |
-| 06-01-05 | 01 | 2 | DUCK-02 | T-06-01 | Parses `pactl list source-outputs` identifying Discord/Steam Voice streams | unit | `py -m unittest tests/test_volume.py -k test_vad_stream_parsing` | ❌ W0 | ⬜ pending |
-| 06-01-06 | 01 | 2 | DUCK-02 | T-06-02 | Silence hold hysteresis (1.2s delay) prevents volume pumping | unit | `py -m unittest tests/test_volume.py -k test_vad_silence_hold` | ❌ W0 | ⬜ pending |
-| 06-02-01 | 02 | 1 | DUCK-01, D-06 | — | UI displays `Ducked` pill badge and synchronizes volume slider | unit | `pnpm test src/components/tabs/SettingsTab.test.tsx` | ❌ W0 | ⬜ pending |
-| 06-02-02 | 02 | 2 | DUCK-01, DUCK-02 | — | Settings sliders (fade duration, silence hold, voice ducking) and AppLifetime integration | unit / e2e | `pnpm test` && `py -m unittest discover tests` | ✅ | ⬜ pending |
+| 06-01-01 | 01 | 1 | DUCK-01 | T-06-01 | End-to-end Local PipeWire Volume Ducking Tracer | unit | `py -m unittest tests/test_volume.py` | ❌ W0 | ⬜ pending |
+| 06-01-02 | 01 | 1 | DUCK-01 | T-06-01, T-06-02 | Hardened Cosine Easing, Sink-Input Caching & Interruption Safety | unit | `py -m unittest tests/test_volume.py -k test_volume_fader` | ❌ W0 | ⬜ pending |
+| 06-01-03 | 01 | 1 | DUCK-01 | T-06-01 | Multi-Process Launcher Exit Debounce & QAM Visual Ducked Badge | unit / e2e | `py -m unittest tests/test_e2e_requirements.py -k duck` | ✅ | ⬜ pending |
+| 06-02-01 | 02 | 2 | DUCK-02 | T-06-03, T-06-04 | Voice Activity Detector with Silence Hold Hysteresis | unit | `py -m unittest tests/test_volume.py -k test_vad` | ❌ W0 | ⬜ pending |
+| 06-02-02 | 02 | 2 | DUCK-02 | T-06-03 | SettingsTab Audio Ducking & Voice Chat Configuration UI | unit / e2e | `py -m unittest tests/test_e2e_requirements.py -k test_set_setting_validates_duck` | ✅ | ⬜ pending |
+| 06-02-03 | 02 | 2 | DUCK-01, DUCK-02 | T-06-SC | Complete Ducking Validation Suite & Nyquist Compliance | unit / full suite | `pnpm test src/components/tabs/SettingsTab.test.tsx && py -m unittest discover tests` | ❌ W0 | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
