@@ -194,21 +194,35 @@ class VolumeFader:
             if getattr(self.plugin, "_spotify_client_process", None) and hasattr(self.plugin._spotify_client_process, "pid"):
                 pids.add(str(self.plugin._spotify_client_process.pid))
 
-            current_id = None
+            # Group into sink-input blocks: (sink_id, block_text)
+            blocks: list[tuple[str, str]] = []
+            curr_id: str | None = None
+            curr_lines: list[str] = []
             for raw_line in res.stdout.splitlines():
                 line = raw_line.strip()
                 if line.startswith("Sink Input #"):
+                    if curr_id:
+                        blocks.append((curr_id, "\n".join(curr_lines)))
                     parts = line.split("#")
-                    if len(parts) > 1 and parts[1].strip().isdigit():
-                        current_id = parts[1].strip()
-                    else:
-                        current_id = None
-                elif current_id:
-                    if any(f'"{p}"' in line for p in pids if p):
-                        return current_id
-                    low = line.lower()
-                    if ("application.name" in low or "media.name" in low) and ("librespot" in low or "spotify" in low):
-                        return current_id
+                    curr_id = parts[1].strip() if len(parts) > 1 and parts[1].strip().isdigit() else None
+                    curr_lines = []
+                elif curr_id:
+                    curr_lines.append(line)
+            if curr_id:
+                blocks.append((curr_id, "\n".join(curr_lines)))
+
+            # Pass 1: exact PID match has priority across all sink-input blocks
+            if pids:
+                for sink_id, block in blocks:
+                    if any(f'"{p}"' in block for p in pids if p):
+                        return sink_id
+
+            # Pass 2: application / media name fallback if no PID matched
+            for sink_id, block in blocks:
+                low = block.lower()
+                for line in low.splitlines():
+                    if ("application.name" in line or "media.name" in line) and ("librespot" in line or "spotify" in line):
+                        return sink_id
         except Exception as e:
             decky.logger.warning("Failed to resolve sink input ID: %s", e)
         return None
