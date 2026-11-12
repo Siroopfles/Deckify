@@ -81,6 +81,11 @@ DEFAULT_SETTINGS = {
     "playlist_folders": [],
     "spotify_folder_tree": [],
     "game_audio_profiles": {},
+    "soundtrack_launch_debounce": 3.5,
+    "soundtrack_exit_debounce": 3.0,
+    "soundtrack_unbound_policy": "keep_playing",
+    "soundtrack_default_playlist": "",
+    "soundtrack_default_mode": "remember_position",
     "auto_ducking": True,
     "auto_ducking_volume": 30,
     "duck_fade_down_duration": 1.0,
@@ -157,6 +162,17 @@ def _load_settings(settings_file: str | None = None) -> dict:
             merged["spotify_folder_tree"] = []
         if not isinstance(merged.get("game_audio_profiles"), dict):
             merged["game_audio_profiles"] = {}
+        for _k, _default in (("soundtrack_launch_debounce", 3.5), ("soundtrack_exit_debounce", 3.0)):
+            try:
+                merged[_k] = max(0.5, min(10.0, float(merged.get(_k, _default))))
+            except (TypeError, ValueError):
+                merged[_k] = _default
+        if merged.get("soundtrack_unbound_policy") not in ("keep_playing", "pause"):
+            merged["soundtrack_unbound_policy"] = "keep_playing"
+        if not isinstance(merged.get("soundtrack_default_playlist"), str):
+            merged["soundtrack_default_playlist"] = ""
+        if merged.get("soundtrack_default_mode") not in ("remember_position", "fresh_start"):
+            merged["soundtrack_default_mode"] = "remember_position"
         if not isinstance(merged.get("overlay_enabled"), bool):
             merged["overlay_enabled"] = bool(merged.get("overlay_enabled", False))
         if merged.get("overlay_position") not in ("top-left", "top-right", "bottom-left", "bottom-right"):
