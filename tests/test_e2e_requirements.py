@@ -1595,6 +1595,19 @@ class TestTier4RealWorldScenarios(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(release_res.get("ok"))
         self.assertFalse(release_res.get("is_ducked"))
 
+    async def test_disabling_auto_ducking_releases_active_ducking(self):
+        """Setting auto_ducking to False while ducked releases active game ducking."""
+        await self.plugin.trigger_ducking(True, reason="game")
+        state = await self.plugin.get_ducking_state()
+        self.assertTrue(state.get("is_ducked"))
+
+        res = await self.plugin.set_setting("auto_ducking", False)
+        self.assertTrue(res.get("ok"))
+        # Give asyncio loop a slice for create_task
+        await asyncio.sleep(0.01)
+        state_after = await self.plugin.get_ducking_state()
+        self.assertFalse(state_after.get("is_ducked"))
+
     def test_ducking_frontend_exit_debounce_and_pill_badge(self):
         """src/index.tsx must contain 3000ms debounce timer for game exit and DUCKED pill badge."""
         content = read_project_file("src/index.tsx")
