@@ -8,41 +8,36 @@ Deckify is an open-source Spotify client and Decky Loader plugin for Valve's Ste
 
 Rock-solid Spotify playback and responsive, reliable controller navigation on Steam Deck without UI lag, broken images, or desynchronized playback states.
 
+## Current State
+
+- **Current Version:** v0.4 (shipped 2026-11-12)
+- **Active Milestone:** None (v0.4 complete; ready for next milestone planning)
+- **Codebase Health:** Clean modular architecture (`src/components/tabs/`, `py_modules/`), 100% test coverage across 55 Vitest frontend tests and 325 Python backend tests, zero TypeScript errors.
+
 ## Requirements
 
 ### Validated
 
-<!-- Shipped and confirmed capabilities inferred from existing codebase -->
-
 - ✓ Steam Decky Loader plugin integration with frontend-backend RPC via `@decky/api` — existing
 - ✓ Spotify OAuth2 authentication flow via local redirect handler — existing
 - ✓ Headless background playback engines support (`librespot` / `spotifyd`) — existing
-- ✓ Nine-tab GamepadUI full-screen modal structure (Now Playing, Playlists, Liked, Albums, Artists, Recent, Podcasts, Equalizer, Settings) — existing
-- ✓ SteamOS PulseAudio/PipeWire volume synchronization — existing
-- ✓ Base64 image caching architecture to bypass Steam CEF Content Security Policy — existing
+- ✓ Full-screen modal structure with standalone tab views and shared components — shipped in v0.4 (Phase 1)
+- ✓ Backend modularization into focused submodules in `py_modules/` — shipped in v0.4 (Phase 1)
+- ✓ Base64 image caching & concurrency throttling queue bypassing Steam CEF CSP — shipped in v0.4 (Phase 2)
+- ✓ Live monotonic playback clock ticker (`usePlaybackClock`) with drift gating — shipped in v0.4 (Phase 3)
+- ✓ D-pad controller seekbar scrubbing with focus halo and post-seek suppression — shipped in v0.4 (Phase 3)
+- ✓ Queue direct track selection with sliced URIs sequence & Now Playing elevation — shipped in v0.4 (Phase 4)
+- ✓ In-game HUD overlay with gamescope mounting, `pointerEvents: "none"`, 6s auto-hide, 3.5s pause grace, 2px progress bar, and direct QAM controls — shipped in v0.4 (Phase 5)
 
 ### Active
 
-<!-- Current scope for this milestone: stability, live runtime fixes, and modular refactoring -->
-
-- [ ] **Fix Cover Art & Image Loading**: Resolve failing image loading for artists, playlists, tracks, and podcasts caused by Steam CEF CSP / base64 caching bottlenecks.
-- [ ] **Fix Queue Selection & Sync**: Ensure selecting a track in the queue plays the correct item and updates queue/playback state live.
-- [ ] **Fix Live Now Playing Progress Ticker**: Keep elapsed track time and playback state updating continuously in real time.
-- [ ] **Enable Seek Bar Scrubbing**: Allow intuitive seeking/scrubbing on the Now Playing progress bar using gamepad/D-pad controls.
-- [ ] **Fix HUD Overlay**: Restore functionality and visibility of the Deckify in-game HUD overlay.
-- [ ] **Refactor Frontend Modal (`DeckifyExpandedModal.tsx`)**: Modularize the monolithic 1,600+ line component into dedicated subcomponents under `src/components/tabs/`.
-- [ ] **Refactor Backend Entry Point (`main.py`)**: Modularize the monolithic 2,600+ line file into focused modules under `py_modules/` (RPC routing, process supervision, volume monitoring).
+*None currently active. Define next milestone requirements via `/gsd-new-milestone`.*
 
 ### Out of Scope
 
 - Rewriting the playback daemon from scratch — existing librespot/spotifyd integration works and should be preserved.
 - Non-SteamOS platforms — Deckify is dedicated to Steam Deck / SteamOS GamepadUI.
 - Video podcast streaming — Spotify video streaming is unsupported by headless Connect daemons.
-
-## Context
-
-- While existing unit test suites pass (316 backend tests and frontend Vitest suites), real-world SteamOS CEF and controller behavior exhibits desynchronization, broken image rendering, and unresponsive HUD/progress UI.
-- Both frontend (`DeckifyExpandedModal.tsx`) and backend (`main.py`) are monolithic files, increasing cognitive load and regression risk when fixing runtime bugs.
 
 ## Constraints
 
@@ -54,25 +49,11 @@ Rock-solid Spotify playback and responsive, reliable controller navigation on St
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| Refactor both frontend and backend monoliths | Both `DeckifyExpandedModal.tsx` and `main.py` create severe friction for fixing live state and image bugs | — Pending |
-| Prioritize live playback and image fixes | User experience on hardware depends on seeing artwork, live progress, and reliable queue navigation | — Pending |
-
-## Evolution
-
-This document evolves at phase transitions and milestone boundaries.
-
-**After each phase transition** (via `/gsd-transition`):
-1. Requirements invalidated? → Move to Out of Scope with reason
-2. Requirements validated? → Move to Validated with phase reference
-3. New requirements emerged? → Add to Active
-4. Decisions to log? → Add to Key Decisions
-5. "What This Is" still accurate? → Update if drifted
-
-**After each milestone** (via `/gsd-complete-milestone`):
-1. Full review of all sections
-2. Core Value check — still the right priority?
-3. Audit Out of Scope — reasons still valid?
-4. Update Context with current state
+| Refactor both frontend and backend monoliths | Both `DeckifyExpandedModal.tsx` and `main.py` created severe friction for fixing live state and image bugs | ✓ Shipped in Phase 1 |
+| Concurrency-throttled base64 image queue with LRU cache | Steam CEF CSP blocks external CDN URLs; unthrottled RPC fetches starved threadpools | ✓ Shipped in Phase 2 |
+| Monotonic clock interpolation with post-seek suppression | Eliminates seekbar rubberbanding and stutters while minimizing heavy polling RPCs | ✓ Shipped in Phase 3 |
+| Sliced URIs sequence for queue selection | Spotify server expects remaining sequence when selecting offset in dynamic queues | ✓ Shipped in Phase 4 |
+| Strict `pointerEvents: "none"` on gamescope HUD | In-game overlay must never intercept controller or touchscreen input from running games | ✓ Shipped in Phase 5 |
 
 ---
-*Last updated: 2026-11-10 after initialization*
+*Last updated: 2026-11-12 after Milestone v0.4 completion*
