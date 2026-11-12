@@ -145,6 +145,12 @@ async def set_audio_sink(sink_name: str) -> dict:
         return {"ok": False, "error": str(e)}
 
 
+def cosine_ease(progress: float) -> float:
+    """Exact cosine easing curve (S-curve): 0.5 * (1 - cos(pi * progress))."""
+    p = max(0.0, min(1.0, float(progress)))
+    return 0.5 * (1.0 - math.cos(math.pi * p))
+
+
 class VolumeFader:
     """Asynchronous non-blocking volume fader using cosine easing over PipeWire sink inputs."""
 
@@ -288,12 +294,14 @@ class VolumeFader:
                 elapsed = now - start_time
                 progress = min(1.0, elapsed / duration_sec) if duration_sec > 0 else 1.0
 
-                eased = 0.5 * (1.0 - math.cos(math.pi * progress))
+                eased = cosine_ease(progress)
                 self._current_sink_volume = start_vol + (target_vol - start_vol) * eased
 
                 if self._cached_sink_input_id:
                     ok = await self._apply_sink_volume(self._cached_sink_input_id, self._current_sink_volume)
                     if not ok:
+                        # Invalidate cached ID on error and attempt re-discovery
+                        self._cached_sink_input_id = None
                         self._cached_sink_input_id = await self.resolve_sink_input_id()
 
                 await self._emit_state()
@@ -301,6 +309,8 @@ class VolumeFader:
                 if progress >= 1.0:
                     break
                 await asyncio.sleep(step_interval)
+            # Invalidate cached ID upon normal completion
+            self._cached_sink_input_id = None
         except asyncio.CancelledError:
             # Leave self._current_sink_volume at the last reached level to prevent clicks/jumps
             raise
