@@ -667,12 +667,12 @@ useEffect(() => {
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **How should manual volume adjustments behave while ducked?**
    - What we know: If the user adjusts the volume slider while ducked, they expect to change their music volume.
    - What's unclear: Does the adjustment set the new base volume or the temporary ducked ceiling?
-   - Recommendation: Moving the slider updates the user's `base_volume` setting (e.g. adjusts baseline from 80% to 70%), which immediately recomputes the ducked proportion without cancelling the duck state.
+   - **RESOLVED:** Moving the slider updates the user's `base_volume` setting (e.g. adjusts baseline from 80% to 70%), which immediately recomputes the ducked proportion without cancelling the duck state.
 
 ---
 
