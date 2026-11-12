@@ -104,10 +104,12 @@ class Plugin:
     _sleep_timer_end_of_track: bool = False
     _sleep_timer_initial_track_id: str | None = None
     _liked_cache: dict[str, tuple[float, bool]] = {}
+    _volume_fader: volume.VolumeFader | None = None
 
     def __init__(self):
         self._crash_timestamps = []
         self._liked_cache = {}
+        self._volume_fader = None
 
     # ── Lifecycle ──────────────────────────────────────────────
 
@@ -127,6 +129,7 @@ class Plugin:
             on_resume=self._on_deck_resume,
         )
         self._suspend_monitor.start()
+        self._volume_fader = volume.VolumeFader(self)
         if self._access_token:
             self._start_api_poll()
         await self._sync_native_spotify_folders()
@@ -140,6 +143,10 @@ class Plugin:
         if hasattr(self, "_suspend_monitor") and self._suspend_monitor:
             await self._suspend_monitor.stop()
             self._suspend_monitor = None
+        if hasattr(self, "_volume_fader") and self._volume_fader:
+            if self._volume_fader._fade_task and not self._volume_fader._fade_task.done():
+                self._volume_fader._fade_task.cancel()
+            self._volume_fader = None
         await self._stop_monitor()
         await self._kill_librespot()
         await self._kill_spotify_client()
@@ -167,6 +174,10 @@ class Plugin:
         if hasattr(self, "_suspend_monitor") and self._suspend_monitor:
             await self._suspend_monitor.stop()
             self._suspend_monitor = None
+        if hasattr(self, "_volume_fader") and self._volume_fader:
+            if self._volume_fader._fade_task and not self._volume_fader._fade_task.done():
+                self._volume_fader._fade_task.cancel()
+            self._volume_fader = None
         await self._stop_monitor()
         await self._kill_librespot()
         await self._kill_spotify_client()
@@ -469,6 +480,9 @@ class Plugin:
             "auto_ducking_volume", "gamepad_chords_enabled", "toast_enabled",
             "toast_position", "overlay_enabled", "overlay_position",
             "overlay_autohide", "overlay_show_progress", "eq_preset",
+            "duck_fade_down_duration", "duck_fade_up_duration", "ducking_mode",
+            "ducking_proportional_pct", "voice_ducking_enabled", "voice_ducking_volume",
+            "voice_ducking_hold_delay",
         )
         return {
             "authenticated": bool(self._access_token),
@@ -609,6 +623,33 @@ class Plugin:
 
     async def set_volume(self, volume_percent: int) -> dict:
         return await volume.set_volume(self, volume_percent)
+
+    async def trigger_ducking(self, active: bool, reason: str = "game", app_id: int | None = None) -> dict:
+        """Trigger or release ducking from frontend AppLifetime listener or game events."""
+        if not hasattr(self, "_volume_fader") or not self._volume_fader:
+            return {"ok": False, "error": "Volume fader not initialized"}
+
+        if active and not self._settings.get("auto_ducking", True):
+            return {"ok": True, "ducked": False, "skipped": "auto_ducking_disabled"}
+
+        await self._volume_fader.set_ducking(bool(active), reason=str(reason))
+        return {
+            "ok": True,
+            "is_ducked": self._volume_fader.is_ducked,
+            "effective_volume": self._volume_fader.effective_volume,
+        }
+
+    async def get_ducking_state(self) -> dict:
+        """Return live ducking status and effective volume level."""
+        if not hasattr(self, "_volume_fader") or not self._volume_fader:
+            base_vol = self._poll_volume or 80
+            return {"is_ducked": False, "effective_volume": base_vol, "base_volume": base_vol, "duck_reasons": []}
+        return {
+            "is_ducked": self._volume_fader.is_ducked,
+            "effective_volume": self._volume_fader.effective_volume,
+            "base_volume": self._poll_volume or 80,
+            "duck_reasons": list(self._volume_fader._duck_reasons),
+        }
 
     async def seek_playback(self, position_ms: int, device_id: str = "") -> dict:
         return await rpc_playback.seek_playback(self, position_ms, device_id)

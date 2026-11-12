@@ -163,6 +163,22 @@ export interface EngineSettings {
   overlay_show_progress?: boolean;
   eq_preset?: EqualizerPreset;
   spotify_client_installed?: boolean;
+  duck_fade_down_duration?: number;
+  duck_fade_up_duration?: number;
+  ducking_mode?: DuckingMode;
+  ducking_proportional_pct?: number;
+  voice_ducking_enabled?: boolean;
+  voice_ducking_volume?: number;
+  voice_ducking_hold_delay?: number;
+}
+
+export type DuckingMode = "proportional" | "fixed";
+
+export interface DuckingState {
+  is_ducked: boolean;
+  effective_volume: number;
+  base_volume: number;
+  duck_reasons: string[];
 }
 
 export interface SpotifyDevice {

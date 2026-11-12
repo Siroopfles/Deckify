@@ -83,6 +83,13 @@ DEFAULT_SETTINGS = {
     "game_audio_profiles": {},
     "auto_ducking": True,
     "auto_ducking_volume": 30,
+    "duck_fade_down_duration": 1.0,
+    "duck_fade_up_duration": 1.5,
+    "ducking_mode": "proportional",
+    "ducking_proportional_pct": 50,
+    "voice_ducking_enabled": True,
+    "voice_ducking_volume": 25,
+    "voice_ducking_hold_delay": 1.2,
     "gamepad_chords_enabled": True,
     "toast_enabled": True,
     "toast_position": "top_right",
@@ -160,6 +167,32 @@ def _load_settings(settings_file: str | None = None) -> dict:
             merged["overlay_show_progress"] = bool(merged.get("overlay_show_progress", False))
         if merged.get("eq_preset") not in ("flat", "bass", "vocal", "gaming"):
             merged["eq_preset"] = "flat"
+        if not isinstance(merged.get("auto_ducking"), bool):
+            merged["auto_ducking"] = bool(merged.get("auto_ducking", True))
+        try:
+            merged["duck_fade_down_duration"] = max(0.5, min(3.0, float(merged.get("duck_fade_down_duration", 1.0))))
+        except (TypeError, ValueError):
+            merged["duck_fade_down_duration"] = 1.0
+        try:
+            merged["duck_fade_up_duration"] = max(0.5, min(3.0, float(merged.get("duck_fade_up_duration", 1.5))))
+        except (TypeError, ValueError):
+            merged["duck_fade_up_duration"] = 1.5
+        if merged.get("ducking_mode") not in ("proportional", "fixed"):
+            merged["ducking_mode"] = "proportional"
+        try:
+            merged["ducking_proportional_pct"] = max(10, min(90, int(merged.get("ducking_proportional_pct", 50))))
+        except (TypeError, ValueError):
+            merged["ducking_proportional_pct"] = 50
+        if not isinstance(merged.get("voice_ducking_enabled"), bool):
+            merged["voice_ducking_enabled"] = bool(merged.get("voice_ducking_enabled", True))
+        try:
+            merged["voice_ducking_volume"] = max(10, min(50, int(merged.get("voice_ducking_volume", 25))))
+        except (TypeError, ValueError):
+            merged["voice_ducking_volume"] = 25
+        try:
+            merged["voice_ducking_hold_delay"] = max(0.5, min(3.0, float(merged.get("voice_ducking_hold_delay", 1.2))))
+        except (TypeError, ValueError):
+            merged["voice_ducking_hold_delay"] = 1.2
         return merged
     except Exception:
         return dict(default_settings)

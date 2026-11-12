@@ -61,6 +61,8 @@ const backendToggleLike = callable<[string, boolean | null], { ok: boolean; is_l
 const backendGetDevices = callable<[], { ok: boolean; devices?: SpotifyDevice[]; error?: string }>("get_devices");
 const backendTransferPlayback = callable<[string], { ok: boolean; error?: string }>("transfer_playback");
 const backendSetSetting = callable<[string, unknown], { ok: boolean; settings?: any; error?: string }>("set_setting");
+const backendTriggerDucking = callable<[boolean, string?, number?], { ok: boolean; is_ducked?: boolean; effective_volume?: number; error?: string }>("trigger_ducking");
+const backendGetDuckingState = callable<[], { is_ducked: boolean; effective_volume: number; base_volume: number; duck_reasons: string[] }>("get_ducking_state");
 
 let bigOpen = false;
 const openExpandedView = () => {
@@ -93,6 +95,8 @@ const Content: FC = () => {
   const [authenticated, setAuthenticated] = useState<boolean>(false);
   const [needsReauth, setNeedsReauth] = useState<boolean>(false);
   const [qrUrl, setQrUrl] = useState<string | null>(null);
+  const [isDucked, setIsDucked] = useState<boolean>(false);
+  const [effectiveVolume, setEffectiveVolume] = useState<number | null>(null);
   const [settings, setSettings] = useState<EngineSettings>({
     audio_backend: "librespot",
     audio_quality: "320",
@@ -161,6 +165,29 @@ const Content: FC = () => {
     }, 3000);
     return () => clearInterval(interval);
   }, [refreshStatus, refreshDevices]);
+
+  useEffect(() => {
+    backendGetDuckingState().then((state) => {
+      if (state) {
+        setIsDucked(Boolean(state.is_ducked));
+        if (typeof state.effective_volume === "number") {
+          setEffectiveVolume(state.effective_volume);
+        }
+      }
+    }).catch(() => {});
+
+    const unsubDucking = addEventListener<[any]>("ducking_state_changed", (data: any) => {
+      if (!data) return;
+      setIsDucked(Boolean(data.is_ducked));
+      if (typeof data.effective_volume === "number") {
+        setEffectiveVolume(data.effective_volume);
+      }
+    });
+
+    return () => {
+      removeEventListener("ducking_state_changed", unsubDucking);
+    };
+  }, []);
 
   const handleToggleEngine = async (enable: boolean) => {
     setToggling(true);
@@ -419,9 +446,27 @@ const Content: FC = () => {
 
             {/* Volume slider */}
             <PanelSectionRow>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", marginBottom: 4 }}>
+                <span style={{ fontSize: 13, fontWeight: 600 }}>Volume</span>
+                {isDucked && (
+                  <span
+                    style={{
+                      background: "#1db954",
+                      color: "#000",
+                      fontSize: 10,
+                      fontWeight: 800,
+                      padding: "2px 6px",
+                      borderRadius: 4,
+                      letterSpacing: "0.5px",
+                    }}
+                  >
+                    DUCKED
+                  </span>
+                )}
+              </div>
               <SliderField
-                label="Volume"
-                value={volume}
+                label=""
+                value={isDucked && effectiveVolume != null ? effectiveVolume : volume}
                 min={0}
                 max={100}
                 step={1}
@@ -719,8 +764,8 @@ export default definePlugin(() => {
   });
 
   // 6. In-game Auto-Ducking & App Lifetime Listener (with per-game profiles)
-  let originalVolumeBeforeGame: number | null = null;
   let activeGameAppId: number | null = null;
+  let gameExitDebounceTimer: any = null;
   let appLifetimeSub: any = null;
   try {
     const steamApps = (window as any).SteamClient?.Apps;
@@ -730,23 +775,19 @@ export default definePlugin(() => {
         const appId = ev.unAppID || ev.nAppID;
         const running = Boolean(ev.bRunning);
         if (running && appId) {
+          if (gameExitDebounceTimer) {
+            clearTimeout(gameExitDebounceTimer);
+            gameExitDebounceTimer = null;
+          }
           activeGameAppId = appId;
-          const status = await backendGetStatus().catch(() => null);
-          if (!status) return;
-          const profiles = status.settings?.game_audio_profiles || {};
-          const profile = profiles[String(appId)];
-          const ducking = profile ? profile.ducking : (status.settings?.auto_ducking ?? true);
-          const duckVol = profile ? profile.volume : (status.settings?.auto_ducking_volume ?? 30);
-          if (ducking && status.volume != null && status.volume > duckVol) {
-            originalVolumeBeforeGame = status.volume;
-            await backendSetVolume(duckVol);
-          }
+          await backendTriggerDucking(true, "game", appId).catch(() => {});
         } else if (!running && activeGameAppId) {
-          activeGameAppId = null;
-          if (originalVolumeBeforeGame != null) {
-            await backendSetVolume(originalVolumeBeforeGame);
-            originalVolumeBeforeGame = null;
-          }
+          if (gameExitDebounceTimer) clearTimeout(gameExitDebounceTimer);
+          gameExitDebounceTimer = setTimeout(async () => {
+            activeGameAppId = null;
+            gameExitDebounceTimer = null;
+            await backendTriggerDucking(false, "game").catch(() => {});
+          }, 3000);
         }
       });
     }
@@ -762,6 +803,10 @@ export default definePlugin(() => {
     onDismount() {
       console.log("Deckify dismounting");
       try {
+        if (gameExitDebounceTimer) {
+          clearTimeout(gameExitDebounceTimer);
+          gameExitDebounceTimer = null;
+        }
         if (appLifetimeSub?.unregister) {
           appLifetimeSub.unregister();
         }
