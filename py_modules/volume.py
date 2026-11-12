@@ -403,6 +403,9 @@ class VoiceActivityDetector:
 
         is_playing = getattr(self.plugin, "_is_playing", False) or (getattr(self.plugin, "_poll_play_state", None) == "playing")
         if not is_playing:
+            if self._voice_active:
+                self._voice_active = False
+                await self.fader.set_ducking(False, reason="voice")
             return 1.0
 
         has_voice = await self.check_recording_streams()

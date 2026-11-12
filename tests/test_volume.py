@@ -354,6 +354,16 @@ class TestVoiceActivityDetector(unittest.IsolatedAsyncioTestCase):
         delay = await self.vad._poll_step()
         self.assertEqual(delay, 1.0)
 
+    async def test_vad_clears_ducking_when_playback_paused_during_speech(self):
+        self.vad._voice_active = True
+        self.mock_plugin._is_playing = False
+        self.mock_plugin._poll_play_state = "paused"
+
+        delay = await self.vad._poll_step()
+        self.assertEqual(delay, 1.0)
+        self.assertFalse(self.vad.is_voice_active)
+        self.mock_fader.set_ducking.assert_called_once_with(False, reason="voice")
+
         # 3. Active playing -> 0.35s sleep
         self.mock_plugin._is_playing = True
         self.mock_plugin._poll_play_state = "playing"
