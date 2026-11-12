@@ -40,6 +40,8 @@ from py_modules import volume
 from py_modules import system
 from py_modules import rpc_playback
 from py_modules import rpc_library
+from py_modules import soundtrack
+from py_modules import vdf_parser
 
 common._MAIN_MODULE = sys.modules.get(__name__)
 
@@ -106,6 +108,7 @@ class Plugin:
     _liked_cache: dict[str, tuple[float, bool]] = {}
     _volume_fader: volume.VolumeFader | None = None
     _voice_detector: volume.VoiceActivityDetector | None = None
+    _soundtrack_manager: soundtrack.SoundtrackManager | None = None
 
     @property
     def _is_playing(self) -> bool:
@@ -116,6 +119,7 @@ class Plugin:
         self._liked_cache = {}
         self._volume_fader = volume.VolumeFader(self)
         self._voice_detector = volume.VoiceActivityDetector(self, self._volume_fader)
+        self._soundtrack_manager = soundtrack.SoundtrackManager(self)
 
     # ── Lifecycle ──────────────────────────────────────────────
 
@@ -138,6 +142,7 @@ class Plugin:
         self._volume_fader = volume.VolumeFader(self)
         self._voice_detector = volume.VoiceActivityDetector(self, self._volume_fader)
         self._voice_detector.start()
+        self._soundtrack_manager = soundtrack.SoundtrackManager(self)
         if self._access_token:
             self._start_api_poll()
         await self._sync_native_spotify_folders()
@@ -145,6 +150,8 @@ class Plugin:
 
     async def _unload(self):
         decky.logger.info("Deckify unloading")
+        if getattr(self, "_soundtrack_manager", None):
+            self._soundtrack_manager.cancel_all()
         if self._sleep_timer_task and not self._sleep_timer_task.done():
             self._sleep_timer_task.cancel()
             self._sleep_timer_task = None
@@ -651,7 +658,67 @@ class Plugin:
     # ── Playback control callable methods (Delegated to py_modules) ────
 
     async def control_playback(self, action: str, device_id: str = "") -> dict:
+        manager = getattr(self, "_soundtrack_manager", None)
+        if manager and (action == "pause" or (action == "play_pause" and self._poll_play_state == "playing")):
+            manager.record_manual_pause()
         return await rpc_playback.control_playback(self, action, device_id)
+
+    # ── Game soundtrack callable methods ───────────────────────
+
+    def _get_soundtrack_manager(self) -> soundtrack.SoundtrackManager:
+        if not getattr(self, "_soundtrack_manager", None):
+            self._soundtrack_manager = soundtrack.SoundtrackManager(self)
+        return self._soundtrack_manager
+
+    async def get_installed_games(self, force_refresh: bool = False) -> list:
+        try:
+            return await asyncio.get_running_loop().run_in_executor(
+                None, vdf_parser.get_installed_games, bool(force_refresh)
+            )
+        except Exception as e:
+            decky.logger.error("get_installed_games failed: %s", e)
+            return []
+
+    async def get_game_soundtrack_profiles(self) -> dict:
+        return dict(self._get_soundtrack_manager().get_profiles())
+
+    async def save_game_soundtrack_profile(self, app_id: int, profile: dict) -> dict:
+        try:
+            valid_id = soundtrack.validate_app_id(app_id)
+        except ValueError as e:
+            return {"ok": False, "error": str(e)}
+        return self._get_soundtrack_manager().save_profile(valid_id, profile)
+
+    async def delete_game_soundtrack_profile(self, app_id: int) -> dict:
+        try:
+            valid_id = soundtrack.validate_app_id(app_id)
+        except ValueError as e:
+            return {"ok": False, "error": str(e)}
+        return self._get_soundtrack_manager().delete_profile(valid_id)
+
+    async def bind_current_music_to_game(self, app_id: int, app_name: str = "") -> dict:
+        try:
+            valid_id = soundtrack.validate_app_id(app_id)
+        except ValueError as e:
+            return {"ok": False, "error": str(e)}
+        return await self._get_soundtrack_manager().bind_current_music_to_game(valid_id, str(app_name or ""))
+
+    async def handle_app_lifetime_event(self, app_id: int, running: bool) -> dict:
+        try:
+            valid_id = soundtrack.validate_app_id(app_id)
+        except ValueError as e:
+            return {"ok": False, "error": str(e)}
+        manager = self._get_soundtrack_manager()
+        running = bool(running)
+        try:
+            override = manager.ducking_override(valid_id)
+            if override is not False:
+                await self.trigger_ducking(running, "game", valid_id)
+            await manager.handle_app_lifecycle(valid_id, running)
+        except Exception as e:
+            decky.logger.error("handle_app_lifetime_event failed: %s", e)
+            return {"ok": False, "error": str(e)}
+        return {"ok": True, "app_id": valid_id, "running": running}
 
     async def _auto_transfer_and_play(self, token: str, device_id: str = "") -> dict:
         return await rpc_playback.auto_transfer_and_play(self, token, device_id)
@@ -849,8 +916,9 @@ class Plugin:
         offset_uri: str | None = None,
         uris: list | None = None,
         position: int = 0,
+        position_ms: int | None = None,
     ) -> dict:
-        return await rpc_playback.play_tracks(self, context_uri, offset_uri, uris, position)
+        return await rpc_playback.play_tracks(self, context_uri, offset_uri, uris, position, position_ms)
 
     play_track = play_tracks
 
