@@ -30,13 +30,13 @@ Rock-solid Spotify playback and responsive, reliable controller navigation on St
 - ✓ D-pad controller seekbar scrubbing with focus halo and post-seek suppression — shipped in v0.4 (Phase 3)
 - ✓ Queue direct track selection with sliced URIs sequence & Now Playing elevation — shipped in v0.4 (Phase 4)
 - ✓ In-game HUD overlay with gamescope mounting, `pointerEvents: "none"`, 6s auto-hide, 3.5s pause grace, 2px progress bar, and direct QAM controls — shipped in v0.4 (Phase 5)
+- ✓ Smooth Audio Ducking & Voice/Steamcord Awareness — PipeWire VolumeFader with cosine easing and VAD silence hold (Phase 6)
 
 ### Active
 
 <!-- Scope for Milestone v0.5: In-Game Flow & Music Discovery -->
 
 - [ ] **Game-Specific Soundtracks (`appId` linking)**: Bind Spotify playlist/album to Steam game `appId`. Auto-play upon launch notification and pause/restore upon exit.
-- [ ] **Smooth Audio Ducking & Voice/Steamcord Awareness**: Gradually fade volume over ~1.5s instead of abrupt jumps when games launch or during voice chat activity.
 - [ ] **Quick Access Menu Pinned Playlists**: Direct 3-4 pinned/favorite playlist buttons in QAM mini-player for 2-second mid-game switching.
 - [ ] **L2/R2 Controller Trigger Seeking & Fast List Skipping**: Blind +/-10s seek via triggers in modal views without focusing seekbar, and alphabet/page jumps in long lists.
 - [ ] **In-Game Overlay 2.0 (Live Lyrics Line)**: Subtle active synced lyrics line displayed beneath the artist in the gamescope HUD overlay.
@@ -63,6 +63,7 @@ Rock-solid Spotify playback and responsive, reliable controller navigation on St
 | Monotonic clock interpolation with post-seek suppression | Eliminates seekbar rubberbanding and stutters while minimizing heavy polling RPCs | ✓ Shipped in Phase 3 |
 | Sliced URIs sequence for queue selection | Spotify server expects remaining sequence when selecting offset in dynamic queues | ✓ Shipped in Phase 4 |
 | Strict `pointerEvents: "none"` on gamescope HUD | In-game overlay must never intercept controller or touchscreen input from running games | ✓ Shipped in Phase 5 |
+| 100% Local PipeWire sink-input volume fader with cosine easing | Eliminates Spotify Web API cloud latency, avoids 429 rate limits, and provides click-free smooth transitions | ✓ Shipped in Phase 6 |
 
 ---
-*Last updated: 2026-11-12 for Milestone v0.5*
+*Last updated: 2026-11-12 after Phase 6*
