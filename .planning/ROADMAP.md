@@ -51,7 +51,7 @@ Milestone v0.5 elevates Deckify from a standalone media controller into an intel
   2. Music playback gently restores to the pre-ducked volume level over 1.0–1.5s when games close or voice activity ceases.
   3. Active voice chat streams (Discord, Steamcord, Steam Voice) detected via `pactl list source-outputs` automatically trigger ducking with 1.2–1.5s silence hold hysteresis to eliminate volume pumping.
   4. Volume adjustments are applied purely locally to the `librespot`/`spotifyd` audio sink via PipeWire `pactl set-sink-input-volume` with zero Spotify Web API calls and 0ms network latency.
-**Plans**: 2 plans
+**Plans**: 2/2 plans complete
 
 Plans:
 **Wave 1**
@@ -154,7 +154,7 @@ Phases execute in numeric order: 6 → 7 → 8 → 9 → 10 → 11
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|:--------------:|:------:|:---------:|
-| 6. Smooth Audio Ducking Engine & PipeWire Fader | v0.5 | 0/2 | Not started | - |
+| 6. Smooth Audio Ducking Engine & PipeWire Fader | v0.5 | 2/2 | Complete    | 2026-11-12 |
 | 7. Game-Specific Soundtracks | v0.5 | 0/2 | Not started | - |
 | 8. Controller L2/R2 Ergonomics & Trigger Navigation | v0.5 | 0/2 | Not started | - |
 | 9. QAM Pinned Playlists & Quick In-Game Switch | v0.5 | 0/2 | Not started | - |

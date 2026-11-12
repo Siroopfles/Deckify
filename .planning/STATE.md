@@ -1,19 +1,20 @@
 ---
 gsd_state_version: "1.0"
 milestone: v0.5
-current_phase: 06
-current_phase_name: Smooth Audio Ducking Engine & PipeWire Fader
-status: complete
-stopped_at: Completed 06-02-PLAN.md
-last_updated: "2026-11-12T11:35:00.000Z"
+current_phase: 7
+current_phase_name: Game-Specific Soundtracks (appId Linking & Lifecycle Automation)
+status: planning
+stopped_at: Phase 06 complete, ready to plan Phase 7
+last_updated: "2026-11-12T11:06:48.217Z"
 last_activity: 2026-11-12
-last_activity_desc: Completed Plan 06-02 Voice Activity Detector & Settings UI
-state_head: 554fe9005fb3aae7cae5eaeeb3fe23c073a33fa6
+last_activity_desc: Phase 06 complete, transitioned to Phase 7
+state_head: a2b1d0854c0c641e657dee0516bc9a0a6bf54acd
 progress:
   total_phases: 6
   completed_phases: 1
   total_plans: 2
   completed_plans: 2
+  percent: 17
 ---
 
 # Project State
@@ -27,12 +28,12 @@ See: [.planning/PROJECT.md](file:///C:/Users/djdje/Deckify/.planning/PROJECT.md)
 
 ## Current Position
 
-Phase: 06 (Smooth Audio Ducking Engine & PipeWire Fader) — COMPLETE
-Plan: 2 of 2 complete (All waves finished)
-Status: Complete Phase 06
-Last activity: 2026-11-12 — Completed Plan 06-02 Voice Activity Detector & Settings UI
+Phase: 7 — Game-Specific Soundtracks (appId Linking & Lifecycle Automation)
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-11-12 — Phase 06 complete, transitioned to Phase 7
 
-Progress: [██████████] 100% (Phase 06 complete)
+Progress: [██░░░░░░░░] 17% (Phase 06 complete)
 
 ## Performance Metrics
 
@@ -46,7 +47,7 @@ Progress: [██████████] 100% (Phase 06 complete)
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 1-5 (v0.4) | 7 | 108m | 15.4m |
-| 6 | 2/2 | 26m | 13.0m |
+| 06 | 2 | - | - |
 | 7 | 0/2 | - | - |
 | 8 | 0/2 | - | - |
 | 9 | 0/2 | - | - |
@@ -100,5 +101,5 @@ Items acknowledged and deferred at milestone close, most recent first:
 ## Session Continuity
 
 Last session: 2026-11-12 11:35
-Stopped at: Completed 06-02-PLAN.md
+Stopped at: Phase 06 complete, ready to plan Phase 7
 Resume file: None
