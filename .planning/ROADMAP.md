@@ -55,7 +55,7 @@ Milestone v0.5 elevates Deckify from a standalone media controller into an intel
 
 Plans:
 **Wave 1**
-- [ ] 06-01-PLAN.md — Implement non-blocking VolumeFader in py_modules/volume.py with cosine easing, single sink-input resolution, 3s exit debounce, and QAM Ducked pill badge
+- [x] 06-01-PLAN.md — Implement non-blocking VolumeFader in py_modules/volume.py with cosine easing, single sink-input resolution, 3s exit debounce, and QAM Ducked pill badge
 
 **Wave 2** *(blocked on Wave 1 completion)*
 - [ ] 06-02-PLAN.md — Implement VoiceActivityDetector with 1.2s silence hold hysteresis and interactive audio ducking settings card in SettingsTab.tsx
