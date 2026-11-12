@@ -247,7 +247,10 @@ class VolumeFader:
                 attenuation_pct = float(settings.get("ducking_proportional_pct", 50))
                 factor = max(0.05, 1.0 - (attenuation_pct / 100.0))
             else:
-                fixed_vol = float(settings.get("auto_ducking_volume", 25))
+                if "voice" in self._duck_reasons and "game" not in self._duck_reasons:
+                    fixed_vol = float(settings.get("voice_ducking_volume", 25))
+                else:
+                    fixed_vol = float(settings.get("auto_ducking_volume", 25))
                 base_spotify_vol = float(getattr(self.plugin, "_poll_volume", 80) or 80)
                 factor = min(1.0, fixed_vol / max(1.0, base_spotify_vol))
 
@@ -327,4 +330,104 @@ class VolumeFader:
             "base_volume": base_vol,
             "duck_reasons": list(self._duck_reasons),
         })
+
+
+class VoiceActivityDetector:
+    """Monitors pactl list source-outputs for Discord, Steamcord, or Steam Voice microphone streams."""
+
+    def __init__(self, plugin, fader: VolumeFader):
+        self.plugin = plugin
+        self.fader = fader
+        self._worker_task: asyncio.Task | None = None
+        self._last_speech_time: float = 0.0
+        self._voice_active: bool = False
+
+    @property
+    def is_voice_active(self) -> bool:
+        return self._voice_active
+
+    def start(self):
+        if self._worker_task is None or self._worker_task.done():
+            self._worker_task = asyncio.create_task(self._poll_loop())
+
+    async def stop(self):
+        if self._worker_task and not self._worker_task.done():
+            self._worker_task.cancel()
+            try:
+                await self._worker_task
+            except asyncio.CancelledError:
+                pass
+            self._worker_task = None
+
+    async def check_recording_streams(self) -> bool:
+        """Check if any uncorked/unmuted recording stream is active."""
+        try:
+            cmd, env = _build_deck_command(["pactl", "list", "source-outputs"])
+            res = await _exec(
+                lambda: subprocess.run(cmd, capture_output=True, text=True, env=env),
+                timeout=2,
+            )
+            if not res or res.returncode != 0 or not res.stdout:
+                return False
+
+            blocks = res.stdout.split("Source Output #")
+            for block in blocks:
+                if not block.strip():
+                    continue
+                low = block.lower()
+                corked = "corked: yes" in low
+                muted = "mute: yes" in low
+                if corked or muted:
+                    continue
+
+                # Check for voice communication applications (D-03)
+                is_voice = any(v in low for v in ("discord", "steamcord", "steam", "steamwebhelper", "webrtc"))
+                if is_voice:
+                    return True
+        except Exception as e:
+            decky.logger.warning("VoiceActivityDetector check_recording_streams failed: %s", e)
+        return False
+
+    async def _poll_step(self) -> float:
+        """Execute one polling iteration. Returns sleep interval in seconds."""
+        settings = getattr(self.plugin, "_settings", {})
+        if not settings.get("voice_ducking_enabled", True):
+            if self._voice_active:
+                self._voice_active = False
+                await self.fader.set_ducking(False, reason="voice")
+            return 2.0
+
+        is_playing = getattr(self.plugin, "_is_playing", False) or (getattr(self.plugin, "_poll_play_state", None) == "playing")
+        if not is_playing:
+            return 1.0
+
+        has_voice = await self.check_recording_streams()
+        now = time.monotonic()
+        hold_delay = float(settings.get("voice_ducking_hold_delay", 1.2))
+
+        if has_voice:
+            self._last_speech_time = now
+            if not self._voice_active:
+                self._voice_active = True
+                await self.fader.set_ducking(True, reason="voice")
+        else:
+            if self._voice_active:
+                if now - self._last_speech_time >= hold_delay:
+                    self._voice_active = False
+                    await self.fader.set_ducking(False, reason="voice")
+
+        return 0.35
+
+    async def _poll_loop(self):
+        """Poll source-outputs every 350ms with silence hold hysteresis."""
+        while True:
+            try:
+                delay = await self._poll_step()
+                await asyncio.sleep(delay)
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                decky.logger.warning("VoiceActivityDetector error: %s", e)
+                await asyncio.sleep(1.0)
+
 

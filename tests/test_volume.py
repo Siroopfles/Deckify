@@ -16,7 +16,7 @@ with patch.dict("sys.modules", {"decky": SimpleNamespace(
     emit=AsyncMock(),
 )}):
     from py_modules import common, volume
-    from py_modules.volume import VolumeFader, cosine_ease
+    from py_modules.volume import VolumeFader, VoiceActivityDetector, cosine_ease
 
 
 class TestVolumeFader(unittest.IsolatedAsyncioTestCase):
@@ -187,6 +187,145 @@ class TestVolumeFader(unittest.IsolatedAsyncioTestCase):
 
 class test_volume_fader(TestVolumeFader):
     """Alias for -k test_volume_fader CLI filtering."""
+    pass
+
+
+class TestVoiceActivityDetector(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        self.mock_plugin = SimpleNamespace(
+            _process=SimpleNamespace(pid=12345),
+            _spotify_client_process=None,
+            _settings=dict(common.DEFAULT_SETTINGS),
+            _poll_volume=80,
+            _pa_volume_boosted=False,
+            _is_playing=True,
+            _poll_play_state="playing",
+        )
+        self.mock_fader = AsyncMock(spec=VolumeFader)
+        self.mock_fader.set_ducking = AsyncMock()
+        self.vad = VoiceActivityDetector(self.mock_plugin, self.mock_fader)
+
+    @patch("subprocess.run")
+    async def test_vad_identifies_active_discord_stream(self, mock_run):
+        output = (
+            "Source Output #1\n"
+            "    Driver: PipeWire\n"
+            "    Corked: no\n"
+            "    Mute: no\n"
+            "    application.name = \"Discord\"\n"
+        )
+        mock_run.return_value = SimpleNamespace(returncode=0, stdout=output, stderr="")
+        active = await self.vad.check_recording_streams()
+        self.assertTrue(active)
+
+    @patch("subprocess.run")
+    async def test_vad_identifies_other_voice_streams(self, mock_run):
+        for app in ("steamcord", "steam", "steamwebhelper", "webrtc"):
+            output = (
+                f"Source Output #42\n"
+                f"    Corked: no\n"
+                f"    Mute: no\n"
+                f"    application.name = \"{app}\"\n"
+            )
+            mock_run.return_value = SimpleNamespace(returncode=0, stdout=output, stderr="")
+            self.assertTrue(await self.vad.check_recording_streams(), f"Expected {app} to be recognized as voice")
+
+    @patch("subprocess.run")
+    async def test_vad_ignores_corked_and_muted_streams(self, mock_run):
+        output = (
+            "Source Output #1\n"
+            "    Corked: yes\n"
+            "    Mute: no\n"
+            "    application.name = \"Discord\"\n"
+            "Source Output #2\n"
+            "    Corked: no\n"
+            "    Mute: yes\n"
+            "    application.name = \"Steam\"\n"
+        )
+        mock_run.return_value = SimpleNamespace(returncode=0, stdout=output, stderr="")
+        active = await self.vad.check_recording_streams()
+        self.assertFalse(active)
+
+    @patch("subprocess.run")
+    async def test_vad_ignores_non_voice_streams(self, mock_run):
+        output = (
+            "Source Output #5\n"
+            "    Corked: no\n"
+            "    Mute: no\n"
+            "    application.name = \"OBS Studio\"\n"
+        )
+        mock_run.return_value = SimpleNamespace(returncode=0, stdout=output, stderr="")
+        active = await self.vad.check_recording_streams()
+        self.assertFalse(active)
+
+    @patch("subprocess.run")
+    async def test_vad_handles_pactl_error_gracefully(self, mock_run):
+        mock_run.side_effect = Exception("pactl failure")
+        active = await self.vad.check_recording_streams()
+        self.assertFalse(active)
+
+    async def test_vad_silence_hold_hysteresis(self):
+        # Default hold delay is 1.2s per D-03
+        self.mock_plugin._settings["voice_ducking_hold_delay"] = 1.2
+        self.vad.check_recording_streams = AsyncMock()
+
+        t0 = 1000.0
+        # Step 1: Voice active -> triggers ducking
+        with patch("time.monotonic", return_value=t0):
+            self.vad.check_recording_streams.return_value = True
+            delay = await self.vad._poll_step()
+            self.assertEqual(delay, 0.35)
+            self.assertTrue(self.vad.is_voice_active)
+            self.mock_fader.set_ducking.assert_called_once_with(True, reason="voice")
+
+        # Step 2: Voice ceases, but only 0.8s has elapsed (< 1.2s) -> stays ducked, no release
+        self.mock_fader.set_ducking.reset_mock()
+        with patch("time.monotonic", return_value=t0 + 0.8):
+            self.vad.check_recording_streams.return_value = False
+            delay = await self.vad._poll_step()
+            self.assertEqual(delay, 0.35)
+            self.assertTrue(self.vad.is_voice_active)
+            self.mock_fader.set_ducking.assert_not_called()
+
+        # Step 3: Voice ceases, 1.25s has elapsed (>= 1.2s) -> releases ducking
+        with patch("time.monotonic", return_value=t0 + 1.25):
+            self.vad.check_recording_streams.return_value = False
+            delay = await self.vad._poll_step()
+            self.assertEqual(delay, 0.35)
+            self.assertFalse(self.vad.is_voice_active)
+            self.mock_fader.set_ducking.assert_called_once_with(False, reason="voice")
+
+    async def test_vad_power_throttling(self):
+        # 1. voice_ducking_enabled is False -> 2.0s sleep
+        self.mock_plugin._settings["voice_ducking_enabled"] = False
+        delay = await self.vad._poll_step()
+        self.assertEqual(delay, 2.0)
+
+        # 2. _is_playing is False -> 1.0s sleep
+        self.mock_plugin._settings["voice_ducking_enabled"] = True
+        self.mock_plugin._is_playing = False
+        self.mock_plugin._poll_play_state = "paused"
+        delay = await self.vad._poll_step()
+        self.assertEqual(delay, 1.0)
+
+        # 3. Active playing -> 0.35s sleep
+        self.mock_plugin._is_playing = True
+        self.mock_plugin._poll_play_state = "playing"
+        self.vad.check_recording_streams = AsyncMock(return_value=False)
+        delay = await self.vad._poll_step()
+        self.assertEqual(delay, 0.35)
+
+    async def test_vad_lifecycle_start_stop(self):
+        self.assertIsNone(self.vad._worker_task)
+        self.vad.start()
+        self.assertIsNotNone(self.vad._worker_task)
+        self.assertFalse(self.vad._worker_task.done())
+        await self.vad.stop()
+        self.assertIsNone(self.vad._worker_task)
+
+
+class test_vad(TestVoiceActivityDetector):
+    """Alias for -k test_vad CLI filtering."""
     pass
 
 
