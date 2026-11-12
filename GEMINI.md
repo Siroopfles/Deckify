@@ -224,6 +224,9 @@ Deckify is an open-source Spotify client and Decky Loader plugin for Valve's Ste
 - **D-Pad Spatial Navigation:** SteamOS GamepadUI uses spatial navigation. Containers with horizontal buttons MUST use `flow-children="horizontal"`; using `flow-children="row"` causes vertical focus jumps.
 - **Process Environment Isolation:** Decky Loader's bundled Python libraries conflict with SteamOS system libraries. `os.environ.pop("LD_LIBRARY_PATH", None)` is mandatory in `main.py` before launching any subprocess.
 - **Rate Limiting:** Spotify Web API aggressively returns HTTP 429 when polled frequently. Continuous polling of heavy endpoints (recently played, library, queue) must be avoided; polling is strictly restricted to current playback state.
+- **Decky Loader Plugin Sandbox:** In the Decky Loader environment, `main.py` runs with `__name__ == "_"`. `sys.modules[__name__]` raises `KeyError`. Always use `sys.modules.get(__name__)` with fallback.
+- **PipeWire UI Stream Isolation:** Steam GamepadUI interface sounds run under `steamwebhelper` with application name `"Chromium"`. Any PipeWire/PulseAudio sink-input inspection or manipulation must explicitly ignore `steamwebhelper` and `Chromium` streams to prevent muting Steam UI click sounds in `module-stream-restore`.
+- **Remote Directory Cleanliness:** Never place duplicate Python module trees under `bin/` (e.g. `bin/py_modules`), as `bin/` in `sys.path` will shadow primary plugin modules.
 
 ## Anti-Patterns
 
