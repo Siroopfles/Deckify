@@ -87,6 +87,10 @@ async def boost_pa_volume(plugin):
     if await plugin._set_pa_volume_percent(150):
         decky.logger.info("PA volume boosted to 150%%")
         plugin._pa_volume_boosted = True
+        fader = getattr(plugin, "_volume_fader", None)
+        if fader and not fader.is_ducked:
+            fader._current_sink_volume = 150.0
+            fader._target_sink_volume = 150.0
 
 
 async def apply_equalizer_preset(plugin, preset: str) -> None:

@@ -206,6 +206,30 @@ class TestVolumeFader(unittest.IsolatedAsyncioTestCase):
                 "duck_reasons": ["game"],
             })
 
+    async def test_boost_pa_volume_synchronizes_fader_volume(self):
+        self.mock_plugin._set_pa_volume_percent = AsyncMock(return_value=True)
+        self.mock_plugin._volume_fader = self.fader
+        self.fader._current_sink_volume = 100.0
+        self.fader._target_sink_volume = 100.0
+        self.assertFalse(self.fader.is_ducked)
+
+        await volume.boost_pa_volume(self.mock_plugin)
+        self.assertTrue(self.mock_plugin._pa_volume_boosted)
+        self.assertEqual(self.fader._current_sink_volume, 150.0)
+        self.assertEqual(self.fader._target_sink_volume, 150.0)
+
+    def test_effective_volume_with_boosted_pa_volume(self):
+        self.mock_plugin._pa_volume_boosted = True
+        self.fader._current_sink_volume = 150.0
+        self.mock_plugin._poll_volume = 80
+        # When unducked at 150% sink vol with 150% baseline -> ratio 1.0 -> 80
+        self.assertEqual(self.fader.effective_volume, 80)
+
+        # When ducked to 75% sink vol with 150% baseline -> ratio 0.5 -> 40
+        self.fader._current_sink_volume = 75.0
+        self.assertEqual(self.fader.effective_volume, 40)
+
+
 
 class test_volume_fader(TestVolumeFader):
     """Alias for -k test_volume_fader CLI filtering."""
