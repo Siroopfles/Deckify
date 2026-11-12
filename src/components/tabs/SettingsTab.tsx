@@ -420,46 +420,161 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
         </InteractiveRow>
       </div>
 
-      {/* Auto-Ducking (Game Audio Balance) */}
+      {/* Smooth Audio Ducking Engine */}
       <div style={{ marginBottom: 20, padding: 14, borderRadius: 10, background: "rgba(255,255,255,0.04)" }}>
         <h3 style={{ fontSize: 14, fontWeight: 700, color: "#1db954", marginBottom: 6 }}>
-          Auto-Ducking (Game Audio Balance)
+          Smooth Audio Ducking Engine
         </h3>
-        <p style={{ fontSize: 12, opacity: 0.6, marginBottom: 10 }}>
-          Automatically ducks game audio volume when Spotify is playing.
+        <p style={{ fontSize: 12, opacity: 0.6, marginBottom: 12 }}>
+          Fade music volume smoothly when games launch or during voice chat (Discord, Steam Voice).
         </p>
         <InteractiveRow
           onClick={async () => {
-            const cur = status?.settings?.auto_ducking || false;
+            const cur = status?.settings?.auto_ducking ?? true;
             await backendSetSetting("auto_ducking", !cur);
-            showToast(!cur ? "Auto-Ducking enabled" : "Auto-Ducking disabled");
+            showToast(!cur ? "Audio Ducking enabled" : "Audio Ducking disabled");
             refreshStatus();
           }}
-          active={status?.settings?.auto_ducking}
-          style={{ justifyContent: "space-between", marginBottom: 10 }}
+          active={status?.settings?.auto_ducking ?? true}
+          style={{ justifyContent: "space-between", marginBottom: (status?.settings?.auto_ducking ?? true) ? 14 : 0 }}
         >
           <span style={{ fontSize: 13, fontWeight: 600 }}>Game Audio Ducking</span>
-          <span style={{ fontSize: 12, fontWeight: 700, color: status?.settings?.auto_ducking ? "#1db954" : "#888" }}>
-            {status?.settings?.auto_ducking ? "ON" : "OFF"}
+          <span style={{ fontSize: 12, fontWeight: 700, color: (status?.settings?.auto_ducking ?? true) ? "#1db954" : "#888" }}>
+            {(status?.settings?.auto_ducking ?? true) ? "ON" : "OFF"}
           </span>
         </InteractiveRow>
-        {status?.settings?.auto_ducking && (
-          <Focusable flow-children="horizontal" style={{ display: "flex", gap: 8 }}>
-            {[30, 50, 70].map((pct) => (
-              <InteractiveRow
-                key={pct}
-                onClick={async () => {
-                  await backendSetSetting("auto_ducking_volume", pct);
-                  showToast(`Ducking volume: ${pct}%`);
-                  refreshStatus();
-                }}
-                active={(status?.settings?.auto_ducking_volume || 50) === pct}
-                style={{ flex: 1, justifyContent: "center", fontSize: 12, fontWeight: 700 }}
-              >
-                Game -{pct}%
-              </InteractiveRow>
-            ))}
-          </Focusable>
+        {(status?.settings?.auto_ducking ?? true) && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {/* Attenuation Mode: Proportional (-50%) vs Fixed Level (25%) */}
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 600, opacity: 0.8, marginBottom: 6 }}>
+                Attenuation Mode
+              </div>
+              <Focusable flow-children="horizontal" style={{ display: "flex", gap: 8 }}>
+                {[
+                  { mode: "proportional", label: "Proportional (-50%)" },
+                  { mode: "fixed", label: "Fixed Level (25%)" },
+                ].map(({ mode, label }) => {
+                  const currentMode = status?.settings?.ducking_mode || "proportional";
+                  const isActive = currentMode === mode;
+                  return (
+                    <InteractiveRow
+                      key={mode}
+                      onClick={async () => {
+                        await backendSetSetting("ducking_mode", mode);
+                        showToast(`Ducking mode: ${label}`);
+                        refreshStatus();
+                      }}
+                      active={isActive}
+                      style={{ flex: 1, justifyContent: "center", fontSize: 12, fontWeight: 700 }}
+                    >
+                      {label}
+                    </InteractiveRow>
+                  );
+                })}
+              </Focusable>
+            </div>
+
+            {/* Fade Down Speed: 0.5s, 1.0s, 1.5s, 2.0s */}
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 600, opacity: 0.8, marginBottom: 6 }}>
+                Fade Down Speed
+              </div>
+              <Focusable flow-children="horizontal" style={{ display: "flex", gap: 8 }}>
+                {[0.5, 1.0, 1.5, 2.0].map((dur) => {
+                  const currentDur = status?.settings?.duck_fade_down_duration ?? 1.0;
+                  const isActive = Math.abs(currentDur - dur) < 0.05;
+                  return (
+                    <InteractiveRow
+                      key={dur}
+                      onClick={async () => {
+                        await backendSetSetting("duck_fade_down_duration", dur);
+                        showToast(`Fade down: ${dur}s`);
+                        refreshStatus();
+                      }}
+                      active={isActive}
+                      style={{ flex: 1, justifyContent: "center", fontSize: 12, fontWeight: 700 }}
+                    >
+                      {dur}s
+                    </InteractiveRow>
+                  );
+                })}
+              </Focusable>
+            </div>
+
+            {/* Fade Up Speed: 1.0s, 1.5s, 2.0s, 3.0s */}
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 600, opacity: 0.8, marginBottom: 6 }}>
+                Fade Up Speed
+              </div>
+              <Focusable flow-children="horizontal" style={{ display: "flex", gap: 8 }}>
+                {[1.0, 1.5, 2.0, 3.0].map((dur) => {
+                  const currentDur = status?.settings?.duck_fade_up_duration ?? 1.5;
+                  const isActive = Math.abs(currentDur - dur) < 0.05;
+                  return (
+                    <InteractiveRow
+                      key={dur}
+                      onClick={async () => {
+                        await backendSetSetting("duck_fade_up_duration", dur);
+                        showToast(`Fade up: ${dur}s`);
+                        refreshStatus();
+                      }}
+                      active={isActive}
+                      style={{ flex: 1, justifyContent: "center", fontSize: 12, fontWeight: 700 }}
+                    >
+                      {dur}s
+                    </InteractiveRow>
+                  );
+                })}
+              </Focusable>
+            </div>
+
+            {/* Voice Chat Ducking Toggle */}
+            <InteractiveRow
+              onClick={async () => {
+                const cur = status?.settings?.voice_ducking_enabled ?? true;
+                await backendSetSetting("voice_ducking_enabled", !cur);
+                showToast(!cur ? "Voice Chat Ducking enabled" : "Voice Chat Ducking disabled");
+                refreshStatus();
+              }}
+              active={status?.settings?.voice_ducking_enabled ?? true}
+              style={{ justifyContent: "space-between" }}
+            >
+              <span style={{ fontSize: 13, fontWeight: 600 }}>Voice Chat Ducking (Discord / Steam Voice)</span>
+              <span style={{ fontSize: 12, fontWeight: 700, color: (status?.settings?.voice_ducking_enabled ?? true) ? "#1db954" : "#888" }}>
+                {(status?.settings?.voice_ducking_enabled ?? true) ? "ON" : "OFF"}
+              </span>
+            </InteractiveRow>
+
+            {/* Silence Hold Delay: 0.8s, 1.2s, 1.6s, 2.0s */}
+            {(status?.settings?.voice_ducking_enabled ?? true) && (
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 600, opacity: 0.8, marginBottom: 6 }}>
+                  Silence Hold Delay (Speech Hysteresis)
+                </div>
+                <Focusable flow-children="horizontal" style={{ display: "flex", gap: 8 }}>
+                  {[0.8, 1.2, 1.6, 2.0].map((delay) => {
+                    const currentDelay = status?.settings?.voice_ducking_hold_delay ?? 1.2;
+                    const isActive = Math.abs(currentDelay - delay) < 0.05;
+                    return (
+                      <InteractiveRow
+                        key={delay}
+                        onClick={async () => {
+                          await backendSetSetting("voice_ducking_hold_delay", delay);
+                          showToast(`Hold delay: ${delay}s`);
+                          refreshStatus();
+                        }}
+                        active={isActive}
+                        style={{ flex: 1, justifyContent: "center", fontSize: 12, fontWeight: 700 }}
+                      >
+                        {delay}s
+                      </InteractiveRow>
+                    );
+                  })}
+                </Focusable>
+              </div>
+            )}
+          </div>
         )}
       </div>
 
