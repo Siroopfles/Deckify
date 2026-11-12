@@ -1595,6 +1595,19 @@ class TestTier4RealWorldScenarios(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(release_res.get("ok"))
         self.assertFalse(release_res.get("is_ducked"))
 
+        # Voice ducking is not blocked by auto_ducking being disabled
+        self.plugin._settings["auto_ducking"] = False
+        self.plugin._settings["voice_ducking_enabled"] = True
+        voice_res = await self.plugin.trigger_ducking(True, reason="voice")
+        self.assertTrue(voice_res.get("ok"))
+        self.assertTrue(voice_res.get("is_ducked"))
+        await self.plugin.trigger_ducking(False, reason="voice")
+
+        # Voice ducking is blocked if voice_ducking_enabled is disabled
+        self.plugin._settings["voice_ducking_enabled"] = False
+        voice_disabled_res = await self.plugin.trigger_ducking(True, reason="voice")
+        self.assertEqual(voice_disabled_res.get("skipped"), "voice_ducking_disabled")
+
     async def test_disabling_auto_ducking_releases_active_ducking(self):
         """Setting auto_ducking to False while ducked releases active game ducking."""
         await self.plugin.trigger_ducking(True, reason="game")
