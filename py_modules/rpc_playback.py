@@ -323,6 +323,7 @@ async def play_tracks(
     offset_uri: str | None = None,
     uris: list | None = None,
     position: int = 0,
+    position_ms: int | None = None,
 ) -> dict:
     """Start playback of a context, URI list, or single track."""
     token = await plugin._ensure_token()
@@ -344,6 +345,8 @@ async def play_tracks(
             body["offset"] = {"position": position}
     elif offset_uri and str(offset_uri).strip():
         body["uris"] = [str(offset_uri).strip()]
+    if body and position_ms is not None and int(position_ms) > 0:
+        body["position_ms"] = int(position_ms)
     try:
         await _exec(
             _spotify_api_request, "me/player/play", token, "PUT", None, body,
