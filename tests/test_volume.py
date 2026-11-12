@@ -61,6 +61,24 @@ class TestVolumeFader(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(sink_id, "42")
 
     @patch("subprocess.run")
+    async def test_resolve_sink_input_id_pid_prioritized_over_earlier_name_match(self, mock_run):
+        # Sink #1 has name "spotify" but foreign PID "9999"
+        # Sink #2 has name "librespot" and matches our process PID "12345"
+        mock_output = (
+            "Sink Input #1\n"
+            "    Driver: PipeWire\n"
+            "    application.name = \"spotify\"\n"
+            "    application.process.id = \"9999\"\n"
+            "Sink Input #2\n"
+            "    Driver: PipeWire\n"
+            "    application.name = \"librespot\"\n"
+            "    application.process.id = \"12345\"\n"
+        )
+        mock_run.return_value = SimpleNamespace(returncode=0, stdout=mock_output, stderr="")
+        sink_id = await self.fader.resolve_sink_input_id()
+        self.assertEqual(sink_id, "2")
+
+    @patch("subprocess.run")
     async def test_resolve_sink_input_id_by_app_name(self, mock_run):
         mock_output = (
             "Sink Input #99\n"
