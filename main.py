@@ -628,6 +628,8 @@ class Plugin:
     async def toggle_like_track(self, track_id: str = "", liked: bool | None = None) -> dict:
         return await rpc_playback.toggle_like_track(self, track_id, liked)
 
+    toggle_like = toggle_like_track
+
     async def get_queue(self) -> dict:
         return await rpc_playback.get_queue(self)
 
@@ -669,6 +671,8 @@ class Plugin:
 
     async def set_native_playlist_mix(self, playlist_id: str, enabled: bool = True, play_now: bool = True) -> dict:
         return await rpc_library.set_native_playlist_mix(self, playlist_id, enabled, play_now)
+
+    set_native_mix = set_native_playlist_mix
 
     # ── Official Spotify Client Remote & Sleep Timer ───────────
 

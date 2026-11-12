@@ -346,6 +346,14 @@ class DeckifyFeatureTests(unittest.IsolatedAsyncioTestCase):
         remove_res = await self.plugin.remove_track_from_playlist("new_pl_id", "spotify:track:1234")
         self.assertTrue(remove_res["ok"])
 
+    def test_rpc_method_aliases(self):
+        """Verify backward-compatible method aliases for frontend RPC bindings."""
+        from main import Plugin
+        self.assertEqual(Plugin.play_track, Plugin.play_tracks)
+        self.assertEqual(Plugin.toggle_like, Plugin.toggle_like_track)
+        self.assertEqual(Plugin.set_native_mix, Plugin.set_native_playlist_mix)
+
+
 
 if __name__ == "__main__":
     unittest.main()
