@@ -109,7 +109,7 @@ class Plugin:
     def __init__(self):
         self._crash_timestamps = []
         self._liked_cache = {}
-        self._volume_fader = None
+        self._volume_fader = volume.VolumeFader(self)
 
     # ── Lifecycle ──────────────────────────────────────────────
 
@@ -555,8 +555,28 @@ class Plugin:
             value = bval
             self._settings["audio_quality"] = str(bval)
             quality_changed = True
-        elif key in ("normalisation", "gapless", "autoplay", "bit_perfect_clock", "overlay_enabled", "toast_enabled", "gamepad_chords_enabled", "auto_ducking", "overlay_autohide", "overlay_show_progress"):
+        elif key in ("normalisation", "gapless", "autoplay", "bit_perfect_clock", "overlay_enabled", "toast_enabled", "gamepad_chords_enabled", "auto_ducking", "overlay_autohide", "overlay_show_progress", "voice_ducking_enabled"):
             value = bool(value)
+        elif key in ("duck_fade_down_duration", "duck_fade_up_duration", "voice_ducking_hold_delay"):
+            try:
+                value = max(0.5, min(3.0, float(value)))
+            except (TypeError, ValueError):
+                return {"ok": False, "error": f"{key} must be a number between 0.5 and 3.0"}
+        elif key == "ducking_mode":
+            val = str(value).strip().lower()
+            if val not in ("proportional", "fixed"):
+                return {"ok": False, "error": "ducking_mode must be 'proportional' or 'fixed'"}
+            value = val
+        elif key == "ducking_proportional_pct":
+            try:
+                value = max(10, min(90, int(value)))
+            except (TypeError, ValueError):
+                return {"ok": False, "error": "ducking_proportional_pct must be an integer between 10 and 90"}
+        elif key == "voice_ducking_volume":
+            try:
+                value = max(10, min(50, int(value)))
+            except (TypeError, ValueError):
+                return {"ok": False, "error": "voice_ducking_volume must be an integer between 10 and 50"}
         elif key == "overlay_position":
             valid_positions = {"top-left", "top-right", "bottom-left", "bottom-right"}
             pos = str(value).strip().lower().replace("_", "-")
@@ -627,7 +647,7 @@ class Plugin:
     async def trigger_ducking(self, active: bool, reason: str = "game", app_id: int | None = None) -> dict:
         """Trigger or release ducking from frontend AppLifetime listener or game events."""
         if not hasattr(self, "_volume_fader") or not self._volume_fader:
-            return {"ok": False, "error": "Volume fader not initialized"}
+            self._volume_fader = volume.VolumeFader(self)
 
         if active and not self._settings.get("auto_ducking", True):
             return {"ok": True, "ducked": False, "skipped": "auto_ducking_disabled"}
@@ -642,8 +662,7 @@ class Plugin:
     async def get_ducking_state(self) -> dict:
         """Return live ducking status and effective volume level."""
         if not hasattr(self, "_volume_fader") or not self._volume_fader:
-            base_vol = self._poll_volume or 80
-            return {"is_ducked": False, "effective_volume": base_vol, "base_volume": base_vol, "duck_reasons": []}
+            self._volume_fader = volume.VolumeFader(self)
         return {
             "is_ducked": self._volume_fader.is_ducked,
             "effective_volume": self._volume_fader.effective_volume,

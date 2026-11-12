@@ -1525,6 +1525,83 @@ class TestTier4RealWorldScenarios(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(bool(re.search(r"unittest|pytest", ci_yml, re.IGNORECASE)))
         self.assertTrue(bool(re.search(r"vitest|pnpm test", ci_yml, re.IGNORECASE)))
 
+    # ------------------------------------------------------------------------
+    # Phase 06 Ducking Requirements (DUCK-01, D-01, D-06)
+    # ------------------------------------------------------------------------
+
+    def test_ducking_default_settings_schema(self):
+        """Verify DEFAULT_SETTINGS contains all Phase 06 ducking configuration keys."""
+        self.assertIn("duck_fade_down_duration", common.DEFAULT_SETTINGS)
+        self.assertIn("duck_fade_up_duration", common.DEFAULT_SETTINGS)
+        self.assertIn("ducking_mode", common.DEFAULT_SETTINGS)
+        self.assertIn("ducking_proportional_pct", common.DEFAULT_SETTINGS)
+        self.assertIn("voice_ducking_enabled", common.DEFAULT_SETTINGS)
+        self.assertIn("voice_ducking_volume", common.DEFAULT_SETTINGS)
+        self.assertIn("voice_ducking_hold_delay", common.DEFAULT_SETTINGS)
+
+    async def test_set_setting_validates_duck_durations(self):
+        """set_setting clamps or validates duck durations between 0.5 and 3.0 seconds."""
+        res = await self.plugin.set_setting("duck_fade_down_duration", 2.5)
+        self.assertTrue(res.get("ok"))
+        self.assertEqual(self.plugin._settings.get("duck_fade_down_duration"), 2.5)
+
+        # Clamping upper bound
+        res2 = await self.plugin.set_setting("duck_fade_up_duration", 10.0)
+        self.assertTrue(res2.get("ok"))
+        self.assertEqual(self.plugin._settings.get("duck_fade_up_duration"), 3.0)
+
+        # Clamping lower bound
+        res3 = await self.plugin.set_setting("duck_fade_down_duration", 0.1)
+        self.assertTrue(res3.get("ok"))
+        self.assertEqual(self.plugin._settings.get("duck_fade_down_duration"), 0.5)
+
+        # Invalid non-numeric rejected
+        res4 = await self.plugin.set_setting("duck_fade_down_duration", "invalid")
+        self.assertFalse(res4.get("ok"))
+
+    async def test_set_setting_validates_ducking_mode_and_proportional_pct(self):
+        """set_setting enforces valid ducking_mode and bounds for ducking_proportional_pct."""
+        # Valid modes
+        res1 = await self.plugin.set_setting("ducking_mode", "proportional")
+        self.assertTrue(res1.get("ok"))
+        res2 = await self.plugin.set_setting("ducking_mode", "fixed")
+        self.assertTrue(res2.get("ok"))
+
+        # Invalid mode
+        res3 = await self.plugin.set_setting("ducking_mode", "arbitrary_mode")
+        self.assertFalse(res3.get("ok"))
+
+        # Percentage bounds (10-90)
+        res4 = await self.plugin.set_setting("ducking_proportional_pct", 75)
+        self.assertTrue(res4.get("ok"))
+        self.assertEqual(self.plugin._settings.get("ducking_proportional_pct"), 75)
+
+        res5 = await self.plugin.set_setting("ducking_proportional_pct", 5)
+        self.assertTrue(res5.get("ok"))
+        self.assertEqual(self.plugin._settings.get("ducking_proportional_pct"), 10)
+
+    async def test_trigger_ducking_rpc_endpoint(self):
+        """trigger_ducking RPC activates ducking without Spotify Web API calls."""
+        res = await self.plugin.trigger_ducking(True, reason="game")
+        self.assertTrue(res.get("ok"))
+        self.assertTrue(res.get("is_ducked"))
+
+        state = await self.plugin.get_ducking_state()
+        self.assertTrue(state.get("is_ducked"))
+        self.assertIn("game", state.get("duck_reasons"))
+
+        # Release ducking
+        release_res = await self.plugin.trigger_ducking(False, reason="game")
+        self.assertTrue(release_res.get("ok"))
+        self.assertFalse(release_res.get("is_ducked"))
+
+    def test_ducking_frontend_exit_debounce_and_pill_badge(self):
+        """src/index.tsx must contain 3000ms debounce timer for game exit and DUCKED pill badge."""
+        content = read_project_file("src/index.tsx")
+        self.assertIn("3000", content, "src/index.tsx must contain 3.0s debounce timer for game exit")
+        self.assertIn("DUCKED", content, "src/index.tsx must render DUCKED pill badge")
+        self.assertIn("#1db954", content, "src/index.tsx must use #1db954 Spotify green for DUCKED badge")
+
 
 if __name__ == "__main__":
     unittest.main()
