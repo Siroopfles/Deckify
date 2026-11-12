@@ -1,38 +1,43 @@
 {
   "contract": "1.0.0",
   "flavor": "core",
-  "milestone": null,
+  "milestone": "v0.5",
   "phases": [
     {
-      "number": "1",
-      "name": "Architecture & Monolith Decoupling",
-      "status": "complete"
-    },
-    {
-      "number": "2",
-      "name": "Artwork & Image Pipeline Stabilization",
-      "status": "complete"
-    },
-    {
-      "number": "3",
-      "name": "Live Playback Ticker & Gamepad Seekbar Scrubbing",
+      "number": "6",
+      "name": "Smooth Audio Ducking Engine & PipeWire Fader",
       "status": "pending"
     },
     {
-      "number": "4",
-      "name": "Queue Navigation & Live State Synchronization",
+      "number": "7",
+      "name": "Game-Specific Soundtracks",
       "status": "pending"
     },
     {
-      "number": "5",
-      "name": "In-Game HUD Overlay Restoration",
+      "number": "8",
+      "name": "Controller L2/R2 Ergonomics & Trigger Navigation",
+      "status": "pending"
+    },
+    {
+      "number": "9",
+      "name": "QAM Pinned Playlists & Quick In-Game Switch",
+      "status": "pending"
+    },
+    {
+      "number": "10",
+      "name": "In-Game HUD Overlay 2.0 (Live Synced Lyrics)",
+      "status": "pending"
+    },
+    {
+      "number": "11",
+      "name": "Home & Discovery Hub Tab",
       "status": "pending"
     }
   ],
   "next": {
     "command": "/gsd-progress --next",
-    "label": "Advance to the next step",
-    "reason": "Phase 3 of 5 · 40% · executing"
+    "label": "Advance to the next step (plan phase 06)",
+    "reason": "Phase 1 of 6 — needs a plan"
   },
-  "updated_at": "2026-11-11T18:55:27.147Z"
+  "updated_at": "2026-11-12T09:40:37.594Z"
 }
