@@ -1602,6 +1602,50 @@ class TestTier4RealWorldScenarios(unittest.IsolatedAsyncioTestCase):
         self.assertIn("DUCKED", content, "src/index.tsx must render DUCKED pill badge")
         self.assertIn("#1db954", content, "src/index.tsx must use #1db954 Spotify green for DUCKED badge")
 
+    async def test_set_setting_validates_duck_voice_settings(self):
+        """set_setting validates voice_ducking_enabled, voice_ducking_volume, and voice_ducking_hold_delay."""
+        # voice_ducking_enabled boolean
+        res1 = await self.plugin.set_setting("voice_ducking_enabled", False)
+        self.assertTrue(res1.get("ok"))
+        self.assertFalse(self.plugin._settings.get("voice_ducking_enabled"))
+
+        # voice_ducking_volume bounds (10 to 50)
+        res2 = await self.plugin.set_setting("voice_ducking_volume", 35)
+        self.assertTrue(res2.get("ok"))
+        self.assertEqual(self.plugin._settings.get("voice_ducking_volume"), 35)
+
+        res3 = await self.plugin.set_setting("voice_ducking_volume", 5)  # clamped to 10
+        self.assertTrue(res3.get("ok"))
+        self.assertEqual(self.plugin._settings.get("voice_ducking_volume"), 10)
+
+        res4 = await self.plugin.set_setting("voice_ducking_volume", "invalid")
+        self.assertFalse(res4.get("ok"))
+
+        # voice_ducking_hold_delay bounds (0.5 to 3.0)
+        res5 = await self.plugin.set_setting("voice_ducking_hold_delay", 1.6)
+        self.assertTrue(res5.get("ok"))
+        self.assertEqual(self.plugin._settings.get("voice_ducking_hold_delay"), 1.6)
+
+        res6 = await self.plugin.set_setting("voice_ducking_hold_delay", 0.2)  # clamped to 0.5
+        self.assertTrue(res6.get("ok"))
+        self.assertEqual(self.plugin._settings.get("voice_ducking_hold_delay"), 0.5)
+
+        res7 = await self.plugin.set_setting("voice_ducking_hold_delay", 5.0)  # clamped to 3.0
+        self.assertTrue(res7.get("ok"))
+        self.assertEqual(self.plugin._settings.get("voice_ducking_hold_delay"), 3.0)
+
+        res8 = await self.plugin.set_setting("voice_ducking_hold_delay", "bad")
+        self.assertFalse(res8.get("ok"))
+
+    def test_ducking_settings_tab_card_ui(self):
+        """src/components/tabs/SettingsTab.tsx must contain Smooth Audio Ducking Engine card and voice controls."""
+        content = read_project_file("src/components/tabs/SettingsTab.tsx")
+        self.assertIn("Smooth Audio Ducking Engine", content)
+        self.assertIn("Fade Down Speed", content)
+        self.assertIn("Fade Up Speed", content)
+        self.assertIn("Voice Chat Ducking", content)
+        self.assertIn("voice_ducking_hold_delay", content)
+
 
 if __name__ == "__main__":
     unittest.main()
