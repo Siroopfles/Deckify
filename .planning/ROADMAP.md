@@ -54,8 +54,8 @@ Milestone v0.5 elevates Deckify from a standalone media controller into an intel
 **Plans**: 2 plans
 
 Plans:
-- [ ] 06-01: Implement non-blocking `VolumeFader` worker in `py_modules/volume.py` with cosine easing steps, single sink-input resolution, and cancellation safety.
-- [ ] 06-02: Implement voice stream activity monitor with decay hold hysteresis and wire ducking hooks into backend audio RPC services.
+- [ ] 06-01-PLAN.md — Implement non-blocking VolumeFader in py_modules/volume.py with cosine easing, single sink-input resolution, 3s exit debounce, and QAM Ducked pill badge
+- [ ] 06-02-PLAN.md — Implement VoiceActivityDetector with 1.2s silence hold hysteresis and interactive audio ducking settings card in SettingsTab.tsx
 
 ### Phase 7: Game-Specific Soundtracks (appId Linking & Lifecycle Automation)
 **Goal**: Automatically trigger configured Spotify soundtrack playlists or albums upon game launch and cleanly restore normal listening state on exit.  
