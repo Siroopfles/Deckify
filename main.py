@@ -105,11 +105,17 @@ class Plugin:
     _sleep_timer_initial_track_id: str | None = None
     _liked_cache: dict[str, tuple[float, bool]] = {}
     _volume_fader: volume.VolumeFader | None = None
+    _voice_detector: volume.VoiceActivityDetector | None = None
+
+    @property
+    def _is_playing(self) -> bool:
+        return self._poll_play_state == "playing"
 
     def __init__(self):
         self._crash_timestamps = []
         self._liked_cache = {}
         self._volume_fader = volume.VolumeFader(self)
+        self._voice_detector = volume.VoiceActivityDetector(self, self._volume_fader)
 
     # ── Lifecycle ──────────────────────────────────────────────
 
@@ -130,6 +136,8 @@ class Plugin:
         )
         self._suspend_monitor.start()
         self._volume_fader = volume.VolumeFader(self)
+        self._voice_detector = volume.VoiceActivityDetector(self, self._volume_fader)
+        self._voice_detector.start()
         if self._access_token:
             self._start_api_poll()
         await self._sync_native_spotify_folders()
@@ -143,6 +151,9 @@ class Plugin:
         if hasattr(self, "_suspend_monitor") and self._suspend_monitor:
             await self._suspend_monitor.stop()
             self._suspend_monitor = None
+        if hasattr(self, "_voice_detector") and self._voice_detector:
+            await self._voice_detector.stop()
+            self._voice_detector = None
         if hasattr(self, "_volume_fader") and self._volume_fader:
             if self._volume_fader._fade_task and not self._volume_fader._fade_task.done():
                 self._volume_fader._fade_task.cancel()
