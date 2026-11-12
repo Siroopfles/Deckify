@@ -11,12 +11,14 @@ Rock-solid Spotify playback and responsive, reliable controller navigation on St
 ## Current State
 
 - **Current Version:** v0.4 (shipped 2026-11-12)
-- **Active Milestone:** None (v0.4 complete; ready for next milestone planning)
+- **Active Milestone:** v0.5 — In-Game Flow & Music Discovery
 - **Codebase Health:** Clean modular architecture (`src/components/tabs/`, `py_modules/`), 100% test coverage across 55 Vitest frontend tests and 325 Python backend tests, zero TypeScript errors.
 
 ## Requirements
 
 ### Validated
+
+<!-- Shipped and confirmed capabilities from prior milestones -->
 
 - ✓ Steam Decky Loader plugin integration with frontend-backend RPC via `@decky/api` — existing
 - ✓ Spotify OAuth2 authentication flow via local redirect handler — existing
@@ -31,7 +33,14 @@ Rock-solid Spotify playback and responsive, reliable controller navigation on St
 
 ### Active
 
-*None currently active. Define next milestone requirements via `/gsd-new-milestone`.*
+<!-- Scope for Milestone v0.5: In-Game Flow & Music Discovery -->
+
+- [ ] **Game-Specific Soundtracks (`appId` linking)**: Bind Spotify playlist/album to Steam game `appId`. Auto-play upon launch notification and pause/restore upon exit.
+- [ ] **Smooth Audio Ducking & Voice/Steamcord Awareness**: Gradually fade volume over ~1.5s instead of abrupt jumps when games launch or during voice chat activity.
+- [ ] **Quick Access Menu Pinned Playlists**: Direct 3-4 pinned/favorite playlist buttons in QAM mini-player for 2-second mid-game switching.
+- [ ] **L2/R2 Controller Trigger Seeking & Fast List Skipping**: Blind +/-10s seek via triggers in modal views without focusing seekbar, and alphabet/page jumps in long lists.
+- [ ] **In-Game Overlay 2.0 (Live Lyrics Line)**: Subtle active synced lyrics line displayed beneath the artist in the gamescope HUD overlay.
+- [ ] **Home / Made For You Discovery Tab**: Dedicated Discovery tab in Expanded Modal for Discover Weekly, Release Radar, Daylist, and user top tracks/artists.
 
 ### Out of Scope
 
@@ -56,4 +65,4 @@ Rock-solid Spotify playback and responsive, reliable controller navigation on St
 | Strict `pointerEvents: "none"` on gamescope HUD | In-game overlay must never intercept controller or touchscreen input from running games | ✓ Shipped in Phase 5 |
 
 ---
-*Last updated: 2026-11-12 after Milestone v0.4 completion*
+*Last updated: 2026-11-12 for Milestone v0.5*
