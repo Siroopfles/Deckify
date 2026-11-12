@@ -467,7 +467,8 @@ class Plugin:
             "normalisation_pregain", "gapless", "autoplay", "playlist_folders",
             "spotify_folder_tree", "game_audio_profiles", "auto_ducking",
             "auto_ducking_volume", "gamepad_chords_enabled", "toast_enabled",
-            "toast_position", "overlay_enabled", "overlay_position", "eq_preset",
+            "toast_position", "overlay_enabled", "overlay_position",
+            "overlay_autohide", "overlay_show_progress", "eq_preset",
         )
         return {
             "authenticated": bool(self._access_token),
@@ -540,7 +541,7 @@ class Plugin:
             value = bval
             self._settings["audio_quality"] = str(bval)
             quality_changed = True
-        elif key in ("normalisation", "gapless", "autoplay", "bit_perfect_clock", "overlay_enabled", "toast_enabled", "gamepad_chords_enabled", "auto_ducking"):
+        elif key in ("normalisation", "gapless", "autoplay", "bit_perfect_clock", "overlay_enabled", "toast_enabled", "gamepad_chords_enabled", "auto_ducking", "overlay_autohide", "overlay_show_progress"):
             value = bool(value)
         elif key == "overlay_position":
             valid_positions = {"top-left", "top-right", "bottom-left", "bottom-right"}
