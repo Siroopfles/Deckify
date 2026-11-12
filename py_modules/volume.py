@@ -211,15 +211,22 @@ class VolumeFader:
             if curr_id:
                 blocks.append((curr_id, "\n".join(curr_lines)))
 
-            # Pass 1: exact PID match has priority across all sink-input blocks
+            # Filter out non-Spotify / system audio streams like Steam CEF UI (Chromium/steamwebhelper)
+            filtered_blocks = []
+            for sink_id, block in blocks:
+                low = block.lower()
+                if "steamwebhelper" in low or ("application.name" in low and "chromium" in low):
+                    continue
+                filtered_blocks.append((sink_id, block, low))
+
+            # Pass 1: exact PID match has priority across all candidate sink-input blocks
             if pids:
-                for sink_id, block in blocks:
+                for sink_id, block, _ in filtered_blocks:
                     if any(f'"{p}"' in block for p in pids if p):
                         return sink_id
 
             # Pass 2: application / media name fallback if no PID matched
-            for sink_id, block in blocks:
-                low = block.lower()
+            for sink_id, _, low in filtered_blocks:
                 for line in low.splitlines():
                     if ("application.name" in line or "media.name" in line) and ("librespot" in line or "spotify" in line):
                         return sink_id
