@@ -3,17 +3,17 @@ gsd_state_version: "1.0"
 milestone: v0.5
 current_phase: 06
 current_phase_name: Smooth Audio Ducking Engine & PipeWire Fader
-status: executing
-stopped_at: Completed 06-01-PLAN.md
-last_updated: "2026-11-12T11:21:00.000Z"
+status: complete
+stopped_at: Completed 06-02-PLAN.md
+last_updated: "2026-11-12T11:35:00.000Z"
 last_activity: 2026-11-12
-last_activity_desc: Completed Plan 06-01 Core PipeWire Volume Fader & Ducking Tracer
-state_head: 3ce8b832045d921b156336e2942db74cc1bda4e1
+last_activity_desc: Completed Plan 06-02 Voice Activity Detector & Settings UI
+state_head: 554fe9005fb3aae7cae5eaeeb3fe23c073a33fa6
 progress:
   total_phases: 6
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 2
-  completed_plans: 1
+  completed_plans: 2
 ---
 
 # Project State
@@ -23,30 +23,30 @@ progress:
 See: [.planning/PROJECT.md](file:///C:/Users/djdje/Deckify/.planning/PROJECT.md) (updated 2026-11-12)
 
 **Core value:** Rock-solid Spotify playback and responsive, reliable controller navigation on Steam Deck without UI lag, broken images, or desynchronized playback states.
-**Current focus:** Phase 06 — Smooth Audio Ducking Engine & PipeWire Fader
+**Current focus:** Phase 06 — Smooth Audio Ducking Engine & PipeWire Fader (COMPLETE)
 
 ## Current Position
 
-Phase: 06 (Smooth Audio Ducking Engine & PipeWire Fader) — EXECUTING
-Plan: 1 of 2 complete (Wave 1 finished; ready for Wave 2 Plan 06-02)
-Status: Executing Phase 06
-Last activity: 2026-11-12 — Completed Plan 06-01 Core PipeWire Volume Fader & Ducking Tracer
+Phase: 06 (Smooth Audio Ducking Engine & PipeWire Fader) — COMPLETE
+Plan: 2 of 2 complete (All waves finished)
+Status: Complete Phase 06
+Last activity: 2026-11-12 — Completed Plan 06-02 Voice Activity Detector & Settings UI
 
-Progress: [█████░░░░░] 50% (Phase 06)
+Progress: [██████████] 100% (Phase 06 complete)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 8 (7 in v0.4, 1 in v0.5)
-- Average duration: ~15 min
-- Total execution time: ~2.0 hours
+- Total plans completed: 9 (7 in v0.4, 2 in v0.5)
+- Average duration: ~14.7 min
+- Total execution time: ~2.2 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 1-5 (v0.4) | 7 | 108m | 15.4m |
-| 6 | 1/2 | 14m | 14.0m |
+| 6 | 2/2 | 26m | 13.0m |
 | 7 | 0/2 | - | - |
 | 8 | 0/2 | - | - |
 | 9 | 0/2 | - | - |
@@ -54,7 +54,7 @@ Progress: [█████░░░░░] 50% (Phase 06)
 | 11 | 0/2 | - | - |
 
 **Recent Trend:**
-- Last 5 plans: 12m, 18m, 14m, 16m, 14m
+- Last 5 plans: 18m, 14m, 16m, 14m, 12m
 - Trend: Stable
 
 *Updated after each plan completion*
@@ -75,6 +75,8 @@ Recent decisions affecting current work:
 - [Phase 06]: Local PipeWire cosine volume fader with 50ms slices and single sink-input resolution.
 - [Phase 06]: 3.0s exit debounce in Steam GamepadUI to eliminate child-launcher flapping.
 - [Phase 06]: QAM volume slider displays elevated green DUCKED badge and live effective volume.
+- [Phase 06]: VoiceActivityDetector monitors pactl source-outputs with 1.2s silence hold hysteresis window.
+- [Phase 06]: Interactive Smooth Audio Ducking Engine card in SettingsTab with attenuation mode and duration pills.
 
 ### Pending Todos
 
@@ -97,6 +99,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-12 11:21
-Stopped at: Completed 06-01-PLAN.md
+Last session: 2026-11-12 11:35
+Stopped at: Completed 06-02-PLAN.md
 Resume file: None

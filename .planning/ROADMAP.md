@@ -30,7 +30,7 @@ Milestone v0.5 elevates Deckify from a standalone media controller into an intel
 
 **Milestone v0.5: In-Game Flow & Music Discovery**
 
-- [ ] **Phase 6: Smooth Audio Ducking Engine & PipeWire Fader** - Local non-blocking PipeWire volume fader for game transitions and active voice chat dipping
+- [x] **Phase 6: Smooth Audio Ducking Engine & PipeWire Fader** - Local non-blocking PipeWire volume fader for game transitions and active voice chat dipping
 - [ ] **Phase 7: Game-Specific Soundtracks (appId Linking & Lifecycle Automation)** - Bind Spotify playlists/albums to Steam games with auto-play and state restore
 - [ ] **Phase 8: Controller L2/R2 Ergonomics & Trigger Navigation** - Blind ±10s seeking and virtualized library fast-page navigation via analog triggers
 - [ ] **Phase 9: QAM Pinned Playlists & Quick In-Game Switch** - Instant 2-second playlist switching pills in the Quick Access Menu mini-player
@@ -58,7 +58,7 @@ Plans:
 - [x] 06-01-PLAN.md — Implement non-blocking VolumeFader in py_modules/volume.py with cosine easing, single sink-input resolution, 3s exit debounce, and QAM Ducked pill badge
 
 **Wave 2** *(blocked on Wave 1 completion)*
-- [ ] 06-02-PLAN.md — Implement VoiceActivityDetector with 1.2s silence hold hysteresis and interactive audio ducking settings card in SettingsTab.tsx
+- [x] 06-02-PLAN.md — Implement VoiceActivityDetector with 1.2s silence hold hysteresis and interactive audio ducking settings card in SettingsTab.tsx
 
 ### Phase 7: Game-Specific Soundtracks (appId Linking & Lifecycle Automation)
 **Goal**: Automatically trigger configured Spotify soundtrack playlists or albums upon game launch and cleanly restore normal listening state on exit.  

@@ -9,8 +9,8 @@
 ## v0.5 Requirements
 
 ### Audio Ducking & Voice Awareness
-- [ ] **DUCK-01**: User experiences a smooth, gradual volume fade (~1.0–1.5s) via local PipeWire/PulseAudio sink-input volume when a game launches or closes, eliminating abrupt volume jumps.
-- [ ] **DUCK-02**: User experiences automatic volume ducking when active microphone or voice chat streams (Discord, Steamcord, Steam Voice) are detected, with decay hold hysteresis.
+- [x] **DUCK-01**: User experiences a smooth, gradual volume fade (~1.0–1.5s) via local PipeWire/PulseAudio sink-input volume when a game launches or closes, eliminating abrupt volume jumps.
+- [x] **DUCK-02**: User experiences automatic volume ducking when active microphone or voice chat streams (Discord, Steamcord, Steam Voice) are detected, with decay hold hysteresis.
 
 ### Game-Specific Soundtracks
 - [ ] **SOUND-01**: User can bind a Spotify playlist or album to a specific Steam game `appId` in Deckify settings with custom auto-play preference.
@@ -58,8 +58,8 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|:------:|
-| DUCK-01 | Phase 6 | Pending |
-| DUCK-02 | Phase 6 | Pending |
+| DUCK-01 | Phase 6 | Complete |
+| DUCK-02 | Phase 6 | Complete |
 | SOUND-01 | Phase 7 | Pending |
 | SOUND-02 | Phase 7 | Pending |
 | SOUND-03 | Phase 7 | Pending |
