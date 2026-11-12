@@ -22,8 +22,8 @@ See: [.planning/PROJECT.md](file:///C:/Users/djdje/Deckify/.planning/PROJECT.md)
 
 Phase: 6 of 11 (Smooth Audio Ducking Engine & PipeWire Fader)
 Plan: 0 of 2 in current phase
-Status: Ready to plan
-Last activity: 2026-11-12 — Milestone v0.5 roadmap created (Phases 6-11)
+Status: Ready to plan (context gathered)
+Last activity: 2026-11-12 — Phase 6 context gathered (06-CONTEXT.md)
 
 Progress: [░░░░░░░░░░] 0%
 
