@@ -664,8 +664,11 @@ class Plugin:
         if not hasattr(self, "_volume_fader") or not self._volume_fader:
             self._volume_fader = volume.VolumeFader(self)
 
-        if active and not self._settings.get("auto_ducking", True):
-            return {"ok": True, "ducked": False, "skipped": "auto_ducking_disabled"}
+        if active:
+            if reason == "game" and not self._settings.get("auto_ducking", True):
+                return {"ok": True, "ducked": False, "skipped": "auto_ducking_disabled"}
+            if reason == "voice" and not self._settings.get("voice_ducking_enabled", True):
+                return {"ok": True, "ducked": False, "skipped": "voice_ducking_disabled"}
 
         await self._volume_fader.set_ducking(bool(active), reason=str(reason))
         return {
