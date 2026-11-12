@@ -159,6 +159,8 @@ export interface EngineSettings {
   toast_position?: string;
   overlay_enabled?: boolean;
   overlay_position?: string;
+  overlay_autohide?: boolean;
+  overlay_show_progress?: boolean;
   eq_preset?: EqualizerPreset;
   spotify_client_installed?: boolean;
 }

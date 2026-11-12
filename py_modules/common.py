@@ -88,6 +88,8 @@ DEFAULT_SETTINGS = {
     "toast_position": "top_right",
     "overlay_enabled": False,
     "overlay_position": "top-right",
+    "overlay_autohide": False,
+    "overlay_show_progress": False,
     "eq_preset": "flat",
 }
 
@@ -152,6 +154,10 @@ def _load_settings(settings_file: str | None = None) -> dict:
             merged["overlay_enabled"] = bool(merged.get("overlay_enabled", False))
         if merged.get("overlay_position") not in ("top-left", "top-right", "bottom-left", "bottom-right"):
             merged["overlay_position"] = "top-right"
+        if not isinstance(merged.get("overlay_autohide"), bool):
+            merged["overlay_autohide"] = bool(merged.get("overlay_autohide", False))
+        if not isinstance(merged.get("overlay_show_progress"), bool):
+            merged["overlay_show_progress"] = bool(merged.get("overlay_show_progress", False))
         if merged.get("eq_preset") not in ("flat", "bass", "vocal", "gaming"):
             merged["eq_preset"] = "flat"
         return merged

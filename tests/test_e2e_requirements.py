@@ -523,6 +523,37 @@ class TestTier1FeatureCoverage(unittest.IsolatedAsyncioTestCase):
             "DeckifyOverlay.tsx component file must exist in src/components/",
         )
 
+    def test_r7_default_settings_includes_overlay_autohide(self):
+        """R7.6: DEFAULT_SETTINGS contains overlay_autohide: False."""
+        self.assertIn("overlay_autohide", common.DEFAULT_SETTINGS)
+        self.assertEqual(common.DEFAULT_SETTINGS["overlay_autohide"], False)
+
+    def test_r7_default_settings_includes_overlay_show_progress(self):
+        """R7.7: DEFAULT_SETTINGS contains overlay_show_progress: False."""
+        self.assertIn("overlay_show_progress", common.DEFAULT_SETTINGS)
+        self.assertEqual(common.DEFAULT_SETTINGS["overlay_show_progress"], False)
+
+    async def test_r7_overlay_autohide_setting_persists(self):
+        """R7.8: Toggling overlay_autohide persists boolean setting."""
+        res = await self.plugin.set_setting("overlay_autohide", True)
+        self.assertTrue(res.get("ok"))
+        self.assertEqual(self.plugin._settings.get("overlay_autohide"), True)
+
+    async def test_r7_overlay_show_progress_setting_persists(self):
+        """R7.9: Toggling overlay_show_progress persists boolean setting."""
+        res = await self.plugin.set_setting("overlay_show_progress", True)
+        self.assertTrue(res.get("ok"))
+        self.assertEqual(self.plugin._settings.get("overlay_show_progress"), True)
+
+    async def test_r7_get_status_includes_all_overlay_settings(self):
+        """R7.10: get_status() includes overlay settings in returned public settings."""
+        status = await self.plugin.get_status()
+        settings = status.get("settings", {})
+        self.assertIn("overlay_enabled", settings)
+        self.assertIn("overlay_position", settings)
+        self.assertIn("overlay_autohide", settings)
+        self.assertIn("overlay_show_progress", settings)
+
     # ------------------------------------------------------------------------
     # R8: Robust LRCLIB Lyrics Retrieval
     # ------------------------------------------------------------------------
