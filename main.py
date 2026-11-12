@@ -566,7 +566,11 @@ class Plugin:
             value = bval
             self._settings["audio_quality"] = str(bval)
             quality_changed = True
-        elif key in ("normalisation", "gapless", "autoplay", "bit_perfect_clock", "overlay_enabled", "toast_enabled", "gamepad_chords_enabled", "auto_ducking", "overlay_autohide", "overlay_show_progress", "voice_ducking_enabled"):
+        elif key == "auto_ducking":
+            value = bool(value)
+            if not value and hasattr(self, "_volume_fader") and self._volume_fader:
+                asyncio.create_task(self._volume_fader.set_ducking(False, reason="game"))
+        elif key in ("normalisation", "gapless", "autoplay", "bit_perfect_clock", "overlay_enabled", "toast_enabled", "gamepad_chords_enabled", "overlay_autohide", "overlay_show_progress", "voice_ducking_enabled"):
             value = bool(value)
         elif key in ("duck_fade_down_duration", "duck_fade_up_duration", "voice_ducking_hold_delay"):
             try:
