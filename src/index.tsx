@@ -60,6 +60,7 @@ const backendSetRepeat = callable<[string, string], { ok: boolean; repeat_state?
 const backendToggleLike = callable<[string, boolean | null], { ok: boolean; is_liked?: boolean; error?: string }>("toggle_like_track");
 const backendGetDevices = callable<[], { ok: boolean; devices?: SpotifyDevice[]; error?: string }>("get_devices");
 const backendTransferPlayback = callable<[string], { ok: boolean; error?: string }>("transfer_playback");
+const backendSetSetting = callable<[string, unknown], { ok: boolean; settings?: any; error?: string }>("set_setting");
 
 let bigOpen = false;
 const openExpandedView = () => {
@@ -444,6 +445,77 @@ const Content: FC = () => {
                 />
               </PanelSectionRow>
             )}
+
+            {/* In-Game Mini Overlay (HUD) Quick Controls */}
+            <PanelSectionRow>
+              <ToggleField
+                label="In-Game Overlay (HUD)"
+                description={
+                  settings.overlay_enabled
+                    ? "Visible during gameplay"
+                    : "Disabled"
+                }
+                checked={Boolean(settings.overlay_enabled)}
+                onChange={async (val) => {
+                  setSettings((prev) => ({ ...prev, overlay_enabled: val }));
+                  await backendSetSetting("overlay_enabled", val);
+                }}
+              />
+            </PanelSectionRow>
+
+            {settings.overlay_enabled && (
+              <>
+                <PanelSectionRow>
+                  <DropdownItem
+                    label="Overlay Position"
+                    rgOptions={[
+                      { data: "top-left", label: "Top Left" },
+                      { data: "top-right", label: "Top Right" },
+                      { data: "bottom-left", label: "Bottom Left" },
+                      { data: "bottom-right", label: "Bottom Right" },
+                    ]}
+                    selectedOption={settings.overlay_position || "top-right"}
+                    onChange={async (opt) => {
+                      setSettings((prev) => ({
+                        ...prev,
+                        overlay_position: opt.data,
+                      }));
+                      await backendSetSetting("overlay_position", opt.data);
+                    }}
+                  />
+                </PanelSectionRow>
+
+                <PanelSectionRow>
+                  <ToggleField
+                    label="Auto-Hide Overlay (6s)"
+                    description="Fades out 6s after track starts or resumes"
+                    checked={Boolean(settings.overlay_autohide)}
+                    onChange={async (val) => {
+                      setSettings((prev) => ({
+                        ...prev,
+                        overlay_autohide: val,
+                      }));
+                      await backendSetSetting("overlay_autohide", val);
+                    }}
+                  />
+                </PanelSectionRow>
+
+                <PanelSectionRow>
+                  <ToggleField
+                    label="Show Progress Bar"
+                    description="2px progress line at bottom of overlay"
+                    checked={Boolean(settings.overlay_show_progress)}
+                    onChange={async (val) => {
+                      setSettings((prev) => ({
+                        ...prev,
+                        overlay_show_progress: val,
+                      }));
+                      await backendSetSetting("overlay_show_progress", val);
+                    }}
+                  />
+                </PanelSectionRow>
+              </>
+            )}
           </>
         )}
       </PanelSection>
@@ -466,24 +538,41 @@ const DeckifyOverlayWrapper: FC = () => {
   const [track, setTrack] = useState<TrackMeta | null>(null);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [settings, setSettings] = useState<EngineSettings | null>(null);
+  const [positionMs, setPositionMs] = useState<number>(0);
+  const [durationMs, setDurationMs] = useState<number>(0);
 
   useEffect(() => {
     let mounted = true;
+
+    const syncStatus = (s: StatusResponse | null) => {
+      if (!mounted || !s) return;
+      const t = s.track || s.track_meta || null;
+      if (t) setTrack(t);
+      if (typeof s.is_playing === "boolean") setIsPlaying(s.is_playing);
+      if (s.settings) setSettings(s.settings);
+      if (typeof s.position_ms === "number") setPositionMs(s.position_ms);
+      if (typeof s.duration_ms === "number") {
+        setDurationMs(s.duration_ms || t?.duration_ms || 0);
+      } else if (t?.duration_ms) {
+        setDurationMs(t.duration_ms);
+      }
+    };
+
     backendGetStatus()
-      .then((s) => {
-        if (!mounted || !s) return;
-        setTrack(s.track || s.track_meta || null);
-        setIsPlaying(Boolean(s.is_playing));
-        setSettings(s.settings || null);
-      })
+      .then(syncStatus)
       .catch(() => {});
 
     const unsubMeta = addEventListener<[any]>("track_metadata", (meta: any) => {
-      if (meta) setTrack(meta);
+      if (meta) {
+        setTrack(meta);
+        if (meta.duration_ms) setDurationMs(meta.duration_ms);
+      }
     });
     const unsubLibre = addEventListener<[any]>("librespot_event", (ev: any) => {
       if (ev?.event === "playing") setIsPlaying(true);
       else if (ev?.event === "paused" || ev?.event === "stopped") setIsPlaying(false);
+      if (typeof ev?.position_ms === "number") setPositionMs(ev.position_ms);
+      if (typeof ev?.duration_ms === "number") setDurationMs(ev.duration_ms);
     });
     const unsubSettings = addEventListener<[any]>("settings_changed", (st: any) => {
       if (st) setSettings(st);
@@ -492,7 +581,7 @@ const DeckifyOverlayWrapper: FC = () => {
     const poll = setInterval(async () => {
       try {
         const s = await backendGetStatus();
-        if (s?.settings) setSettings(s.settings);
+        syncStatus(s);
       } catch {}
     }, 4000);
 
@@ -511,7 +600,11 @@ const DeckifyOverlayWrapper: FC = () => {
       track={track}
       isPlaying={isPlaying}
       position={settings.overlay_position || "top-right"}
-      visible={settings.overlay_enabled}
+      visible={Boolean(settings.overlay_enabled)}
+      autoHide={Boolean(settings.overlay_autohide)}
+      showProgress={Boolean(settings.overlay_show_progress)}
+      positionMs={positionMs}
+      durationMs={durationMs}
     />
   );
 };
