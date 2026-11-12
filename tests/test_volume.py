@@ -79,6 +79,28 @@ class TestVolumeFader(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(sink_id)
 
     @patch("subprocess.run")
+    async def test_resolve_sink_input_id_exception_handling(self, mock_run):
+        mock_run.side_effect = Exception("pactl list error")
+        sink_id = await self.fader.resolve_sink_input_id()
+        self.assertIsNone(sink_id)
+
+    @patch("subprocess.run")
+    async def test_apply_sink_volume_failure_handles_gracefully(self, mock_run):
+        mock_run.side_effect = Exception("pactl set-volume error")
+        res = await self.fader._apply_sink_volume("42", 50.0)
+        self.assertFalse(res)
+
+    @patch("subprocess.run")
+    async def test_fade_to_pactl_unavailable_fallback(self, mock_run):
+        # When pactl is unavailable (returns None sink id), fade_to applies volume directly
+        mock_run.return_value = SimpleNamespace(returncode=1, stdout="", stderr="pactl not found")
+        with patch.object(self.fader, "_emit_state", new_callable=AsyncMock) as mock_emit:
+            await self.fader.fade_to(35.0, 1.0)
+            await self.fader._fade_task
+            self.assertEqual(self.fader._current_sink_volume, 35.0)
+            mock_emit.assert_called_once()
+
+    @patch("subprocess.run")
     async def test_apply_sink_volume_sanitization(self, mock_run):
         mock_run.return_value = SimpleNamespace(returncode=0, stdout="", stderr="")
         # T-06-02: Non-numeric sink ID rejected
