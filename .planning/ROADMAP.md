@@ -74,7 +74,10 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
+**Wave 1**
 - [ ] 07-01-PLAN.md — Build VDF parser with CRC32 AppID normalization, SoundtrackManager engine with 3.5s launch / 3.0s exit debounce, pre-game state snapshots, and playback seek offset support.
+
+**Wave 2** *(blocked on Wave 1 completion)*
 - [ ] 07-02-PLAN.md — Implement SoundtracksTab, PlaylistPickerModal, QAM 1-click quick-binding button, and in-game AppLifetime notification dispatch.
 
 ### Phase 8: Controller L2/R2 Ergonomics & Trigger Navigation
