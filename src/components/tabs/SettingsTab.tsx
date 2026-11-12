@@ -487,22 +487,58 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
           </span>
         </InteractiveRow>
         {status?.settings?.overlay_enabled && (
-          <Focusable flow-children="horizontal" style={{ display: "flex", gap: 6, marginTop: 8 }}>
-            {["top-left", "top-right", "bottom-left", "bottom-right"].map((pos) => (
-              <InteractiveRow
-                key={pos}
-                onClick={async () => {
-                  await backendSetSetting("overlay_position", pos);
-                  showToast(`Overlay position: ${pos}`);
-                  refreshStatus();
-                }}
-                active={(status?.settings?.overlay_position || "top-right") === pos}
-                style={{ flex: 1, justifyContent: "center", fontSize: 11, fontWeight: 700, textTransform: "capitalize", padding: "6px" }}
-              >
-                {pos.replace("-", " ")}
-              </InteractiveRow>
-            ))}
-          </Focusable>
+          <>
+            <Focusable flow-children="horizontal" style={{ display: "flex", gap: 6, marginTop: 8 }}>
+              {["top-left", "top-right", "bottom-left", "bottom-right"].map((pos) => (
+                <InteractiveRow
+                  key={pos}
+                  onClick={async () => {
+                    await backendSetSetting("overlay_position", pos);
+                    showToast(`Overlay position: ${pos}`);
+                    refreshStatus();
+                  }}
+                  active={(status?.settings?.overlay_position || "top-right") === pos}
+                  style={{ flex: 1, justifyContent: "center", fontSize: 11, fontWeight: 700, textTransform: "capitalize", padding: "6px" }}
+                >
+                  {pos.replace("-", " ")}
+                </InteractiveRow>
+              ))}
+            </Focusable>
+
+            {/* Auto-Hide Toggle */}
+            <InteractiveRow
+              onClick={async () => {
+                const cur = status?.settings?.overlay_autohide || false;
+                await backendSetSetting("overlay_autohide", !cur);
+                showToast(!cur ? "Auto-hide enabled (6s)" : "Auto-hide disabled (Permanent)");
+                refreshStatus();
+              }}
+              active={status?.settings?.overlay_autohide}
+              style={{ justifyContent: "space-between", marginTop: 10 }}
+            >
+              <span style={{ fontSize: 13, fontWeight: 600 }}>Auto-Hide Overlay (6s)</span>
+              <span style={{ fontSize: 12, fontWeight: 700, color: status?.settings?.overlay_autohide ? "#1db954" : "#888" }}>
+                {status?.settings?.overlay_autohide ? "ON" : "OFF"}
+              </span>
+            </InteractiveRow>
+
+            {/* Show Progress Bar Toggle */}
+            <InteractiveRow
+              onClick={async () => {
+                const cur = status?.settings?.overlay_show_progress || false;
+                await backendSetSetting("overlay_show_progress", !cur);
+                showToast(!cur ? "Progress line enabled" : "Progress line disabled");
+                refreshStatus();
+              }}
+              active={status?.settings?.overlay_show_progress}
+              style={{ justifyContent: "space-between", marginTop: 8 }}
+            >
+              <span style={{ fontSize: 13, fontWeight: 600 }}>Show Progress Bar (2px)</span>
+              <span style={{ fontSize: 12, fontWeight: 700, color: status?.settings?.overlay_show_progress ? "#1db954" : "#888" }}>
+                {status?.settings?.overlay_show_progress ? "ON" : "OFF"}
+              </span>
+            </InteractiveRow>
+          </>
         )}
       </div>
 
