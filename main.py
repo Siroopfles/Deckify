@@ -41,7 +41,7 @@ from py_modules import system
 from py_modules import rpc_playback
 from py_modules import rpc_library
 
-common._MAIN_MODULE = sys.modules[__name__]
+common._MAIN_MODULE = sys.modules.get(__name__)
 
 
 def _load_settings(settings_file: str | None = None) -> dict:
