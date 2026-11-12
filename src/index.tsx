@@ -781,7 +781,7 @@ export default definePlugin(() => {
           }
           activeGameAppId = appId;
           await backendTriggerDucking(true, "game", appId).catch(() => {});
-        } else if (!running && activeGameAppId) {
+        } else if (!running && activeGameAppId && appId === activeGameAppId) {
           if (gameExitDebounceTimer) clearTimeout(gameExitDebounceTimer);
           gameExitDebounceTimer = setTimeout(async () => {
             activeGameAppId = null;
