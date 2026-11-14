@@ -1,12 +1,13 @@
-import { FC, useState, useEffect, useCallback, useRef } from "react";
+import { FC, useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Focusable, ModalRoot, NavEntryPositionPreferences } from "@decky/ui";
-import { callable } from "@decky/api";
+import { callable, toaster } from "@decky/api";
 // Note: Child views render heart icons: FaHeart, FaRegHeart
 import {
   AlbumItem,
   ArtistItem,
   EpisodeItem,
   FolderItem,
+  PinnedPlaylistItem,
   PlaylistItem,
   SyncedLine,
   TrackItem,
@@ -21,6 +22,7 @@ import { usePlaybackStatus } from "../hooks/usePlaybackStatus";
 import { useTriggerNavigation } from "../hooks/useTriggerNavigation";
 import { Sidebar } from "./common/Sidebar";
 import { TrackActionModal } from "./common/TrackActionModal";
+import { CollectionActionModal } from "./common/CollectionActionModal";
 
 // Modular tab components
 import { NowPlayingTab } from "./tabs/NowPlayingTab";
@@ -79,6 +81,7 @@ const backendGetSavedShows = callable<[number], { ok: boolean; shows?: any[]; to
 const backendGetQueue = callable<[], { ok: boolean; queue?: TrackItem[]; error?: string }>("get_queue");
 const backendGetLyrics = callable<[string, string, number, number?], { ok: boolean; synced_lyrics?: string; plain_lyrics?: string; source?: string; error?: string }>("get_lyrics");
 const backendSetNativeMix = callable<[string, boolean, boolean], { ok: boolean; error?: string }>("set_native_mix");
+const backendSetSetting = callable<[string, unknown], { ok: boolean; settings?: any; error?: string }>("set_setting");
 
 export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeModal }) => {
   const [mode, setMode] = useState<ViewMode>("now_playing");
@@ -93,6 +96,7 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
   const [artistTopTracks, setArtistTopTracks] = useState<TrackItem[]>([]);
   const [artistAlbums, setArtistAlbums] = useState<AlbumItem[]>([]);
   const [actionTrack, setActionTrack] = useState<TrackItem | null>(null);
+  const [actionCollection, setActionCollection] = useState<PinnedPlaylistItem | null>(null);
   const [showAddToPlaylistModal, setShowAddToPlaylistModal] = useState(false);
 
   // Library & Data states
@@ -136,7 +140,10 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
   activeArtistRef.current = activeArtist;
   const actionTrackRef = useRef<TrackItem | null>(null);
   actionTrackRef.current = actionTrack;
+  const actionCollectionRef = useRef<PinnedPlaylistItem | null>(null);
+  actionCollectionRef.current = actionCollection;
   const focusedTrackRef = useRef<TrackItem | null>(null);
+  const focusedCollectionRef = useRef<PinnedPlaylistItem | null>(null);
   const contentPaneRef = useRef<HTMLDivElement | null>(null);
   const modeRef = useRef<ViewMode>(mode);
   modeRef.current = mode;
@@ -252,6 +259,7 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
 
   // Drill-down open handlers
   const handleOpenPlaylist = useCallback(async (pl: PlaylistItem) => {
+    focusedCollectionRef.current = null;
     setActivePlaylist(pl);
     setMode("playlists");
     setLoadingContent(true);
@@ -268,6 +276,7 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
   }, []);
 
   const handleOpenAlbum = useCallback(async (alb: AlbumItem) => {
+    focusedCollectionRef.current = null;
     setActiveAlbum(alb);
     setMode("albums");
     setLoadingContent(true);
@@ -596,14 +605,72 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
     }
   }, [showToast, loadFolders]);
 
+  const pinnedPlaylists: PinnedPlaylistItem[] = status?.settings?.pinned_playlists || [];
+  const pinnedUris = useMemo(
+    () => new Set(pinnedPlaylists.map((p) => p.uri)),
+    [pinnedPlaylists]
+  );
+
+  const handleTogglePin = useCallback(
+    async (item: PinnedPlaylistItem) => {
+      const exists = pinnedPlaylists.some((p) => p.uri === item.uri);
+      if (exists) {
+        const next = pinnedPlaylists.filter((p) => p.uri !== item.uri);
+        const res = await backendSetSetting("pinned_playlists", next);
+        if (res?.ok) {
+          setStatus((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  settings: res.settings
+                    ? { ...prev.settings, ...res.settings }
+                    : { ...(prev.settings || {}), pinned_playlists: next },
+                }
+              : prev
+          );
+          toaster.toast({ title: "Deckify", body: "Unpinned from QAM", duration: 2500 });
+        }
+        return;
+      }
+
+      if (pinnedPlaylists.length >= 4) {
+        toaster.toast({
+          title: "Deckify",
+          body: "Max 4 pinned items — unpin one first",
+          duration: 3000,
+        });
+        return;
+      }
+
+      const next = [...pinnedPlaylists, item];
+      const res = await backendSetSetting("pinned_playlists", next);
+      if (res?.ok) {
+        setStatus((prev) =>
+          prev
+            ? {
+                ...prev,
+                settings: res.settings
+                  ? { ...prev.settings, ...res.settings }
+                  : { ...(prev.settings || {}), pinned_playlists: next },
+              }
+            : prev
+        );
+        toaster.toast({ title: "Deckify", body: "Pinned to QAM", duration: 2500 });
+      }
+    },
+    [pinnedPlaylists, setStatus]
+  );
+
   // Mode Selection & Gamepad Cycle
   const handleSelectMode = useCallback((id: ViewMode) => {
     setActivePlaylist(null);
     setActiveAlbum(null);
     setActiveArtist(null);
     setActionTrack(null);
+    setActionCollection(null);
     setShowAddToPlaylistModal(false);
     focusedTrackRef.current = null;
+    focusedCollectionRef.current = null;
     setMode(id);
   }, []);
 
@@ -618,7 +685,7 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
   const triggerNavEnabled = (status?.settings as any)?.trigger_nav_enabled !== false;
   useTriggerNavigation({
     enabled: triggerNavEnabled,
-    suppressed: Boolean(actionTrack || showAddToPlaylistModal),
+    suppressed: Boolean(actionTrack || showAddToPlaylistModal || actionCollection),
     onTrigger: useCallback(
       (side) => {
         if (!triggerNavEnabled) return;
@@ -749,6 +816,12 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
                 e.stopPropagation?.();
               }
               setActionTrack(candidate);
+            } else if (focusedCollectionRef.current) {
+              if (e) {
+                e.preventDefault?.();
+                e.stopPropagation?.();
+              }
+              setActionCollection(focusedCollectionRef.current);
             }
           }
         } else if (action === "X") { // Gamepad X button toggles track like status
@@ -782,6 +855,13 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
         e.stopPropagation();
         (e as any).stopImmediatePropagation?.();
         setActionTrack(null);
+        return;
+      }
+      if (actionCollectionRef.current) {
+        e.preventDefault();
+        e.stopPropagation();
+        (e as any).stopImmediatePropagation?.();
+        setActionCollection(null);
         return;
       }
       if (activeAlbumRef.current) {
@@ -859,7 +939,7 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
           {/* Main Body */}
           <Focusable
             flow-children="horizontal"
-            tabIndex={actionTrack ? -1 : undefined}
+            tabIndex={actionTrack || actionCollection ? -1 : undefined}
             style={{
               display: "flex",
               flex: 1,
@@ -867,7 +947,7 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
               overflow: "hidden",
               position: "relative",
               zIndex: 1,
-              pointerEvents: actionTrack ? "none" : "auto",
+              pointerEvents: actionTrack || actionCollection ? "none" : "auto",
             }}
           >
             {/* Left Sidebar */}
@@ -1097,6 +1177,18 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
             onToggleLike={handleToggleLike}
             setMode={handleSelectMode}
           />
+
+          {/* Context Modal for Collection Actions (Play / Pin to QAM) */}
+          {actionCollection && (
+            <CollectionActionModal
+              collection={actionCollection}
+              isPinned={pinnedUris.has(actionCollection.uri)}
+              atLimit={pinnedPlaylists.length >= 4}
+              onClose={() => setActionCollection(null)}
+              onPlay={(c) => handlePlayTrack("", c.uri)}
+              onTogglePin={handleTogglePin}
+            />
+          )}
 
           {/* Floating Trigger Indicator Pill */}
           {pillMsg && (
