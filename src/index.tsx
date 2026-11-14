@@ -27,6 +27,7 @@ import { DeckifyExpandedModal } from "./components/DeckifyExpandedModal";
 import { DeckifyOverlay } from "./components/DeckifyOverlay";
 import { usePlaybackClock } from "./hooks/usePlaybackClock";
 import { formatMs } from "./components/common/InteractiveRow";
+import { DeckifyImage } from "./components/common/DeckifyImage";
 import {
   FaMusic,
   FaSpotify,
@@ -39,11 +40,13 @@ import {
   FaHeart,
   FaRegHeart,
   FaPlus,
+  FaCompactDisc,
 } from "react-icons/fa";
 import { QRCodeSVG } from "qrcode.react";
 import type {
   AudioStreamInfo,
   EngineSettings,
+  PinnedPlaylistItem,
   SpotifyDevice,
   StatusResponse,
   TrackMeta,
@@ -67,6 +70,7 @@ const backendTriggerDucking = callable<[boolean, string?, number?], { ok: boolea
 const backendGetDuckingState = callable<[], { is_ducked: boolean; effective_volume: number; base_volume: number; duck_reasons: string[] }>("get_ducking_state");
 const backendHandleAppLifetimeEvent = callable<[number, boolean], { ok: boolean; error?: string }>("handle_app_lifetime_event");
 const backendBindCurrentMusicToGame = callable<[number, string?], { ok: boolean; error?: string }>("bind_current_music_to_game");
+const backendQuickPlayPinned = callable<[string, string], { ok: boolean; error?: string }>("quick_play_pinned");
 
 let currentRunningAppId: number | null = null;
 const activeGameListeners = new Set<(appId: number | null) => void>();
@@ -109,6 +113,8 @@ const Content: FC = () => {
   const [isDucked, setIsDucked] = useState<boolean>(false);
   const [effectiveVolume, setEffectiveVolume] = useState<number | null>(null);
   const [activeGameAppId, setActiveGameAppId] = useState<number | null>(currentRunningAppId);
+  const [contextUri, setContextUri] = useState<string | null>(null);
+  const [optimisticContextUri, setOptimisticContextUri] = useState<string | null>(null);
   const [settings, setSettings] = useState<EngineSettings>({
     audio_backend: "librespot",
     audio_quality: "320",
@@ -147,6 +153,7 @@ const Content: FC = () => {
       setShuffleState(Boolean(status.shuffle_state));
       setRepeatState(status.repeat_state || "off");
       setIsLiked(Boolean(status.is_liked));
+      setContextUri(status.context_uri ?? null);
       setAudioStreamInfo(status.audio_stream_info || null);
       if (status.active_device?.id) setActiveDeviceId(status.active_device.id);
 
@@ -227,6 +234,32 @@ const Content: FC = () => {
       });
     } catch {
       toaster.toast({ title: "Deckify", body: "Failed to bind music to game", duration: 3000 });
+    }
+  };
+
+  const handleQuickPlayPinned = async (pill: PinnedPlaylistItem) => {
+    setOptimisticContextUri(pill.uri);
+    try {
+      const res = await backendQuickPlayPinned(pill.uri, pill.type);
+      if (!res?.ok) {
+        setOptimisticContextUri(null);
+        toaster.toast({
+          title: "Deckify",
+          body: res?.error || "Failed to start pinned playlist — check Spotify connection or engine",
+          duration: 3000,
+        });
+      } else {
+        setContextUri(pill.uri);
+        setOptimisticContextUri(null);
+        refreshStatus();
+      }
+    } catch {
+      setOptimisticContextUri(null);
+      toaster.toast({
+        title: "Deckify",
+        body: "Failed to start pinned playlist — check Spotify connection or engine",
+        duration: 3000,
+      });
     }
   };
 
@@ -313,6 +346,8 @@ const Content: FC = () => {
 
   const isPodcast = trackMeta?.album === "" || trackMeta?.uri?.includes(":episode:");
   const activeBackend = settings.audio_backend || "librespot";
+  const pinnedPlaylists = settings.pinned_playlists || [];
+  const activeContextUri = optimisticContextUri ?? contextUri;
   const positionMs = clock.positionMs;
   const durationSec = Math.floor(durationMs / 1000);
   const positionSec = Math.floor(positionMs / 1000);
@@ -484,6 +519,74 @@ const Content: FC = () => {
                 </DialogButton>
               </Focusable>
             </PanelSectionRow>
+
+            {pinnedPlaylists.length > 0 && (
+              <PanelSectionRow>
+                <Focusable
+                  flow-children="horizontal"
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    overflowX: "auto",
+                    padding: "4px 0",
+                    width: "100%",
+                  }}
+                >
+                  {pinnedPlaylists.map((pill) => {
+                    const isActive = activeContextUri === pill.uri;
+                    const fallbackIcon =
+                      pill.type === "liked_songs" ? (
+                        <FaHeart size={12} color="#1db954" />
+                      ) : pill.type === "album" ? (
+                        <FaCompactDisc size={12} color="rgba(255,255,255,0.6)" />
+                      ) : (
+                        <FaMusic size={12} color="rgba(255,255,255,0.6)" />
+                      );
+                    return (
+                      <DialogButton
+                        key={pill.uri}
+                        onClick={() => handleQuickPlayPinned(pill)}
+                        style={{
+                          minHeight: 36,
+                          maxWidth: 140,
+                          minWidth: "auto",
+                          padding: "4px 8px",
+                          borderRadius: 16,
+                          gap: 8,
+                          display: "inline-flex",
+                          alignItems: "center",
+                          flexShrink: 0,
+                          border: isActive ? "1px solid #1db954" : "1px solid rgba(255,255,255,0.12)",
+                          background: isActive ? "rgba(29, 185, 84, 0.16)" : "rgba(255, 255, 255, 0.08)",
+                          color: isActive ? "#1db954" : "#fff",
+                        }}
+                      >
+                        <DeckifyImage
+                          src={pill.image_url}
+                          width={20}
+                          height={20}
+                          style={{ borderRadius: 4, flexShrink: 0 }}
+                          fallback={fallbackIcon}
+                        />
+                        <span
+                          style={{
+                            fontSize: 12,
+                            fontWeight: 700,
+                            lineHeight: 1.2,
+                            whiteSpace: "nowrap",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                          }}
+                        >
+                          {pill.name}
+                        </span>
+                      </DialogButton>
+                    );
+                  })}
+                </Focusable>
+              </PanelSectionRow>
+            )}
 
             {activeGameAppId !== null && (
               <PanelSectionRow>

@@ -107,6 +107,7 @@ DEFAULT_SETTINGS = {
     "trigger_seek_seconds": 10,
     "trigger_page_size": 15,
     "show_controller_hints": True,
+    "pinned_playlists": [],
 }
 
 # PulseAudio socket for processes
@@ -126,6 +127,8 @@ SPOTIFY_SCOPES = (
 CURRENT_SCOPES_VERSION = 6
 OAUTH_SERVER_PORT = 39281
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
+MAX_PINNED_PLAYLISTS = 4
+VALID_PINNED_TYPES = ("playlist", "album", "liked_songs")
 
 _API_SSL_CTX: ssl.SSLContext | None = None
 for _ca in ("/etc/ssl/certs/ca-certificates.crt", "/etc/ssl/cert.pem"):
@@ -134,6 +137,41 @@ for _ca in ("/etc/ssl/certs/ca-certificates.crt", "/etc/ssl/cert.pem"):
         break  # pragma: no cover
 if _API_SSL_CTX is None:
     _API_SSL_CTX = ssl.create_default_context()
+
+
+def _sanitize_pinned_playlists(raw) -> list[dict]:
+    """Validate, deduplicate, and cap pinned playlist items to MAX_PINNED_PLAYLISTS."""
+    if not isinstance(raw, list):
+        return []
+    result: list[dict] = []
+    seen_uris: set[str] = set()
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        uri = item.get("uri")
+        name = item.get("name")
+        if not isinstance(uri, str) or not uri.strip():
+            continue
+        if not isinstance(name, str) or not name.strip():
+            continue
+        uri = uri.strip()
+        if uri in seen_uris:
+            continue
+        seen_uris.add(uri)
+        item_type = item.get("type")
+        if item_type not in VALID_PINNED_TYPES:
+            item_type = "playlist"
+        raw_img = item.get("image_url")
+        image_url = raw_img.strip() if isinstance(raw_img, str) and raw_img.strip() else None
+        result.append({
+            "uri": uri,
+            "name": name.strip(),
+            "type": item_type,
+            "image_url": image_url,
+        })
+        if len(result) >= MAX_PINNED_PLAYLISTS:
+            break
+    return result
 
 
 def _load_settings(settings_file: str | None = None) -> dict:
@@ -213,6 +251,7 @@ def _load_settings(settings_file: str | None = None) -> dict:
             merged["voice_ducking_hold_delay"] = max(0.5, min(3.0, float(merged.get("voice_ducking_hold_delay", 1.2))))
         except (TypeError, ValueError):
             merged["voice_ducking_hold_delay"] = 1.2
+        merged["pinned_playlists"] = _sanitize_pinned_playlists(merged.get("pinned_playlists"))
         return merged
     except Exception:
         return dict(default_settings)

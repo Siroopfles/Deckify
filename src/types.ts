@@ -140,6 +140,15 @@ export interface AudioSinkInfo {
   is_default: boolean;
 }
 
+export type PinnedItemType = "playlist" | "album" | "liked_songs";
+
+export interface PinnedPlaylistItem {
+  uri: string;
+  name: string;
+  type: PinnedItemType;
+  image_url?: string | null;
+}
+
 export interface EngineSettings {
   device_name?: string;
   audio_backend: AudioBackend;
@@ -181,6 +190,7 @@ export interface EngineSettings {
   trigger_seek_seconds?: number;
   trigger_page_size?: number;
   show_controller_hints?: boolean;
+  pinned_playlists?: PinnedPlaylistItem[];
 }
 
 export type DuckingMode = "proportional" | "fixed";
@@ -223,6 +233,7 @@ export interface StatusResponse {
   shuffle_state?: boolean;
   repeat_state?: "off" | "context" | "track";
   is_liked?: boolean;
+  context_uri?: string | null;
   active_device?: { id: string; name: string; type: string } | null;
   audio_stream_info?: AudioStreamInfo | null;
   engine_settings?: EngineSettings;

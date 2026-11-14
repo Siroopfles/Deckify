@@ -36,6 +36,7 @@ for _dir in [
 
 from py_modules import *
 from py_modules import common
+from py_modules.common import MAX_PINNED_PLAYLISTS, _sanitize_pinned_playlists
 from py_modules import volume
 from py_modules import system
 from py_modules import rpc_playback
@@ -500,7 +501,7 @@ class Plugin:
             "overlay_autohide", "overlay_show_progress", "eq_preset",
             "duck_fade_down_duration", "duck_fade_up_duration", "ducking_mode",
             "ducking_proportional_pct", "voice_ducking_enabled", "voice_ducking_volume",
-            "voice_ducking_hold_delay",
+            "voice_ducking_hold_delay", "pinned_playlists",
         )
         return {
             "authenticated": bool(self._access_token),
@@ -630,6 +631,12 @@ class Plugin:
         elif key == "game_audio_profiles":
             if not isinstance(value, dict):
                 return {"ok": False, "error": "game_audio_profiles must be a dict"}
+        elif key == "pinned_playlists":
+            if not isinstance(value, list):
+                return {"ok": False, "error": "pinned_playlists must be a list"}
+            if len(value) > MAX_PINNED_PLAYLISTS:
+                return {"ok": False, "error": "Max 4 pinned items — unpin one first"}
+            value = _sanitize_pinned_playlists(value)
         self._settings[key] = value
         _save_settings(self._settings)
         decky.logger.info("Setting updated: %s = %s", key, value)
@@ -927,6 +934,9 @@ class Plugin:
 
     async def transfer_playback(self, device_id: str) -> dict:
         return await rpc_playback.transfer_playback(self, device_id)
+
+    async def quick_play_pinned(self, uri: str, item_type: str = "playlist") -> dict:
+        return await rpc_playback.quick_play_pinned(self, uri, item_type)
 
     # ── OAuth callable methods ─────────────────────────────────
 
