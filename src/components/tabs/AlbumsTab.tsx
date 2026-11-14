@@ -43,6 +43,8 @@ export const AlbumsTab: FC<AlbumsTabProps> = ({
               {savedAlbums.map((alb) => (
                 <InteractiveRow
                   key={alb.id}
+                  data-deckify-list-item="true"
+                  data-deckify-label={alb.name || ""}
                   onClick={() => onOpenAlbum(alb)}
                   style={{ gap: 12 }}
                 >

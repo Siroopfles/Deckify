@@ -92,7 +92,12 @@ export const PlaylistsTab: FC<PlaylistsTabProps> = ({
 
     return (
       <div key={folder.id} style={{ marginLeft: depth * 12, marginBottom: 4 }}>
-        <InteractiveRow onClick={() => toggleFolder(folder.id)} style={{ marginBottom: 2 }}>
+        <InteractiveRow
+          data-deckify-list-item="true"
+          data-deckify-label={folder.name || ""}
+          onClick={() => toggleFolder(folder.id)}
+          style={{ marginBottom: 2 }}
+        >
           {isOpen ? <FaFolderOpen color="#1db954" size={14} /> : <FaFolder color="#aaa" size={14} />}
           {isRenaming ? (
             <div
@@ -154,6 +159,8 @@ export const PlaylistsTab: FC<PlaylistsTabProps> = ({
             {folder.playlists.map((pl) => (
               <InteractiveRow
                 key={pl.id}
+                data-deckify-list-item="true"
+                data-deckify-label={pl.name || ""}
                 onClick={() => onOpenPlaylist(pl)}
                 active={activePlaylist?.id === pl.id}
                 style={{ padding: "6px 10px" }}
@@ -262,6 +269,8 @@ export const PlaylistsTab: FC<PlaylistsTabProps> = ({
                 {uncategorizedPlaylists.map((pl) => (
                   <InteractiveRow
                     key={pl.id}
+                    data-deckify-list-item="true"
+                    data-deckify-label={pl.name || ""}
                     onClick={() => onOpenPlaylist(pl)}
                     style={{ padding: "6px 10px", marginBottom: 2 }}
                   >
