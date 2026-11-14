@@ -32,7 +32,7 @@ Milestone v0.5 elevates Deckify from a standalone media controller into an intel
 
 - [x] **Phase 6: Smooth Audio Ducking Engine & PipeWire Fader** - Local non-blocking PipeWire volume fader for game transitions and active voice chat dipping
 - [x] **Phase 7: Game-Specific Soundtracks (appId Linking & Lifecycle Automation)** - Bind Spotify playlists/albums to Steam games with auto-play and state restore (completed 2026-11-14)
-- [ ] **Phase 8: Controller L2/R2 Ergonomics & Trigger Navigation** - Blind ±10s seeking and virtualized library fast-page navigation via analog triggers
+- [x] **Phase 8: Controller L2/R2 Ergonomics & Trigger Navigation** - Blind ±10s seeking and virtualized library fast-page navigation via analog triggers (completed 2026-11-14)
 - [ ] **Phase 9: QAM Pinned Playlists & Quick In-Game Switch** - Instant 2-second playlist switching pills in the Quick Access Menu mini-player
 - [ ] **Phase 10: In-Game HUD Overlay 2.0 (Live Synced Lyrics)** - Micro-footprint discrete event-scheduled synced lyrics line in Gamescope HUD
 - [ ] **Phase 11: Home & Discovery Hub Tab** - Dedicated Discovery tab in Expanded Modal with Top Tracks, Top Artists, and algorithmic mixes
@@ -94,7 +94,7 @@ Plans:
   2. Pulling L2 or R2 in library views (Liked Songs, Playlists, Albums, Artists) jumps ±15 items or jumps across alphabetical letter anchors in virtualized lists.
   3. Trigger activation enforces Schmidt hysteresis (0.75 trigger press / 0.25 release) and 300ms software debounce, preventing analog trigger chatter and runaway seeking.
   4. Trigger handlers are strictly active only when the Deckify Expanded Modal is open, preventing interference with in-game controls.
-**Plans**: 3/3 plans executed
+**Plans**: 3/3 plans complete
 
 Plans:
 **Wave 1**
@@ -168,7 +168,7 @@ Phases execute in numeric order: 6 → 7 → 8 → 9 → 10 → 11
 |-------|-----------|:--------------:|:------:|:---------:|
 | 6. Smooth Audio Ducking Engine & PipeWire Fader | v0.5 | 2/2 | Complete    | 2026-11-12 |
 | 7. Game-Specific Soundtracks | v0.5 | 3/3 | Complete    | 2026-11-14 |
-| 8. Controller L2/R2 Ergonomics & Trigger Navigation | v0.5 | 3/3 | In Progress | - |
+| 8. Controller L2/R2 Ergonomics & Trigger Navigation | v0.5 | 3/3 | Complete    | 2026-11-14 |
 | 9. QAM Pinned Playlists & Quick In-Game Switch | v0.5 | 0/2 | Not started | - |
 | 10. In-Game HUD Overlay 2.0 (Live Synced Lyrics) | v0.5 | 0/2 | Not started | - |
 | 11. Home & Discovery Hub Tab | v0.5 | 0/2 | Not started | - |
