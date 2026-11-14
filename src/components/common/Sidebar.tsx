@@ -85,7 +85,8 @@ export const Sidebar: FC<SidebarProps> = ({
   const artwork = track?.artwork_url || track?.image_url;
 
   return (
-    <div
+    <Focusable
+      flow-children="column"
       style={{
         width: 220,
         background: "rgba(0,0,0,0.45)",
@@ -94,12 +95,12 @@ export const Sidebar: FC<SidebarProps> = ({
         flexDirection: "column",
         padding: 16,
         gap: 8,
-        overflowY: "auto",
+        overflow: "hidden",
         flexShrink: 0,
       }}
     >
       {/* Brand Header */}
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, flexShrink: 0 }}>
         <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#1db954" }} />
         <span style={{ fontSize: 15, fontWeight: 800, letterSpacing: 0.5 }}>Deckify</span>
         <span style={{ fontSize: 9, opacity: 0.4, marginLeft: "auto", background: "rgba(255,255,255,0.1)", padding: "2px 5px", borderRadius: 4 }}>
@@ -107,33 +108,35 @@ export const Sidebar: FC<SidebarProps> = ({
         </span>
       </div>
 
-      {/* Navigation Menu */}
-      <Focusable flow-children="column" style={{ display: "flex", flexDirection: "column", gap: 1 }}>
-        <div style={{ fontSize: 10, fontWeight: 700, opacity: 0.4, padding: "4px 8px", textTransform: "uppercase", letterSpacing: 0.8 }}>Playback</div>
-        <SidebarBtn id="now_playing" label="Now Playing" icon={<FaPlay size={12} />} active={mode === "now_playing"} onSelect={onSelectMode} />
-        <SidebarBtn id="lyrics" label="Lyrics" icon={<FaMicrophone size={12} />} active={mode === "lyrics"} onSelect={onSelectMode} />
+      {/* Scrollable Navigation Menu */}
+      <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
+        <Focusable flow-children="column" style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, opacity: 0.4, padding: "4px 8px", textTransform: "uppercase", letterSpacing: 0.8 }}>Playback</div>
+          <SidebarBtn id="now_playing" label="Now Playing" icon={<FaPlay size={12} />} active={mode === "now_playing"} onSelect={onSelectMode} />
+          <SidebarBtn id="lyrics" label="Lyrics" icon={<FaMicrophone size={12} />} active={mode === "lyrics"} onSelect={onSelectMode} />
 
-        <div style={{ fontSize: 10, fontWeight: 700, opacity: 0.4, padding: "8px 8px 4px", textTransform: "uppercase", letterSpacing: 0.8 }}>Library</div>
-        <SidebarBtn id="playlists" label="Playlists" icon={<FaFolder size={12} />} active={mode === "playlists"} onSelect={onSelectMode} />
-        <SidebarBtn id="liked" label="Liked Songs" icon={<FaHeart size={12} />} active={mode === "liked"} onSelect={onSelectMode} />
-        <SidebarBtn id="albums" label="Albums" icon={<FaCompactDisc size={12} />} active={mode === "albums"} onSelect={onSelectMode} />
-        <SidebarBtn id="artists" label="Artists" icon={<FaUser size={12} />} active={mode === "artists"} onSelect={onSelectMode} />
-        <SidebarBtn id="recent" label="Recently Played" icon={<FaHistory size={12} />} active={mode === "recent"} onSelect={onSelectMode} />
-        <SidebarBtn id="episodes" label="Podcasts" icon={<FaPodcast size={12} />} active={mode === "episodes"} onSelect={onSelectMode} />
+          <div style={{ fontSize: 10, fontWeight: 700, opacity: 0.4, padding: "8px 8px 4px", textTransform: "uppercase", letterSpacing: 0.8 }}>Library</div>
+          <SidebarBtn id="playlists" label="Playlists" icon={<FaFolder size={12} />} active={mode === "playlists"} onSelect={onSelectMode} />
+          <SidebarBtn id="liked" label="Liked Songs" icon={<FaHeart size={12} />} active={mode === "liked"} onSelect={onSelectMode} />
+          <SidebarBtn id="albums" label="Albums" icon={<FaCompactDisc size={12} />} active={mode === "albums"} onSelect={onSelectMode} />
+          <SidebarBtn id="artists" label="Artists" icon={<FaUser size={12} />} active={mode === "artists"} onSelect={onSelectMode} />
+          <SidebarBtn id="recent" label="Recently Played" icon={<FaHistory size={12} />} active={mode === "recent"} onSelect={onSelectMode} />
+          <SidebarBtn id="episodes" label="Podcasts" icon={<FaPodcast size={12} />} active={mode === "episodes"} onSelect={onSelectMode} />
 
-        <div style={{ fontSize: 10, fontWeight: 700, opacity: 0.4, padding: "8px 8px 4px", textTransform: "uppercase", letterSpacing: 0.8 }}>Control</div>
-        <SidebarBtn id="search" label="Search" icon={<FaSearch size={12} />} active={mode === "search"} onSelect={onSelectMode} />
-        <SidebarBtn id="queue" label="Queue" icon={<FaListUl size={12} />} active={mode === "queue"} onSelect={onSelectMode} />
-        <SidebarBtn id="devices" label="Devices" icon={<FaTv size={12} />} active={mode === "devices"} onSelect={onSelectMode} />
-        <SidebarBtn id="soundtracks" label="Soundtracks" icon={<FaGamepad size={12} />} active={mode === "soundtracks"} onSelect={onSelectMode} />
-        <SidebarBtn id="engine" label="Settings" icon={<FaCog size={12} />} active={mode === "engine"} onSelect={onSelectMode} />
-      </Focusable>
+          <div style={{ fontSize: 10, fontWeight: 700, opacity: 0.4, padding: "8px 8px 4px", textTransform: "uppercase", letterSpacing: 0.8 }}>Control</div>
+          <SidebarBtn id="search" label="Search" icon={<FaSearch size={12} />} active={mode === "search"} onSelect={onSelectMode} />
+          <SidebarBtn id="queue" label="Queue" icon={<FaListUl size={12} />} active={mode === "queue"} onSelect={onSelectMode} />
+          <SidebarBtn id="devices" label="Devices" icon={<FaTv size={12} />} active={mode === "devices"} onSelect={onSelectMode} />
+          <SidebarBtn id="soundtracks" label="Soundtracks" icon={<FaGamepad size={12} />} active={mode === "soundtracks"} onSelect={onSelectMode} />
+          <SidebarBtn id="engine" label="Settings" icon={<FaCog size={12} />} active={mode === "engine"} onSelect={onSelectMode} />
+        </Focusable>
+      </div>
 
       {/* Now Playing Widget in Sidebar */}
       {track?.name && (
         <div
           style={{
-            marginTop: "auto",
+            flexShrink: 0,
             padding: 8,
             borderRadius: 8,
             background: "rgba(255,255,255,0.05)",
@@ -158,20 +161,29 @@ export const Sidebar: FC<SidebarProps> = ({
         </div>
       )}
 
-      {/* Back to Quick Menu (B) Button */}
-      <InteractiveRow
-        onClick={() => closeModal?.()}
+      {/* Pinned Back to Steam (B) Footer */}
+      <div
         style={{
-          marginTop: 8,
-          justifyContent: "center",
-          background: "rgba(255,255,255,0.08)",
-          fontSize: 12,
-          fontWeight: 600,
-          gap: 6,
+          flexShrink: 0,
+          borderTop: "1px solid rgba(255,255,255,0.08)",
+          paddingTop: 8,
+          marginTop: 4,
         }}
       >
-        <span>Back to Steam (B)</span>
-      </InteractiveRow>
-    </div>
+        <InteractiveRow
+          onClick={() => closeModal?.()}
+          style={{
+            minHeight: 44,
+            justifyContent: "center",
+            background: "rgba(255,255,255,0.08)",
+            fontSize: 12,
+            fontWeight: 600,
+            gap: 6,
+          }}
+        >
+          <span>Back to Steam (B)</span>
+        </InteractiveRow>
+      </div>
+    </Focusable>
   );
 };
