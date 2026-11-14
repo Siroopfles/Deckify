@@ -94,7 +94,7 @@ Plans:
   2. Pulling L2 or R2 in library views (Liked Songs, Playlists, Albums, Artists) jumps ±15 items or jumps across alphabetical letter anchors in virtualized lists.
   3. Trigger activation enforces Schmidt hysteresis (0.75 trigger press / 0.25 release) and 300ms software debounce, preventing analog trigger chatter and runaway seeking.
   4. Trigger handlers are strictly active only when the Deckify Expanded Modal is open, preventing interference with in-game controls.
-**Plans**: 4/4 plans complete
+**Plans**: 4/5 plans complete
 
 Plans:
 **Wave 1**
@@ -108,6 +108,7 @@ Plans:
 
 **Wave 1 (Gap Closure)**
 - [x] 08-04-PLAN.md — Close UAT gaps 1–3: native `div` `contentPaneRef` wrapper for library fast-paging, `SEEK_ACCUMULATION_WINDOW_MS = 600` for consecutive L2/R2 seek accumulation, `TrackActionModal` initial focus transfer/restore, and `toggle_like_track` 403 Forbidden error toast & handling.
+- [ ] 08-05-PLAN.md — Close UAT Test 3 gap: expose `data-deckify-focused` and default `tabIndex={0}` on `InteractiveRow`, detect virtual GamepadUI focus in `DeckifyExpandedModal` `onTrigger`, and verify `playlists` mode fast-paging & Sidebar suppression.
 
 ### Phase 9: QAM Pinned Playlists & Quick In-Game Switch
 **Goal**: Allow players to switch to their favorite playlists in under 2 seconds directly from the Steam Quick Access Menu without opening the full-screen modal.  
