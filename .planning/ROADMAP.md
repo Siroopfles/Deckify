@@ -94,11 +94,17 @@ Plans:
   2. Pulling L2 or R2 in library views (Liked Songs, Playlists, Albums, Artists) jumps ±15 items or jumps across alphabetical letter anchors in virtualized lists.
   3. Trigger activation enforces Schmidt hysteresis (0.75 trigger press / 0.25 release) and 300ms software debounce, preventing analog trigger chatter and runaway seeking.
   4. Trigger handlers are strictly active only when the Deckify Expanded Modal is open, preventing interference with in-game controls.
-**Plans**: 2 plans
+**Plans**: 3 plans
 
 Plans:
-- [ ] 08-01: Build modal-scoped trigger input controller with Schmidt hysteresis (0.75/0.25) and software debounce in `DeckifyExpandedModal.tsx`.
-- [ ] 08-02: Wire trigger seeking accumulator into Now Playing/Lyrics views and virtualized list anchor jump navigation into Library tabs.
+**Wave 1**
+- [ ] 08-01-PLAN.md — Build modal-scoped TriggerController with Schmidt hysteresis (0.75/0.25), 300ms debounce, hold-to-repeat, reliable Y/X/L2/R2 dispatch in DeckifyExpandedModal, and pinned Back to Steam (B) footer in Sidebar.
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [ ] 08-02-PLAN.md — Wire accumulated 250ms L2/R2 seeking into Now Playing/Lyrics, floating pill, hint bar, and SettingsTab SliderField/ToggleField controls.
+
+**Wave 3** *(blocked on Wave 2 completion)*
+- [ ] 08-03-PLAN.md — Implement computeListJump (±N paging & A-Z anchor jumps), content-focus guard, scroll+focus transfer, and row tagging across all library list tabs.
 
 ### Phase 9: QAM Pinned Playlists & Quick In-Game Switch
 **Goal**: Allow players to switch to their favorite playlists in under 2 seconds directly from the Steam Quick Access Menu without opening the full-screen modal.  
@@ -162,7 +168,7 @@ Phases execute in numeric order: 6 → 7 → 8 → 9 → 10 → 11
 |-------|-----------|:--------------:|:------:|:---------:|
 | 6. Smooth Audio Ducking Engine & PipeWire Fader | v0.5 | 2/2 | Complete    | 2026-11-12 |
 | 7. Game-Specific Soundtracks | v0.5 | 3/3 | Complete    | 2026-11-14 |
-| 8. Controller L2/R2 Ergonomics & Trigger Navigation | v0.5 | 0/2 | Not started | - |
+| 8. Controller L2/R2 Ergonomics & Trigger Navigation | v0.5 | 0/3 | Not started | - |
 | 9. QAM Pinned Playlists & Quick In-Game Switch | v0.5 | 0/2 | Not started | - |
 | 10. In-Game HUD Overlay 2.0 (Live Synced Lyrics) | v0.5 | 0/2 | Not started | - |
 | 11. Home & Discovery Hub Tab | v0.5 | 0/2 | Not started | - |
