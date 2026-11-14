@@ -220,7 +220,7 @@ export const SoundtracksTab: FC<SoundtracksTabProps> = ({
       )}
 
       {/* Game Cards */}
-      <Focusable flow-children="column" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <Focusable flow-children="column" data-deckify-sorted="az" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {visibleGames.map((game) => {
           const key = String(game.app_id);
           const existingProfile = profiles[key];
@@ -244,6 +244,8 @@ export const SoundtracksTab: FC<SoundtracksTabProps> = ({
             >
               {/* Game Header Row */}
               <InteractiveRow
+                data-deckify-list-item="true"
+                data-deckify-label={game.name || ""}
                 onClick={() => setExpandedAppId(expandedAppId === game.app_id ? null : game.app_id)}
                 style={{ gap: 10, padding: "4px 6px" }}
               >

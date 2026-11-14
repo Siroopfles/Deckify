@@ -110,7 +110,13 @@ export const SearchTab: FC<SearchTabProps> = ({
           <h3 style={{ fontSize: 14, fontWeight: 700, color: "#1db954", marginBottom: 8 }}>Playlists</h3>
           <Focusable flow-children="column" style={{ display: "flex", flexDirection: "column", gap: 3 }}>
             {searchResults.playlists.map((pl) => (
-              <InteractiveRow key={pl.id} onClick={() => onOpenPlaylist(pl)} style={{ gap: 10 }}>
+              <InteractiveRow
+                key={pl.id}
+                data-deckify-list-item="true"
+                data-deckify-label={pl.name || ""}
+                onClick={() => onOpenPlaylist(pl)}
+                style={{ gap: 10 }}
+              >
                 {pl.image_url ? (
                   <DeckifyImage src={pl.image_url} width={30} height={30} style={{ borderRadius: 4 }} />
                 ) : (
@@ -132,7 +138,13 @@ export const SearchTab: FC<SearchTabProps> = ({
           <h3 style={{ fontSize: 14, fontWeight: 700, color: "#1db954", marginBottom: 8 }}>Artists</h3>
           <Focusable flow-children="column" style={{ display: "flex", flexDirection: "column", gap: 3 }}>
             {searchResults.artists.map((art) => (
-              <InteractiveRow key={art.id} onClick={() => onOpenArtist(art)} style={{ gap: 10 }}>
+              <InteractiveRow
+                key={art.id}
+                data-deckify-list-item="true"
+                data-deckify-label={art.name || ""}
+                onClick={() => onOpenArtist(art)}
+                style={{ gap: 10 }}
+              >
                 {art.image_url && <DeckifyImage src={art.image_url} width={30} height={30} style={{ borderRadius: "50%" }} />}
                 <span style={{ fontSize: 13, fontWeight: 600 }}>{art.name}</span>
               </InteractiveRow>
@@ -147,7 +159,13 @@ export const SearchTab: FC<SearchTabProps> = ({
           <h3 style={{ fontSize: 14, fontWeight: 700, color: "#1db954", marginBottom: 8 }}>Albums</h3>
           <Focusable flow-children="column" style={{ display: "flex", flexDirection: "column", gap: 3 }}>
             {searchResults.albums.map((alb) => (
-              <InteractiveRow key={alb.id} onClick={() => onOpenAlbum(alb)} style={{ gap: 10 }}>
+              <InteractiveRow
+                key={alb.id}
+                data-deckify-list-item="true"
+                data-deckify-label={alb.name || ""}
+                onClick={() => onOpenAlbum(alb)}
+                style={{ gap: 10 }}
+              >
                 {alb.image_url && <DeckifyImage src={alb.image_url} width={30} height={30} style={{ borderRadius: 4 }} />}
                 <div style={{ flex: 1, overflow: "hidden" }}>
                   <div style={{ fontSize: 13, fontWeight: 600 }}>{alb.name}</div>

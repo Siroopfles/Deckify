@@ -120,6 +120,8 @@ export const QueueTab: FC<QueueTabProps> = ({
           {queueTracks.slice(0, 40).map((t, idx) => (
             <InteractiveRow
               key={t.id || t.uri || idx}
+              data-deckify-list-item="true"
+              data-deckify-label={t.name || ""}
               onClick={() => {
                 if (handlePlayQueueTrack) {
                   handlePlayQueueTrack(t, idx);
