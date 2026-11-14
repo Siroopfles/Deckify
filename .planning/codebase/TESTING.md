@@ -1,170 +1,215 @@
 ---
-last_mapped_commit: a61bbf8da7ad74d4ba42198f0c3841b6ef17f7f8
-last_mapped_at: 2026-11-10
+last_mapped_commit: 10018cbc1c9d1d294640d8866b3902ca56bcd816
+last_mapped_at: 2026-11-14
 ---
+<!-- refreshed: 2026-11-14 -->
 # Testing Patterns
 
-**Analysis Date:** 2026-11-10
+**Analysis Date:** 2026-11-14
 
 ## Test Framework
 
 **Runner:**
-- Python: `unittest` standard library (`tests/test_*.py`)
-- Frontend: Vitest 5.1.0 (`package.json`, `src/utils.test.ts`)
-- Config: Vitest inline configuration via `package.json`
+- Frontend: Vitest `5.1.0` (`package.json`). No separate `vitest.config.*` file is used; Vitest runs with default discovery for `src/**/*.test.{ts,tsx}`.
+- Backend: Python standard library `unittest` (`unittest.TestCase` and `unittest.IsolatedAsyncioTestCase`).
 
 **Assertion Library:**
-- Python: Standard `unittest.TestCase` assertions (`assertEqual`, `assertTrue`, `assertIn`, `assertRaises`)
-- TypeScript: Vitest `expect` assertions
+- Frontend: Vitest `expect` (`toBe`, `toEqual`, `toHaveLength`, `toBeUndefined`, `toHaveBeenCalled`).
+- Backend: `unittest` assertions (`assertEqual`, `assertTrue`, `assertFalse`, `assertIn`, `assertRaises`, `assertAwaitedOnceWith`).
 
 **Run Commands:**
 ```bash
-# Run all Python unit tests (316 tests)
-python3 -m unittest discover -s tests -p "test_*.py"
-
-# Run frontend Vitest tests
-pnpm test
-
-# Run frontend tests in watch mode
-pnpm exec vitest
-
-# Run complete test coverage (Python + TypeScript)
-pnpm run test:coverage
+pnpm test                                                       # Run all 15 Vitest files (112 tests)
+pnpm run test:python                                            # Run Python unittest suite (Linux/macOS)
+py -m unittest discover -s tests -p "test_*.py"                 # Run Python unittest suite (Windows)
+pnpm run test:coverage                                          # Run Vitest + Python coverage reports
 ```
 
 ## Test File Organization
 
 **Location:**
-- Python: Centralized in root `tests/` directory.
-- TypeScript: Co-located with source in `src/utils.test.ts`.
+- Frontend tests are co-located alongside source files in `src/` (`src/utils.test.ts`, `src/hooks/usePlaybackClock.test.ts`, `src/components/DeckifyOverlay.test.tsx`).
+- Backend tests live in a dedicated `tests/` directory (`tests/test_py_modules.py`, `tests/test_plugin_api.py`, `tests/test_token_refresh.py`).
 
 **Naming:**
-- Python: Prefixed with `test_` (e.g., `tests/test_features.py`, `tests/test_images.py`).
-- TypeScript: Suffix `.test.ts` (e.g., `src/utils.test.ts`).
+- Frontend: `<module>.test.ts` or `<Component>.test.tsx`.
+- Backend: `test_<area>.py` (discovered via `-p "test_*.py"`).
 
 **Structure:**
-```
-Deckify/
-├── src/
-│   └── utils.test.ts          # Frontend unit tests
-└── tests/                     # Backend test suite
-    ├── test_century_coverage.py
-    ├── test_device_and_engine.py
-    ├── test_device_name.py
-    ├── test_e2e_requirements.py
-    ├── test_features.py
-    ├── test_final_coverage.py
-    ├── test_images.py
-    ├── test_plugin_advanced.py
-    ├── test_plugin_api.py
-    ├── test_plugin_corner_cases.py
-    ├── test_plugin_error_matrix.py
-    ├── test_plugin_full_coverage.py
-    ├── test_plugin_lifecycle.py
-    ├── test_py_modules.py
-    ├── test_token_refresh.py
-    └── test_uninstall.py
+```text
+src/
+├── index.test.tsx
+├── utils.test.ts
+├── hooks/
+│   └── usePlaybackClock.test.ts
+├── utils/
+│   ├── listNavigation.test.ts
+│   └── triggerController.test.ts
+└── components/
+    ├── DeckifyExpandedModal.test.tsx
+    ├── DeckifyOverlay.test.tsx
+    ├── common/*.test.{ts,tsx}
+    └── tabs/*.test.tsx
+tests/
+├── test_py_modules.py
+├── test_plugin_api.py
+├── test_token_refresh.py
+└── test_*.py (19 test modules total)
 ```
 
 ## Test Structure
 
-**Python Suite Organization:**
-```python
-import unittest
-from unittest.mock import patch, MagicMock, AsyncMock
-from main import Plugin
-
-class TestFeatures(unittest.IsolatedAsyncioTestCase):
-    def setUp(self):
-        self.plugin = Plugin()
-        # Initialize mock settings and context
-        
-    def tearDown(self):
-        # Cleanup mock resources
-        pass
-
-    async def test_toggle_like_track(self):
-        with patch("py_modules.spotify.make_request") as mock_req:
-            mock_req.return_value = {"status": 200}
-            result = await self.plugin.toggle_like_track("track-123", True)
-            self.assertTrue(result["success"])
-```
-
-**TypeScript Suite Organization:**
+**Suite Organization (Frontend - Vitest):**
 ```typescript
-import { describe, it, expect } from "vitest";
-import { formatTime, sanitizeTitle } from "./types";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-describe("Utility functions", () => {
-  it("formats track duration correctly in mm:ss", () => {
-    expect(formatTime(215000)).toBe("3:35");
-    expect(formatTime(0)).toBe("0:00");
+describe("usePlaybackClock & PlaybackClockController", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  describe("Monotonic Ticking & Interpolation", () => {
+    it("advances position monotonically when isPlaying is true", () => {
+      const clock = new PlaybackClockController({
+        serverPositionMs: 10000,
+        isPlaying: true,
+        durationMs: 60000,
+      });
+
+      expect(clock.positionMs).toBe(10000);
+      vi.advanceTimersByTime(1000);
+      expect(clock.positionMs).toBe(11000);
+      clock.destroy();
+    });
   });
 });
 ```
+(From `src/hooks/usePlaybackClock.test.ts`.)
+
+**Suite Organization (Backend - `unittest`):**
+```python
+class PluginApiTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.plugin = main.Plugin()
+        self.plugin._token_refresh_lock = asyncio.Lock()
+        self.plugin._access_token = "valid-token"
+        self.plugin._settings = dict(main.DEFAULT_SETTINGS)
+        self.execute = self.enterContext(patch.object(main, "_exec", new_callable=AsyncMock))
+        self.save = self.enterContext(patch.object(main, "_save_settings"))
+        self.emit = self.enterContext(patch.object(main.decky, "emit", new_callable=AsyncMock))
+```
+(From `tests/test_plugin_api.py`.)
+
+**Patterns:**
+- Frontend tests reset fake timers (`vi.useFakeTimers()` / `vi.useRealTimers()`) and custom hook slot arrays in `beforeEach`/`afterEach`.
+- Backend async tests use `unittest.IsolatedAsyncioTestCase` with `self.enterContext(patch.object(...))` in `asyncSetUp` for automatic cleanup.
+- Parameterized checks in Python use `with self.subTest(...):` (`tests/test_py_modules.py`).
 
 ## Mocking
 
 **Framework:**
-- Python: `unittest.mock` (`patch`, `MagicMock`, `AsyncMock`)
-- TypeScript: Vitest `vi.fn()`, `vi.spyOn()`
+- Frontend: Vitest `vi.mock`, `vi.fn`, `vi.hoisted`.
+- Backend: `unittest.mock` (`AsyncMock`, `MagicMock`, `Mock`, `patch`).
 
-**Backend Mocking Patterns:**
-```python
-# Mocking HTTP network requests
-@patch("urllib.request.urlopen")
-def test_spotify_api_call(self, mock_urlopen):
-    mock_response = MagicMock()
-    mock_response.read.return_value = b'{"is_playing": true}'
-    mock_response.status = 200
-    mock_urlopen.return_value.__enter__.return_value = mock_response
-    
-    state = self.plugin.get_player_state()
-    self.assertTrue(state["is_playing"])
+**Patterns (Frontend - Lightweight React & Decky Mocks):**
+Component tests run in Node without jsdom/Testing Library by mocking `react`, `react/jsx-runtime`, `react/jsx-dev-runtime`, `@decky/ui`, and `@decky/api` to return plain element descriptor objects `{ type, props }`:
+```typescript
+vi.mock("@decky/ui", () => ({
+  Focusable: ({ children, ...props }: any) => ({
+    type: "Focusable",
+    props: { children, ...props },
+  }),
+}));
+
+vi.mock("react/jsx-runtime", () => ({
+  Fragment: "Fragment",
+  jsx: (type: any, props: any, key: any) => ({
+    type,
+    props: { ...props, ...(key !== undefined ? { key } : {}) },
+  }),
+  jsxs: (type: any, props: any, key: any) => ({
+    type,
+    props: { ...props, ...(key !== undefined ? { key } : {}) },
+  }),
+}));
 ```
+(From `src/components/common/InteractiveRow.test.tsx`.) Stateful component tests (e.g., `src/components/DeckifyOverlay.test.tsx`) use slot arrays (`stateSlots`, `refSlots`, `effectSlots`) and a `flushEffects()` helper to simulate renders and hook lifecycles.
+
+**Patterns (Backend - `decky` Module Injection):**
+Tests inject a stub `decky` module into `sys.modules` before importing `main` or `py_modules`:
+```python
+with patch.dict("sys.modules", {"decky": SimpleNamespace(
+    DECKY_PLUGIN_SETTINGS_DIR=tempfile.gettempdir(),
+    DECKY_PLUGIN_DIR=tempfile.gettempdir(),
+    DECKY_PLUGIN_RUNTIME_DIR=tempfile.gettempdir(),
+    logger=Mock(),
+    emit=AsyncMock(),
+)}):
+    import main
+```
+(From `tests/test_token_refresh.py` and `tests/test_py_modules.py`.)
 
 **What to Mock:**
-- External Spotify Web API network requests (`urllib.request.urlopen`)
-- LRCLIB lyrics network calls
-- Subprocess executions (`subprocess.Popen`, `pactl`)
-- Steam Deck filesystem paths and Decky Loader environment globals
+- `@decky/api` (`callable`, `toaster`, `addEventListener`), `@decky/ui` components, `react-icons/*`, and `react` JSX runtime in frontend tests.
+- `decky` runtime namespace, `main._exec`, `main._save_settings`, `urllib.request.urlopen`, and `os.geteuid` in backend tests.
 
 **What NOT to Mock:**
-- Pure data transformations and string sanitization logic
-- Internal state transitions within the `Plugin` class
-- Settings serialization / deserialization algorithms
+- Pure TypeScript logic (`PlaybackClockController`, `parseLrc`, `formatMs`, `listNavigation`, `triggerController`).
+- Settings serialization (`_load_settings` / `_save_settings` tested against `tempfile.TemporaryDirectory()` in `tests/test_py_modules.py`).
 
 ## Fixtures and Factories
 
 **Test Data:**
-- Realistic Spotify API payload fixtures embedded as dictionary constants in test files representing:
-  - Current playback states (`is_playing`, `item`, `device`, `progress_ms`)
-  - Library track lists (`items`, `album`, `artists`, `duration_ms`)
-  - LRCLIB JSON responses (`syncedLyrics`, `plainLyrics`)
+- Inline fixture objects and helper factory functions inside test files (e.g., `renderRow(props)` in `src/components/common/InteractiveRow.test.tsx`, `fail_http(status, body)` in `tests/test_token_refresh.py`).
+- No shared global fixture directory; `tests/test_plugin_api.py` reuses the patched `main` module imported by `tests/test_token_refresh.py`.
 
 ## Coverage
 
-**Requirements:**
-- High test coverage maintained across all RPC endpoints and helper modules (>90% target).
+**Requirements:** No minimum coverage threshold is enforced in CI (`.github/workflows/ci.yml`), though `.coveragerc` and `@vitest/coverage-v8` are configured.
+
+**Config (`.coveragerc`):**
+- Measures `py_modules` and `main`; omits `tests/*` and `*/node_modules/*`.
 
 **View Coverage:**
 ```bash
-# Generate and display Python test coverage report
-python3 -m coverage run --source=py_modules,main -m unittest discover -s tests -p "test_*.py"
-python3 -m coverage report -m
+pnpm run test:coverage
 ```
 
 ## Test Types
 
 **Unit Tests:**
-- Validate individual functions: lyrics sanitization, image conversion, duration formatting, settings management.
+- Frontend: 15 Vitest test files (112 tests) covering hooks, utilities, component rendering trees, focus/gamepad callbacks, and plugin lifecycle (`src/index.test.tsx`).
+- Backend: 19 `unittest` modules under `tests/` covering `py_modules.*`, `Plugin` RPC methods, token refresh concurrency, error matrices, and lifecycle/uninstall behavior.
 
 **Integration Tests:**
-- Validate full RPC command lifecycles: authentication exchange, token refresh, playback state caching, like state caching, engine start/stop.
+- `tests/test_e2e_requirements.py` and `tests/test_plugin_full_coverage.py` exercise end-to-end backend flows with mocked transport/system boundaries.
 
-**E2E / Regression Tests:**
-- Verified live on target SteamOS hardware (`deck@steammachine`) via SSH deployment and manual GamepadUI verification.
+**E2E Tests:**
+- Not used (no browser/Playwright/Steam Deck hardware runner in CI).
+
+## Common Patterns
+
+**Async Testing:**
+```python
+async def test_control_playback_play_auto_transfer_success(self):
+    self.plugin._active_device = None
+    self.execute.side_effect = HTTPError("url", 404, "Not Found", {}, None)
+    with patch.object(self.plugin, "_auto_transfer_and_play", new_callable=AsyncMock) as mock_transfer:
+        mock_transfer.return_value = {"ok": True}
+        res = await self.plugin.control_playback("play")
+        self.assertTrue(res["ok"])
+        mock_transfer.assert_awaited_once()
+```
+(From `tests/test_plugin_api.py`.)
+
+**Error Testing:**
+- Backend tests simulate `HTTPError("url", status, ...)` or `RuntimeError(...)` on `self.execute.side_effect` and assert `res["ok"] is False` and expected `res["error"]` substrings.
+- Frontend tests assert graceful fallback or `mockToast` calls when `callable` mocks reject or return `{ ok: false }`.
 
 ---
 
-*Testing analysis: 2026-11-10*
+*Testing analysis: 2026-11-14*
