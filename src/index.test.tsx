@@ -58,7 +58,13 @@ vi.mock("./steamMenu", () => ({ registerSteamMenu: vi.fn(() => vi.fn()) }));
 vi.mock("./components/DeckifyExpandedModal", () => ({ DeckifyExpandedModal: () => ({ type: "Modal", props: {} }) }));
 vi.mock("./components/DeckifyOverlay", () => ({ DeckifyOverlay: () => ({ type: "Overlay", props: {} }) }));
 vi.mock("./hooks/usePlaybackClock", () => ({ usePlaybackClock: () => ({ positionMs: 0, notifySeek: vi.fn() }) }));
-vi.mock("./components/common/InteractiveRow", () => ({ formatMs: (ms: number) => String(ms) }));
+vi.mock("./components/common/InteractiveRow", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./components/common/InteractiveRow")>();
+  return {
+    ...actual,
+    formatMs: (ms: number) => String(ms),
+  };
+});
 vi.mock("./components/common/DeckifyImage", () => ({
   DeckifyImage: (props: any) => ({ type: "DeckifyImage", props }),
 }));
@@ -223,8 +229,9 @@ describe("src/index.tsx GameSessions AppLifetime & QAM Pinned Playlists", () => 
       (n) => n.type === "Focusable" && n.props?.["flow-children"] === "horizontal" && n.props?.style?.overflowX === "auto"
     );
     expect(strip).toBeDefined();
+    expect(strip.props.style.padding).toBe("4px 4px");
 
-    const pills = flattenNodes(strip).filter((n) => n.type === "DialogButton");
+    const pills = flattenNodes(strip).filter((n) => n.props?.["data-deckify-pinned-pill"] === "true");
     expect(pills.length).toBe(4);
     expect(pills.map((p) => textContent(p))).toEqual([
       "Very Long Playlist Name That Truncates",
@@ -274,13 +281,13 @@ describe("src/index.tsx GameSessions AppLifetime & QAM Pinned Playlists", () => 
     );
 
     let nodes = flattenNodes(renderContent());
-    let pill = nodes.find((n) => n.type === "DialogButton" && textContent(n) === "Chill");
+    let pill = nodes.find((n) => n.props?.["data-deckify-pinned-pill"] === "true" && textContent(n) === "Chill");
     expect(pill.props.style.color).toBe("#fff");
 
     // Click pill -> optimistic highlight should apply immediately before RPC resolves
     const clickPromise = pill.props.onClick();
     nodes = flattenNodes(renderContent());
-    pill = nodes.find((n) => n.type === "DialogButton" && textContent(n) === "Chill");
+    pill = nodes.find((n) => n.props?.["data-deckify-pinned-pill"] === "true" && textContent(n) === "Chill");
     expect(pill.props.style.color).toBe("#1db954");
     expect(pill.props.style.border).toBe("1px solid #1db954");
     expect(mockQuickPlayPinned).toHaveBeenCalledWith("spotify:playlist:1", "playlist");
@@ -289,7 +296,7 @@ describe("src/index.tsx GameSessions AppLifetime & QAM Pinned Playlists", () => 
     resolveRpc({ ok: false, error: "Engine failed" });
     await clickPromise;
     nodes = flattenNodes(renderContent());
-    pill = nodes.find((n) => n.type === "DialogButton" && textContent(n) === "Chill");
+    pill = nodes.find((n) => n.props?.["data-deckify-pinned-pill"] === "true" && textContent(n) === "Chill");
     expect(pill.props.style.color).toBe("#fff");
     expect(mockToasterToast).toHaveBeenCalledWith(
       expect.objectContaining({ title: "Deckify", body: "Engine failed" })
@@ -326,6 +333,56 @@ describe("src/index.tsx GameSessions AppLifetime & QAM Pinned Playlists", () => 
     expect(nodes.find((n) => n.type === "ButtonItem" && textContent(n).includes("Open Deckify (Full Screen)"))).toBeDefined();
     expect(nodes.find((n) => n.type === "ToggleField" && n.props.label === "In-Game Overlay (HUD)")).toBeDefined();
     expect(nodes.find((n) => n.type === "ToggleField" && n.props.label === "librespot Engine")).toBeDefined();
+
+    plugin.onDismount?.();
+  });
+
+  it("renders PinnedPill with focusHalo on focus/gamepadFocus, clears on blur, and activates on onActivate (G-09-2)", async () => {
+    await import("./index");
+    const plugin = capturedPluginFactory!();
+    const renderContent = () => {
+      hookIdx = 0;
+      return plugin.content.type({});
+    };
+
+    renderContent();
+    const settingsIdx = hookValues.findIndex((v) => v && typeof v === "object" && "audio_backend" in v);
+    hookValues[settingsIdx] = {
+      ...hookValues[settingsIdx],
+      pinned_playlists: [
+        { uri: "spotify:playlist:focus", name: "Focus Mix", type: "playlist", image_url: null },
+      ],
+    };
+
+    let nodes = flattenNodes(renderContent());
+    let pill = nodes.find((n) => n.props?.["data-deckify-pinned-pill"] === "true");
+    expect(pill).toBeDefined();
+    expect(pill.props.noFocusRing).toBe(true);
+    expect(pill.props["data-focused"]).toBe("false");
+    expect(pill.props.style.boxShadow).toBe("none");
+
+    // Simulate gamepad focus
+    pill.props.onGamepadFocus();
+    nodes = flattenNodes(renderContent());
+    pill = nodes.find((n) => n.props?.["data-deckify-pinned-pill"] === "true");
+    expect(pill.props["data-focused"]).toBe("true");
+    expect(pill.props.style.boxShadow).toContain("0 0 0 2px #fff");
+    expect(pill.props.style.border).toBe("1px solid #fff");
+
+    // Simulate gamepad blur
+    pill.props.onGamepadBlur();
+    nodes = flattenNodes(renderContent());
+    pill = nodes.find((n) => n.props?.["data-deckify-pinned-pill"] === "true");
+    expect(pill.props["data-focused"]).toBe("false");
+    expect(pill.props.style.boxShadow).toBe("none");
+
+    // Simulate DOM focus and activation
+    pill.props.onFocus();
+    nodes = flattenNodes(renderContent());
+    pill = nodes.find((n) => n.props?.["data-deckify-pinned-pill"] === "true");
+    expect(pill.props["data-focused"]).toBe("true");
+    await pill.props.onActivate();
+    expect(mockQuickPlayPinned).toHaveBeenCalledWith("spotify:playlist:focus", "playlist");
 
     plugin.onDismount?.();
   });
