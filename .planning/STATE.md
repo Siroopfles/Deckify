@@ -4,16 +4,16 @@ milestone: v0.5
 current_phase: 08
 current_phase_name: Controller L2/R2 Ergonomics & Trigger Navigation
 status: executing
-stopped_at: Completed 08-01-PLAN.md
-last_updated: "2026-11-14T20:58:12.676Z"
+stopped_at: Completed 08-02-PLAN.md
+last_updated: "2026-11-14T21:04:17.461Z"
 last_activity: 2026-11-14
 last_activity_desc: Phase 08 execution started
-state_head: 45b6070829f048e60bf14f25ae674a197ae0b913
+state_head: 6bbf2f1fe4728073ce8a3f24074bec2350cfa7f3
 progress:
   total_phases: 6
   completed_phases: 2
   total_plans: 8
-  completed_plans: 6
+  completed_plans: 7
 ---
 
 # Project State
@@ -28,7 +28,7 @@ See: [.planning/PROJECT.md](file:///C:/Users/djdje/Deckify/.planning/PROJECT.md)
 ## Current Position
 
 Phase: 08 (Controller L2/R2 Ergonomics & Trigger Navigation) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-11-14 — Phase 08 execution started
 
@@ -66,6 +66,7 @@ Progress: [███░░░░░░░] 33% (Phase 06 complete, Phase 07 plan
 | Phase 07 P02 | 10min | 4 tasks | 10 files |
 | Phase 07 P03 | 7min | 3 tasks | 13 files |
 | Phase 08 P01 | 6min | 2 tasks | 7 files |
+| Phase 08 P08-02 | 4min | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -87,6 +88,7 @@ Recent decisions affecting current work:
 - [Phase 06]: Interactive Smooth Audio Ducking Engine card in SettingsTab with attenuation mode and duration pills.
 - [Phase 07]: SoundtracksTab debounces profile saves by 500ms and PlaylistPickerModal debounces Spotify search by 300ms
 - [Phase 08]: useTriggerNavigation uses refs for callbacks/suppression so FocusNavController and rAF bind once on modal mount and clean up strictly on unmount
+- [Phase 08]: Captured seekBaseMsRef from currentPositionMsRef on the first pull of a 250ms L2/R2 burst to accumulate seeks without stale closures or D-pad focus shifts
 
 ### Pending Todos
 
@@ -109,6 +111,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-14T20:58:12.024Z
-Stopped at: Completed 08-01-PLAN.md
+Last session: 2026-11-14T21:04:16.671Z
+Stopped at: Completed 08-02-PLAN.md
 Resume file: None

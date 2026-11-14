@@ -18,7 +18,7 @@
 - [x] **SOUND-03**: User experiences seamless restoration of their pre-game playback state (or automatic pause) when the game exits.
 
 ### Controller Ergonomics & Trigger Navigation
-- [ ] **CTRL-01**: User can pull L2 or R2 triggers in playback views (`NowPlayingTab`, `LyricsTab`) to execute blind -10s or +10s seeking without losing D-pad controller focus.
+- [x] **CTRL-01**: User can pull L2 or R2 triggers in playback views (`NowPlayingTab`, `LyricsTab`) to execute blind -10s or +10s seeking without losing D-pad controller focus.
 - [ ] **CTRL-02**: User can pull L2 or R2 triggers in library lists (`LikedSongsTab`, `PlaylistsTab`, `AlbumsTab`, `ArtistsTab`) to jump ±15 items or alphabet sections.
 - [x] **CTRL-03**: Triggers enforce Schmidt hysteresis (0.75 activate, 0.25 reset) and are strictly scoped to the open modal to prevent in-game input conflicts.
 
@@ -63,7 +63,7 @@
 | SOUND-01 | Phase 7 | Complete |
 | SOUND-02 | Phase 7 | Complete |
 | SOUND-03 | Phase 7 | Complete |
-| CTRL-01 | Phase 8 | Pending |
+| CTRL-01 | Phase 8 | Complete |
 | CTRL-02 | Phase 8 | Pending |
 | CTRL-03 | Phase 8 | Complete |
 | QAM-01 | Phase 9 | Pending |
