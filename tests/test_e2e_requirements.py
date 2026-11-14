@@ -1672,6 +1672,146 @@ class TestTier4RealWorldScenarios(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Voice Chat Ducking", content)
         self.assertIn("voice_ducking_hold_delay", content)
 
+    # ------------------------------------------------------------------------
+    # SOUND-01 / SOUND-02 / SOUND-03: Game-Specific Soundtracks (Phase 07)
+    # ------------------------------------------------------------------------
+
+    async def test_sound01_profile_saving_modes_and_non_steam_appid(self):
+        """SOUND-01: Profile schema saving, multi-playlist modes, and Non-Steam AppID normalization."""
+        from py_modules import vdf_parser
+
+        # Signed negative 32-bit shortcut appid normalizes to unsigned uint32
+        norm_id = vdf_parser.compute_non_steam_appid('"/usr/bin/retroarch"', "RetroArch", -123456789)
+        self.assertGreater(norm_id, 0x80000000)
+        self.assertLessEqual(norm_id, 0xFFFFFFFF)
+
+        profile = {
+            "app_name": "RetroArch",
+            "playlists": [
+                {"uri": "spotify:playlist:one", "name": "Synthwave", "image": "https://i.scdn.co/1.jpg"},
+                {"uri": "spotify:album:two", "name": "Chiptune", "image": "https://i.scdn.co/2.jpg"},
+            ],
+            "mode": "rotation",
+            "resume_mode": "remember_position",
+            "always_auto_start": True,
+            "exit_policy": "restore_snapshot",
+            "volume_override": 70,
+            "ducking_override": False,
+        }
+        res = await self.plugin.save_game_soundtrack_profile(norm_id, profile)
+        self.assertTrue(res.get("ok"))
+
+        profiles = await self.plugin.get_game_soundtrack_profiles()
+        saved = profiles.get(str(norm_id))
+        self.assertIsNotNone(saved)
+        self.assertEqual(saved["mode"], "rotation")
+        self.assertEqual(len(saved["playlists"]), 2)
+        self.assertEqual(saved["volume_override"], 70)
+        self.assertEqual(saved["ducking_override"], False)
+
+    def test_sound01_frontend_soundtracks_ui_and_qam_bind_contracts(self):
+        """SOUND-01: Frontend SoundtracksTab, PlaylistPickerModal, Sidebar, and QAM 1-click bind exist."""
+        sidebar = read_project_file("src/components/common/Sidebar.tsx")
+        self.assertIn('"soundtracks"', sidebar)
+        modal = read_project_file("src/components/DeckifyExpandedModal.tsx")
+        self.assertIn("SoundtracksTab", modal)
+        tab = read_project_file("src/components/tabs/SoundtracksTab.tsx")
+        self.assertIn("Non-Steam", tab)
+        self.assertIn("PlaylistPickerModal", tab)
+        index_tsx = read_project_file("src/index.tsx")
+        self.assertIn("handle_app_lifetime_event", index_tsx)
+        self.assertIn("bind_current_music_to_game", index_tsx)
+        self.assertIn("Bind current music to game", index_tsx)
+
+    async def test_sound02_launch_debounce_auto_start_and_device_fallback(self):
+        """SOUND-02: Launch debounce triggers auto-start and Connect device wake-up fallback."""
+        self.plugin._settings["soundtrack_launch_debounce"] = 0.0
+        self.plugin._settings["soundtrack_exit_debounce"] = 0.0
+        await self.plugin.save_game_soundtrack_profile(
+            1091500,
+            {
+                "app_name": "Cyberpunk 2077",
+                "playlists": [{"uri": "spotify:playlist:nightcity", "name": "Night City FM"}],
+                "mode": "shuffle",
+                "always_auto_start": True,
+                "exit_policy": "restore_snapshot",
+            },
+        )
+        manager = self.plugin._get_soundtrack_manager()
+        manager.get_player_state = AsyncMock(return_value={"is_playing": False, "volume": 80})
+        manager._set_shuffle = AsyncMock(return_value={"ok": True})
+        self.plugin.play_tracks = AsyncMock(
+            side_effect=[{"ok": False, "error": "No active device found"}, {"ok": True}]
+        )
+        self.plugin._ensure_token = AsyncMock(return_value="tok")
+        self.plugin._auto_transfer_and_play = AsyncMock(return_value={"ok": True})
+
+        res = await self.plugin.handle_app_lifetime_event(1091500, True)
+        self.assertTrue(res.get("ok"))
+        await asyncio.sleep(0.05)
+
+        self.plugin._auto_transfer_and_play.assert_awaited_once()
+        self.assertGreaterEqual(self.plugin.play_tracks.await_count, 2)
+
+    async def test_sound03_snapshot_restore_seek_save_and_manual_pause(self):
+        """SOUND-03: Exit debounce restores snapshot, saves seek position, and respects manual pause."""
+        self.plugin._settings["soundtrack_launch_debounce"] = 0.0
+        self.plugin._settings["soundtrack_exit_debounce"] = 0.0
+        await self.plugin.save_game_soundtrack_profile(
+            413150,
+            {
+                "app_name": "Stardew Valley",
+                "playlists": [{"uri": "spotify:playlist:stardew", "name": "Stardew OST"}],
+                "mode": "shuffle",
+                "resume_mode": "remember_position",
+                "always_auto_start": True,
+                "exit_policy": "restore_snapshot",
+            },
+        )
+        manager = self.plugin._get_soundtrack_manager()
+        pre_game_state = {
+            "is_playing": True,
+            "position_ms": 42000,
+            "context_uri": "spotify:playlist:pregame",
+            "track_uri": "spotify:track:pretrack",
+            "volume": 75,
+        }
+        in_game_state = {
+            "is_playing": True,
+            "position_ms": 95000,
+            "context_uri": "spotify:playlist:stardew",
+            "track_uri": "spotify:track:stardew_trk1",
+            "volume": 75,
+        }
+        manager.get_player_state = AsyncMock(side_effect=[pre_game_state, in_game_state])
+        manager._set_shuffle = AsyncMock(return_value={"ok": True})
+        self.plugin.play_tracks = AsyncMock(return_value={"ok": True})
+
+        await self.plugin.handle_app_lifetime_event(413150, True)
+        await asyncio.sleep(0.05)
+
+        # Exit restores pre-game snapshot and saves in-game seek position
+        await self.plugin.handle_app_lifetime_event(413150, False)
+        await asyncio.sleep(0.05)
+
+        saved = manager.get_profile(413150)
+        self.assertEqual(saved.get("last_track_uri"), "spotify:track:stardew_trk1")
+        self.assertEqual(saved.get("last_position_ms"), 95000)
+
+        # Now test manual pause suppression (D-14)
+        manager.get_player_state = AsyncMock(side_effect=[pre_game_state, in_game_state])
+        self.plugin.play_tracks.reset_mock()
+        await self.plugin.handle_app_lifetime_event(413150, True)
+        await asyncio.sleep(0.05)
+        self.plugin.play_tracks.reset_mock()
+
+        with patch("py_modules.rpc_playback.control_playback", new=AsyncMock(return_value={"ok": True})):
+            await self.plugin.control_playback("pause", "")
+
+        await self.plugin.handle_app_lifetime_event(413150, False)
+        await asyncio.sleep(0.05)
+        self.plugin.play_tracks.assert_not_awaited()
+
 
 if __name__ == "__main__":
     unittest.main()
