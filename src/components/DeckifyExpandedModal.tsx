@@ -32,6 +32,7 @@ import { PodcastsTab } from "./tabs/PodcastsTab";
 import { SearchTab } from "./tabs/SearchTab";
 import { QueueTab } from "./tabs/QueueTab";
 import { DevicesTab } from "./tabs/DevicesTab";
+import { SoundtracksTab } from "./tabs/SoundtracksTab";
 import { SettingsTab } from "./tabs/SettingsTab";
 
 // Backward-compatible re-exports
@@ -901,6 +902,10 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
 
               {mode === "devices" && (
                 <DevicesTab showToast={showToast} />
+              )}
+
+              {mode === "soundtracks" && (
+                <SoundtracksTab showToast={showToast} />
               )}
 
               {mode === "engine" && (
