@@ -230,6 +230,12 @@ async def toggle_like_track(plugin, track_id: str = "", liked: bool | None = Non
                 await decky.emit("track_metadata", plugin._track_meta)
         return {"ok": True, "track_id": target_id, "is_liked": target_liked}
     except urllib.error.HTTPError as e:
+        if getattr(e, "code", None) == 403:
+            decky.logger.warning("toggle_like_track(%s) 403 Forbidden: %s", target_id, e)
+            return {
+                "ok": False,
+                "error": "Spotify rejected library access (403 Forbidden). Re-authenticate in Settings or check Spotify Developer Mode allowlist.",
+            }
         return {"ok": False, "error": _parse_spotify_error(e)}
     except Exception as e:
         decky.logger.error("toggle_like_track(%s) failed: %s", target_id, e)
