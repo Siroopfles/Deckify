@@ -15,6 +15,8 @@ vi.mock("@decky/api", () => ({
   },
 }));
 
+const mockShowModal = vi.fn();
+
 vi.mock("@decky/ui", () => ({
   Focusable: ({ children, ...props }: any) => ({ type: "Focusable", props: { children, ...props } }),
   DialogButton: ({ children, ...props }: any) => ({ type: "DialogButton", props: { children, ...props } }),
@@ -23,6 +25,7 @@ vi.mock("@decky/ui", () => ({
   ToggleField: (props: any) => ({ type: "ToggleField", props }),
   TextField: (props: any) => ({ type: "TextField", props }),
   ModalRoot: ({ children, ...props }: any) => ({ type: "ModalRoot", props: { children, ...props } }),
+  showModal: (...args: any[]) => mockShowModal(...args),
 }));
 
 vi.mock("../common/DeckifyImage", () => ({
@@ -289,5 +292,38 @@ describe("SoundtracksTab Component", () => {
     expect(gameCover).toBeDefined();
     expect(gameCover.props.fallback).toBeDefined();
     expect(typeName(gameCover.props.fallback)).toBe("FaGamepad");
+  });
+
+  it("opens PlaylistPickerModal via showModal() and updates profile functionally onSelect (Gap 2)", () => {
+    const tree = SoundtracksTab({
+      initialGames: sampleGames,
+      initialProfiles: sampleProfiles,
+    });
+
+    const addBtn = findNodes(
+      tree,
+      (n) => typeName(n) === "DialogButton" && findText(n).includes("Add Playlist / Album")
+    )[0];
+    expect(addBtn).toBeDefined();
+    addBtn.props.onClick();
+
+    expect(mockShowModal).toHaveBeenCalledTimes(1);
+    const modalElement = mockShowModal.mock.calls[0][0];
+    expect(modalElement.props.onSelect).toBeTypeOf("function");
+
+    modalElement.props.onSelect({
+      uri: "spotify:playlist:new123",
+      name: "New OST",
+    });
+
+    vi.advanceTimersByTime(600);
+    expect(mockSaveProfile).toHaveBeenCalledWith(
+      1091500,
+      expect.objectContaining({
+        playlists: expect.arrayContaining([
+          expect.objectContaining({ uri: "spotify:playlist:new123", name: "New OST" }),
+        ]),
+      })
+    );
   });
 });

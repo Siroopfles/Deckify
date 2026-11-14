@@ -20,16 +20,18 @@ const backendSearchSpotify = callable<
 export type PickerTab = "playlists" | "albums" | "search";
 
 export interface PlaylistPickerModalProps {
-  isOpen: boolean;
-  onClose: () => void;
+  isOpen?: boolean;
+  onClose?: () => void;
+  closeModal?: () => void;
   onSelect: (item: SoundtrackPlaylist) => void;
   initialPlaylists?: PlaylistItem[];
   initialAlbums?: AlbumItem[];
 }
 
 export const PlaylistPickerModal: FC<PlaylistPickerModalProps> = ({
-  isOpen,
+  isOpen = true,
   onClose,
+  closeModal,
   onSelect,
   initialPlaylists,
   initialAlbums,
@@ -46,7 +48,7 @@ export const PlaylistPickerModal: FC<PlaylistPickerModalProps> = ({
     if (!isOpen) return;
     if (activeTab === "playlists" && playlists.length === 0) {
       setLoading(true);
-      backendGetPlaylists(50)
+      backendGetPlaylists(0)
         .then((res) => {
           if (res?.ok && Array.isArray(res.playlists)) {
             setPlaylists(res.playlists);
@@ -56,7 +58,7 @@ export const PlaylistPickerModal: FC<PlaylistPickerModalProps> = ({
         .finally(() => setLoading(false));
     } else if (activeTab === "albums" && albums.length === 0) {
       setLoading(true);
-      backendGetSavedAlbums(50)
+      backendGetSavedAlbums(0)
         .then((res) => {
           if (res?.ok && Array.isArray(res.albums)) {
             setAlbums(res.albums);
@@ -98,9 +100,14 @@ export const PlaylistPickerModal: FC<PlaylistPickerModalProps> = ({
 
   if (!isOpen) return null;
 
+  const handleClose = () => {
+    closeModal?.();
+    onClose?.();
+  };
+
   const handlePick = (item: PlaylistItem | AlbumItem) => {
     onSelect(toSelection(item));
-    onClose();
+    handleClose();
   };
 
   const renderItems = (items: (PlaylistItem | AlbumItem)[], emptyMsg: string) => {
@@ -159,7 +166,7 @@ export const PlaylistPickerModal: FC<PlaylistPickerModalProps> = ({
   };
 
   return (
-    <ModalRootAny onCancel={onClose} closeModal={onClose}>
+    <ModalRootAny onCancel={handleClose} closeModal={handleClose}>
       <Focusable
         flow-children="column"
         style={{
@@ -176,7 +183,7 @@ export const PlaylistPickerModal: FC<PlaylistPickerModalProps> = ({
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800 }}>Select Soundtrack Music</h3>
           <DialogButton
-            onClick={onClose}
+            onClick={handleClose}
             style={{ minWidth: 32, padding: "4px 8px", display: "flex", alignItems: "center", gap: 4 }}
           >
             <FaTimes size={12} />

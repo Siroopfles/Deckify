@@ -285,10 +285,6 @@ class TestSettingsSanitize(unittest.TestCase):
         self.assertEqual(s["soundtrack_default_mode"], "remember_position")
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TestPluginRpc(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         from test_token_refresh import main
@@ -349,6 +345,42 @@ class TestPluginRpc(unittest.IsolatedAsyncioTestCase):
         with patch.object(self.main, "_exec", new_callable=AsyncMock) as ex:
             await self.plugin.play_tracks(context_uri=PL_A)
         self.assertNotIn("position_ms", ex.await_args.args[-1])
+
+
+    async def test_get_playlists_and_search_include_uri(self):
+        from py_modules import rpc_library
+
+        fake_plugin = MagicMock()
+        fake_plugin._ensure_token = AsyncMock(return_value="tok")
+        fake_plugin._annotate_tracks_liked = AsyncMock()
+
+        playlists_resp = {
+            "items": [
+                {"id": "pl1", "name": "With URI", "uri": "spotify:playlist:pl1", "images": [], "tracks": {"total": 5}, "owner": {"id": "u1"}},
+                {"id": "pl2", "name": "Without URI", "images": [], "tracks": {"total": 3}, "owner": {"id": "u1"}},
+            ],
+            "total": 2,
+        }
+        with patch("py_modules.rpc_library._spotify_api_request", return_value=playlists_resp):
+            res = await rpc_library.get_playlists(fake_plugin, offset=0)
+        self.assertTrue(res["ok"])
+        self.assertEqual(res["playlists"][0]["uri"], "spotify:playlist:pl1")
+        self.assertEqual(res["playlists"][1]["uri"], "spotify:playlist:pl2")
+
+        search_resp = {
+            "tracks": {"items": []},
+            "artists": {"items": []},
+            "albums": {"items": []},
+            "playlists": {
+                "items": [
+                    {"id": "sp1", "name": "Search PL", "images": [], "tracks": {"total": 8}, "owner": {"id": "u2"}},
+                ]
+            },
+        }
+        with patch("py_modules.rpc_library._spotify_api_request", return_value=search_resp):
+            sres = await rpc_library.search_spotify(fake_plugin, "synthwave", "playlist", 20)
+        self.assertTrue(sres["ok"])
+        self.assertEqual(sres["playlists"][0]["uri"], "spotify:playlist:sp1")
 
 
 if __name__ == "__main__":
