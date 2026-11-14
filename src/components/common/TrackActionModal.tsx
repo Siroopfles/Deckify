@@ -1,4 +1,4 @@
-import { FC } from "react";
+import { FC, useEffect, useRef } from "react";
 import { Focusable } from "@decky/ui";
 import {
   FaPlay,
@@ -51,6 +51,39 @@ export const TrackActionModal: FC<TrackActionModalProps> = ({
   onToggleLike,
   setMode,
 }) => {
+  const modalContainerRef = useRef<HTMLDivElement | null>(null);
+  const pickerContainerRef = useRef<HTMLDivElement | null>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (actionTrack) {
+      if (!previousFocusRef.current) {
+        previousFocusRef.current = document.activeElement as HTMLElement | null;
+      }
+      const rafId = requestAnimationFrame(() => {
+        const container = showAddToPlaylistModal
+          ? pickerContainerRef.current
+          : modalContainerRef.current;
+        const target = container?.querySelector('[tabindex="0"]') as HTMLElement | null;
+        target?.focus?.();
+      });
+      return () => cancelAnimationFrame(rafId);
+    } else if (previousFocusRef.current) {
+      previousFocusRef.current?.focus?.();
+      previousFocusRef.current = null;
+    }
+    return undefined;
+  }, [Boolean(actionTrack), showAddToPlaylistModal]);
+
+  useEffect(() => {
+    return () => {
+      if (previousFocusRef.current) {
+        previousFocusRef.current?.focus?.();
+        previousFocusRef.current = null;
+      }
+    };
+  }, []);
+
   if (!actionTrack) return null;
 
   return (
@@ -58,6 +91,8 @@ export const TrackActionModal: FC<TrackActionModalProps> = ({
       {/* Track Actions Modal */}
       {!showAddToPlaylistModal && (
         <div
+          ref={modalContainerRef}
+          data-testid="track-action-modal"
           style={{
             position: "absolute",
             top: 0,
@@ -102,7 +137,7 @@ export const TrackActionModal: FC<TrackActionModalProps> = ({
               </div>
             </div>
 
-            <InteractiveRow onClick={() => onPlayTrack(actionTrack.uri || "")} style={{ gap: 10 }}>
+            <InteractiveRow tabIndex={0} onClick={() => onPlayTrack(actionTrack.uri || "")} style={{ gap: 10 }}>
               <FaPlay size={12} color="#1db954" />
               <span>Play Track</span>
             </InteractiveRow>
@@ -180,6 +215,8 @@ export const TrackActionModal: FC<TrackActionModalProps> = ({
       {/* Add to Playlist Picker Modal */}
       {showAddToPlaylistModal && (
         <div
+          ref={pickerContainerRef}
+          data-testid="playlist-picker-overlay"
           style={{
             position: "absolute",
             top: 0,
@@ -211,9 +248,10 @@ export const TrackActionModal: FC<TrackActionModalProps> = ({
             <p style={{ fontSize: 12, opacity: 0.6, margin: "0 0 14px 0" }}>Add &apos;{actionTrack.name}&apos; to:</p>
 
             <Focusable flow-children="column" style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 3, marginBottom: 12 }}>
-              {allUserPlaylists.map((pl) => (
+              {allUserPlaylists.map((pl, idx) => (
                 <InteractiveRow
                   key={pl.id}
+                  tabIndex={idx === 0 ? 0 : undefined}
                   onClick={() => onAddTrackToPlaylist(pl.id, pl.name)}
                   style={{ gap: 10 }}
                 >
@@ -228,7 +266,7 @@ export const TrackActionModal: FC<TrackActionModalProps> = ({
               )}
             </Focusable>
 
-            <InteractiveRow onClick={onCloseAddToPlaylist} style={{ justifyContent: "center" }}>
+            <InteractiveRow tabIndex={allUserPlaylists.length === 0 ? 0 : undefined} onClick={onCloseAddToPlaylist} style={{ justifyContent: "center" }}>
               <span>Cancel</span>
             </InteractiveRow>
           </Focusable>
