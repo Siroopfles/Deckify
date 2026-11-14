@@ -1,5 +1,5 @@
 import { FC, useState, useEffect, useCallback } from "react";
-import { Focusable } from "@decky/ui";
+import { Focusable, SliderField, ToggleField } from "@decky/ui";
 import { callable } from "@decky/api";
 import { FaSlidersH, FaClock, FaPowerOff } from "react-icons/fa";
 import { AudioSinkInfo, StatusResponse, SleepTimerStatus } from "../../types";
@@ -714,6 +714,58 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
             {(status?.settings?.gamepad_chords_enabled ?? true) ? "ON" : "OFF"}
           </span>
         </InteractiveRow>
+      </div>
+
+      {/* Controller & Trigger Navigation */}
+      <div style={{ marginBottom: 20, padding: 14, borderRadius: 10, background: "rgba(255,255,255,0.04)" }}>
+        <h3 style={{ fontSize: 14, fontWeight: 700, color: "#1db954", marginBottom: 6 }}>
+          Controller & Trigger Navigation
+        </h3>
+        <ToggleField
+          label="L2/R2 Trigger Navigation"
+          description="Use L2/R2 triggers to seek in Now Playing/Lyrics and jump pages in lists"
+          checked={status?.settings?.trigger_nav_enabled ?? true}
+          onChange={async (val: boolean) => {
+            await backendSetSetting("trigger_nav_enabled", val);
+            showToast(val ? "L2/R2 trigger navigation enabled" : "L2/R2 trigger navigation disabled");
+            refreshStatus();
+          }}
+        />
+        <ToggleField
+          label="Controller Hint Bar"
+          description="Show context-aware controller button hints in the modal footer"
+          checked={status?.settings?.show_controller_hints ?? true}
+          onChange={async (val: boolean) => {
+            await backendSetSetting("show_controller_hints", val);
+            refreshStatus();
+          }}
+        />
+        <SliderField
+          label="Seek Step (Seconds)"
+          min={5}
+          max={30}
+          step={5}
+          showValue
+          value={status?.settings?.trigger_seek_seconds ?? 10}
+          onChange={async (val: number) => {
+            const clamped = Math.min(30, Math.max(5, val));
+            await backendSetSetting("trigger_seek_seconds", clamped);
+            refreshStatus();
+          }}
+        />
+        <SliderField
+          label="Library Page Jump (Items)"
+          min={5}
+          max={50}
+          step={5}
+          showValue
+          value={status?.settings?.trigger_page_size ?? 15}
+          onChange={async (val: number) => {
+            const clamped = Math.min(50, Math.max(5, val));
+            await backendSetSetting("trigger_page_size", clamped);
+            refreshStatus();
+          }}
+        />
       </div>
 
       {/* Steam Menu Position */}

@@ -177,6 +177,10 @@ export interface EngineSettings {
   soundtrack_unbound_policy?: "keep_playing" | "auto_pause";
   soundtrack_default_playlist?: string;
   soundtrack_default_mode?: "remember_position" | "fresh_start";
+  trigger_nav_enabled?: boolean;
+  trigger_seek_seconds?: number;
+  trigger_page_size?: number;
+  show_controller_hints?: boolean;
 }
 
 export type DuckingMode = "proportional" | "fixed";
