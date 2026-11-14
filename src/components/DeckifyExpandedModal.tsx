@@ -16,6 +16,7 @@ import {
   ALL_MODES,
 } from "../types";
 import { parseLrc } from "../utils";
+import { computeListJump } from "../utils/listNavigation";
 import { usePlaybackStatus } from "../hooks/usePlaybackStatus";
 import { useTriggerNavigation } from "../hooks/useTriggerNavigation";
 import { Sidebar } from "./common/Sidebar";
@@ -134,6 +135,7 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
   const actionTrackRef = useRef<TrackItem | null>(null);
   actionTrackRef.current = actionTrack;
   const focusedTrackRef = useRef<TrackItem | null>(null);
+  const contentPaneRef = useRef<HTMLDivElement | null>(null);
   const modeRef = useRef<ViewMode>(mode);
   modeRef.current = mode;
 
@@ -647,9 +649,71 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
             pendingSeekDeltaSecRef.current = 0;
             handleSeekPlayback(targetMs);
           }, 250);
+          return;
         }
+
+        const listModes: ViewMode[] = [
+          "playlists",
+          "liked",
+          "albums",
+          "artists",
+          "recent",
+          "episodes",
+          "search",
+          "queue",
+          "soundtracks",
+        ];
+        if (!listModes.includes(modeRef.current)) return;
+        if (!contentPaneRef.current?.contains(document.activeElement)) return;
+
+        const rows = Array.from(
+          contentPaneRef.current.querySelectorAll('[data-deckify-list-item="true"]')
+        ) as HTMLElement[];
+        if (rows.length === 0) return;
+
+        const labels = rows.map((el) => el.getAttribute("data-deckify-label") || "");
+        const activeEl = document.activeElement as HTMLElement | null;
+        const foundIdx = activeEl
+          ? rows.findIndex((el) => el === activeEl || el.contains(activeEl))
+          : -1;
+        const currentIndex = foundIdx >= 0 ? foundIdx : 0;
+        const sortedAz = Boolean(
+          contentPaneRef.current.querySelector('[data-deckify-sorted="az"]')
+        );
+        const pageSize = Math.min(
+          50,
+          Math.max(5, Number((status?.settings as any)?.trigger_page_size ?? 15))
+        );
+        const direction: -1 | 1 = side === "R2" ? 1 : -1;
+        const result = computeListJump(labels, currentIndex, direction, pageSize, sortedAz);
+        if (!result) return;
+
+        if (
+          result.shouldLoadMore &&
+          modeRef.current === "liked" &&
+          likedTotal > likedTracks.length
+        ) {
+          loadLikedTracks(true);
+        } else {
+          const targetEl = rows[result.targetIndex];
+          if (targetEl) {
+            targetEl.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
+            targetEl.focus?.();
+          }
+        }
+        showPill(result.badge);
       },
-      [triggerNavEnabled, status, track, clock, showPill, handleSeekPlayback]
+      [
+        triggerNavEnabled,
+        status,
+        track,
+        clock,
+        showPill,
+        handleSeekPlayback,
+        likedTotal,
+        likedTracks.length,
+        loadLikedTracks,
+      ]
     ),
     onAction: useCallback(
       (action, e) => {
@@ -800,6 +864,8 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
 
             {/* Right Content Panel */}
             <Focusable
+              ref={contentPaneRef as any}
+              data-testid="content-pane"
               flow-children="column"
               navEntryPreferPosition={NavEntryPositionPreferences.FIRST}
               style={{

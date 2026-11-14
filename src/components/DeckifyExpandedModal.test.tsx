@@ -538,4 +538,94 @@ describe("useTriggerNavigation & DeckifyExpandedModal controller dispatch", () =
     hintBar = findNodes(tree, (n) => n.props?.["data-testid"] === "controller-hint-bar")[0];
     expect(hintBar).toBeUndefined();
   });
+
+  it("enforces contentPaneRef focus guard, jumps list rows with scrollIntoView + focus, and shows position pill", () => {
+    const closeModal = vi.fn();
+    DeckifyExpandedModal({ closeModal });
+
+    // Switch to playlists mode with trigger_page_size = 15
+    stateValues[0] = "playlists";
+    stateValues[1] = {
+      settings: { trigger_nav_enabled: true, trigger_page_size: 15, show_controller_hints: true },
+    };
+
+    stateIdx = 0;
+    refIdx = 0;
+    for (const cleanup of effectCleanups) cleanup();
+    effectCleanups = [];
+    const tree = DeckifyExpandedModal({ closeModal });
+
+    // Locate the contentPaneRef attached to the right-hand Focusable
+    const contentPaneNode = findNodes(tree, (n) => n.props?.["data-testid"] === "content-pane")[0];
+    expect(contentPaneNode).toBeDefined();
+    const contentPaneRefObj = contentPaneNode.props.ref;
+
+    const makeMockRow = (label: string) => ({
+      getAttribute: (attr: string) => (attr === "data-deckify-label" ? label : null),
+      contains: () => false,
+      scrollIntoView: vi.fn(),
+      focus: vi.fn(),
+    });
+
+    const rows = Array.from({ length: 25 }, (_, i) => makeMockRow(`Playlist ${i + 1}`));
+    const activeEl: any = { tagName: "DIV" }; // Sidebar element (not inside contentPane)
+
+    (globalThis as any).document.activeElement = activeEl;
+
+    contentPaneRefObj.current = {
+      contains: (el: any) => rows.includes(el),
+      querySelectorAll: (selector: string) =>
+        selector === '[data-deckify-list-item="true"]' ? rows : [],
+      querySelector: () => null,
+    };
+
+    // 1. Focus in Sidebar -> R2 must NOT jump or show pill
+    downHandler!(8);
+    upHandler!(8);
+    expect(rows[15].scrollIntoView).not.toHaveBeenCalled();
+    expect(rows[15].focus).not.toHaveBeenCalled();
+
+    stateIdx = 0;
+    refIdx = 0;
+    let updatedTree = DeckifyExpandedModal({ closeModal });
+    expect(findNodes(updatedTree, (n) => n.props?.["data-testid"] === "trigger-indicator-pill")[0]).toBeUndefined();
+
+    // 2. Focus on row 0 inside contentPane -> R2 jumps to row 15 and shows "16 / 25"
+    vi.advanceTimersByTime(350);
+    (globalThis as any).document.activeElement = rows[0];
+    downHandler!(8);
+    upHandler!(8);
+    expect(rows[15].scrollIntoView).toHaveBeenCalledWith({ block: "nearest", behavior: "smooth" });
+    expect(rows[15].focus).toHaveBeenCalledTimes(1);
+
+    stateIdx = 0;
+    refIdx = 0;
+    updatedTree = DeckifyExpandedModal({ closeModal });
+    const pill = findNodes(updatedTree, (n) => n.props?.["data-testid"] === "trigger-indicator-pill")[0];
+    expect(pill).toBeDefined();
+    expect(pill.props.children).toBe("16 / 25");
+
+    // 3. Sorted A-Z container -> R2 jumps from Alpha (0) to Beta (2) and shows "B"
+    vi.advanceTimersByTime(350);
+    const azRows = [makeMockRow("Alpha"), makeMockRow("Apex"), makeMockRow("Beta")];
+    contentPaneRefObj.current = {
+      contains: (el: any) => azRows.includes(el),
+      querySelectorAll: (selector: string) =>
+        selector === '[data-deckify-list-item="true"]' ? azRows : [],
+      querySelector: (selector: string) =>
+        selector === '[data-deckify-sorted="az"]' ? {} : null,
+    };
+    (globalThis as any).document.activeElement = azRows[0];
+    downHandler!(8);
+    upHandler!(8);
+    expect(azRows[2].scrollIntoView).toHaveBeenCalledWith({ block: "nearest", behavior: "smooth" });
+    expect(azRows[2].focus).toHaveBeenCalledTimes(1);
+
+    stateIdx = 0;
+    refIdx = 0;
+    updatedTree = DeckifyExpandedModal({ closeModal });
+    const azPill = findNodes(updatedTree, (n) => n.props?.["data-testid"] === "trigger-indicator-pill")[0];
+    expect(azPill).toBeDefined();
+    expect(azPill.props.children).toBe("B");
+  });
 });

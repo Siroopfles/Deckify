@@ -22,6 +22,8 @@ export interface InteractiveRowProps {
   style?: any;
   tabIndex?: number;
   onKeyDown?: (e: any) => void;
+  "data-deckify-list-item"?: string;
+  "data-deckify-label"?: string;
 }
 
 export function formatMs(ms: number): string {
@@ -96,11 +98,15 @@ export function InteractiveRow({
   style,
   tabIndex,
   onKeyDown,
+  "data-deckify-list-item": dataDeckifyListItem,
+  "data-deckify-label": dataDeckifyLabel,
 }: InteractiveRowProps) {
   const [focused, setFocused] = useState(false);
   return (
     <Focusable
       noFocusRing
+      data-deckify-list-item={dataDeckifyListItem}
+      data-deckify-label={dataDeckifyLabel}
       onClick={onClick}
       onActivate={onClick}
       onFocus={() => {
