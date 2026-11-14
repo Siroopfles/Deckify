@@ -405,3 +405,45 @@ async def transfer_playback(plugin, device_id: str) -> dict:
     except Exception as e:
         decky.logger.error("transfer_playback failed: %s", e)
         return {"ok": False, "error": str(e)}
+
+
+async def quick_play_pinned(plugin, uri: str, item_type: str = "playlist") -> dict:
+    """Auto-wake engine if needed and start playback of a pinned playlist, album, or liked songs."""
+    token = await plugin._ensure_token()
+    if not token:
+        return {"ok": False, "error": "Not authenticated"}
+    if not isinstance(uri, str) or not uri.strip():
+        return {"ok": False, "error": "Invalid playlist URI"}
+    uri = uri.strip()
+
+    if not plugin._is_engine_running():
+        await plugin.start_librespot()
+        for _ in range(4):
+            await asyncio.sleep(0.3)
+            dev_res = await get_devices(plugin)
+            if dev_res.get("devices"):
+                break
+
+    if item_type == "liked_songs" or uri in ("spotify:collection:tracks", "deckify:liked_songs"):
+        try:
+            data = await _exec(_spotify_api_request, "me/tracks", token, "GET", {"limit": 50})
+        except urllib.error.HTTPError as e:
+            return {"ok": False, "error": _parse_spotify_error(e)}
+        except Exception as e:
+            decky.logger.error("quick_play_pinned liked_songs fetch failed: %s", e)
+            return {"ok": False, "error": str(e)}
+        track_uris = [
+            item["track"]["uri"]
+            for item in (data.get("items") or [])
+            if isinstance(item, dict) and isinstance(item.get("track"), dict) and item["track"].get("uri")
+        ]
+        if not track_uris:
+            return {"ok": False, "error": "No liked songs found"}
+        res = await play_tracks(plugin, uris=track_uris)
+    else:
+        res = await play_tracks(plugin, context_uri=uri)
+
+    if res.get("ok"):
+        plugin._poll_play_state = "playing"
+        plugin._context_uri = uri
+    return res
