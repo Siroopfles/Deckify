@@ -326,11 +326,22 @@ export const PlaylistsTab: FC<PlaylistsTabProps> = ({
             flow-children="horizontal"
             style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 16 }}
           >
-            <InteractiveRow onClick={onClosePlaylist} style={{ padding: "6px 12px", fontSize: 12 }}>
+            <InteractiveRow onClick={onClosePlaylist} style={{ padding: "6px 12px", fontSize: 12, flexShrink: 0 }}>
               ← Back (B)
             </InteractiveRow>
-            <div>
-              <h2 style={{ fontSize: 20, fontWeight: 800, margin: 0 }}>{activePlaylist.name}</h2>
+            <div style={{ flex: 1, minWidth: 0, overflow: "hidden" }}>
+              <h2
+                style={{
+                  fontSize: 20,
+                  fontWeight: 800,
+                  margin: 0,
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                }}
+              >
+                {activePlaylist.name}
+              </h2>
               <span style={{ fontSize: 12, opacity: 0.6 }}>{playlistTracks.length} tracks (Fully loaded)</span>
             </div>
 
@@ -344,6 +355,7 @@ export const PlaylistsTab: FC<PlaylistsTabProps> = ({
                 padding: "8px 16px",
                 borderRadius: 20,
                 gap: 8,
+                flexShrink: 0,
               }}
             >
               <FaPlay size={11} /> Play
@@ -363,6 +375,7 @@ export const PlaylistsTab: FC<PlaylistsTabProps> = ({
                 padding: "8px 12px",
                 borderRadius: 20,
                 gap: 6,
+                flexShrink: 0,
                 background: pinnedUris?.has(activePlaylist.uri)
                   ? "rgba(29, 185, 84, 0.16)"
                   : "rgba(255,255,255,0.08)",
@@ -382,6 +395,7 @@ export const PlaylistsTab: FC<PlaylistsTabProps> = ({
                   padding: "8px 14px",
                   borderRadius: 20,
                   gap: 8,
+                  flexShrink: 0,
                 }}
               >
                 <FaMagic size={11} /> {mixingBusy ? "Processing..." : activePlaylist.is_mixed ? "Mix Active" : "Enable Mix"}
