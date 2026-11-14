@@ -17,6 +17,7 @@ import {
 } from "../types";
 import { parseLrc } from "../utils";
 import { usePlaybackStatus } from "../hooks/usePlaybackStatus";
+import { useTriggerNavigation } from "../hooks/useTriggerNavigation";
 import { Sidebar } from "./common/Sidebar";
 import { TrackActionModal } from "./common/TrackActionModal";
 
@@ -582,68 +583,57 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
     handleSelectMode(ALL_MODES[nextIdx]);
   }, [handleSelectMode]);
 
-  // Gamepad & Keyboard Listeners
-  useEffect(() => {
-    const handleGamepadAction = (btn: any, e?: any) => {
-      const activeTag = (document.activeElement as HTMLElement)?.tagName?.toUpperCase();
-      if (activeTag === "INPUT" || activeTag === "TEXTAREA") return;
-
-      const isL1 = btn === "L1" || btn === "LB" || btn === 5 || btn === "BUMPER_LEFT" || btn === "BUTTON_LEFT_BUMPER";
-      const isR1 = btn === "R1" || btn === "RB" || btn === 6 || btn === "BUMPER_RIGHT" || btn === "BUTTON_RIGHT_BUMPER";
-      const button = (btn === "Y" || btn === "y" || btn === 4 || btn === "OPTIONS" || btn === "BUTTON_Y")
-        ? "Y"
-        : (btn === "X" || btn === "x" || btn === 3 || btn === "SECONDARY" || btn === "BUTTON_X")
-        ? "X"
-        : btn;
-
-      if (isL1) cycleMode(-1);
-      else if (isR1) cycleMode(1);
-      else if (button === "Y") { // Gamepad Y button opens action menu
-        if (modeRef.current !== "engine" && modeRef.current !== "devices") {
-          const candidate = focusedTrackRef.current || (modeRef.current === "now_playing" ? (track as any) : null);
-          if (candidate && (candidate.id || candidate.track_id || candidate.uri)) {
-            if (e) { e.preventDefault?.(); e.stopPropagation?.(); }
-            setActionTrack(candidate);
+  // Modal-scoped Gamepad, Analog Trigger & Keyboard Navigation
+  const triggerNavEnabled = (status?.settings as any)?.trigger_nav_enabled !== false;
+  useTriggerNavigation({
+    enabled: true,
+    suppressed: Boolean(actionTrack || showAddToPlaylistModal),
+    onTrigger: useCallback(
+      (_side) => {
+        if (!triggerNavEnabled) return;
+        // Plan 08-02 will wire L2/R2 seek and library fast-paging here
+      },
+      [triggerNavEnabled]
+    ),
+    onAction: useCallback(
+      (action, e) => {
+        if (action === "L1") {
+          cycleMode(-1);
+        } else if (action === "R1") {
+          cycleMode(1);
+        } else if (action === "Y") { // Gamepad Y button opens action menu
+          if (modeRef.current !== "engine" && modeRef.current !== "devices") {
+            const isActiveTrackMode =
+              modeRef.current === "now_playing" || modeRef.current === "lyrics";
+            const candidate =
+              focusedTrackRef.current || (isActiveTrackMode ? (track as any) : null);
+            if (candidate && (candidate.id || candidate.track_id || candidate.uri)) {
+              if (e) {
+                e.preventDefault?.();
+                e.stopPropagation?.();
+              }
+              setActionTrack(candidate);
+            }
+          }
+        } else if (action === "X") { // Gamepad X button toggles track like status
+          if (modeRef.current !== "engine" && modeRef.current !== "devices") {
+            const isActiveTrackMode =
+              modeRef.current === "now_playing" || modeRef.current === "lyrics";
+            const t = (focusedTrackRef.current ||
+              (isActiveTrackMode ? track : null)) as any;
+            if (t?.id || t?.track_id) {
+              if (e) {
+                e.preventDefault?.();
+                e.stopPropagation?.();
+              }
+              handleToggleLike(t.id || t.track_id);
+            }
           }
         }
-      } else if (button === "X") { // Gamepad X button toggles track like status
-        if (modeRef.current !== "engine" && modeRef.current !== "devices") {
-          const t = (focusedTrackRef.current || (modeRef.current === "now_playing" ? track : null)) as any;
-          if (t?.id || t?.track_id) {
-            if (e) { e.preventDefault?.(); e.stopPropagation?.(); }
-            handleToggleLike(t.id || t.track_id);
-          }
-        }
-      }
-    };
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const activeTag = (document.activeElement as HTMLElement)?.tagName?.toUpperCase();
-      if (activeTag === "INPUT" || activeTag === "TEXTAREA") return;
-
-      if (e.key === "PageUp" || e.key === "[" || (e as any).code === "GamepadBumperLeft") {
-        cycleMode(-1);
-      } else if (e.key === "PageDown" || e.key === "]" || (e as any).code === "GamepadBumperRight") {
-        cycleMode(1);
-      } else if (e.key === "y" || e.key === "Y") {
-        handleGamepadAction("Y", e);
-      } else if (e.key === "x" || e.key === "X") {
-        handleGamepadAction("X", e);
-      }
-    };
-
-    const handleVgpButton = (e: any) => {
-      const btn = e.detail?.button ?? e.detail ?? e.button;
-      handleGamepadAction(btn, e);
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    window.addEventListener("vgp_onbuttondown", handleVgpButton);
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-      window.removeEventListener("vgp_onbuttondown", handleVgpButton);
-    };
-  }, [track, handleToggleLike, cycleMode]);
+      },
+      [track, handleToggleLike, cycleMode]
+    ),
+  });
 
   // Breadcrumb B navigation handler
   const attachNav = useCallback((el: HTMLDivElement | null) => {
