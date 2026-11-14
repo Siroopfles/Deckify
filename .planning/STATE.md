@@ -4,16 +4,16 @@ milestone: v0.5
 current_phase: 08
 current_phase_name: Controller L2/R2 Ergonomics & Trigger Navigation
 status: executing
-stopped_at: Phase 8 UI-SPEC approved
-last_updated: "2026-11-14T20:49:56.857Z"
+stopped_at: Completed 08-01-PLAN.md
+last_updated: "2026-11-14T20:58:12.676Z"
 last_activity: 2026-11-14
-last_activity_desc: Phase 07 complete, transitioned to Phase 8
-state_head: 3099c3129a1d9a32c705fed1e2cab057e1823dc1
+last_activity_desc: Phase 08 execution started
+state_head: 45b6070829f048e60bf14f25ae674a197ae0b913
 progress:
   total_phases: 6
   completed_phases: 2
   total_plans: 8
-  completed_plans: 5
+  completed_plans: 6
 ---
 
 # Project State
@@ -23,14 +23,14 @@ progress:
 See: [.planning/PROJECT.md](file:///C:/Users/djdje/Deckify/.planning/PROJECT.md) (updated 2026-11-12)
 
 **Core value:** Rock-solid Spotify playback and responsive, reliable controller navigation on Steam Deck without UI lag, broken images, or desynchronized playback states.
-**Current focus:** Phase 07 — Game-Specific Soundtracks (appId Linking & Lifecycle Automation)
+**Current focus:** Phase 08 — Controller L2/R2 Ergonomics & Trigger Navigation
 
 ## Current Position
 
-Phase: 08 (Controller L2/R2 Ergonomics & Trigger Navigation) — READY TO EXECUTE
-Plan: Not started
+Phase: 08 (Controller L2/R2 Ergonomics & Trigger Navigation) — EXECUTING
+Plan: 2 of 3
 Status: Ready to execute
-Last activity: 2026-11-14 — Phase 07 complete, transitioned to Phase 8
+Last activity: 2026-11-14 — Phase 08 execution started
 
 Progress: [███░░░░░░░] 33% (Phase 06 complete, Phase 07 planned)
 
@@ -65,6 +65,7 @@ Progress: [███░░░░░░░] 33% (Phase 06 complete, Phase 07 plan
 | Phase 07 P01 | 12min | 4 tasks | 7 files |
 | Phase 07 P02 | 10min | 4 tasks | 10 files |
 | Phase 07 P03 | 7min | 3 tasks | 13 files |
+| Phase 08 P01 | 6min | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -85,6 +86,7 @@ Recent decisions affecting current work:
 - [Phase 06]: VoiceActivityDetector monitors pactl source-outputs with 1.2s silence hold hysteresis window.
 - [Phase 06]: Interactive Smooth Audio Ducking Engine card in SettingsTab with attenuation mode and duration pills.
 - [Phase 07]: SoundtracksTab debounces profile saves by 500ms and PlaylistPickerModal debounces Spotify search by 300ms
+- [Phase 08]: useTriggerNavigation uses refs for callbacks/suppression so FocusNavController and rAF bind once on modal mount and clean up strictly on unmount
 
 ### Pending Todos
 
@@ -107,6 +109,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-14T20:37:59.276Z
-Stopped at: Phase 8 UI-SPEC approved
-Resume file: C:/Users/djdje/Deckify/.planning/phases/08-controller-l2-r2-ergonomics-trigger-navigation/08-UI-SPEC.md
+Last session: 2026-11-14T20:58:12.024Z
+Stopped at: Completed 08-01-PLAN.md
+Resume file: None
