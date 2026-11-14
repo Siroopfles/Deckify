@@ -1,12 +1,16 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-const { mockToast, mockScrubTo } = vi.hoisted(() => ({
+const { mockToast, mockScrubTo, mockToggleLike } = vi.hoisted(() => ({
   mockToast: vi.fn(),
   mockScrubTo: vi.fn(),
+  mockToggleLike: vi.fn().mockResolvedValue({ ok: true, is_liked: true }),
 }));
 
 vi.mock("@decky/api", () => ({
-  callable: () => vi.fn().mockResolvedValue({ ok: true }),
+  callable: (name: string) => {
+    if (name === "toggle_like") return mockToggleLike;
+    return vi.fn().mockResolvedValue({ ok: true });
+  },
   toaster: { toast: mockToast },
 }));
 
@@ -99,7 +103,8 @@ vi.mock("react", () => ({
   },
 }));
 
-import { DeckifyExpandedModal } from "./DeckifyExpandedModal";
+import { Focusable } from "@decky/ui";
+import { DeckifyExpandedModal, SEEK_ACCUMULATION_WINDOW_MS } from "./DeckifyExpandedModal";
 import { useTriggerNavigation } from "../hooks/useTriggerNavigation";
 
 function findNodes(tree: any, predicate: (node: any) => boolean, results: any[] = []): any[] {
@@ -403,7 +408,8 @@ describe("useTriggerNavigation & DeckifyExpandedModal controller dispatch", () =
     expect(() => downHandler!(3)).not.toThrow();
   });
 
-  it("accumulates 250ms R2 seeks (+10s + +10s = +20s), clamps to [0, duration_ms - 1000], and renders floating pill", () => {
+  it("accumulates 600ms R2 seeks across consecutive 350ms pulls (+10s + +10s = +20s), clamps to [0, duration_ms - 1000], and renders floating pill", () => {
+    expect(SEEK_ACCUMULATION_WINDOW_MS).toBe(600);
     const closeModal = vi.fn();
     // First render to populate stateValues[0] (mode) and stateValues[1] (status)
     DeckifyExpandedModal({ closeModal });
@@ -438,8 +444,12 @@ describe("useTriggerNavigation & DeckifyExpandedModal controller dispatch", () =
     expect(pill).toBeDefined();
     expect(pill.props.children).toBe("+10s");
 
-    // Second R2 pull within 250ms (+20s -> 45000ms)
-    vi.advanceTimersByTime(100);
+    // Advance 350ms (past TRIGGER_DEBOUNCE_MS = 300, still inside SEEK_ACCUMULATION_WINDOW_MS = 600)
+    mockScrubTo.mockClear();
+    vi.advanceTimersByTime(350);
+    expect(mockScrubTo).not.toHaveBeenCalled();
+
+    // Second R2 pull at 350ms (+20s -> 45000ms)
     downHandler!(8);
     upHandler!(8);
     expect(mockScrubTo).toHaveBeenCalledWith(45000);
@@ -450,9 +460,9 @@ describe("useTriggerNavigation & DeckifyExpandedModal controller dispatch", () =
     pill = findNodes(tree, (n) => n.props?.["data-testid"] === "trigger-indicator-pill")[0];
     expect(pill.props.children).toBe("+20s");
 
-    // After 250ms debounce, handleSeekPlayback commits 45000ms once
+    // After 600ms debounce, handleSeekPlayback commits 45000ms once
     mockScrubTo.mockClear();
-    vi.advanceTimersByTime(250);
+    vi.advanceTimersByTime(600);
     expect(mockScrubTo).toHaveBeenCalledTimes(1);
     expect(mockScrubTo).toHaveBeenCalledWith(45000);
 
@@ -479,7 +489,7 @@ describe("useTriggerNavigation & DeckifyExpandedModal controller dispatch", () =
     downHandler!(8);
     upHandler!(8);
     expect(mockScrubTo).toHaveBeenLastCalledWith(29000);
-    vi.advanceTimersByTime(250);
+    vi.advanceTimersByTime(600);
     expect(mockScrubTo).toHaveBeenLastCalledWith(29000);
 
     // Boundary clamping: L2 below 0 clamps to 0ms
@@ -497,7 +507,7 @@ describe("useTriggerNavigation & DeckifyExpandedModal controller dispatch", () =
     downHandler!(7);
     upHandler!(7);
     expect(mockScrubTo).toHaveBeenLastCalledWith(0);
-    vi.advanceTimersByTime(250);
+    vi.advanceTimersByTime(600);
     expect(mockScrubTo).toHaveBeenLastCalledWith(0);
   });
 
@@ -555,9 +565,11 @@ describe("useTriggerNavigation & DeckifyExpandedModal controller dispatch", () =
     effectCleanups = [];
     const tree = DeckifyExpandedModal({ closeModal });
 
-    // Locate the contentPaneRef attached to the right-hand Focusable
+    // Locate the contentPaneRef attached to the native div wrapping Focusable
     const contentPaneNode = findNodes(tree, (n) => n.props?.["data-testid"] === "content-pane")[0];
     expect(contentPaneNode).toBeDefined();
+    expect(contentPaneNode.type).toBe("div");
+    expect(contentPaneNode.props.children?.type).toBe(Focusable);
     const contentPaneRefObj = contentPaneNode.props.ref;
 
     const makeMockRow = (label: string) => ({
@@ -627,5 +639,38 @@ describe("useTriggerNavigation & DeckifyExpandedModal controller dispatch", () =
     const azPill = findNodes(updatedTree, (n) => n.props?.["data-testid"] === "trigger-indicator-pill")[0];
     expect(azPill).toBeDefined();
     expect(azPill.props.children).toBe("B");
+  });
+
+  it("shows error toast when handleToggleLike fails with 403 Forbidden", async () => {
+    const closeModal = vi.fn();
+    DeckifyExpandedModal({ closeModal });
+    stateValues[0] = "now_playing";
+    stateValues[1] = {
+      is_playing: true,
+      track: { id: "trk-403", name: "Song", artist: "Artist", duration_ms: 60000 },
+      settings: { trigger_nav_enabled: true },
+    };
+
+    stateIdx = 0;
+    refIdx = 0;
+    for (const cleanup of effectCleanups) cleanup();
+    effectCleanups = [];
+    DeckifyExpandedModal({ closeModal });
+
+    const errMsg = "Spotify rejected library access (403 Forbidden). Re-authenticate in Settings or check Spotify Developer Mode allowlist.";
+    mockToggleLike.mockResolvedValueOnce({
+      ok: false,
+      error: errMsg,
+    });
+
+    downHandler!(3); // X button triggers handleToggleLike
+    await Promise.resolve();
+    await Promise.resolve();
+
+    stateIdx = 0;
+    refIdx = 0;
+    const tree = DeckifyExpandedModal({ closeModal });
+    const toastNodes = findNodes(tree, (n) => n.props?.children === errMsg);
+    expect(toastNodes.length).toBe(1);
   });
 });

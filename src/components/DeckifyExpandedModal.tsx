@@ -43,6 +43,8 @@ export { InteractiveRow } from "./common/InteractiveRow";
 
 const ModalRootAny = ModalRoot as any;
 
+export const SEEK_ACCUMULATION_WINDOW_MS = 600;
+
 const FULL_BLEED = {
   width: "96vw",
   marginLeft: "calc((100% - 96vw) / 2)",
@@ -395,10 +397,16 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
   const handleToggleLike = useCallback(async (trackId?: string) => {
     const tid = trackId || (status?.track_meta || status?.track)?.track_id || (status?.track_meta || status?.track)?.id;
     if (!tid) return;
-    const res = await backendToggleLike(tid, null);
-    if (res.ok) {
-      showToast(res.is_liked ? "Added to Liked Songs" : "Removed from Liked Songs");
-      refreshStatus();
+    try {
+      const res = await backendToggleLike(tid, null);
+      if (res?.ok) {
+        showToast(res.is_liked ? "Added to Liked Songs" : "Removed from Liked Songs");
+        refreshStatus();
+      } else {
+        showToast(res?.error || "Failed to update Liked Songs");
+      }
+    } catch {
+      showToast("Failed to update Liked Songs");
     }
   }, [status, showToast, refreshStatus]);
 
@@ -648,7 +656,7 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
             seekDebounceTimerRef.current = null;
             pendingSeekDeltaSecRef.current = 0;
             handleSeekPlayback(targetMs);
-          }, 250);
+          }, SEEK_ACCUMULATION_WINDOW_MS);
           return;
         }
 
@@ -863,20 +871,24 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
             />
 
             {/* Right Content Panel */}
-            <Focusable
-              ref={contentPaneRef as any}
+            <div
+              ref={contentPaneRef}
               data-testid="content-pane"
-              flow-children="column"
-              navEntryPreferPosition={NavEntryPositionPreferences.FIRST}
-              style={{
-                flex: 1,
-                minWidth: 0,
-                padding: "20px 28px",
-                display: "flex",
-                flexDirection: "column",
-                overflowY: "auto",
-              }}
+              style={{ flex: 1, minWidth: 0, minHeight: 0, display: "flex" }}
             >
+              <Focusable
+                data-testid="content-pane-focusable"
+                flow-children="column"
+                navEntryPreferPosition={NavEntryPositionPreferences.FIRST}
+                style={{
+                  flex: 1,
+                  minWidth: 0,
+                  padding: "20px 28px",
+                  display: "flex",
+                  flexDirection: "column",
+                  overflowY: "auto",
+                }}
+              >
               {mode === "now_playing" && (
                 <NowPlayingTab
                   status={status}
@@ -1033,7 +1045,8 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
                   showToast={showToast}
                 />
               )}
-            </Focusable>
+              </Focusable>
+            </div>
           </Focusable>
 
           {/* Context-Aware Controller Hint Bar */}
