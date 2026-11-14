@@ -41,6 +41,8 @@ import {
   FaRegHeart,
   FaPlus,
   FaCompactDisc,
+  FaChevronDown,
+  FaChevronRight,
 } from "react-icons/fa";
 import { QRCodeSVG } from "qrcode.react";
 import type {
@@ -115,6 +117,7 @@ const Content: FC = () => {
   const [activeGameAppId, setActiveGameAppId] = useState<number | null>(currentRunningAppId);
   const [contextUri, setContextUri] = useState<string | null>(null);
   const [optimisticContextUri, setOptimisticContextUri] = useState<string | null>(null);
+  const [controlsExpanded, setControlsExpanded] = useState<boolean>(false);
   const [settings, setSettings] = useState<EngineSettings>({
     audio_backend: "librespot",
     audio_quality: "320",
@@ -352,33 +355,140 @@ const Content: FC = () => {
   const durationSec = Math.floor(durationMs / 1000);
   const positionSec = Math.floor(positionMs / 1000);
 
+  const renderOpenFullScreenButton = () => (
+    <PanelSectionRow>
+      <ButtonItem onClick={openExpandedView}>
+        Open Deckify (Full Screen)
+      </ButtonItem>
+    </PanelSectionRow>
+  );
+
+  const renderEngineToggle = () => (
+    <PanelSectionRow>
+      <ToggleField
+        label={activeBackend === "spotify_client" ? "Spotify Client" : "librespot Engine"}
+        description={
+          running
+            ? `Running${audioStreamInfo?.format_label ? ` · ${audioStreamInfo.format_label}` : ""}`
+            : "Stopped"
+        }
+        checked={running}
+        disabled={toggling}
+        onChange={handleToggleEngine}
+      />
+    </PanelSectionRow>
+  );
+
+  const renderBindButton = () =>
+    activeGameAppId !== null ? (
+      <PanelSectionRow>
+        <ButtonItem onClick={handleQuickBind}>
+          <span
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 8,
+              color: "#1db954",
+              fontSize: 12,
+              fontWeight: 700,
+            }}
+          >
+            <FaPlus />
+            <span>Bind current music to game</span>
+          </span>
+        </ButtonItem>
+      </PanelSectionRow>
+    ) : null;
+
+  const renderDeviceDropdown = () =>
+    devices.length > 0 ? (
+      <PanelSectionRow>
+        <DropdownItem
+          label="Playback Device"
+          rgOptions={devices.map((d) => ({
+            data: d.id,
+            label: `${d.name}${d.is_active ? " (Active)" : ""}`,
+          }))}
+          selectedOption={activeDeviceId || devices.find((d) => d.is_active)?.id || devices[0]?.id}
+          onChange={handleTransfer}
+        />
+      </PanelSectionRow>
+    ) : null;
+
+  const renderOverlayControls = () => (
+    <>
+      <PanelSectionRow>
+        <ToggleField
+          label="In-Game Overlay (HUD)"
+          description={settings.overlay_enabled ? "Visible during gameplay" : "Disabled"}
+          checked={Boolean(settings.overlay_enabled)}
+          onChange={async (val) => {
+            setSettings((prev) => ({ ...prev, overlay_enabled: val }));
+            await backendSetSetting("overlay_enabled", val);
+          }}
+        />
+      </PanelSectionRow>
+
+      {settings.overlay_enabled && (
+        <>
+          <PanelSectionRow>
+            <DropdownItem
+              label="Overlay Position"
+              rgOptions={[
+                { data: "top-left", label: "Top Left" },
+                { data: "top-right", label: "Top Right" },
+                { data: "bottom-left", label: "Bottom Left" },
+                { data: "bottom-right", label: "Bottom Right" },
+              ]}
+              selectedOption={settings.overlay_position || "top-right"}
+              onChange={async (opt) => {
+                setSettings((prev) => ({
+                  ...prev,
+                  overlay_position: opt.data,
+                }));
+                await backendSetSetting("overlay_position", opt.data);
+              }}
+            />
+          </PanelSectionRow>
+
+          <PanelSectionRow>
+            <ToggleField
+              label="Auto-Hide Overlay (6s)"
+              description="Fades out 6s after track starts or resumes"
+              checked={Boolean(settings.overlay_autohide)}
+              onChange={async (val) => {
+                setSettings((prev) => ({
+                  ...prev,
+                  overlay_autohide: val,
+                }));
+                await backendSetSetting("overlay_autohide", val);
+              }}
+            />
+          </PanelSectionRow>
+
+          <PanelSectionRow>
+            <ToggleField
+              label="Show Progress Bar"
+              description="2px progress line at bottom of overlay"
+              checked={Boolean(settings.overlay_show_progress)}
+              onChange={async (val) => {
+                setSettings((prev) => ({
+                  ...prev,
+                  overlay_show_progress: val,
+                }));
+                await backendSetSetting("overlay_show_progress", val);
+              }}
+            />
+          </PanelSectionRow>
+        </>
+      )}
+    </>
+  );
+
   return (
     <>
       <PanelSection title="Deckify">
-        {/* Prominent Open Deckify button */}
-        <PanelSectionRow>
-          <ButtonItem
-            onClick={openExpandedView}
-          >
-            Open Deckify (Full Screen)
-          </ButtonItem>
-        </PanelSectionRow>
-
-        {/* Engine Toggle & live audio format badge */}
-        <PanelSectionRow>
-          <ToggleField
-            label={activeBackend === "spotify_client" ? "Spotify Client" : "librespot Engine"}
-            description={
-              running
-                ? `Running${audioStreamInfo?.format_label ? ` · ${audioStreamInfo.format_label}` : ""}`
-                : "Stopped"
-            }
-            checked={running}
-            disabled={toggling}
-            onChange={handleToggleEngine}
-          />
-        </PanelSectionRow>
-
         {error && (
           <PanelSectionRow>
             <Field label="Error">
@@ -405,7 +515,7 @@ const Content: FC = () => {
           </PanelSectionRow>
         )}
 
-        {/* Compact Mini-Player */}
+        {/* Primary Top Zone: Compact Mini-Player */}
         {trackMeta?.name && (
           <>
             <PanelSectionRow>
@@ -519,101 +629,81 @@ const Content: FC = () => {
                 </DialogButton>
               </Focusable>
             </PanelSectionRow>
+          </>
+        )}
 
-            {pinnedPlaylists.length > 0 && (
-              <PanelSectionRow>
-                <Focusable
-                  flow-children="horizontal"
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 8,
-                    overflowX: "auto",
-                    padding: "4px 0",
-                    width: "100%",
-                  }}
-                >
-                  {pinnedPlaylists.map((pill) => {
-                    const isActive = activeContextUri === pill.uri;
-                    const fallbackIcon =
-                      pill.type === "liked_songs" ? (
-                        <FaHeart size={12} color="#1db954" />
-                      ) : pill.type === "album" ? (
-                        <FaCompactDisc size={12} color="rgba(255,255,255,0.6)" />
-                      ) : (
-                        <FaMusic size={12} color="rgba(255,255,255,0.6)" />
-                      );
-                    return (
-                      <DialogButton
-                        key={pill.uri}
-                        onClick={() => handleQuickPlayPinned(pill)}
-                        style={{
-                          minHeight: 36,
-                          maxWidth: 140,
-                          minWidth: "auto",
-                          padding: "4px 8px",
-                          borderRadius: 16,
-                          gap: 8,
-                          display: "inline-flex",
-                          alignItems: "center",
-                          flexShrink: 0,
-                          border: isActive ? "1px solid #1db954" : "1px solid rgba(255,255,255,0.12)",
-                          background: isActive ? "rgba(29, 185, 84, 0.16)" : "rgba(255, 255, 255, 0.08)",
-                          color: isActive ? "#1db954" : "#fff",
-                        }}
-                      >
-                        <DeckifyImage
-                          src={pill.image_url}
-                          width={20}
-                          height={20}
-                          style={{ borderRadius: 4, flexShrink: 0 }}
-                          fallback={fallbackIcon}
-                        />
-                        <span
-                          style={{
-                            fontSize: 12,
-                            fontWeight: 700,
-                            lineHeight: 1.2,
-                            whiteSpace: "nowrap",
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                          }}
-                        >
-                          {pill.name}
-                        </span>
-                      </DialogButton>
-                    );
-                  })}
-                </Focusable>
-              </PanelSectionRow>
-            )}
-
-            {activeGameAppId !== null && (
-              <PanelSectionRow>
-                <Focusable style={{ display: "flex", width: "100%" }} flow-children="horizontal">
+        {/* Pinned Playlist Pills Strip (directly below Transport Controls; hidden when 0 pinned) */}
+        {pinnedPlaylists.length > 0 && (
+          <PanelSectionRow>
+            <Focusable
+              flow-children="horizontal"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                overflowX: "auto",
+                padding: "4px 0",
+                width: "100%",
+              }}
+            >
+              {pinnedPlaylists.map((pill) => {
+                const isActive = activeContextUri === pill.uri;
+                const fallbackIcon =
+                  pill.type === "liked_songs" ? (
+                    <FaHeart size={12} color="#1db954" />
+                  ) : pill.type === "album" ? (
+                    <FaCompactDisc size={12} color="rgba(255,255,255,0.6)" />
+                  ) : (
+                    <FaMusic size={12} color="rgba(255,255,255,0.6)" />
+                  );
+                return (
                   <DialogButton
+                    key={pill.uri}
+                    onClick={() => handleQuickPlayPinned(pill)}
                     style={{
-                      width: "100%",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
+                      minHeight: 36,
+                      maxWidth: 140,
+                      minWidth: "auto",
+                      padding: "4px 8px",
+                      borderRadius: 16,
                       gap: 8,
-                      background: "rgba(29, 185, 84, 0.15)",
-                      borderColor: "#1db954",
-                      color: "#1db954",
-                      fontSize: 12,
-                      fontWeight: 700,
-                      padding: "8px 12px",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      flexShrink: 0,
+                      border: isActive ? "1px solid #1db954" : "1px solid rgba(255,255,255,0.12)",
+                      background: isActive ? "rgba(29, 185, 84, 0.16)" : "rgba(255, 255, 255, 0.08)",
+                      color: isActive ? "#1db954" : "#fff",
                     }}
-                    onClick={handleQuickBind}
                   >
-                    <FaPlus />
-                    <span>Bind current music to game</span>
+                    <DeckifyImage
+                      src={pill.image_url}
+                      width={20}
+                      height={20}
+                      style={{ borderRadius: 4, flexShrink: 0 }}
+                      fallback={fallbackIcon}
+                    />
+                    <span
+                      style={{
+                        fontSize: 12,
+                        fontWeight: 700,
+                        lineHeight: 1.2,
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                      }}
+                    >
+                      {pill.name}
+                    </span>
                   </DialogButton>
-                </Focusable>
-              </PanelSectionRow>
-            )}
+                );
+              })}
+            </Focusable>
+          </PanelSectionRow>
+        )}
 
+        {/* Secondary Zone */}
+        {trackMeta?.name ? (
+          <>
             {/* Volume slider */}
             <PanelSectionRow>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", marginBottom: 4 }}>
@@ -646,91 +736,42 @@ const Content: FC = () => {
               />
             </PanelSectionRow>
 
-            {/* Device switcher */}
-            {devices.length > 0 && (
-              <PanelSectionRow>
-                <DropdownItem
-                  label="Playback Device"
-                  rgOptions={devices.map((d) => ({
-                    data: d.id,
-                    label: `${d.name}${d.is_active ? " (Active)" : ""}`,
-                  }))}
-                  selectedOption={activeDeviceId || devices.find((d) => d.is_active)?.id || devices[0]?.id}
-                  onChange={handleTransfer}
-                />
-              </PanelSectionRow>
-            )}
+            {renderBindButton()}
 
-            {/* In-Game Mini Overlay (HUD) Quick Controls */}
+            {/* Collapsible Controls & Settings */}
             <PanelSectionRow>
-              <ToggleField
-                label="In-Game Overlay (HUD)"
-                description={
-                  settings.overlay_enabled
-                    ? "Visible during gameplay"
-                    : "Disabled"
-                }
-                checked={Boolean(settings.overlay_enabled)}
-                onChange={async (val) => {
-                  setSettings((prev) => ({ ...prev, overlay_enabled: val }));
-                  await backendSetSetting("overlay_enabled", val);
-                }}
-              />
+              <ButtonItem onClick={() => setControlsExpanded((prev) => !prev)}>
+                <span
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 8,
+                    fontSize: 12,
+                    fontWeight: 700,
+                  }}
+                >
+                  {controlsExpanded ? <FaChevronDown size={11} /> : <FaChevronRight size={11} />}
+                  <span>Controls &amp; Settings</span>
+                </span>
+              </ButtonItem>
             </PanelSectionRow>
 
-            {settings.overlay_enabled && (
+            {controlsExpanded && (
               <>
-                <PanelSectionRow>
-                  <DropdownItem
-                    label="Overlay Position"
-                    rgOptions={[
-                      { data: "top-left", label: "Top Left" },
-                      { data: "top-right", label: "Top Right" },
-                      { data: "bottom-left", label: "Bottom Left" },
-                      { data: "bottom-right", label: "Bottom Right" },
-                    ]}
-                    selectedOption={settings.overlay_position || "top-right"}
-                    onChange={async (opt) => {
-                      setSettings((prev) => ({
-                        ...prev,
-                        overlay_position: opt.data,
-                      }));
-                      await backendSetSetting("overlay_position", opt.data);
-                    }}
-                  />
-                </PanelSectionRow>
-
-                <PanelSectionRow>
-                  <ToggleField
-                    label="Auto-Hide Overlay (6s)"
-                    description="Fades out 6s after track starts or resumes"
-                    checked={Boolean(settings.overlay_autohide)}
-                    onChange={async (val) => {
-                      setSettings((prev) => ({
-                        ...prev,
-                        overlay_autohide: val,
-                      }));
-                      await backendSetSetting("overlay_autohide", val);
-                    }}
-                  />
-                </PanelSectionRow>
-
-                <PanelSectionRow>
-                  <ToggleField
-                    label="Show Progress Bar"
-                    description="2px progress line at bottom of overlay"
-                    checked={Boolean(settings.overlay_show_progress)}
-                    onChange={async (val) => {
-                      setSettings((prev) => ({
-                        ...prev,
-                        overlay_show_progress: val,
-                      }));
-                      await backendSetSetting("overlay_show_progress", val);
-                    }}
-                  />
-                </PanelSectionRow>
+                {renderDeviceDropdown()}
+                {renderOverlayControls()}
+                {renderEngineToggle()}
+                {renderOpenFullScreenButton()}
               </>
             )}
+          </>
+        ) : (
+          <>
+            {renderOpenFullScreenButton()}
+            {renderEngineToggle()}
+            {renderBindButton()}
+            {renderDeviceDropdown()}
+            {renderOverlayControls()}
           </>
         )}
       </PanelSection>

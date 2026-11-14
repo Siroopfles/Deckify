@@ -3,6 +3,12 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const mockHandleAppLifetimeEvent = vi.fn().mockResolvedValue({ ok: true });
 const mockTriggerDucking = vi.fn().mockResolvedValue({ ok: true });
 const mockRegisterForAppLifetime = vi.fn().mockReturnValue({ unregister: vi.fn() });
+const mockGetStatus = vi.fn().mockResolvedValue(null);
+const mockGetAuthStatus = vi.fn().mockResolvedValue({ authenticated: true, needs_reauth: false });
+const mockGetDevices = vi.fn().mockResolvedValue({ ok: true, devices: [] });
+const mockGetDuckingState = vi.fn().mockResolvedValue({ is_ducked: false, effective_volume: 50, base_volume: 50, duck_reasons: [] });
+const mockQuickPlayPinned = vi.fn().mockResolvedValue({ ok: true });
+const mockToasterToast = vi.fn();
 
 let capturedPluginFactory: (() => any) | null = null;
 
@@ -10,6 +16,11 @@ vi.mock("@decky/api", () => ({
   callable: (name: string) => {
     if (name === "handle_app_lifetime_event") return (...args: any[]) => mockHandleAppLifetimeEvent(...args);
     if (name === "trigger_ducking") return (...args: any[]) => mockTriggerDucking(...args);
+    if (name === "get_status") return (...args: any[]) => mockGetStatus(...args);
+    if (name === "get_auth_status") return (...args: any[]) => mockGetAuthStatus(...args);
+    if (name === "get_devices") return (...args: any[]) => mockGetDevices(...args);
+    if (name === "get_ducking_state") return (...args: any[]) => mockGetDuckingState(...args);
+    if (name === "quick_play_pinned") return (...args: any[]) => mockQuickPlayPinned(...args);
     return vi.fn().mockResolvedValue({ ok: true });
   },
   addEventListener: vi.fn(() => vi.fn()),
@@ -24,7 +35,7 @@ vi.mock("@decky/api", () => ({
     addRoute: vi.fn(),
     removeRoute: vi.fn(),
   },
-  toaster: { toast: vi.fn() },
+  toaster: { toast: (...args: any[]) => mockToasterToast(...args) },
 }));
 
 vi.mock("@decky/ui", () => ({
@@ -48,6 +59,9 @@ vi.mock("./components/DeckifyExpandedModal", () => ({ DeckifyExpandedModal: () =
 vi.mock("./components/DeckifyOverlay", () => ({ DeckifyOverlay: () => ({ type: "Overlay", props: {} }) }));
 vi.mock("./hooks/usePlaybackClock", () => ({ usePlaybackClock: () => ({ positionMs: 0, notifySeek: vi.fn() }) }));
 vi.mock("./components/common/InteractiveRow", () => ({ formatMs: (ms: number) => String(ms) }));
+vi.mock("./components/common/DeckifyImage", () => ({
+  DeckifyImage: (props: any) => ({ type: "DeckifyImage", props }),
+}));
 vi.mock("react-icons/fa", () => {
   const Icon = () => ({ type: "Icon", props: {} });
   return {
@@ -62,11 +76,15 @@ vi.mock("react-icons/fa", () => {
     FaHeart: Icon,
     FaRegHeart: Icon,
     FaPlus: Icon,
+    FaCompactDisc: Icon,
+    FaChevronDown: Icon,
+    FaChevronRight: Icon,
   };
 });
 vi.mock("qrcode.react", () => ({ QRCodeSVG: () => ({ type: "QRCodeSVG", props: {} }) }));
 
 vi.mock("react/jsx-dev-runtime", () => ({
+  Fragment: "Fragment",
   jsxDEV: (type: any, props: any, key: any) => ({
     type,
     props: { ...props, ...(key !== undefined ? { key } : {}) },
@@ -74,6 +92,7 @@ vi.mock("react/jsx-dev-runtime", () => ({
 }));
 
 vi.mock("react/jsx-runtime", () => ({
+  Fragment: "Fragment",
   jsx: (type: any, props: any, key: any) => ({
     type,
     props: { ...props, ...(key !== undefined ? { key } : {}) },
@@ -84,15 +103,55 @@ vi.mock("react/jsx-runtime", () => ({
   }),
 }));
 
+let hookValues: any[] = [];
+let hookIdx = 0;
+function resetHooks() {
+  hookValues = [];
+  hookIdx = 0;
+}
+
 vi.mock("react", () => ({
-  useState: (init: any) => [typeof init === "function" ? init() : init, vi.fn()],
-  useEffect: (fn: any) => fn(),
+  useState: (init: any) => {
+    const i = hookIdx++;
+    if (!(i in hookValues)) {
+      hookValues[i] = typeof init === "function" ? init() : init;
+    }
+    const setter = (val: any) => {
+      hookValues[i] = typeof val === "function" ? val(hookValues[i]) : val;
+    };
+    return [hookValues[i], setter];
+  },
+  useEffect: (fn: any) => {
+    if (hookIdx === 0) return;
+    fn();
+  },
   useCallback: (fn: any) => fn,
 }));
 
-describe("src/index.tsx GameSessions AppLifetime & Router.MainRunningApp startup seed (Gap 4)", () => {
+function flattenNodes(node: any): any[] {
+  if (!node || typeof node !== "object") return [];
+  if (Array.isArray(node)) return node.flatMap(flattenNodes);
+  const resolved = typeof node.type === "function" ? node.type(node.props || {}) : node;
+  if (!resolved || typeof resolved !== "object") return [];
+  const children = resolved.props?.children;
+  return [resolved, ...flattenNodes(children)];
+}
+
+function textContent(node: any): string {
+  if (node == null || typeof node === "boolean") return "";
+  if (typeof node === "string" || typeof node === "number") return String(node);
+  if (Array.isArray(node)) return node.map(textContent).join("");
+  if (typeof node === "object" && node.props) return textContent(node.props.children);
+  return "";
+}
+
+describe("src/index.tsx GameSessions AppLifetime & QAM Pinned Playlists", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    resetHooks();
+    mockGetStatus.mockResolvedValue(null);
+    mockGetDevices.mockResolvedValue({ ok: true, devices: [] });
+    mockQuickPlayPinned.mockResolvedValue({ ok: true });
     (globalThis as any).window = {
       SteamClient: {
         GameSessions: {
@@ -116,6 +175,157 @@ describe("src/index.tsx GameSessions AppLifetime & Router.MainRunningApp startup
     const lifecycleCb = mockRegisterForAppLifetime.mock.calls[0][0];
     await lifecycleCb({ unAppID: 440, bRunning: true });
     expect(mockHandleAppLifetimeEvent).toHaveBeenCalledWith(440, true);
+
+    plugin.onDismount?.();
+  });
+
+  it("hides pinned pills strip when 0 items are pinned", async () => {
+    await import("./index");
+    const plugin = capturedPluginFactory!();
+    const renderContent = () => {
+      hookIdx = 0;
+      return plugin.content.type({});
+    };
+
+    const tree = renderContent();
+    const nodes = flattenNodes(tree);
+    const horizontalStrips = nodes.filter(
+      (n) => n.type === "Focusable" && n.props?.["flow-children"] === "horizontal"
+    );
+    expect(horizontalStrips.length).toBe(0);
+    plugin.onDismount?.();
+  });
+
+  it("renders 1-4 pinned pills inside horizontal Focusable with DeckifyImage and ellipsis truncation", async () => {
+    await import("./index");
+    const plugin = capturedPluginFactory!();
+    const renderContent = () => {
+      hookIdx = 0;
+      return plugin.content.type({});
+    };
+
+    // Initial render initializes state hooks
+    renderContent();
+    // Inject trackMeta (hook 5), contextUri (hook 18), settings (hook 20) via status simulation:
+    const pinned = [
+      { uri: "spotify:playlist:1", name: "Very Long Playlist Name That Truncates", type: "playlist", image_url: "https://i.scdn.co/1.jpg" },
+      { uri: "spotify:album:2", name: "Album Two", type: "album", image_url: null },
+      { uri: "spotify:collection:tracks", name: "Liked Songs", type: "liked_songs", image_url: null },
+      { uri: "spotify:playlist:4", name: "Fourth Mix", type: "playlist", image_url: "https://i.scdn.co/4.jpg" },
+    ];
+    const settingsIdx = hookValues.findIndex((v) => v && typeof v === "object" && "audio_backend" in v);
+    expect(settingsIdx).toBeGreaterThan(-1);
+    hookValues[settingsIdx] = { ...hookValues[settingsIdx], pinned_playlists: pinned };
+
+    const tree = renderContent();
+    const nodes = flattenNodes(tree);
+    const strip = nodes.find(
+      (n) => n.type === "Focusable" && n.props?.["flow-children"] === "horizontal" && n.props?.style?.overflowX === "auto"
+    );
+    expect(strip).toBeDefined();
+
+    const pills = flattenNodes(strip).filter((n) => n.type === "DialogButton");
+    expect(pills.length).toBe(4);
+    expect(pills.map((p) => textContent(p))).toEqual([
+      "Very Long Playlist Name That Truncates",
+      "Album Two",
+      "Liked Songs",
+      "Fourth Mix",
+    ]);
+
+    const images = flattenNodes(strip).filter((n) => n.type === "DeckifyImage");
+    expect(images.length).toBe(4);
+    expect(images[0].props.src).toBe("https://i.scdn.co/1.jpg");
+    expect(images[0].props.width).toBe(20);
+    expect(images[0].props.height).toBe(20);
+
+    // No raw <img> tags for i.scdn.co
+    const rawImgs = flattenNodes(strip).filter((n) => n.type === "img");
+    expect(rawImgs.length).toBe(0);
+
+    const labelSpan = flattenNodes(pills[0]).find((n) => n.type === "span");
+    expect(labelSpan.props.style.textOverflow).toBe("ellipsis");
+    expect(labelSpan.props.style.whiteSpace).toBe("nowrap");
+    expect(pills[0].props.style.maxWidth).toBe(140);
+
+    plugin.onDismount?.();
+  });
+
+  it("applies optimistic active highlight and rolls back with toast on quick_play_pinned failure", async () => {
+    await import("./index");
+    const plugin = capturedPluginFactory!();
+    const renderContent = () => {
+      hookIdx = 0;
+      return plugin.content.type({});
+    };
+
+    renderContent();
+    const settingsIdx = hookValues.findIndex((v) => v && typeof v === "object" && "audio_backend" in v);
+    hookValues[settingsIdx] = {
+      ...hookValues[settingsIdx],
+      pinned_playlists: [
+        { uri: "spotify:playlist:1", name: "Chill", type: "playlist", image_url: null },
+      ],
+    };
+
+    let resolveRpc!: (v: any) => void;
+    mockQuickPlayPinned.mockImplementationOnce(
+      () => new Promise((r) => { resolveRpc = r; })
+    );
+
+    let nodes = flattenNodes(renderContent());
+    let pill = nodes.find((n) => n.type === "DialogButton" && textContent(n) === "Chill");
+    expect(pill.props.style.color).toBe("#fff");
+
+    // Click pill -> optimistic highlight should apply immediately before RPC resolves
+    const clickPromise = pill.props.onClick();
+    nodes = flattenNodes(renderContent());
+    pill = nodes.find((n) => n.type === "DialogButton" && textContent(n) === "Chill");
+    expect(pill.props.style.color).toBe("#1db954");
+    expect(pill.props.style.border).toBe("1px solid #1db954");
+    expect(mockQuickPlayPinned).toHaveBeenCalledWith("spotify:playlist:1", "playlist");
+
+    // Reject/fail RPC -> optimistic highlight rolls back and toast is shown
+    resolveRpc({ ok: false, error: "Engine failed" });
+    await clickPromise;
+    nodes = flattenNodes(renderContent());
+    pill = nodes.find((n) => n.type === "DialogButton" && textContent(n) === "Chill");
+    expect(pill.props.style.color).toBe("#fff");
+    expect(mockToasterToast).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Deckify", body: "Engine failed" })
+    );
+
+    plugin.onDismount?.();
+  });
+
+  it("renders Bind current music to game without borderColor override and keeps secondary controls accessible", async () => {
+    await import("./index");
+    const plugin = capturedPluginFactory!();
+    const renderContent = () => {
+      hookIdx = 0;
+      return plugin.content.type({});
+    };
+
+    renderContent();
+    // 0: running(false), 1: toggling(false), 2: error(null), 3: audioStreamInfo(null), 4: trackMeta(null)
+    hookValues[4] = { name: "Test Track", artist: "Artist", album: "Album", duration_ms: 180000 };
+
+    let nodes = flattenNodes(renderContent());
+    const bindBtn = nodes.find((n) => n.type === "ButtonItem" && textContent(n).includes("Bind current music to game"));
+    expect(bindBtn).toBeDefined();
+    expect(bindBtn.props.style?.borderColor).toBeUndefined();
+
+    // Secondary controls toggle is collapsed by default when playing
+    const toggleBtn = nodes.find((n) => n.type === "ButtonItem" && textContent(n).includes("Controls & Settings"));
+    expect(toggleBtn).toBeDefined();
+    expect(nodes.find((n) => n.type === "ButtonItem" && textContent(n).includes("Open Deckify (Full Screen)"))).toBeUndefined();
+
+    // Expanding Controls & Settings reveals Open Deckify, Engine toggle, and Overlay toggle
+    toggleBtn.props.onClick();
+    nodes = flattenNodes(renderContent());
+    expect(nodes.find((n) => n.type === "ButtonItem" && textContent(n).includes("Open Deckify (Full Screen)"))).toBeDefined();
+    expect(nodes.find((n) => n.type === "ToggleField" && n.props.label === "In-Game Overlay (HUD)")).toBeDefined();
+    expect(nodes.find((n) => n.type === "ToggleField" && n.props.label === "librespot Engine")).toBeDefined();
 
     plugin.onDismount?.();
   });
