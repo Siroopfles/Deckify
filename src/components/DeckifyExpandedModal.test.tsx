@@ -115,6 +115,7 @@ import { PlaylistsTab } from "./tabs/PlaylistsTab";
 import { AlbumsTab } from "./tabs/AlbumsTab";
 import { LikedSongsTab } from "./tabs/LikedSongsTab";
 import { CollectionActionModal } from "./common/CollectionActionModal";
+import { InteractiveRow } from "./common/InteractiveRow";
 import { useTriggerNavigation } from "../hooks/useTriggerNavigation";
 
 function findNodes(tree: any, predicate: (node: any) => boolean, results: any[] = []): any[] {
@@ -978,5 +979,85 @@ describe("useTriggerNavigation & DeckifyExpandedModal controller dispatch", () =
         image_url: null,
       },
     ]);
+  });
+
+  it("hardens PlaylistsTab detail header flex layout and gates Enable Mix to spotify_client", () => {
+    const onToggleMix = vi.fn();
+    const baseProps = {
+      folders: [],
+      allUserPlaylists: [],
+      activePlaylist: {
+        id: "pl-long",
+        name: "An Extraordinarily Long Playlist Name Exceeding Twenty Five Characters",
+        uri: "spotify:playlist:pl-long",
+        image_url: undefined,
+        is_mixed: false,
+      },
+      playlistTracks: [],
+      loadingContent: false,
+      audioBackend: "librespot" as const,
+      mixingBusy: false,
+      onOpenPlaylist: vi.fn(),
+      onClosePlaylist: vi.fn(),
+      onPlayTrack: vi.fn(),
+      onToggleMix,
+      onToggleLike: vi.fn(),
+      onOpenActions: vi.fn(),
+      pinnedUris: new Set<string>(),
+      onTogglePin: vi.fn(),
+      onCreatePlaylist: vi.fn(async () => {}),
+      onCreateFolder: vi.fn(async () => {}),
+      onRenameFolder: vi.fn(async () => {}),
+      onDeleteFolder: vi.fn(async () => {}),
+    };
+
+    // 1. On librespot, Mix button is hidden
+    const librespotTree = PlaylistsTab(baseProps);
+    const hasMixText = (node: any): boolean => {
+      const children = Array.isArray(node.props?.children)
+        ? node.props.children.join("")
+        : String(node.props?.children ?? "");
+      return (
+        children.includes("Enable Mix") ||
+        children.includes("Mix Active") ||
+        children.includes("Processing...")
+      );
+    };
+    expect(findNodes(librespotTree, hasMixText)).toHaveLength(0);
+
+    // 2. Title wrapper uses flex: 1, minWidth: 0, overflow: "hidden", h2 uses ellipsis, action buttons use flexShrink: 0
+    const titleH2 = findNodes(librespotTree, (n) => n.type === "h2")[0];
+    expect(titleH2).toBeDefined();
+    expect(titleH2.props.style.whiteSpace).toBe("nowrap");
+    expect(titleH2.props.style.overflow).toBe("hidden");
+    expect(titleH2.props.style.textOverflow).toBe("ellipsis");
+
+    const titleWrapper = findNodes(
+      librespotTree,
+      (n) =>
+        n.type === "div" &&
+        n.props?.style?.flex === 1 &&
+        n.props?.style?.minWidth === 0 &&
+        n.props?.style?.overflow === "hidden"
+    )[0];
+    expect(titleWrapper).toBeDefined();
+
+    const headerButtons = findNodes(
+      librespotTree,
+      (n) => n.type === InteractiveRow && n.props?.style?.flexShrink === 0
+    );
+    // Back, Play, Pin/Unpin on librespot
+    expect(headerButtons.length).toBe(3);
+
+    // 3. On spotify_client, Mix button is rendered with flexShrink: 0 and clicking it invokes onToggleMix
+    const clientTree = PlaylistsTab({ ...baseProps, audioBackend: "spotify_client" });
+    const mixBtn = findNodes(
+      clientTree,
+      (n) => n.type === InteractiveRow && hasMixText(n)
+    )[0];
+    expect(mixBtn).toBeDefined();
+    expect(mixBtn.props.style.flexShrink).toBe(0);
+    mixBtn.props.onClick();
+    expect(onToggleMix).toHaveBeenCalledTimes(1);
   });
 });
