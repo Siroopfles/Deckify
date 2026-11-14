@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { callable } from "@decky/api";
+import { callable, toaster } from "@decky/api";
 import { StatusResponse } from "../types";
 import { usePlaybackClock } from "./usePlaybackClock";
 
@@ -31,8 +31,21 @@ export function usePlaybackStatus() {
     trackId,
     onSeekCommit: async (targetMs) => {
       try {
-        await backendSeekPlayback(targetMs, "");
-      } catch {}
+        const res = await backendSeekPlayback(targetMs, "");
+        if (res && res.ok === false) {
+          toaster.toast({
+            title: "Deckify",
+            body: "Playback seek failed — Spotify did not respond. Try again or check your active device.",
+            duration: 3000,
+          });
+        }
+      } catch {
+        toaster.toast({
+          title: "Deckify",
+          body: "Playback seek failed — Spotify did not respond. Try again or check your active device.",
+          duration: 3000,
+        });
+      }
     },
   });
 

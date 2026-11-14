@@ -118,6 +118,13 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
   // UI state & refs
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const toastTimer = useRef<any>(null);
+  const [pillMsg, setPillMsg] = useState<string | null>(null);
+  const pillTimerRef = useRef<any>(null);
+  const pendingSeekDeltaSecRef = useRef(0);
+  const seekDebounceTimerRef = useRef<any>(null);
+  const seekBaseMsRef = useRef(0);
+  const currentPositionMsRef = useRef(currentPositionMs);
+  currentPositionMsRef.current = currentPositionMs;
   const activePlaylistRef = useRef<PlaylistItem | null>(null);
   activePlaylistRef.current = activePlaylist;
   const activeAlbumRef = useRef<AlbumItem | null>(null);
@@ -134,6 +141,20 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
     setToastMsg(msg);
     if (toastTimer.current) clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToastMsg(null), 3000);
+  }, []);
+
+  const showPill = useCallback((msg: string) => {
+    setPillMsg(msg);
+    if (pillTimerRef.current) clearTimeout(pillTimerRef.current);
+    pillTimerRef.current = setTimeout(() => setPillMsg(null), 1000);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (toastTimer.current) clearTimeout(toastTimer.current);
+      if (pillTimerRef.current) clearTimeout(pillTimerRef.current);
+      if (seekDebounceTimerRef.current) clearTimeout(seekDebounceTimerRef.current);
+    };
   }, []);
 
   // Library Loaders
@@ -586,14 +607,49 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
   // Modal-scoped Gamepad, Analog Trigger & Keyboard Navigation
   const triggerNavEnabled = (status?.settings as any)?.trigger_nav_enabled !== false;
   useTriggerNavigation({
-    enabled: true,
+    enabled: triggerNavEnabled,
     suppressed: Boolean(actionTrack || showAddToPlaylistModal),
     onTrigger: useCallback(
-      (_side) => {
+      (side) => {
         if (!triggerNavEnabled) return;
-        // Plan 08-02 will wire L2/R2 seek and library fast-paging here
+        if (modeRef.current === "now_playing" || modeRef.current === "lyrics") {
+          const durationMs = (status as any)?.duration_ms || track?.duration_ms || 0;
+          if (!track || durationMs <= 0) return;
+
+          const seekStepSec = Math.min(
+            30,
+            Math.max(5, Number((status?.settings as any)?.trigger_seek_seconds ?? 10))
+          );
+
+          if (pendingSeekDeltaSecRef.current === 0) {
+            seekBaseMsRef.current = currentPositionMsRef.current;
+          }
+          pendingSeekDeltaSecRef.current += side === "R2" ? seekStepSec : -seekStepSec;
+
+          const maxSeekMs = Math.max(0, durationMs - 1000);
+          const targetMs = Math.min(
+            maxSeekMs,
+            Math.max(0, seekBaseMsRef.current + pendingSeekDeltaSecRef.current * 1000)
+          );
+
+          clock.scrubTo?.(targetMs);
+          showPill(
+            (pendingSeekDeltaSecRef.current >= 0 ? "+" : "") +
+              pendingSeekDeltaSecRef.current +
+              "s"
+          );
+
+          if (seekDebounceTimerRef.current) {
+            clearTimeout(seekDebounceTimerRef.current);
+          }
+          seekDebounceTimerRef.current = setTimeout(() => {
+            seekDebounceTimerRef.current = null;
+            pendingSeekDeltaSecRef.current = 0;
+            handleSeekPlayback(targetMs);
+          }, 250);
+        }
       },
-      [triggerNavEnabled]
+      [triggerNavEnabled, status, track, clock, showPill, handleSeekPlayback]
     ),
     onAction: useCallback(
       (action, e) => {
@@ -674,6 +730,13 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
 
   const audioBackend = status?.audio_backend || status?.settings?.audio_backend || "librespot";
   const artwork = track?.artwork_url || track?.image_url;
+  const showHints = (status?.settings as any)?.show_controller_hints !== false;
+  const hintText =
+    mode === "now_playing" || mode === "lyrics"
+      ? "L2/R2 Seek · X Like · Y Options · L1/R1 Tabs"
+      : mode === "devices" || mode === "engine"
+      ? "L1/R1 Tabs · B Back"
+      : "L2/R2 Page · X Like · Y Options · L1/R1 Tabs";
 
   return (
     <ModalRootAny closeModal={closeModal} onCancel={closeModal} bAllowFullSize>
@@ -907,6 +970,27 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
             </Focusable>
           </Focusable>
 
+          {/* Context-Aware Controller Hint Bar */}
+          {showHints && (
+            <div
+              data-testid="controller-hint-bar"
+              style={{
+                padding: "8px 24px",
+                background: "rgba(0,0,0,0.65)",
+                borderTop: "1px solid rgba(255,255,255,0.08)",
+                fontSize: 12,
+                fontWeight: 700,
+                color: "rgba(255,255,255,0.7)",
+                textAlign: "center",
+                flexShrink: 0,
+                position: "relative",
+                zIndex: 1,
+              }}
+            >
+              {hintText}
+            </div>
+          )}
+
           {/* Context Modal for Track Actions & Playlist Selection */}
           <TrackActionModal
             actionTrack={actionTrack}
@@ -926,6 +1010,31 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
             onToggleLike={handleToggleLike}
             setMode={handleSelectMode}
           />
+
+          {/* Floating Trigger Indicator Pill */}
+          {pillMsg && (
+            <div
+              data-testid="trigger-indicator-pill"
+              style={{
+                position: "absolute",
+                bottom: showHints ? 48 : 24,
+                left: "50%",
+                transform: "translateX(-50%)",
+                background: "rgba(0,0,0,0.88)",
+                border: "1px solid rgba(29, 185, 84, 0.6)",
+                borderRadius: 20,
+                padding: "8px 16px",
+                fontSize: 12,
+                fontWeight: 700,
+                color: "#1db954",
+                pointerEvents: "none",
+                boxShadow: "0 8px 24px rgba(0,0,0,0.7)",
+                zIndex: 201,
+              }}
+            >
+              {pillMsg}
+            </div>
+          )}
 
           {/* Toast Notification */}
           {toastMsg && (

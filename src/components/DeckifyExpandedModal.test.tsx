@@ -1,7 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
+const { mockToast, mockScrubTo } = vi.hoisted(() => ({
+  mockToast: vi.fn(),
+  mockScrubTo: vi.fn(),
+}));
+
 vi.mock("@decky/api", () => ({
   callable: () => vi.fn().mockResolvedValue({ ok: true }),
+  toaster: { toast: mockToast },
 }));
 
 vi.mock("@decky/ui", () => ({
@@ -34,7 +40,7 @@ vi.mock("./tabs/LyricsTab", () => ({ LyricsTab: () => ({ type: "LyricsTab", prop
 vi.mock("./tabs/SoundtracksTab", () => ({ SoundtracksTab: () => ({ type: "SoundtracksTab", props: {} }) }));
 vi.mock("./tabs/SettingsTab", () => ({ SettingsTab: () => ({ type: "SettingsTab", props: {} }) }));
 vi.mock("../hooks/usePlaybackClock", () => ({
-  usePlaybackClock: () => ({ positionMs: 0, notifySeek: vi.fn() }),
+  usePlaybackClock: () => ({ positionMs: 25000, notifySeek: vi.fn(), scrubTo: mockScrubTo, scrubDelta: vi.fn() }),
 }));
 vi.mock("react-icons/fa", () => new Proxy({}, { get: () => () => ({ type: "Icon", props: {} }) }));
 vi.mock("react-icons/md", () => new Proxy({}, { get: () => () => ({ type: "Icon", props: {} }) }));
@@ -395,5 +401,141 @@ describe("useTriggerNavigation & DeckifyExpandedModal controller dispatch", () =
     // X (3) after 80ms should invoke handleToggleLike without throwing
     vi.advanceTimersByTime(100);
     expect(() => downHandler!(3)).not.toThrow();
+  });
+
+  it("accumulates 250ms R2 seeks (+10s + +10s = +20s), clamps to [0, duration_ms - 1000], and renders floating pill", () => {
+    const closeModal = vi.fn();
+    // First render to populate stateValues[0] (mode) and stateValues[1] (status)
+    DeckifyExpandedModal({ closeModal });
+    stateValues[0] = "now_playing";
+    stateValues[1] = {
+      is_playing: true,
+      position_ms: 25000,
+      duration_ms: 60000,
+      track: { id: "trk-1", name: "Song", artist: "Artist", duration_ms: 60000 },
+      settings: { trigger_nav_enabled: true, trigger_seek_seconds: 10, show_controller_hints: true },
+    };
+
+    // Re-render with active track & status so onTrigger closes over track + durationMs
+    stateIdx = 0;
+    refIdx = 0;
+    for (const cleanup of effectCleanups) cleanup();
+    effectCleanups = [];
+    DeckifyExpandedModal({ closeModal });
+
+    mockScrubTo.mockClear();
+
+    // First R2 pull (+10s -> 35000ms)
+    downHandler!(8);
+    upHandler!(8);
+    expect(mockScrubTo).toHaveBeenCalledWith(35000);
+
+    // Re-render to inspect pillMsg ("+10s")
+    stateIdx = 0;
+    refIdx = 0;
+    let tree = DeckifyExpandedModal({ closeModal });
+    let pill = findNodes(tree, (n) => n.props?.["data-testid"] === "trigger-indicator-pill")[0];
+    expect(pill).toBeDefined();
+    expect(pill.props.children).toBe("+10s");
+
+    // Second R2 pull within 250ms (+20s -> 45000ms)
+    vi.advanceTimersByTime(100);
+    downHandler!(8);
+    upHandler!(8);
+    expect(mockScrubTo).toHaveBeenCalledWith(45000);
+
+    stateIdx = 0;
+    refIdx = 0;
+    tree = DeckifyExpandedModal({ closeModal });
+    pill = findNodes(tree, (n) => n.props?.["data-testid"] === "trigger-indicator-pill")[0];
+    expect(pill.props.children).toBe("+20s");
+
+    // After 250ms debounce, handleSeekPlayback commits 45000ms once
+    mockScrubTo.mockClear();
+    vi.advanceTimersByTime(250);
+    expect(mockScrubTo).toHaveBeenCalledTimes(1);
+    expect(mockScrubTo).toHaveBeenCalledWith(45000);
+
+    // After 1000ms, floating pill auto-clears
+    vi.advanceTimersByTime(1000);
+    stateIdx = 0;
+    refIdx = 0;
+    tree = DeckifyExpandedModal({ closeModal });
+    pill = findNodes(tree, (n) => n.props?.["data-testid"] === "trigger-indicator-pill")[0];
+    expect(pill).toBeUndefined();
+
+    // Boundary clamping: R2 near end clamps to duration_ms - 1000 (29000ms when duration_ms=30000)
+    stateValues[1] = {
+      is_playing: true,
+      position_ms: 25000,
+      duration_ms: 30000,
+      track: { id: "trk-1", name: "Song", artist: "Artist", duration_ms: 30000 },
+      settings: { trigger_nav_enabled: true, trigger_seek_seconds: 10, show_controller_hints: true },
+    };
+    stateIdx = 0;
+    refIdx = 0;
+    DeckifyExpandedModal({ closeModal });
+    mockScrubTo.mockClear();
+    downHandler!(8);
+    upHandler!(8);
+    expect(mockScrubTo).toHaveBeenLastCalledWith(29000);
+    vi.advanceTimersByTime(250);
+    expect(mockScrubTo).toHaveBeenLastCalledWith(29000);
+
+    // Boundary clamping: L2 below 0 clamps to 0ms
+    stateValues[1] = {
+      is_playing: true,
+      position_ms: 25000,
+      duration_ms: 60000,
+      track: { id: "trk-1", name: "Song", artist: "Artist", duration_ms: 60000 },
+      settings: { trigger_nav_enabled: true, trigger_seek_seconds: 30, show_controller_hints: true },
+    };
+    stateIdx = 0;
+    refIdx = 0;
+    DeckifyExpandedModal({ closeModal });
+    mockScrubTo.mockClear();
+    downHandler!(7);
+    upHandler!(7);
+    expect(mockScrubTo).toHaveBeenLastCalledWith(0);
+    vi.advanceTimersByTime(250);
+    expect(mockScrubTo).toHaveBeenLastCalledWith(0);
+  });
+
+  it("renders context-aware controller hint bar per tab and hides when show_controller_hints is false", () => {
+    const closeModal = vi.fn();
+    DeckifyExpandedModal({ closeModal });
+
+    // now_playing -> Seek hint
+    stateValues[0] = "now_playing";
+    stateValues[1] = { settings: { show_controller_hints: true } };
+    stateIdx = 0;
+    refIdx = 0;
+    let tree = DeckifyExpandedModal({ closeModal });
+    let hintBar = findNodes(tree, (n) => n.props?.["data-testid"] === "controller-hint-bar")[0];
+    expect(hintBar.props.children).toBe("L2/R2 Seek · X Like · Y Options · L1/R1 Tabs");
+
+    // playlists -> Page hint
+    stateValues[0] = "playlists";
+    stateIdx = 0;
+    refIdx = 0;
+    tree = DeckifyExpandedModal({ closeModal });
+    hintBar = findNodes(tree, (n) => n.props?.["data-testid"] === "controller-hint-bar")[0];
+    expect(hintBar.props.children).toBe("L2/R2 Page · X Like · Y Options · L1/R1 Tabs");
+
+    // engine -> L1/R1 Tabs · B Back
+    stateValues[0] = "engine";
+    stateIdx = 0;
+    refIdx = 0;
+    tree = DeckifyExpandedModal({ closeModal });
+    hintBar = findNodes(tree, (n) => n.props?.["data-testid"] === "controller-hint-bar")[0];
+    expect(hintBar.props.children).toBe("L1/R1 Tabs · B Back");
+
+    // Hidden when show_controller_hints === false
+    stateValues[1] = { settings: { show_controller_hints: false } };
+    stateIdx = 0;
+    refIdx = 0;
+    tree = DeckifyExpandedModal({ closeModal });
+    hintBar = findNodes(tree, (n) => n.props?.["data-testid"] === "controller-hint-bar")[0];
+    expect(hintBar).toBeUndefined();
   });
 });
