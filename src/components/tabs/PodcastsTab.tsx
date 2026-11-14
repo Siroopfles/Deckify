@@ -30,6 +30,8 @@ export const PodcastsTab: FC<PodcastsTabProps> = ({
             {savedShows.map((s) => (
               <InteractiveRow
                 key={s.id}
+                data-deckify-list-item="true"
+                data-deckify-label={s.name || ""}
                 onClick={() => onPlayTrack(s.uri)}
                 style={{ gap: 12 }}
               >
@@ -69,6 +71,8 @@ export const PodcastsTab: FC<PodcastsTabProps> = ({
               return (
                 <InteractiveRow
                   key={ep.id}
+                  data-deckify-list-item="true"
+                  data-deckify-label={ep.name || ""}
                   onClick={() => onPlayTrack(ep.uri)}
                   style={{ gap: 12 }}
                 >

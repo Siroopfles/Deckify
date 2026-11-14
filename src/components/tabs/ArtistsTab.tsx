@@ -43,10 +43,12 @@ export const ArtistsTab: FC<ArtistsTabProps> = ({
           {loadingContent && followedArtists.length === 0 ? (
             <p style={{ opacity: 0.5 }}>Loading artists...</p>
           ) : (
-            <Focusable flow-children="column" style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <Focusable flow-children="column" data-deckify-sorted="az" style={{ display: "flex", flexDirection: "column", gap: 4 }}>
               {followedArtists.map((art) => (
                 <InteractiveRow
                   key={art.id}
+                  data-deckify-list-item="true"
+                  data-deckify-label={art.name || ""}
                   onClick={() => onOpenArtist(art)}
                   style={{ gap: 12 }}
                 >
@@ -89,7 +91,13 @@ export const ArtistsTab: FC<ArtistsTabProps> = ({
           <h3 style={{ fontSize: 14, fontWeight: 700, color: "#1db954", marginBottom: 10 }}>Albums & Singles</h3>
           <Focusable flow-children="column" style={{ display: "flex", flexDirection: "column", gap: 3 }}>
             {artistAlbums.map((alb) => (
-              <InteractiveRow key={alb.id} onClick={() => onOpenAlbum(alb)} style={{ gap: 10 }}>
+              <InteractiveRow
+                key={alb.id}
+                data-deckify-list-item="true"
+                data-deckify-label={alb.name || ""}
+                onClick={() => onOpenAlbum(alb)}
+                style={{ gap: 10 }}
+              >
                 {alb.image_url && <DeckifyImage src={alb.image_url} width={30} height={30} style={{ borderRadius: 4 }} />}
                 <span style={{ fontSize: 13, fontWeight: 600 }}>{alb.name}</span>
               </InteractiveRow>
