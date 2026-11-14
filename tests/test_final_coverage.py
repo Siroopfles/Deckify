@@ -307,6 +307,20 @@ class FinalCoverageTests(unittest.IsolatedAsyncioTestCase):
         r2 = await self.plugin.toggle_like_track("spotify:track:other_id", liked=True)
         self.assertFalse(r2["ok"])
 
+    async def test_toggle_like_track_403_forbidden(self):
+        err_403 = HTTPError("url", 403, "Forbidden", {}, None)
+        self.execute.side_effect = [err_403]
+        res = await self.plugin.toggle_like_track("spotify:track:other_id", liked=True)
+        self.assertFalse(res["ok"])
+        self.assertIn("403 Forbidden", res["error"])
+        self.assertIn("Re-authenticate in Settings", res["error"])
+
+        err_500 = HTTPError("url", 500, "Server Error", {}, None)
+        self.execute.side_effect = [err_500]
+        res_500 = await self.plugin.toggle_like_track("spotify:track:other_id", liked=True)
+        self.assertFalse(res_500["ok"])
+        self.assertNotIn("403 Forbidden", res_500["error"])
+
     async def test_artist_top_tracks_403_fallback(self):
         err_403 = HTTPError("url", 403, "Forbidden", {}, None)
         self.execute.side_effect = [
