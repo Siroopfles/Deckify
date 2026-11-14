@@ -121,10 +121,10 @@ Plans:
   2. Selecting any pinned playlist pill in QAM begins playback within 2 seconds without leaving the running game.
   3. Pinned playlist buttons display cached base64 thumbnails that render instantly without Steam CEF CSP image blocking or UI hitching.
   4. User can pin or unpin playlists easily via a context action inside the expanded Library views.
-**Plans**: 2 plans
+**Plans**: 1/2 plans executed
 
 Plans:
-- [ ] 09-01-PLAN.md — Persist pinned_playlists (max 4), implement quick_play_pinned engine-waking RPC, reorganize QAM layout with horizontal pinned pills strip, and fix Bind button focus highlight
+- [x] 09-01-PLAN.md — Persist pinned_playlists (max 4), implement quick_play_pinned engine-waking RPC, reorganize QAM layout with horizontal pinned pills strip, and fix Bind button focus highlight
 - [ ] 09-02-PLAN.md — Add CollectionActionModal (Y menu) and detail-header FaThumbtack Pin/Unpin controls with non-evicting max-4 limit across PlaylistsTab, AlbumsTab, and LikedSongsTab
 
 ### Phase 10: In-Game HUD Overlay 2.0 (Live Synced Lyrics)
@@ -173,7 +173,7 @@ Phases execute in numeric order: 6 → 7 → 8 → 9 → 10 → 11
 | 6. Smooth Audio Ducking Engine & PipeWire Fader | v0.5 | 2/2 | Complete    | 2026-11-12 |
 | 7. Game-Specific Soundtracks | v0.5 | 3/3 | Complete    | 2026-11-14 |
 | 8. Controller L2/R2 Ergonomics & Trigger Navigation | v0.5 | 5/5 | Complete    | 2026-11-14 |
-| 9. QAM Pinned Playlists & Quick In-Game Switch | v0.5 | 0/2 | Not started | - |
+| 9. QAM Pinned Playlists & Quick In-Game Switch | v0.5 | 1/2 | In Progress | - |
 | 10. In-Game HUD Overlay 2.0 (Live Synced Lyrics) | v0.5 | 0/2 | Not started | - |
 | 11. Home & Discovery Hub Tab | v0.5 | 0/2 | Not started | - |
 

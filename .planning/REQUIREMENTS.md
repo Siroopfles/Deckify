@@ -23,8 +23,8 @@
 - [x] **CTRL-03**: Triggers enforce Schmidt hysteresis (0.75 activate, 0.25 reset) and are strictly scoped to the open modal to prevent in-game input conflicts.
 
 ### Quick Access Menu Enhancements
-- [ ] **QAM-01**: User can configure 3-4 pinned playlists to display as compact pill buttons in the QAM mini-player.
-- [ ] **QAM-02**: User can click any pinned playlist in the QAM to start playback within 2 seconds without opening the full-screen modal.
+- [x] **QAM-01**: User can configure 3-4 pinned playlists to display as compact pill buttons in the QAM mini-player.
+- [x] **QAM-02**: User can click any pinned playlist in the QAM to start playback within 2 seconds without opening the full-screen modal.
 
 ### In-Game HUD Overlay 2.0
 - [ ] **HUD-03**: User can enable an active synced lyrics line displayed beneath the artist title in the floating Gamescope HUD overlay.
@@ -66,8 +66,8 @@
 | CTRL-01 | Phase 8 | Complete |
 | CTRL-02 | Phase 8 | Complete |
 | CTRL-03 | Phase 8 | Complete |
-| QAM-01 | Phase 9 | Pending |
-| QAM-02 | Phase 9 | Pending |
+| QAM-01 | Phase 9 | Complete |
+| QAM-02 | Phase 9 | Complete |
 | HUD-03 | Phase 10 | Pending |
 | HUD-04 | Phase 10 | Pending |
 | DISC-01 | Phase 11 | Pending |
