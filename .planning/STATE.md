@@ -4,16 +4,16 @@ milestone: v0.5
 current_phase: 09
 current_phase_name: QAM Pinned Playlists & Quick In-Game Switch
 status: verifying
-stopped_at: Completed 09-02-PLAN.md
-last_updated: "2026-11-14T23:00:00.917Z"
+stopped_at: Completed 09-03-PLAN.md
+last_updated: "2026-11-14T23:34:54.474Z"
 last_activity: 2026-11-14
 last_activity_desc: Phase 09 execution started
-state_head: 4f4b9980dc665567730b5eaf144e30ecb22e43e5
+state_head: a0cd8ac6c8ceeb32cdec518a508451d65bcf9194
 progress:
   total_phases: 6
   completed_phases: 3
-  total_plans: 12
-  completed_plans: 12
+  total_plans: 13
+  completed_plans: 13
 ---
 
 # Project State
@@ -72,6 +72,7 @@ Progress: [█████░░░░░] 50% (Phase 06 complete, Phase 07 plan
 | Phase 08 P08-05 | 3min | 2 tasks | 4 files |
 | Phase 09 P01 | 12min | 3 tasks | 7 files |
 | Phase 09 P02 | 6min | 3 tasks | 6 files |
+| Phase 09 P03 | ~6min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -100,6 +101,7 @@ Recent decisions affecting current work:
 - [Phase 09]: Replaced Bind current music to game DialogButton borderColor override with @decky/ui ButtonItem for native controller focus highlight
 - [Phase 09]: Grouped secondary QAM controls behind collapsible Controls & Settings toggle when playing, while keeping Open Deckify and Engine toggle directly visible when stopped
 - [Phase 09]: Enforced non-evicting 4-item pinned playlists limit in handleTogglePin with Decky toaster feedback and explicit CollectionActionModal label
+- [Phase 09]: Hardened PlaylistsTab detail header flex layout (minWidth: 0, flexShrink: 0) while keeping Enable Mix gated to spotify_client, and replaced QAM DialogButton pills with focus-tracked PinnedPill using focusHalo
 
 ### Pending Todos
 
@@ -122,6 +124,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-14T22:59:59.119Z
-Stopped at: Completed 09-02-PLAN.md
+Last session: 2026-11-14T23:34:53.015Z
+Stopped at: Completed 09-03-PLAN.md
 Resume file: None
