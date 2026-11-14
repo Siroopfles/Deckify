@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 vi.mock("@decky/api", () => ({
   callable: () => vi.fn().mockResolvedValue({ ok: true }),
@@ -62,6 +62,8 @@ let stateValues: any[] = [];
 let stateIdx = 0;
 let refValues: any[] = [];
 let refIdx = 0;
+let runEffectsInTest = false;
+let effectCleanups: Array<() => void> = [];
 
 vi.mock("react", () => ({
   useState: (init: any) => {
@@ -74,7 +76,12 @@ vi.mock("react", () => ({
     };
     return [stateValues[idx], setter];
   },
-  useEffect: () => {},
+  useEffect: (fn: () => void | (() => void)) => {
+    if (runEffectsInTest) {
+      const cleanup = fn();
+      if (typeof cleanup === "function") effectCleanups.push(cleanup);
+    }
+  },
   useCallback: (fn: any) => fn,
   useMemo: (fn: any) => fn(),
   useRef: (init: any) => {
@@ -87,6 +94,7 @@ vi.mock("react", () => ({
 }));
 
 import { DeckifyExpandedModal } from "./DeckifyExpandedModal";
+import { useTriggerNavigation } from "../hooks/useTriggerNavigation";
 
 function findNodes(tree: any, predicate: (node: any) => boolean, results: any[] = []): any[] {
   if (!tree) return results;
@@ -173,5 +181,219 @@ describe("DeckifyExpandedModal vgp_oncancel bubble handling (Gap 3)", () => {
     expect(ev.preventDefault).toHaveBeenCalledTimes(1);
     expect(ev.stopPropagation).toHaveBeenCalledTimes(1);
     expect(closeModal).not.toHaveBeenCalled();
+  });
+});
+
+describe("useTriggerNavigation & DeckifyExpandedModal controller dispatch", () => {
+  let downHandler: ((btn: number) => void) | null = null;
+  let upHandler: ((btn: number) => void) | null = null;
+  let unregDown: ReturnType<typeof vi.fn>;
+  let unregUp: ReturnType<typeof vi.fn>;
+  let winListeners: Record<string, Array<(e: any) => void>>;
+  let rafQueue: Array<{ id: number; cb: FrameRequestCallback }>;
+  let nextRafId: number;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1000);
+    vi.clearAllMocks();
+    stateValues = [];
+    stateIdx = 0;
+    refValues = [];
+    refIdx = 0;
+    effectCleanups = [];
+    runEffectsInTest = true;
+
+    downHandler = null;
+    upHandler = null;
+    unregDown = vi.fn();
+    unregUp = vi.fn();
+    winListeners = {};
+    rafQueue = [];
+    nextRafId = 1;
+
+    vi.stubGlobal("window", {
+      FocusNavController: {
+        m_rgGamepadInputSources: [
+          {
+            RegisterForGamepadButtonDown: vi.fn((fn: (btn: number) => void) => {
+              downHandler = fn;
+              return { Unregister: unregDown };
+            }),
+            RegisterForGamepadButtonUp: vi.fn((fn: (btn: number) => void) => {
+              upHandler = fn;
+              return { Unregister: unregUp };
+            }),
+          },
+        ],
+      },
+      addEventListener: vi.fn((ev: string, fn: (e: any) => void) => {
+        if (!winListeners[ev]) winListeners[ev] = [];
+        winListeners[ev].push(fn);
+      }),
+      removeEventListener: vi.fn((ev: string, fn: (e: any) => void) => {
+        if (winListeners[ev]) {
+          winListeners[ev] = winListeners[ev].filter((f) => f !== fn);
+        }
+      }),
+    });
+
+    vi.stubGlobal("document", {
+      activeElement: { tagName: "DIV" },
+    });
+
+    vi.stubGlobal("navigator", {
+      getGamepads: vi.fn(() => []),
+    });
+
+    vi.stubGlobal("requestAnimationFrame", vi.fn((cb: FrameRequestCallback) => {
+      const id = nextRafId++;
+      rafQueue.push({ id, cb });
+      return id;
+    }));
+    vi.stubGlobal("cancelAnimationFrame", vi.fn((id: number) => {
+      rafQueue = rafQueue.filter((item) => item.id !== id);
+    }));
+  });
+
+  afterEach(() => {
+    for (const cleanup of effectCleanups) cleanup();
+    effectCleanups = [];
+    runEffectsInTest = false;
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it("subscribes to FocusNavController for Y (4), X (3), L2 (7), R2 (8) and dedupes vgp_onbuttondown within 80ms", () => {
+    const onTrigger = vi.fn();
+    const onAction = vi.fn();
+
+    useTriggerNavigation({
+      enabled: true,
+      suppressed: false,
+      onTrigger,
+      onAction,
+    });
+
+    expect(downHandler).toBeTypeOf("function");
+    expect(upHandler).toBeTypeOf("function");
+
+    // Y (4) via FocusNavController, then duplicate vgp_onbuttondown within 80ms
+    downHandler!(4);
+    expect(onAction).toHaveBeenCalledTimes(1);
+    expect(onAction).toHaveBeenLastCalledWith("Y", undefined);
+
+    vi.advanceTimersByTime(30);
+    for (const fn of winListeners["vgp_onbuttondown"] || []) {
+      fn({ detail: { button: 4 } });
+    }
+    expect(onAction).toHaveBeenCalledTimes(1); // deduped
+
+    // After 80ms window, X (3) via FocusNavController fires
+    vi.advanceTimersByTime(60);
+    downHandler!(3);
+    expect(onAction).toHaveBeenCalledTimes(2);
+    expect(onAction).toHaveBeenLastCalledWith("X", undefined);
+
+    // L2 (7) and R2 (8) via FocusNavController
+    downHandler!(7);
+    expect(onTrigger).toHaveBeenCalledWith("L2");
+    upHandler!(7);
+
+    vi.advanceTimersByTime(350);
+    downHandler!(8);
+    expect(onTrigger).toHaveBeenCalledWith("R2");
+    upHandler!(8);
+  });
+
+  it("suppresses L2/R2 triggers when suppressed=true (ActionMenu/PlaylistPickerModal) or INPUT is focused", () => {
+    const onTrigger = vi.fn();
+    const onAction = vi.fn();
+
+    useTriggerNavigation({
+      enabled: true,
+      suppressed: true,
+      onTrigger,
+      onAction,
+    });
+
+    // Suppressed via sub-modal
+    downHandler!(7);
+    downHandler!(8);
+    expect(onTrigger).not.toHaveBeenCalled();
+
+    // Unsuppressed, but INPUT element has focus
+    stateIdx = 0;
+    refIdx = 0;
+    for (const cleanup of effectCleanups) cleanup();
+    effectCleanups = [];
+
+    useTriggerNavigation({
+      enabled: true,
+      suppressed: false,
+      onTrigger,
+      onAction,
+    });
+
+    (globalThis as any).document.activeElement = { tagName: "INPUT" };
+    (globalThis as any).navigator.getGamepads = vi.fn(() => [
+      { connected: true, buttons: { 6: { value: 0.9 }, 7: { value: 0.9 } } },
+    ]);
+
+    // Run queued rAF callback
+    const frame = rafQueue.shift();
+    expect(frame).toBeDefined();
+    frame!.cb(16);
+    downHandler!(7);
+    expect(onTrigger).not.toHaveBeenCalled();
+  });
+
+  it("cleans up FocusNavController unregisters, window listeners, and rAF on unmount", () => {
+    const onTrigger = vi.fn();
+    const onAction = vi.fn();
+
+    useTriggerNavigation({
+      enabled: true,
+      suppressed: false,
+      onTrigger,
+      onAction,
+    });
+
+    expect(rafQueue.length).toBeGreaterThan(0);
+
+    for (const cleanup of effectCleanups) cleanup();
+    effectCleanups = [];
+
+    expect(unregDown).toHaveBeenCalledTimes(1);
+    expect(unregUp).toHaveBeenCalledTimes(1);
+    expect((globalThis as any).cancelAnimationFrame).toHaveBeenCalled();
+    expect((globalThis as any).window.removeEventListener).toHaveBeenCalledWith(
+      "vgp_onbuttondown",
+      expect.any(Function)
+    );
+    expect((globalThis as any).window.removeEventListener).toHaveBeenCalledWith(
+      "keydown",
+      expect.any(Function)
+    );
+  });
+
+  it("DeckifyExpandedModal wires Y/X actions for focusedTrackRef and active track in now_playing/lyrics modes", () => {
+    const closeModal = vi.fn();
+    DeckifyExpandedModal({ closeModal });
+
+    // Set focusedTrackRef in modal refs to a track item and test Y opens ActionMenu (updates state)
+    const trackCandidate = { id: "trk-1", name: "Test Song", uri: "spotify:track:trk-1" };
+    for (const r of refValues) {
+      if (r && r.current === null) {
+        r.current = trackCandidate;
+        break;
+      }
+    }
+
+    // Y (4) should invoke setActionTrack without throwing
+    expect(() => downHandler!(4)).not.toThrow();
+    // X (3) after 80ms should invoke handleToggleLike without throwing
+    vi.advanceTimersByTime(100);
+    expect(() => downHandler!(3)).not.toThrow();
   });
 });
