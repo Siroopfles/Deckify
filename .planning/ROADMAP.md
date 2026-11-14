@@ -124,8 +124,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 09-01: Create pinned playlists data store in settings and render horizontal pill carousel in QAM mini-player with `flow-children="horizontal"`.
-- [ ] 09-02: Implement fast context play RPC with optimistic state update and wire pin/unpin context toggles into library views.
+- [ ] 09-01-PLAN.md — Persist pinned_playlists (max 4), implement quick_play_pinned engine-waking RPC, reorganize QAM layout with horizontal pinned pills strip, and fix Bind button focus highlight
+- [ ] 09-02-PLAN.md — Add CollectionActionModal (Y menu) and detail-header FaThumbtack Pin/Unpin controls with non-evicting max-4 limit across PlaylistsTab, AlbumsTab, and LikedSongsTab
 
 ### Phase 10: In-Game HUD Overlay 2.0 (Live Synced Lyrics)
 **Goal**: Render a subtle, real-time synced lyrics line beneath the track info in the floating Gamescope HUD overlay without dropping in-game frame rates.  
