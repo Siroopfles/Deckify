@@ -33,17 +33,16 @@ Declared values (multiples of 4):
 
 | Token | Value | Usage |
 |-------|-------|-------|
-| xs | 4px | Icon gaps, badge padding (`2px 6px` / `4px`), inline chip spacing |
-| sm | 8px | Compact element spacing, tab bar gaps, search bar gap, playlist chip gap |
-| md | 16px | Modal padding (`PlaylistPickerModal`), section margins |
+| xs | 4px | Icon gaps, badge padding (`4px`), inline chip spacing |
+| sm | 8px | Compact element spacing, dense list gaps, tab bar gaps, search bar gap, playlist chip gap |
+| md | 16px | Card padding (`SoundtracksTab`), modal padding (`PlaylistPickerModal`), section margins |
 | lg | 24px | Empty/loading state vertical padding, section padding |
-| xl | 32px | Layout gaps between major modal regions |
-| 2xl | 48px | Major section breaks |
+| xl | 32px | Layout gaps between major modal regions, playlist picker thumbnails (`32px × 32px`) |
+| 2xl | 48px | Major section breaks, game capsule thumbnails (`48px × 48px`) |
 | 3xl | 64px | Page-level spacing |
 
 Exceptions:
-- `12px` card padding and `10px`–`14px` dense list gaps inside `SoundtracksTab` game cards to maximize visible games on the 1280×800 Steam Deck viewport.
-- `42px × 42px` game capsule thumbnails and `36px × 36px` playlist picker thumbnails (`44px` minimum touch/gamepad target height for `InteractiveRow` and `DialogButton`).
+- `44px` minimum touch/gamepad target height for `InteractiveRow` and `DialogButton`.
 
 ---
 
@@ -58,6 +57,7 @@ Exceptions:
 
 - **Weights:** Strictly 2 weights (`400` regular for body/descriptions/placeholders, `600` semibold for labels, game titles, badges, and section headings).
 - **Line-height:** `1.5` for body copy and descriptions; `1.2` for headings; `1.3` for compact metadata labels and badges.
+- **Role Mapping:** `Display` (`20px`) for modal/`SoundtracksTab` header title; `Heading` (`18px`) for game card titles and `PlaylistPickerModal` headers; `Body` (`14px`) for tab subtitle, search input, dropdown/toggle labels, playlist chip names, and empty/loading copy; `Label` (`12px`) for `"Running"` / `"Non-Steam"` badges and secondary metadata.
 
 ---
 
@@ -85,20 +85,22 @@ Accent (`#1DB954`) reserved for:
 | Primary CTA | `Add Playlist / Album` (game card action); `Bind current music to game` (QAM mini-player 1-click shortcut) |
 | Empty state heading | `No matching games found.` (filtered list); `No soundtrack configured` (unbound game subtitle) |
 | Empty state body | `Filter installed games...` (search placeholder); `Link Spotify playlists or albums to Steam & Non-Steam games for automatic playback.` (tab subtitle); `No playlists found.` / `No saved albums found.` / `Type to search Spotify.` (picker states) |
-| Error state | `Failed to save soundtrack profile` (profile persistence error toast); `Failed to bind music to game` (QAM quick-bind error toast) |
+| Error state | `Failed to save soundtrack profile. Try again or check Decky settings permissions.` (profile persistence error toast); `Failed to bind music to game. Start playing a track in Spotify and try again.` (QAM quick-bind error toast) |
 | Destructive confirmation | `Reset`: Clicking `Reset` immediately deletes the game's custom profile from `game_audio_profiles` and displays the toast `Soundtrack profile removed`. Clicking `×` (`Remove {playlist.name}`) removes that playlist from the profile's list. |
 
 ---
 
 ## Interaction & Navigation Contract
 
-1. **GamepadUI Spatial Navigation (`flow-children`):**
+1. **Primary Focal Point (`SoundtracksTab`):**
+   - When a linked or installed game is running, the pinned `"Running"` game card at the top of the list (highlighted with `#1DB954` border/tint and `"Running"` badge) and its `Add Playlist / Album` CTA form the primary focal point; otherwise, the top search input (`Filter installed games...`) and first game card lead focus.
+2. **GamepadUI Spatial Navigation (`flow-children`):**
    - `SoundtracksTab` root and game card list use `flow-children="column"`.
    - Search bar, assigned playlist chips container, dropdowns row (`Playback Mode`, `Resume Mode`, `On Game Exit`), toggles row (`Always auto-start soundtrack`, `Ducking Override`), volume override row, and `PlaylistPickerModal` tab bar MUST use `flow-children="horizontal"` to prevent vertical focus jumps on D-pad Left/Right.
-2. **Debounce & Persistence:**
+3. **Debounce & Persistence:**
    - Profile edits (mode, resume, exit policy, toggles, volume slider) update local UI optimistically and debounce backend `save_game_soundtrack_profile` calls by `500ms`.
    - `PlaylistPickerModal` Spotify Search input debounces `search_spotify` RPC calls by `300ms`.
-3. **In-Game Toast Notification (D-11):**
+4. **In-Game Toast Notification (D-11):**
    - When a game with a soundtrack launches while music is already playing and `always_auto_start` is `false`, `soundtrack_prompt_switch` triggers a non-blocking Steam toast: `Deckify Soundtrack` — `Soundtrack ready for {app_name}. Open Deckify to switch.`
 
 ---
@@ -111,10 +113,18 @@ Applicable state considerations resolved: 6 covered, 0 backstop, 0 unresolved
 |----------|------------|--------|---------------------|
 | loading | `SoundtracksTab` initial scan, `PlaylistPickerModal` tab fetch | ✅ covered | Displays `"Scanning installed Steam & Non-Steam games..."` during initial load and `"Loading..."` inside picker tabs. |
 | empty | Filtered game list, unbound game card, `PlaylistPickerModal` tabs | ✅ covered | Renders documented copy from `## Copywriting Contract` (`"No matching games found."`, `"No soundtrack configured"`, `"No playlists found."`, `"No saved albums found."`, `"Type to search Spotify."`). |
-| error | `save_game_soundtrack_profile`, `bind_current_music_to_game` | ✅ covered | Displays documented error toast copy (`"Failed to save soundtrack profile"`, `"Failed to bind music to game"`) without crashing modal state. |
+| error | `save_game_soundtrack_profile`, `bind_current_music_to_game` | ✅ covered | Displays documented error toast copy with recovery guidance (`"Failed to save soundtrack profile. Try again or check Decky settings permissions."`, `"Failed to bind music to game. Start playing a track in Spotify and try again."`) without crashing modal state. |
 | populated | Game cards, `"Running"` / `"Non-Steam"` badges, playlist chips | ✅ covered | Running game sorts to top with `#1DB954` `"Running"` badge; Non-Steam shortcuts render `"Non-Steam"` badge; linked playlists render as horizontal focusable chips. |
 | long-text | `PlaylistPickerModal` item titles & artist/track subtitles | ✅ covered | Single-line truncation via `overflow: "hidden"`, `textOverflow: "ellipsis"`, `whiteSpace: "nowrap"`. |
 | overflow | `PlaylistPickerModal` scrollable list, assigned playlist chips | ✅ covered | Picker list scrolls vertically (`overflowY: "auto"`, `maxHeight: 360`); playlist chips wrap cleanly (`flexWrap: "wrap"`). |
+
+---
+
+## Registry Safety
+
+| Registry | Blocks Used | Safety Gate |
+|----------|-------------|-------------|
+| none | none | not applicable — `Tool: none` (`@decky/ui` native primitives only; no shadcn or third-party registries) |
 
 ---
 
