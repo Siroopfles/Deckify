@@ -13,6 +13,7 @@ export type ViewMode =
   | "search"
   | "queue"
   | "devices"
+  | "soundtracks"
   | "engine";
 
 export const ALL_MODES: ViewMode[] = [
@@ -27,6 +28,7 @@ export const ALL_MODES: ViewMode[] = [
   "search",
   "queue",
   "devices",
+  "soundtracks",
   "engine",
 ];
 
@@ -170,6 +172,11 @@ export interface EngineSettings {
   voice_ducking_enabled?: boolean;
   voice_ducking_volume?: number;
   voice_ducking_hold_delay?: number;
+  soundtrack_launch_debounce?: number;
+  soundtrack_exit_debounce?: number;
+  soundtrack_unbound_policy?: "keep_playing" | "auto_pause";
+  soundtrack_default_playlist?: string;
+  soundtrack_default_mode?: "remember_position" | "fresh_start";
 }
 
 export type DuckingMode = "proportional" | "fixed";
@@ -229,4 +236,37 @@ export interface GameAudioSettings {
   enabled: boolean;
   profiles: Record<string, GameAudioProfile>;
   global_ducking: boolean;
+}
+
+export interface InstalledGame {
+  app_id: number;
+  name: string;
+  is_steam?: boolean;
+  is_non_steam?: boolean;
+  icon_url?: string;
+  exe?: string;
+  is_running?: boolean;
+}
+
+export interface SoundtrackPlaylist {
+  uri: string;
+  name: string;
+  image?: string;
+}
+
+export type SoundtrackMode = "shuffle" | "random" | "rotation";
+
+export interface SoundtrackProfile {
+  app_id: number;
+  app_name: string;
+  playlists: SoundtrackPlaylist[];
+  mode: SoundtrackMode;
+  rotation_index: number;
+  resume_mode: "remember_position" | "fresh_start";
+  always_auto_start: boolean;
+  exit_policy: "restore_snapshot" | "pause" | "keep_playing";
+  volume_override: number | null;
+  ducking_override: boolean | null;
+  last_track_uri?: string;
+  last_position_ms?: number;
 }
