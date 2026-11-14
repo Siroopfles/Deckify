@@ -40,6 +40,7 @@ async def get_playlists(plugin, offset: int = 0) -> dict:
             images = p.get("images") or []
             playlists.append({
                 "id": p["id"],
+                "uri": p.get("uri") or f"spotify:playlist:{p['id']}",
                 "name": p.get("name", ""),
                 "image_url": _image_url(images),
                 "artwork_url": _image_url(images),
@@ -858,6 +859,7 @@ async def search_spotify(
             images = p.get("images") or []
             playlists_out.append({
                 "id": p["id"], "name": p.get("name", ""),
+                "uri": p.get("uri") or f"spotify:playlist:{p['id']}",
                 "image_url": _image_url(images),
                 "artwork_url": _image_url(images),
                 "track_count": (p.get("items") or p.get("tracks") or {}).get("total", 0),

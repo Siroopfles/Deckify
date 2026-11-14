@@ -69,6 +69,7 @@ vi.mock("react", () => ({
 
 import { PlaylistPickerModal } from "./PlaylistPickerModal";
 import { InteractiveRow } from "../common/InteractiveRow";
+import { toSelection } from "./soundtrackUtils";
 
 function typeName(n: any): string {
   return typeof n?.type === "string" ? n.type : n?.type?.name || "";
@@ -190,5 +191,44 @@ describe("PlaylistPickerModal Component", () => {
     expect(closeBtn).toBeDefined();
     closeBtn.props.onClick();
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("queries playlists and saved albums at offset 0 and supports showModal closeModal (Gap 2)", () => {
+    const closeModal = vi.fn();
+    const onSelect = vi.fn();
+
+    // Default isOpen=true, fetches playlists at offset 0
+    PlaylistPickerModal({
+      closeModal,
+      onSelect,
+    });
+    expect(mockGetPlaylists).toHaveBeenCalledWith(0);
+
+    // Switch to albums tab and re-render to fetch saved albums at offset 0
+    stateValues[0] = "albums";
+    stateIdx = 0;
+    const tree = PlaylistPickerModal({
+      closeModal,
+      onSelect,
+      initialPlaylists: samplePlaylists,
+    });
+    expect(mockGetSavedAlbums).toHaveBeenCalledWith(0);
+
+    const closeBtn = findNodes(tree, (n) => typeName(n) === "DialogButton" && findText(n).includes("Close"))[0];
+    closeBtn.props.onClick();
+    expect(closeModal).toHaveBeenCalledTimes(1);
+  });
+
+  it("builds fallback spotify:playlist and spotify:album URIs in toSelection when uri is omitted (Gap 2)", () => {
+    expect(toSelection({ id: "pl123", name: "No URI Playlist" })).toEqual({
+      uri: "spotify:playlist:pl123",
+      name: "No URI Playlist",
+      image: undefined,
+    });
+    expect(toSelection({ id: "alb456", name: "No URI Album", artist: "Artist" })).toEqual({
+      uri: "spotify:album:alb456",
+      name: "No URI Album",
+      image: undefined,
+    });
   });
 });

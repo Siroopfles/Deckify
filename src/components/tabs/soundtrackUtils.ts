@@ -110,8 +110,13 @@ export function setDuckingOverride(
 
 /** Normalise any Spotify playlist/album/search item to a picker selection. */
 export function toSelection(item: any): SoundtrackPlaylist {
+  let uri = item?.uri ? String(item.uri) : "";
+  if (!uri && item?.id) {
+    const isAlbum = "artist" in item || item?.type === "album";
+    uri = isAlbum ? `spotify:album:${item.id}` : `spotify:playlist:${item.id}`;
+  }
   return {
-    uri: String(item?.uri || ""),
+    uri,
     name: String(item?.name || ""),
     image: item?.image_url || item?.artwork_url || item?.image || undefined,
   };

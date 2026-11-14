@@ -6,6 +6,7 @@ import {
   SliderField,
   ToggleField,
   TextField,
+  showModal,
 } from "@decky/ui";
 import { callable } from "@decky/api";
 import { FaGamepad, FaPlus, FaTimes, FaTrash, FaSearch, FaMusic } from "react-icons/fa";
@@ -64,7 +65,6 @@ export const SoundtracksTab: FC<SoundtracksTabProps> = ({
   );
   const [searchQuery, setSearchQuery] = useState("");
   const [expandedAppId, setExpandedAppId] = useState<number | null>(runningAppId ?? null);
-  const [pickerGame, setPickerGame] = useState<InstalledGame | null>(null);
   const [loading, setLoading] = useState(!initialGames);
 
   const saveTimersRef = useRef<Record<string, any>>({});
@@ -95,10 +95,9 @@ export const SoundtracksTab: FC<SoundtracksTabProps> = ({
     };
   }, []);
 
-  const persistProfile = useCallback(
+  const scheduleSave = useCallback(
     (appId: number, updated: SoundtrackProfile) => {
       const key = String(appId);
-      setProfiles((prev) => ({ ...prev, [key]: updated }));
       if (saveTimersRef.current[key]) {
         clearTimeout(saveTimersRef.current[key]);
       }
@@ -114,6 +113,34 @@ export const SoundtracksTab: FC<SoundtracksTabProps> = ({
       }, SAVE_DEBOUNCE_MS);
     },
     [showToast]
+  );
+
+  const persistProfile = useCallback(
+    (appId: number, updated: SoundtrackProfile) => {
+      const key = String(appId);
+      setProfiles((prev) => ({ ...prev, [key]: updated }));
+      scheduleSave(appId, updated);
+    },
+    [scheduleSave]
+  );
+
+  const openPlaylistPicker = useCallback(
+    (game: InstalledGame) => {
+      const key = String(game.app_id);
+      showModal(
+        <PlaylistPickerModal
+          onSelect={(item: SoundtrackPlaylist) => {
+            setProfiles((prev) => {
+              const current = prev[key] || defaultProfile(game);
+              const updated = addPlaylist(current, item);
+              scheduleSave(game.app_id, updated);
+              return { ...prev, [key]: updated };
+            });
+          }}
+        />
+      );
+    },
+    [scheduleSave]
   );
 
   const handleDeleteProfile = useCallback(
@@ -336,7 +363,7 @@ export const SoundtracksTab: FC<SoundtracksTabProps> = ({
                     ))}
 
                     <DialogButton
-                      onClick={() => setPickerGame(game)}
+                      onClick={() => openPlaylistPicker(game)}
                       style={{
                         display: "flex",
                         alignItems: "center",
@@ -466,17 +493,6 @@ export const SoundtracksTab: FC<SoundtracksTabProps> = ({
           );
         })}
       </Focusable>
-
-      {/* Playlist / Album Picker Modal */}
-      <PlaylistPickerModal
-        isOpen={pickerGame !== null}
-        onClose={() => setPickerGame(null)}
-        onSelect={(item: SoundtrackPlaylist) => {
-          if (!pickerGame) return;
-          const current = getOrInitProfile(pickerGame);
-          persistProfile(pickerGame.app_id, addPlaylist(current, item));
-        }}
-      />
     </Focusable>
   );
 };
