@@ -3,17 +3,17 @@ gsd_state_version: "1.0"
 milestone: v0.5
 current_phase: 08
 current_phase_name: Controller L2/R2 Ergonomics & Trigger Navigation
-status: executing
-stopped_at: Completed 08-02-PLAN.md
-last_updated: "2026-11-14T21:04:17.461Z"
+status: verifying
+stopped_at: Completed 08-03-PLAN.md
+last_updated: "2026-11-14T21:11:38.938Z"
 last_activity: 2026-11-14
 last_activity_desc: Phase 08 execution started
-state_head: 6bbf2f1fe4728073ce8a3f24074bec2350cfa7f3
+state_head: ed3cb543b9dd6f11d026e0628abe46beb03d47ba
 progress:
   total_phases: 6
   completed_phases: 2
   total_plans: 8
-  completed_plans: 7
+  completed_plans: 8
 ---
 
 # Project State
@@ -29,7 +29,7 @@ See: [.planning/PROJECT.md](file:///C:/Users/djdje/Deckify/.planning/PROJECT.md)
 
 Phase: 08 (Controller L2/R2 Ergonomics & Trigger Navigation) — EXECUTING
 Plan: 3 of 3
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-11-14 — Phase 08 execution started
 
 Progress: [███░░░░░░░] 33% (Phase 06 complete, Phase 07 planned)
@@ -67,6 +67,7 @@ Progress: [███░░░░░░░] 33% (Phase 06 complete, Phase 07 plan
 | Phase 07 P03 | 7min | 3 tasks | 13 files |
 | Phase 08 P01 | 6min | 2 tasks | 7 files |
 | Phase 08 P08-02 | 4min | 2 tasks | 8 files |
+| Phase 08 P08-03 | 5min | 3 tasks | 13 files |
 
 ## Accumulated Context
 
@@ -89,6 +90,7 @@ Recent decisions affecting current work:
 - [Phase 07]: SoundtracksTab debounces profile saves by 500ms and PlaylistPickerModal debounces Spotify search by 300ms
 - [Phase 08]: useTriggerNavigation uses refs for callbacks/suppression so FocusNavController and rAF bind once on modal mount and clean up strictly on unmount
 - [Phase 08]: Captured seekBaseMsRef from currentPositionMsRef on the first pull of a 250ms L2/R2 burst to accumulate seeks without stale closures or D-pad focus shifts
+- [Phase 08]: Computed list jumps directly from DOM-queried [data-deckify-list-item='true'] rows inside contentPaneRef so all 9 list tabs share one uniform scroll+focus mechanism
 
 ### Pending Todos
 
@@ -111,6 +113,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-14T21:04:16.671Z
-Stopped at: Completed 08-02-PLAN.md
+Last session: 2026-11-14T21:11:37.718Z
+Stopped at: Completed 08-03-PLAN.md
 Resume file: None
