@@ -3,17 +3,17 @@ gsd_state_version: "1.0"
 milestone: v0.5
 current_phase: 09
 current_phase_name: QAM Pinned Playlists & Quick In-Game Switch
-status: planning
-stopped_at: Phase 9 planned
-last_updated: "2026-11-14T22:30:11.281Z"
+status: executing
+stopped_at: Completed 09-01-PLAN.md
+last_updated: "2026-11-14T22:51:20.267Z"
 last_activity: 2026-11-14
-last_activity_desc: Phase 8 complete, transitioned to Phase 09
-state_head: 1603b5ce9e4b75fd14b862218569e94ab3db9901
+last_activity_desc: Phase 09 execution started
+state_head: 4e26edd8facaef8b0780aec00530206d80f60c8e
 progress:
   total_phases: 6
   completed_phases: 3
   total_plans: 12
-  completed_plans: 10
+  completed_plans: 11
 ---
 
 # Project State
@@ -23,14 +23,14 @@ progress:
 See: [.planning/PROJECT.md](file:///C:/Users/djdje/Deckify/.planning/PROJECT.md) (updated 2026-11-12)
 
 **Core value:** Rock-solid Spotify playback and responsive, reliable controller navigation on Steam Deck without UI lag, broken images, or desynchronized playback states.
-**Current focus:** Phase 8 — Controller L2/R2 Ergonomics & Trigger Navigation
+**Current focus:** Phase 09 — QAM Pinned Playlists & Quick In-Game Switch
 
 ## Current Position
 
-Phase: 09 — QAM Pinned Playlists & Quick In-Game Switch
-Plan: Not started
-Status: Ready to plan
-Last activity: 2026-11-14 — Phase 8 complete, transitioned to Phase 09
+Phase: 09 (QAM Pinned Playlists & Quick In-Game Switch) — EXECUTING
+Plan: 2 of 2
+Status: Ready to execute
+Last activity: 2026-11-14 — Phase 09 execution started
 
 Progress: [█████░░░░░] 50% (Phase 06 complete, Phase 07 planned)
 
@@ -70,6 +70,7 @@ Progress: [█████░░░░░] 50% (Phase 06 complete, Phase 07 plan
 | Phase 08 P08-03 | 5min | 3 tasks | 13 files |
 | Phase 08 P08-04 | 6min | 3 tasks | 6 files |
 | Phase 08 P08-05 | 3min | 2 tasks | 4 files |
+| Phase 09 P01 | 12min | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -95,6 +96,8 @@ Recent decisions affecting current work:
 - [Phase 08]: Computed list jumps directly from DOM-queried [data-deckify-list-item='true'] rows inside contentPaneRef so all 9 list tabs share one uniform scroll+focus mechanism
 - [Phase 08]: Wrapped right-hand Focusable in native div contentPaneRef, set SEEK_ACCUMULATION_WINDOW_MS=600, transferred/restored TrackActionModal focus, and surfaced 403 Forbidden Like errors
 - [Phase 08]: Exposed data-deckify-focused and default tabIndex=0 on InteractiveRow, and added virtual GamepadUI focus fallback in DeckifyExpandedModal onTrigger
+- [Phase 09]: Replaced Bind current music to game DialogButton borderColor override with @decky/ui ButtonItem for native controller focus highlight
+- [Phase 09]: Grouped secondary QAM controls behind collapsible Controls & Settings toggle when playing, while keeping Open Deckify and Engine toggle directly visible when stopped
 
 ### Pending Todos
 
@@ -117,6 +120,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-14T22:30:10.220Z
-Stopped at: Phase 9 planned
-Resume file: C:/Users/djdje/Deckify/.planning/phases/09-qam-pinned-playlists-quick-in-game-switch/09-01-PLAN.md
+Last session: 2026-11-14T22:51:18.576Z
+Stopped at: Completed 09-01-PLAN.md
+Resume file: None
