@@ -2,18 +2,18 @@
 gsd_state_version: "1.0"
 milestone: v0.5
 current_phase: 8
-current_phase_name: QAM Pinned Playlists & Quick In-Game Switch
-status: executing
-stopped_at: Phase 8 complete, ready to plan Phase 9
-last_updated: "2026-11-14T21:38:16.286Z"
+current_phase_name: Controller L2/R2 Ergonomics & Trigger Navigation
+status: verifying
+stopped_at: Completed 08-04-PLAN.md
+last_updated: "2026-11-14T21:50:09.822Z"
 last_activity: 2026-11-14
-last_activity_desc: Phase 8 complete, transitioned to Phase 9
-state_head: 8e6e0eaae1ac47c5418f5a1bdbf700b87fce2562
+last_activity_desc: Phase 8 execution started
+state_head: 77d0fcdb91fab2223d8adb6d3a4afbc6377d783a
 progress:
   total_phases: 6
   completed_phases: 3
   total_plans: 9
-  completed_plans: 8
+  completed_plans: 9
 ---
 
 # Project State
@@ -23,14 +23,14 @@ progress:
 See: [.planning/PROJECT.md](file:///C:/Users/djdje/Deckify/.planning/PROJECT.md) (updated 2026-11-12)
 
 **Core value:** Rock-solid Spotify playback and responsive, reliable controller navigation on Steam Deck without UI lag, broken images, or desynchronized playback states.
-**Current focus:** Phase 08 — Controller L2/R2 Ergonomics & Trigger Navigation
+**Current focus:** Phase 8 — Controller L2/R2 Ergonomics & Trigger Navigation
 
 ## Current Position
 
-Phase: 8 (QAM Pinned Playlists & Quick In-Game Switch) — READY TO EXECUTE
-Plan: Not started
-Status: Ready to execute
-Last activity: 2026-11-14 — Phase 8 complete, transitioned to Phase 9
+Phase: 8 (Controller L2/R2 Ergonomics & Trigger Navigation) — EXECUTING
+Plan: 4 of 4
+Status: Phase complete — ready for verification
+Last activity: 2026-11-14 — Phase 8 execution started
 
 Progress: [█████░░░░░] 50% (Phase 06 complete, Phase 07 planned)
 
@@ -68,6 +68,7 @@ Progress: [█████░░░░░] 50% (Phase 06 complete, Phase 07 plan
 | Phase 08 P01 | 6min | 2 tasks | 7 files |
 | Phase 08 P08-02 | 4min | 2 tasks | 8 files |
 | Phase 08 P08-03 | 5min | 3 tasks | 13 files |
+| Phase 08 P08-04 | 6min | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -91,6 +92,7 @@ Recent decisions affecting current work:
 - [Phase 08]: useTriggerNavigation uses refs for callbacks/suppression so FocusNavController and rAF bind once on modal mount and clean up strictly on unmount
 - [Phase 08]: Captured seekBaseMsRef from currentPositionMsRef on the first pull of a 250ms L2/R2 burst to accumulate seeks without stale closures or D-pad focus shifts
 - [Phase 08]: Computed list jumps directly from DOM-queried [data-deckify-list-item='true'] rows inside contentPaneRef so all 9 list tabs share one uniform scroll+focus mechanism
+- [Phase 08]: Wrapped right-hand Focusable in native div contentPaneRef, set SEEK_ACCUMULATION_WINDOW_MS=600, transferred/restored TrackActionModal focus, and surfaced 403 Forbidden Like errors
 
 ### Pending Todos
 
@@ -113,6 +115,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-14T21:11:37.718Z
-Stopped at: Phase 8 complete, ready to plan Phase 9
+Last session: 2026-11-14T21:50:08.264Z
+Stopped at: Completed 08-04-PLAN.md
 Resume file: None
