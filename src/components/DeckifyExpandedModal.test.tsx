@@ -641,6 +641,76 @@ describe("useTriggerNavigation & DeckifyExpandedModal controller dispatch", () =
     expect(azPill.props.children).toBe("B");
   });
 
+  it("supports virtual GamepadUI focus ([data-deckify-focused='true']) in playlists mode and suppresses Sidebar focus", () => {
+    const closeModal = vi.fn();
+    DeckifyExpandedModal({ closeModal });
+
+    stateValues[0] = "playlists";
+    stateValues[1] = {
+      settings: { trigger_nav_enabled: true, trigger_page_size: 15, show_controller_hints: true },
+    };
+
+    stateIdx = 0;
+    refIdx = 0;
+    for (const cleanup of effectCleanups) cleanup();
+    effectCleanups = [];
+    const tree = DeckifyExpandedModal({ closeModal });
+
+    const contentPaneNode = findNodes(tree, (n) => n.props?.["data-testid"] === "content-pane")[0];
+    const contentPaneRefObj = contentPaneNode.props.ref;
+
+    const makeMockRow = (label: string) => ({
+      getAttribute: (attr: string) => (attr === "data-deckify-label" ? label : null),
+      contains: () => false,
+      scrollIntoView: vi.fn(),
+      focus: vi.fn(),
+    });
+
+    const rows = Array.from({ length: 25 }, (_, i) => makeMockRow(`Playlist ${i + 1}`));
+    // Simulate SteamOS GamepadUI virtual D-pad focus: document.activeElement stays on document.body
+    (globalThis as any).document.activeElement = { tagName: "BODY" };
+
+    // 1. Neither DOM focus nor virtual focus inside contentPaneRef (Sidebar focus) -> R2 ignored
+    contentPaneRefObj.current = {
+      contains: () => false,
+      querySelectorAll: (selector: string) =>
+        selector === '[data-deckify-list-item="true"]' ? rows : [],
+      querySelector: () => null,
+    };
+
+    downHandler!(8);
+    upHandler!(8);
+    expect(rows[15].scrollIntoView).not.toHaveBeenCalled();
+    expect(rows[15].focus).not.toHaveBeenCalled();
+
+    stateIdx = 0;
+    refIdx = 0;
+    let updatedTree = DeckifyExpandedModal({ closeModal });
+    expect(findNodes(updatedTree, (n) => n.props?.["data-testid"] === "trigger-indicator-pill")[0]).toBeUndefined();
+
+    // 2. Virtual focus on row 0 via [data-deckify-focused="true"] while activeElement is BODY -> R2 jumps +15 and shows "16 / 25"
+    vi.advanceTimersByTime(350);
+    contentPaneRefObj.current = {
+      contains: () => false,
+      querySelectorAll: (selector: string) =>
+        selector === '[data-deckify-list-item="true"]' ? rows : [],
+      querySelector: (selector: string) =>
+        selector.includes("data-deckify-focused") ? rows[0] : null,
+    };
+
+    downHandler!(8);
+    upHandler!(8);
+    expect(rows[15].scrollIntoView).toHaveBeenCalledWith({ block: "nearest", behavior: "smooth" });
+    expect(rows[15].focus).toHaveBeenCalledTimes(1);
+
+    stateIdx = 0;
+    refIdx = 0;
+    updatedTree = DeckifyExpandedModal({ closeModal });
+    const pill = findNodes(updatedTree, (n) => n.props?.["data-testid"] === "trigger-indicator-pill")[0];
+    expect(pill).toBeDefined();
+    expect(pill.props.children).toBe("16 / 25");
+  });
+
   it("shows error toast when handleToggleLike fails with 403 Forbidden", async () => {
     const closeModal = vi.fn();
     DeckifyExpandedModal({ closeModal });
