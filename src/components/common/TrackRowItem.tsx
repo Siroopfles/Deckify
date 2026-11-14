@@ -31,6 +31,8 @@ export const TrackRowItem: FC<TrackRowItemProps> = ({
   return (
     <InteractiveRow
       key={track.id || track.uri || index}
+      data-deckify-list-item="true"
+      data-deckify-label={track.name || ""}
       onClick={() => onPlayTrack(track.uri || "", contextUri, allUris, index)}
       onFocus={() => onFocus?.(track)}
       style={{ gap: 12 }}
