@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, FC } from "react";
+import { useEffect, useState, useCallback, FC, ReactNode } from "react";
 import {
   PanelSection,
   PanelSectionRow,
@@ -26,7 +26,7 @@ import { registerSteamMenu } from "./steamMenu";
 import { DeckifyExpandedModal } from "./components/DeckifyExpandedModal";
 import { DeckifyOverlay } from "./components/DeckifyOverlay";
 import { usePlaybackClock } from "./hooks/usePlaybackClock";
-import { formatMs } from "./components/common/InteractiveRow";
+import { formatMs, focusHalo } from "./components/common/InteractiveRow";
 import { DeckifyImage } from "./components/common/DeckifyImage";
 import {
   FaMusic,
@@ -91,6 +91,77 @@ const openExpandedView = () => {
         bigOpen = false;
       }}
     />
+  );
+};
+
+interface PinnedPillProps {
+  pill: PinnedPlaylistItem;
+  isActive: boolean;
+  fallbackIcon: ReactNode;
+  onClick: () => void;
+}
+
+const PinnedPill: FC<PinnedPillProps> = ({ pill, isActive, fallbackIcon, onClick }) => {
+  const [focused, setFocused] = useState(false);
+
+  return (
+    <Focusable
+      noFocusRing
+      onClick={onClick}
+      onActivate={onClick}
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
+      onGamepadFocus={() => setFocused(true)}
+      onGamepadBlur={() => setFocused(false)}
+      data-deckify-pinned-pill="true"
+      data-focused={focused ? "true" : "false"}
+      style={{
+        ...focusHalo(focused),
+        minHeight: 36,
+        maxWidth: 140,
+        minWidth: "auto",
+        padding: "4px 8px",
+        borderRadius: 16,
+        gap: 8,
+        display: "inline-flex",
+        alignItems: "center",
+        flexShrink: 0,
+        cursor: "pointer",
+        border: focused
+          ? "1px solid #fff"
+          : isActive
+          ? "1px solid #1db954"
+          : "1px solid rgba(255,255,255,0.12)",
+        background: focused
+          ? isActive
+            ? "rgba(29, 185, 84, 0.28)"
+            : "rgba(255, 255, 255, 0.18)"
+          : isActive
+          ? "rgba(29, 185, 84, 0.16)"
+          : "rgba(255, 255, 255, 0.08)",
+        color: isActive ? "#1db954" : "#fff",
+      }}
+    >
+      <DeckifyImage
+        src={pill.image_url}
+        width={20}
+        height={20}
+        style={{ borderRadius: 4, flexShrink: 0 }}
+        fallback={fallbackIcon}
+      />
+      <span
+        style={{
+          fontSize: 12,
+          fontWeight: 700,
+          lineHeight: 1.2,
+          whiteSpace: "nowrap",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+        }}
+      >
+        {pill.name}
+      </span>
+    </Focusable>
   );
 };
 
@@ -642,7 +713,7 @@ const Content: FC = () => {
                 alignItems: "center",
                 gap: 8,
                 overflowX: "auto",
-                padding: "4px 0",
+                padding: "4px 4px",
                 width: "100%",
               }}
             >
@@ -657,44 +728,13 @@ const Content: FC = () => {
                     <FaMusic size={12} color="rgba(255,255,255,0.6)" />
                   );
                 return (
-                  <DialogButton
+                  <PinnedPill
                     key={pill.uri}
+                    pill={pill}
+                    isActive={isActive}
+                    fallbackIcon={fallbackIcon}
                     onClick={() => handleQuickPlayPinned(pill)}
-                    style={{
-                      minHeight: 36,
-                      maxWidth: 140,
-                      minWidth: "auto",
-                      padding: "4px 8px",
-                      borderRadius: 16,
-                      gap: 8,
-                      display: "inline-flex",
-                      alignItems: "center",
-                      flexShrink: 0,
-                      border: isActive ? "1px solid #1db954" : "1px solid rgba(255,255,255,0.12)",
-                      background: isActive ? "rgba(29, 185, 84, 0.16)" : "rgba(255, 255, 255, 0.08)",
-                      color: isActive ? "#1db954" : "#fff",
-                    }}
-                  >
-                    <DeckifyImage
-                      src={pill.image_url}
-                      width={20}
-                      height={20}
-                      style={{ borderRadius: 4, flexShrink: 0 }}
-                      fallback={fallbackIcon}
-                    />
-                    <span
-                      style={{
-                        fontSize: 12,
-                        fontWeight: 700,
-                        lineHeight: 1.2,
-                        whiteSpace: "nowrap",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                      }}
-                    >
-                      {pill.name}
-                    </span>
-                  </DialogButton>
+                  />
                 );
               })}
             </Focusable>
