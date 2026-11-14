@@ -103,6 +103,10 @@ DEFAULT_SETTINGS = {
     "overlay_autohide": False,
     "overlay_show_progress": False,
     "eq_preset": "flat",
+    "trigger_nav_enabled": True,
+    "trigger_seek_seconds": 10,
+    "trigger_page_size": 15,
+    "show_controller_hints": True,
 }
 
 # PulseAudio socket for processes

@@ -16,6 +16,14 @@ vi.mock("@decky/ui", () => ({
     type: "Focusable",
     props: { children, ...props },
   }),
+  SliderField: (props: any) => ({
+    type: "SliderField",
+    props,
+  }),
+  ToggleField: (props: any) => ({
+    type: "ToggleField",
+    props,
+  }),
 }));
 
 vi.mock("react-icons/fa", () => ({
@@ -51,6 +59,7 @@ vi.mock("react", () => ({
 }));
 
 import { SettingsTab } from "./SettingsTab";
+import { SliderField, ToggleField } from "@decky/ui";
 import { StatusResponse } from "../../types";
 
 function findNodes(tree: any, predicate: (node: any) => boolean, results: any[] = []): any[] {
@@ -288,5 +297,46 @@ describe("SettingsTab - Smooth Audio Ducking Engine UI (Phase 06)", () => {
     expect(fullText).not.toContain("Fade Down Speed");
     expect(fullText).not.toContain("Fade Up Speed");
     expect(fullText).not.toContain("Voice Chat Ducking");
+  });
+
+  it("renders Controller & Trigger Navigation card with ToggleFields and SliderFields and persists clamped settings", async () => {
+    const tree = SettingsTab({
+      status: mockStatus,
+      refreshStatus,
+      showToast,
+    });
+
+    const fullText = findText(tree);
+    expect(fullText).toContain("Controller & Trigger Navigation");
+
+    const toggles = findNodes(tree, (n) => n.type === ToggleField || n.type === "ToggleField");
+    const navToggle = toggles.find((n) => n.props?.label === "L2/R2 Trigger Navigation");
+    const hintToggle = toggles.find((n) => n.props?.label === "Controller Hint Bar");
+    expect(navToggle).toBeDefined();
+    expect(hintToggle).toBeDefined();
+    expect(navToggle.props.checked).toBe(true);
+    expect(hintToggle.props.checked).toBe(true);
+
+    await navToggle.props.onChange(false);
+    expect(mockSetSetting).toHaveBeenCalledWith("trigger_nav_enabled", false);
+    expect(showToast).toHaveBeenCalledWith("L2/R2 trigger navigation disabled");
+
+    await hintToggle.props.onChange(false);
+    expect(mockSetSetting).toHaveBeenCalledWith("show_controller_hints", false);
+
+    const sliders = findNodes(tree, (n) => n.type === SliderField || n.type === "SliderField");
+    const seekSlider = sliders.find((n) => n.props?.label === "Seek Step (Seconds)");
+    const pageSlider = sliders.find((n) => n.props?.label === "Library Page Jump (Items)");
+    expect(seekSlider).toBeDefined();
+    expect(pageSlider).toBeDefined();
+    expect(seekSlider.props).toMatchObject({ min: 5, max: 30, step: 5, showValue: true, value: 10 });
+    expect(pageSlider.props).toMatchObject({ min: 5, max: 50, step: 5, showValue: true, value: 15 });
+
+    await seekSlider.props.onChange(45);
+    expect(mockSetSetting).toHaveBeenCalledWith("trigger_seek_seconds", 30);
+
+    await pageSlider.props.onChange(2);
+    expect(mockSetSetting).toHaveBeenCalledWith("trigger_page_size", 5);
+    expect(refreshStatus).toHaveBeenCalled();
   });
 });

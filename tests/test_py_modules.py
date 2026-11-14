@@ -58,16 +58,28 @@ class PyModulesCommonTests(unittest.IsolatedAsyncioTestCase):
             s = common._load_settings(test_file)
             self.assertIsInstance(s, dict)
             self.assertEqual(s["audio_quality"], "320")
+            self.assertTrue(s["trigger_nav_enabled"])
+            self.assertEqual(s["trigger_seek_seconds"], 10)
+            self.assertEqual(s["trigger_page_size"], 15)
+            self.assertTrue(s["show_controller_hints"])
 
             # Save custom settings
             s["device_name"] = "Custom Deck"
             s["audio_quality"] = "160"
+            s["trigger_nav_enabled"] = False
+            s["trigger_seek_seconds"] = 20
+            s["trigger_page_size"] = 25
+            s["show_controller_hints"] = False
             common._save_settings(s, test_file)
 
             loaded = common._load_settings(test_file)
             self.assertEqual(loaded["device_name"], "Custom Deck")
             self.assertEqual(loaded["audio_quality"], "160")
             self.assertEqual(loaded["bitrate"], 160)
+            self.assertFalse(loaded["trigger_nav_enabled"])
+            self.assertEqual(loaded["trigger_seek_seconds"], 20)
+            self.assertEqual(loaded["trigger_page_size"], 25)
+            self.assertFalse(loaded["show_controller_hints"])
 
     def test_build_deck_command(self):
         cmd = ["echo", "hello"]
