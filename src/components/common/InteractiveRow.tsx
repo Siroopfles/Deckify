@@ -107,6 +107,7 @@ export function InteractiveRow({
       noFocusRing
       data-deckify-list-item={dataDeckifyListItem}
       data-deckify-label={dataDeckifyLabel}
+      data-deckify-focused={focused ? "true" : undefined}
       onClick={onClick}
       onActivate={onClick}
       onFocus={() => {
@@ -120,7 +121,7 @@ export function InteractiveRow({
       }}
       onGamepadBlur={() => setFocused(false)}
       onKeyDown={onKeyDown}
-      tabIndex={tabIndex}
+      tabIndex={tabIndex ?? 0}
       style={{
         display: "flex",
         alignItems: "center",
