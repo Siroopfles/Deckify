@@ -679,9 +679,8 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
         setActivePlaylist(null);
         return;
       }
-      closeModal?.();
-    }, true);
-  }, [closeModal]);
+    }, false);
+  }, []);
 
   const audioBackend = status?.audio_backend || status?.settings?.audio_backend || "librespot";
   const artwork = track?.artwork_url || track?.image_url;
