@@ -10,6 +10,7 @@ import {
   Focusable,
   DialogButton,
   Navigation,
+  Router,
   showModal,
   staticClasses,
 } from "@decky/ui";
@@ -196,6 +197,7 @@ const Content: FC = () => {
     });
 
     activeGameListeners.add(setActiveGameAppId);
+    setActiveGameAppId(currentRunningAppId);
     const unsubPrompt = addEventListener<[any]>("soundtrack_prompt_switch", (data: any) => {
       try {
         const gameName = data?.app_name ? ` for ${data.app_name}` : "";
@@ -831,9 +833,16 @@ export default definePlugin(() => {
   let gameExitDebounceTimer: any = null;
   let appLifetimeSub: any = null;
   try {
-    const steamApps = (window as any).SteamClient?.Apps;
-    if (steamApps?.RegisterForAppLifetimeNotifications) {
-      appLifetimeSub = steamApps.RegisterForAppLifetimeNotifications(async (ev: any) => {
+    const rawMainAppId = (Router as any)?.MainRunningApp?.appid;
+    const mainAppId = typeof rawMainAppId === "number" ? rawMainAppId : Number(rawMainAppId);
+    if (Number.isFinite(mainAppId) && mainAppId > 0) {
+      activeGameAppId = mainAppId;
+      setActiveGameState(mainAppId);
+      backendHandleAppLifetimeEvent(mainAppId, true).catch(() => {});
+    }
+    const gameSessions = (window as any).SteamClient?.GameSessions;
+    if (gameSessions?.RegisterForAppLifetimeNotifications) {
+      appLifetimeSub = gameSessions.RegisterForAppLifetimeNotifications(async (ev: any) => {
         if (!ev) return;
         const appId = ev.unAppID || ev.nAppID;
         const running = Boolean(ev.bRunning);
