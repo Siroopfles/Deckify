@@ -226,6 +226,7 @@ export const SoundtracksTab: FC<SoundtracksTabProps> = ({
                     width={42}
                     height={42}
                     style={{ borderRadius: 6, flexShrink: 0 }}
+                    fallback={<FaGamepad size={18} color="#888" />}
                   />
                 ) : (
                   <div

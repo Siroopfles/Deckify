@@ -278,4 +278,16 @@ describe("SoundtracksTab Component", () => {
     );
     expect(horizontalRows.length).toBeGreaterThanOrEqual(4);
   });
+
+  it("passes FaGamepad fallback to game cover DeckifyImage (Gap 1)", () => {
+    const tree = SoundtracksTab({
+      initialGames: sampleGames,
+      initialProfiles: sampleProfiles,
+    });
+    const images = findNodes(tree, (n) => typeName(n) === "DeckifyImage");
+    const gameCover = images.find((img) => img.props.src === sampleGames[0].icon_url);
+    expect(gameCover).toBeDefined();
+    expect(gameCover.props.fallback).toBeDefined();
+    expect(typeName(gameCover.props.fallback)).toBe("FaGamepad");
+  });
 });
