@@ -1,10 +1,11 @@
 ---
 phase: "09"
 slug: "qam-pinned-playlists-quick-in-game-switch"
-status: draft
+status: approved
 shadcn_initialized: false
 preset: none
 created: "2026-11-14"
+reviewed_at: "2026-11-14T23:21:00Z"
 ---
 
 # Phase 09 — UI Design Contract
@@ -101,7 +102,7 @@ Accent reserved for:
   - Collapsible / grouped secondary controls (`Playback Device` dropdown, `In-Game Overlay (HUD)` settings, `Engine` toggle, `Open Deckify (Full Screen)` button) so all existing QAM controls remain accessible without pushing playback and pinned playlists down.
 
 ### 2. Pinned Playlist Pills Strip (`src/index.tsx`)
-- **Container:** `<Focusable flow-children="horizontal" style={{ display: "flex", alignItems: "center", gap: 8, overflowX: "auto", padding: "4px 2px", width: "100%" }}>` — MUST use `flow-children="horizontal"` (never `"row"`) for clean D-pad Left/Right traversal.
+- **Container:** `<Focusable flow-children="horizontal" style={{ display: "flex", alignItems: "center", gap: 8, overflowX: "auto", padding: "4px 0", width: "100%" }}>` — MUST use `flow-children="horizontal"` (never `"row"`) for clean D-pad Left/Right traversal.
 - **Pill Anatomy (per D-03, D-05):**
   - Compact horizontal pill (`minHeight: 36`, `maxWidth: 140`, `padding: "4px 8px"`, `borderRadius: 16`, `gap: 8`, `display: "inline-flex"`, `alignItems: "center"`, `flexShrink: 0`)
   - Square `20px × 20px` thumbnail (`borderRadius: 4`, `flexShrink: 0`) rendered via `DeckifyImage` / backend `py_modules/images.py` base64 proxy (fallback to `FaMusic` / `FaCompactDisc` / `FaHeart` `12px` icon if no `image_url`)
@@ -141,12 +142,12 @@ Applicable state considerations resolved: 7 covered, 1 backstop, 0 unresolved
 
 ## Checker Sign-Off
 
-- [ ] Dimension 1 Copywriting: PASS
-- [ ] Dimension 2 Visuals: PASS
-- [ ] Dimension 3 Color: PASS
-- [ ] Dimension 4 Typography: PASS
-- [ ] Dimension 5 Spacing: PASS
-- [ ] Dimension 6 Registry Safety: PASS
-- [ ] Dimension 7 Inventory Provenance: PASS
+- [x] Dimension 1 Copywriting: PASS
+- [x] Dimension 2 Visuals: FLAG (non-blocking — `aria-label` / tooltip fallback recommended for icon-only `FaThumbtack` header toggle)
+- [x] Dimension 3 Color: PASS
+- [x] Dimension 4 Typography: FLAG (non-blocking — lower scale `12px`/`13px`/`14px` is 1px apart)
+- [x] Dimension 5 Spacing: PASS
+- [x] Dimension 6 Registry Safety: PASS
+- [x] Dimension 7 Inventory Provenance: PASS
 
-**Approval:** pending
+**Approval:** approved
