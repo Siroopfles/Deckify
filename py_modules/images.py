@@ -12,6 +12,9 @@ ALLOWED_SPOTIFY_DOMAINS = (
     "spotifycdn.com",
     "spotifycdn.net",
     "spotify.com",
+    "steamstatic.com",
+    "steamcdn-a.akamaihd.net",
+    "steampowered.com",
 )
 
 
@@ -94,7 +97,8 @@ def _fetch_spotify_image(url: str) -> tuple[str, bytes]:
     opener = urllib.request.build_opener(
         _ImageRedirectHandler(), urllib.request.HTTPSHandler(context=_API_SSL_CTX),
     )
-    with opener.open(url, timeout=10) as response:
+    req = urllib.request.Request(url, headers={"User-Agent": "Deckify/1.0"})
+    with opener.open(req, timeout=10) as response:
         content_type = response.headers.get_content_type()
         if content_type not in ("image/jpeg", "image/png", "image/webp", "image/gif", "image/avif"):
             raise RuntimeError("Spotify returned an unsupported image format")
