@@ -672,21 +672,29 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
           "soundtracks",
         ];
         if (!listModes.includes(modeRef.current)) return;
-        if (!contentPaneRef.current?.contains(document.activeElement)) return;
+        const paneEl = contentPaneRef.current;
+        if (!paneEl) return;
+        const domFocusedInPane = Boolean(paneEl.contains(document.activeElement));
+        const virtualFocusedEl = paneEl.querySelector(
+          '[data-deckify-focused="true"], .gpfocus'
+        ) as HTMLElement | null;
+        if (!domFocusedInPane && !virtualFocusedEl) return;
 
         const rows = Array.from(
-          contentPaneRef.current.querySelectorAll('[data-deckify-list-item="true"]')
+          paneEl.querySelectorAll('[data-deckify-list-item="true"]')
         ) as HTMLElement[];
         if (rows.length === 0) return;
 
         const labels = rows.map((el) => el.getAttribute("data-deckify-label") || "");
-        const activeEl = document.activeElement as HTMLElement | null;
+        const activeEl = domFocusedInPane
+          ? (document.activeElement as HTMLElement | null)
+          : virtualFocusedEl;
         const foundIdx = activeEl
           ? rows.findIndex((el) => el === activeEl || el.contains(activeEl))
           : -1;
         const currentIndex = foundIdx >= 0 ? foundIdx : 0;
         const sortedAz = Boolean(
-          contentPaneRef.current.querySelector('[data-deckify-sorted="az"]')
+          paneEl.querySelector('[data-deckify-sorted="az"]')
         );
         const pageSize = Math.min(
           50,
