@@ -94,7 +94,7 @@ Plans:
   2. Pulling L2 or R2 in library views (Liked Songs, Playlists, Albums, Artists) jumps ±15 items or jumps across alphabetical letter anchors in virtualized lists.
   3. Trigger activation enforces Schmidt hysteresis (0.75 trigger press / 0.25 release) and 300ms software debounce, preventing analog trigger chatter and runaway seeking.
   4. Trigger handlers are strictly active only when the Deckify Expanded Modal is open, preventing interference with in-game controls.
-**Plans**: 4/4 plans executed
+**Plans**: 4/4 plans complete
 
 Plans:
 **Wave 1**
@@ -171,7 +171,7 @@ Phases execute in numeric order: 6 → 7 → 8 → 9 → 10 → 11
 |-------|-----------|:--------------:|:------:|:---------:|
 | 6. Smooth Audio Ducking Engine & PipeWire Fader | v0.5 | 2/2 | Complete    | 2026-11-12 |
 | 7. Game-Specific Soundtracks | v0.5 | 3/3 | Complete    | 2026-11-14 |
-| 8. Controller L2/R2 Ergonomics & Trigger Navigation | v0.5 | 4/4 | In Progress |  |
+| 8. Controller L2/R2 Ergonomics & Trigger Navigation | v0.5 | 4/4 | Complete    | 2026-11-14 |
 | 9. QAM Pinned Playlists & Quick In-Game Switch | v0.5 | 0/2 | Not started | - |
 | 10. In-Game HUD Overlay 2.0 (Live Synced Lyrics) | v0.5 | 0/2 | Not started | - |
 | 11. Home & Discovery Hub Tab | v0.5 | 0/2 | Not started | - |
