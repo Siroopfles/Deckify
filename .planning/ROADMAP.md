@@ -71,14 +71,14 @@ Plans:
   2. Launching an associated Steam game automatically triggers playback of its configured soundtrack after a 3–5s launcher debounce window.
   3. Exiting the game cleanly restores the user's pre-game playback context, track, and seek position (or pauses playback if preferred).
   4. Non-Steam shortcuts (normalized via unsigned 32-bit CRC32 conversion) and intermediate Proton launcher child processes do not trigger false launch/exit flapping.
-**Plans**: 1/2 plans executed
+**Plans**: 2/2 plans executed
 
 Plans:
 **Wave 1**
 - [x] 07-01-PLAN.md — Build VDF parser with CRC32 AppID normalization, SoundtrackManager engine with 3.5s launch / 3.0s exit debounce, pre-game state snapshots, and playback seek offset support.
 
 **Wave 2** *(blocked on Wave 1 completion)*
-- [ ] 07-02-PLAN.md — Implement SoundtracksTab, PlaylistPickerModal, QAM 1-click quick-binding button, and in-game AppLifetime notification dispatch.
+- [x] 07-02-PLAN.md — Implement SoundtracksTab, PlaylistPickerModal, QAM 1-click quick-binding button, and in-game AppLifetime notification dispatch.
 
 ### Phase 8: Controller L2/R2 Ergonomics & Trigger Navigation
 **Goal**: Allow players to scrub playback position and fast-page through long library lists using controller analog triggers without losing D-pad navigation focus.  
@@ -158,7 +158,7 @@ Phases execute in numeric order: 6 → 7 → 8 → 9 → 10 → 11
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|:--------------:|:------:|:---------:|
 | 6. Smooth Audio Ducking Engine & PipeWire Fader | v0.5 | 2/2 | Complete    | 2026-11-12 |
-| 7. Game-Specific Soundtracks | v0.5 | 1/2 | In Progress | - |
+| 7. Game-Specific Soundtracks | v0.5 | 2/2 | In Progress | - |
 | 8. Controller L2/R2 Ergonomics & Trigger Navigation | v0.5 | 0/2 | Not started | - |
 | 9. QAM Pinned Playlists & Quick In-Game Switch | v0.5 | 0/2 | Not started | - |
 | 10. In-Game HUD Overlay 2.0 (Live Synced Lyrics) | v0.5 | 0/2 | Not started | - |

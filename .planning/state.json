@@ -11,7 +11,7 @@
     {
       "number": "7",
       "name": "Game-Specific Soundtracks",
-      "status": "pending"
+      "status": "in_progress"
     },
     {
       "number": "8",
@@ -36,8 +36,8 @@
   ],
   "next": {
     "command": "/gsd-progress --next",
-    "label": "Advance to the next step (plan phase 7)",
-    "reason": "Phase 2 of 6 — needs a plan"
+    "label": "Advance to the next step (verify)",
+    "reason": "Phase 2 of 6 · ready to verify"
   },
-  "updated_at": "2026-11-12T11:06:48.331Z"
+  "updated_at": "2026-11-14T18:28:30.315Z"
 }
