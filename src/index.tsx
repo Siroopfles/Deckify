@@ -37,6 +37,7 @@ import {
   FaRedo,
   FaHeart,
   FaRegHeart,
+  FaPlus,
 } from "react-icons/fa";
 import { QRCodeSVG } from "qrcode.react";
 import type {
@@ -63,6 +64,15 @@ const backendTransferPlayback = callable<[string], { ok: boolean; error?: string
 const backendSetSetting = callable<[string, unknown], { ok: boolean; settings?: any; error?: string }>("set_setting");
 const backendTriggerDucking = callable<[boolean, string?, number?], { ok: boolean; is_ducked?: boolean; effective_volume?: number; error?: string }>("trigger_ducking");
 const backendGetDuckingState = callable<[], { is_ducked: boolean; effective_volume: number; base_volume: number; duck_reasons: string[] }>("get_ducking_state");
+const backendHandleAppLifetimeEvent = callable<[number, boolean], { ok: boolean; error?: string }>("handle_app_lifetime_event");
+const backendBindCurrentMusicToGame = callable<[number, string?], { ok: boolean; error?: string }>("bind_current_music_to_game");
+
+let currentRunningAppId: number | null = null;
+const activeGameListeners = new Set<(appId: number | null) => void>();
+const setActiveGameState = (appId: number | null) => {
+  currentRunningAppId = appId;
+  activeGameListeners.forEach((cb) => cb(appId));
+};
 
 let bigOpen = false;
 const openExpandedView = () => {
@@ -97,6 +107,7 @@ const Content: FC = () => {
   const [qrUrl, setQrUrl] = useState<string | null>(null);
   const [isDucked, setIsDucked] = useState<boolean>(false);
   const [effectiveVolume, setEffectiveVolume] = useState<number | null>(null);
+  const [activeGameAppId, setActiveGameAppId] = useState<number | null>(currentRunningAppId);
   const [settings, setSettings] = useState<EngineSettings>({
     audio_backend: "librespot",
     audio_quality: "320",
@@ -184,10 +195,38 @@ const Content: FC = () => {
       }
     });
 
+    activeGameListeners.add(setActiveGameAppId);
+    const unsubPrompt = addEventListener<[any]>("soundtrack_prompt_switch", (data: any) => {
+      try {
+        const gameName = data?.app_name ? ` for ${data.app_name}` : "";
+        toaster.toast({
+          title: "Deckify Soundtrack",
+          body: `Soundtrack ready${gameName}. Open Deckify to switch.`,
+          duration: 4500,
+        });
+      } catch {}
+    });
+
     return () => {
+      activeGameListeners.delete(setActiveGameAppId);
       removeEventListener("ducking_state_changed", unsubDucking);
+      removeEventListener("soundtrack_prompt_switch", unsubPrompt);
     };
   }, []);
+
+  const handleQuickBind = async () => {
+    if (!activeGameAppId) return;
+    try {
+      const res = await backendBindCurrentMusicToGame(activeGameAppId);
+      toaster.toast({
+        title: "Deckify",
+        body: res?.ok ? "Music bound to current game!" : res?.error || "Failed to bind music to game",
+        duration: 3000,
+      });
+    } catch {
+      toaster.toast({ title: "Deckify", body: "Failed to bind music to game", duration: 3000 });
+    }
+  };
 
   const handleToggleEngine = async (enable: boolean) => {
     setToggling(true);
@@ -443,6 +482,30 @@ const Content: FC = () => {
                 </DialogButton>
               </Focusable>
             </PanelSectionRow>
+
+            {activeGameAppId !== null && (
+              <PanelSectionRow>
+                <DialogButton
+                  style={{
+                    width: "100%",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 8,
+                    background: "rgba(29, 185, 84, 0.15)",
+                    borderColor: "#1db954",
+                    color: "#1db954",
+                    fontSize: 12,
+                    fontWeight: 700,
+                    padding: "8px 12px",
+                  }}
+                  onClick={handleQuickBind}
+                >
+                  <FaPlus />
+                  <span>Bind current music to game</span>
+                </DialogButton>
+              </PanelSectionRow>
+            )}
 
             {/* Volume slider */}
             <PanelSectionRow>
@@ -780,12 +843,15 @@ export default definePlugin(() => {
             gameExitDebounceTimer = null;
           }
           activeGameAppId = appId;
-          await backendTriggerDucking(true, "game", appId).catch(() => {});
+          setActiveGameState(appId);
+          await backendHandleAppLifetimeEvent(appId, true).catch(() => {});
         } else if (!running && activeGameAppId && appId === activeGameAppId) {
           if (gameExitDebounceTimer) clearTimeout(gameExitDebounceTimer);
+          await backendHandleAppLifetimeEvent(appId, false).catch(() => {});
           gameExitDebounceTimer = setTimeout(async () => {
             activeGameAppId = null;
             gameExitDebounceTimer = null;
+            setActiveGameState(null);
             await backendTriggerDucking(false, "game").catch(() => {});
           }, 3000);
         }
