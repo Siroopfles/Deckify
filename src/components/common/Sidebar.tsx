@@ -14,6 +14,7 @@ import {
   FaTv,
   FaCog,
   FaMusic,
+  FaGamepad,
 } from "react-icons/fa";
 import { ViewMode, StatusResponse } from "../../types";
 import { DeckifyImage } from "./DeckifyImage";
@@ -124,6 +125,7 @@ export const Sidebar: FC<SidebarProps> = ({
         <SidebarBtn id="search" label="Search" icon={<FaSearch size={12} />} active={mode === "search"} onSelect={onSelectMode} />
         <SidebarBtn id="queue" label="Queue" icon={<FaListUl size={12} />} active={mode === "queue"} onSelect={onSelectMode} />
         <SidebarBtn id="devices" label="Devices" icon={<FaTv size={12} />} active={mode === "devices"} onSelect={onSelectMode} />
+        <SidebarBtn id="soundtracks" label="Soundtracks" icon={<FaGamepad size={12} />} active={mode === "soundtracks"} onSelect={onSelectMode} />
         <SidebarBtn id="engine" label="Settings" icon={<FaCog size={12} />} active={mode === "engine"} onSelect={onSelectMode} />
       </Focusable>
 
