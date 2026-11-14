@@ -51,6 +51,9 @@ done
 REMOTE="${DECK_USER}@${DECK_IP}"
 REMOTE_PLUGIN_DIR="${DECK_DIR}/homebrew/plugins/${PLUGIN_NAME}"
 SSH_OPTS="-p ${DECK_PORT} -o StrictHostKeyChecking=no -o ConnectTimeout=5"
+if [[ -t 0 ]]; then
+    SSH_OPTS="-t ${SSH_OPTS}"
+fi
 
 echo "=== Deckify Deploy ==="
 echo "Target: ${REMOTE}:${REMOTE_PLUGIN_DIR}"
@@ -78,10 +81,14 @@ run_scp() {
     scp -P "${DECK_PORT}" -o StrictHostKeyChecking=no -o ConnectTimeout=5 "$@"
 }
 
-# ── Create remote plugin dir ─────────────────────────────────
+# ── Ensure remote plugin dir exists & is writable ────────────
 echo ""
-echo "--- Creating remote directory ---"
-run_ssh "sudo mkdir -p '${REMOTE_PLUGIN_DIR}/bin' '${REMOTE_PLUGIN_DIR}/dist' '${REMOTE_PLUGIN_DIR}/py_modules' && sudo chown -R deck:deck '${REMOTE_PLUGIN_DIR}'"
+echo "--- Checking remote directory ---"
+if ! run_ssh "test -w '${REMOTE_PLUGIN_DIR}/dist' && test -w '${REMOTE_PLUGIN_DIR}/py_modules'" 2>/dev/null; then
+    run_ssh "sudo mkdir -p '${REMOTE_PLUGIN_DIR}/bin' '${REMOTE_PLUGIN_DIR}/dist' '${REMOTE_PLUGIN_DIR}/py_modules' && sudo chown -R deck:deck '${REMOTE_PLUGIN_DIR}'"
+else
+    echo "  Remote plugin directories already writable."
+fi
 
 # ── Deploy plugin files via scp ──────────────────────────────
 echo ""

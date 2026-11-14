@@ -31,7 +31,7 @@ Milestone v0.5 elevates Deckify from a standalone media controller into an intel
 **Milestone v0.5: In-Game Flow & Music Discovery**
 
 - [x] **Phase 6: Smooth Audio Ducking Engine & PipeWire Fader** - Local non-blocking PipeWire volume fader for game transitions and active voice chat dipping
-- [ ] **Phase 7: Game-Specific Soundtracks (appId Linking & Lifecycle Automation)** - Bind Spotify playlists/albums to Steam games with auto-play and state restore
+- [x] **Phase 7: Game-Specific Soundtracks (appId Linking & Lifecycle Automation)** - Bind Spotify playlists/albums to Steam games with auto-play and state restore (completed 2026-11-14)
 - [ ] **Phase 8: Controller L2/R2 Ergonomics & Trigger Navigation** - Blind ±10s seeking and virtualized library fast-page navigation via analog triggers
 - [ ] **Phase 9: QAM Pinned Playlists & Quick In-Game Switch** - Instant 2-second playlist switching pills in the Quick Access Menu mini-player
 - [ ] **Phase 10: In-Game HUD Overlay 2.0 (Live Synced Lyrics)** - Micro-footprint discrete event-scheduled synced lyrics line in Gamescope HUD
@@ -71,7 +71,7 @@ Plans:
   2. Launching an associated Steam game automatically triggers playback of its configured soundtrack after a 3–5s launcher debounce window.
   3. Exiting the game cleanly restores the user's pre-game playback context, track, and seek position (or pauses playback if preferred).
   4. Non-Steam shortcuts (normalized via unsigned 32-bit CRC32 conversion) and intermediate Proton launcher child processes do not trigger false launch/exit flapping.
-**Plans**: 3/3 plans executed
+**Plans**: 3/3 plans complete
 
 Plans:
 **Wave 1**
@@ -161,7 +161,7 @@ Phases execute in numeric order: 6 → 7 → 8 → 9 → 10 → 11
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|:--------------:|:------:|:---------:|
 | 6. Smooth Audio Ducking Engine & PipeWire Fader | v0.5 | 2/2 | Complete    | 2026-11-12 |
-| 7. Game-Specific Soundtracks | v0.5 | 3/3 | In Progress | - |
+| 7. Game-Specific Soundtracks | v0.5 | 3/3 | Complete    | 2026-11-14 |
 | 8. Controller L2/R2 Ergonomics & Trigger Navigation | v0.5 | 0/2 | Not started | - |
 | 9. QAM Pinned Playlists & Quick In-Game Switch | v0.5 | 0/2 | Not started | - |
 | 10. In-Game HUD Overlay 2.0 (Live Synced Lyrics) | v0.5 | 0/2 | Not started | - |

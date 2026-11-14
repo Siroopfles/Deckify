@@ -487,25 +487,27 @@ const Content: FC = () => {
 
             {activeGameAppId !== null && (
               <PanelSectionRow>
-                <DialogButton
-                  style={{
-                    width: "100%",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    gap: 8,
-                    background: "rgba(29, 185, 84, 0.15)",
-                    borderColor: "#1db954",
-                    color: "#1db954",
-                    fontSize: 12,
-                    fontWeight: 700,
-                    padding: "8px 12px",
-                  }}
-                  onClick={handleQuickBind}
-                >
-                  <FaPlus />
-                  <span>Bind current music to game</span>
-                </DialogButton>
+                <Focusable style={{ display: "flex", width: "100%" }} flow-children="horizontal">
+                  <DialogButton
+                    style={{
+                      width: "100%",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 8,
+                      background: "rgba(29, 185, 84, 0.15)",
+                      borderColor: "#1db954",
+                      color: "#1db954",
+                      fontSize: 12,
+                      fontWeight: 700,
+                      padding: "8px 12px",
+                    }}
+                    onClick={handleQuickBind}
+                  >
+                    <FaPlus />
+                    <span>Bind current music to game</span>
+                  </DialogButton>
+                </Focusable>
               </PanelSectionRow>
             )}
 
