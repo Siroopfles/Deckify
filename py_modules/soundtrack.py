@@ -402,6 +402,25 @@ class SoundtrackManager:
         if self._active_game_app_id is not None and not self._internal_action:
             self._user_paused_in_game = True
 
+    async def _resolve_context_metadata(self, context_uri: str) -> tuple[str, str]:
+        """Best-effort lookup of playlist/album name and cover image for a Spotify context URI."""
+        parts = context_uri.split(":")
+        if len(parts) == 3 and parts[0] == "spotify" and parts[1] in ("playlist", "album"):
+            kind, item_id = parts[1], parts[2]
+            endpoint = f"playlists/{item_id}?fields=name,images" if kind == "playlist" else f"albums/{item_id}"
+            try:
+                token = await self.plugin._ensure_token()
+                if token:
+                    data = await _exec(_spotify_api_request, endpoint, token)
+                    if isinstance(data, dict):
+                        name = str(data.get("name") or "")
+                        images = data.get("images") or []
+                        image = str(images[0].get("url") or "") if images and isinstance(images[0], dict) else ""
+                        return name, image
+            except Exception as e:
+                decky.logger.warning("Soundtrack: context metadata lookup failed for %s: %s", context_uri, e)
+        return "", ""
+
     async def bind_current_music_to_game(self, app_id: int, app_name: str = "") -> dict:
         try:
             app_id = validate_app_id(app_id)
@@ -410,8 +429,15 @@ class SoundtrackManager:
         state = await self.get_player_state()
         if not state or not state.get("context_uri"):
             return {"ok": False, "error": "No playlist or album context is currently playing"}
+        context_uri = state["context_uri"]
+        existing = self.get_profile(app_id) or {}
+        existing_playlists = list(existing.get("playlists") or [])
+        if not any(p.get("uri") == context_uri for p in existing_playlists):
+            name, image = await self._resolve_context_metadata(context_uri)
+            existing_playlists.append({"uri": context_uri, "name": name or context_uri, "image": image})
+        resolved_name = app_name or str(existing.get("app_name") or "")
         return self.save_profile(app_id, {
-            "app_name": app_name,
-            "playlists": [{"uri": state["context_uri"], "name": "", "image": ""}],
-            "mode": "shuffle",
+            "app_name": resolved_name,
+            "playlists": existing_playlists,
+            "mode": existing.get("mode") or "shuffle",
         })

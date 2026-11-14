@@ -382,6 +382,38 @@ class TestPluginRpc(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(sres["ok"])
         self.assertEqual(sres["playlists"][0]["uri"], "spotify:playlist:sp1")
 
+    async def test_bind_current_music_appends_and_resolves_name(self):
+        mgr = self.plugin._get_soundtrack_manager()
+        mgr.save_profile(1245620, {
+            "app_name": "Elden Ring",
+            "playlists": [{"uri": "spotify:playlist:existing", "name": "Existing", "image": ""}],
+            "mode": "rotation",
+        })
+        mgr.get_player_state = AsyncMock(return_value={
+            "is_playing": True,
+            "context_uri": "spotify:playlist:new123",
+            "track_uri": "spotify:track:t1",
+            "position_ms": 1000,
+            "volume": 80,
+        })
+        self.plugin._ensure_token = AsyncMock(return_value="tok")
+        mock_api = lambda *a, **kw: {
+            "name": "Boss Music",
+            "images": [{"url": "https://i.scdn.co/image/boss"}],
+        }
+        with patch.dict(mgr._resolve_context_metadata.__globals__, {"_spotify_api_request": mock_api}):
+            res = await mgr.bind_current_music_to_game(1245620, "Elden Ring")
+        self.assertTrue(res["ok"])
+        pls = res["profile"]["playlists"]
+        self.assertEqual(len(pls), 2)
+        self.assertEqual(pls[0]["uri"], "spotify:playlist:existing")
+        self.assertEqual(pls[1], {
+            "uri": "spotify:playlist:new123",
+            "name": "Boss Music",
+            "image": "",
+        })
+        self.assertEqual(res["profile"]["mode"], "rotation")
+
 
 if __name__ == "__main__":
     unittest.main()
