@@ -1024,6 +1024,12 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
                   onToggleLike={handleToggleLike}
                   onOpenActions={(t) => setActionTrack(t)}
                   onFocusTrack={(t) => { focusedTrackRef.current = t; }}
+                  pinnedUris={pinnedUris}
+                  onTogglePin={handleTogglePin}
+                  onFocusCollection={(c) => {
+                    focusedCollectionRef.current = c;
+                    if (c) focusedTrackRef.current = null;
+                  }}
                   onCreatePlaylist={handleCreatePlaylist}
                   onCreateFolder={handleCreateFolder}
                   onRenameFolder={handleRenameFolder}
@@ -1041,6 +1047,8 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
                   onToggleLike={handleToggleLike}
                   onOpenActions={(t) => setActionTrack(t)}
                   onFocusTrack={(t) => { focusedTrackRef.current = t; }}
+                  isPinned={pinnedUris.has("spotify:collection:tracks")}
+                  onTogglePin={handleTogglePin}
                 />
               )}
 
@@ -1056,6 +1064,12 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
                   onToggleLike={handleToggleLike}
                   onOpenActions={(t) => setActionTrack(t)}
                   onFocusTrack={(t) => { focusedTrackRef.current = t; }}
+                  pinnedUris={pinnedUris}
+                  onTogglePin={handleTogglePin}
+                  onFocusCollection={(c) => {
+                    focusedCollectionRef.current = c;
+                    if (c) focusedTrackRef.current = null;
+                  }}
                 />
               )}
 

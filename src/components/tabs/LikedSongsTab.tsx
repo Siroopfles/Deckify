@@ -1,7 +1,7 @@
 import { FC } from "react";
 import { Focusable } from "@decky/ui";
-import { FaPlay } from "react-icons/fa";
-import { TrackItem } from "../../types";
+import { FaPlay, FaThumbtack } from "react-icons/fa";
+import { PinnedPlaylistItem, TrackItem } from "../../types";
 import { InteractiveRow } from "../common/InteractiveRow";
 import { TrackRowItem } from "../common/TrackRowItem";
 
@@ -14,6 +14,8 @@ export interface LikedSongsTabProps {
   onToggleLike: (trackId?: string) => void;
   onOpenActions: (track: TrackItem) => void;
   onFocusTrack?: (track: TrackItem) => void;
+  isPinned?: boolean;
+  onTogglePin?: (item: PinnedPlaylistItem) => void;
 }
 
 export const LikedSongsTab: FC<LikedSongsTabProps> = ({
@@ -25,6 +27,8 @@ export const LikedSongsTab: FC<LikedSongsTabProps> = ({
   onToggleLike,
   onOpenActions,
   onFocusTrack,
+  isPinned,
+  onTogglePin,
 }) => {
   return (
     <div>
@@ -35,14 +39,36 @@ export const LikedSongsTab: FC<LikedSongsTabProps> = ({
             {likedTracks.length} of {likedTotal || likedTracks.length} tracks
           </span>
         </div>
-        {likedTracks.length > 0 && (
+        <Focusable flow-children="horizontal" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          {likedTracks.length > 0 && (
+            <InteractiveRow
+              onClick={() => onPlayTrack("", undefined, likedTracks.map((t) => t.uri).filter(Boolean) as string[], 0)}
+              style={{ background: "#1db954", color: "#000", fontWeight: 700, padding: "8px 16px", borderRadius: 20, gap: 8 }}
+            >
+              <FaPlay size={11} /> Play All
+            </InteractiveRow>
+          )}
           <InteractiveRow
-            onClick={() => onPlayTrack("", undefined, likedTracks.map((t) => t.uri).filter(Boolean) as string[], 0)}
-            style={{ background: "#1db954", color: "#000", fontWeight: 700, padding: "8px 16px", borderRadius: 20, gap: 8 }}
+            aria-label={isPinned ? "Unpin from QAM" : "Pin to QAM"}
+            onClick={() =>
+              onTogglePin?.({
+                uri: "spotify:collection:tracks",
+                name: "Liked Songs",
+                type: "liked_songs",
+                image_url: null,
+              })
+            }
+            style={{
+              padding: "8px 12px",
+              borderRadius: 20,
+              gap: 6,
+              background: isPinned ? "rgba(29, 185, 84, 0.16)" : "rgba(255,255,255,0.08)",
+              color: isPinned ? "#1db954" : "#fff",
+            }}
           >
-            <FaPlay size={11} /> Play All
+            <FaThumbtack size={12} />
           </InteractiveRow>
-        )}
+        </Focusable>
       </div>
 
       {loadingContent && likedTracks.length === 0 ? (

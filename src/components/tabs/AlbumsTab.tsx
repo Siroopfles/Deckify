@@ -1,7 +1,7 @@
 import { FC } from "react";
 import { Focusable } from "@decky/ui";
-import { FaCompactDisc, FaPlay } from "react-icons/fa";
-import { AlbumItem, TrackItem } from "../../types";
+import { FaCompactDisc, FaPlay, FaThumbtack } from "react-icons/fa";
+import { AlbumItem, PinnedPlaylistItem, TrackItem } from "../../types";
 import { DeckifyImage } from "../common/DeckifyImage";
 import { InteractiveRow } from "../common/InteractiveRow";
 import { TrackRowItem } from "../common/TrackRowItem";
@@ -17,6 +17,9 @@ export interface AlbumsTabProps {
   onToggleLike: (trackId?: string) => void;
   onOpenActions: (track: TrackItem) => void;
   onFocusTrack?: (track: TrackItem) => void;
+  pinnedUris?: Set<string>;
+  onTogglePin?: (item: PinnedPlaylistItem) => void;
+  onFocusCollection?: (item: PinnedPlaylistItem | null) => void;
 }
 
 export const AlbumsTab: FC<AlbumsTabProps> = ({
@@ -30,6 +33,9 @@ export const AlbumsTab: FC<AlbumsTabProps> = ({
   onToggleLike,
   onOpenActions,
   onFocusTrack,
+  pinnedUris,
+  onTogglePin,
+  onFocusCollection,
 }) => {
   return (
     <div>
@@ -46,6 +52,14 @@ export const AlbumsTab: FC<AlbumsTabProps> = ({
                   data-deckify-list-item="true"
                   data-deckify-label={alb.name || ""}
                   onClick={() => onOpenAlbum(alb)}
+                  onFocus={() =>
+                    onFocusCollection?.({
+                      uri: alb.uri,
+                      name: alb.name,
+                      type: "album",
+                      image_url: alb.image_url,
+                    })
+                  }
                   style={{ gap: 12 }}
                 >
                   {alb.image_url ? (
@@ -61,6 +75,9 @@ export const AlbumsTab: FC<AlbumsTabProps> = ({
                       {alb.artist} · {alb.track_count || 0} tracks
                     </div>
                   </div>
+                  {pinnedUris?.has(alb.uri) && (
+                    <FaThumbtack size={12} color="#1db954" style={{ flexShrink: 0 }} title="Pinned to QAM" />
+                  )}
                 </InteractiveRow>
               ))}
             </Focusable>
@@ -81,6 +98,28 @@ export const AlbumsTab: FC<AlbumsTabProps> = ({
               style={{ marginLeft: "auto", background: "#1db954", color: "#000", fontWeight: 700, padding: "8px 16px", borderRadius: 20, gap: 8 }}
             >
               <FaPlay size={11} /> Play Album
+            </InteractiveRow>
+            <InteractiveRow
+              aria-label={pinnedUris?.has(activeAlbum.uri) ? "Unpin from QAM" : "Pin to QAM"}
+              onClick={() =>
+                onTogglePin?.({
+                  uri: activeAlbum.uri,
+                  name: activeAlbum.name,
+                  type: "album",
+                  image_url: activeAlbum.image_url,
+                })
+              }
+              style={{
+                padding: "8px 12px",
+                borderRadius: 20,
+                gap: 6,
+                background: pinnedUris?.has(activeAlbum.uri)
+                  ? "rgba(29, 185, 84, 0.16)"
+                  : "rgba(255,255,255,0.08)",
+                color: pinnedUris?.has(activeAlbum.uri) ? "#1db954" : "#fff",
+              }}
+            >
+              <FaThumbtack size={12} />
             </InteractiveRow>
           </Focusable>
           <Focusable flow-children="column" style={{ display: "flex", flexDirection: "column", gap: 3 }}>

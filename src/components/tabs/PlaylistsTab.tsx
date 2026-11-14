@@ -11,8 +11,9 @@ import {
   FaTrash,
   FaCheck,
   FaTimes,
+  FaThumbtack,
 } from "react-icons/fa";
-import { FolderItem, PlaylistItem, TrackItem, AudioBackend } from "../../types";
+import { FolderItem, PinnedPlaylistItem, PlaylistItem, TrackItem, AudioBackend } from "../../types";
 import { DeckifyImage } from "../common/DeckifyImage";
 import { InteractiveRow } from "../common/InteractiveRow";
 import { TrackRowItem } from "../common/TrackRowItem";
@@ -32,6 +33,9 @@ export interface PlaylistsTabProps {
   onToggleLike: (trackId?: string) => void;
   onOpenActions: (track: TrackItem) => void;
   onFocusTrack?: (track: TrackItem) => void;
+  pinnedUris?: Set<string>;
+  onTogglePin?: (item: PinnedPlaylistItem) => void;
+  onFocusCollection?: (item: PinnedPlaylistItem | null) => void;
   onCreatePlaylist: (name: string) => Promise<void>;
   onCreateFolder: (name: string) => Promise<void>;
   onRenameFolder: (folderId: string, newName: string) => Promise<void>;
@@ -53,6 +57,9 @@ export const PlaylistsTab: FC<PlaylistsTabProps> = ({
   onToggleLike,
   onOpenActions,
   onFocusTrack,
+  pinnedUris,
+  onTogglePin,
+  onFocusCollection,
   onCreatePlaylist,
   onCreateFolder,
   onRenameFolder,
@@ -162,6 +169,15 @@ export const PlaylistsTab: FC<PlaylistsTabProps> = ({
                 data-deckify-list-item="true"
                 data-deckify-label={pl.name || ""}
                 onClick={() => onOpenPlaylist(pl)}
+                onFocus={() => {
+                  onFocusTrack?.(null as any);
+                  onFocusCollection?.({
+                    uri: pl.uri,
+                    name: pl.name,
+                    type: "playlist",
+                    image_url: pl.image_url,
+                  });
+                }}
                 active={activePlaylist?.id === pl.id}
                 style={{ padding: "6px 10px" }}
               >
@@ -173,6 +189,9 @@ export const PlaylistsTab: FC<PlaylistsTabProps> = ({
                 <span style={{ fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   {pl.name}
                 </span>
+                {pinnedUris?.has(pl.uri) && (
+                  <FaThumbtack size={12} color="#1db954" style={{ marginLeft: 8, flexShrink: 0 }} title="Pinned to QAM" />
+                )}
                 {pl.is_mixed && (
                   <span style={{ fontSize: 10, background: "#1db954", color: "#000", padding: "1px 5px", borderRadius: 4, fontWeight: 700, marginLeft: "auto" }}>
                     MIX
@@ -272,6 +291,15 @@ export const PlaylistsTab: FC<PlaylistsTabProps> = ({
                     data-deckify-list-item="true"
                     data-deckify-label={pl.name || ""}
                     onClick={() => onOpenPlaylist(pl)}
+                    onFocus={() => {
+                      onFocusTrack?.(null as any);
+                      onFocusCollection?.({
+                        uri: pl.uri,
+                        name: pl.name,
+                        type: "playlist",
+                        image_url: pl.image_url,
+                      });
+                    }}
                     style={{ padding: "6px 10px", marginBottom: 2 }}
                   >
                     {pl.image_url ? (
@@ -280,6 +308,9 @@ export const PlaylistsTab: FC<PlaylistsTabProps> = ({
                       <FaMusic size={12} color="#888" style={{ marginRight: 8 }} />
                     )}
                     <span style={{ fontSize: 13, fontWeight: 600 }}>{pl.name}</span>
+                    {pinnedUris?.has(pl.uri) && (
+                      <FaThumbtack size={12} color="#1db954" style={{ marginLeft: 8, flexShrink: 0 }} title="Pinned to QAM" />
+                    )}
                     <span style={{ fontSize: 11, opacity: 0.5, marginLeft: "auto" }}>
                       {pl.track_count || 0} tracks
                     </span>
@@ -316,6 +347,29 @@ export const PlaylistsTab: FC<PlaylistsTabProps> = ({
               }}
             >
               <FaPlay size={11} /> Play
+            </InteractiveRow>
+
+            <InteractiveRow
+              aria-label={pinnedUris?.has(activePlaylist.uri) ? "Unpin from QAM" : "Pin to QAM"}
+              onClick={() =>
+                onTogglePin?.({
+                  uri: activePlaylist.uri,
+                  name: activePlaylist.name,
+                  type: "playlist",
+                  image_url: activePlaylist.image_url,
+                })
+              }
+              style={{
+                padding: "8px 12px",
+                borderRadius: 20,
+                gap: 6,
+                background: pinnedUris?.has(activePlaylist.uri)
+                  ? "rgba(29, 185, 84, 0.16)"
+                  : "rgba(255,255,255,0.08)",
+                color: pinnedUris?.has(activePlaylist.uri) ? "#1db954" : "#fff",
+              }}
+            >
+              <FaThumbtack size={12} />
             </InteractiveRow>
 
             {audioBackend === "spotify_client" && (
