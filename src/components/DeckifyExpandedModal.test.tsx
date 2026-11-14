@@ -1,14 +1,16 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-const { mockToast, mockScrubTo, mockToggleLike } = vi.hoisted(() => ({
+const { mockToast, mockScrubTo, mockToggleLike, mockSetSetting } = vi.hoisted(() => ({
   mockToast: vi.fn(),
   mockScrubTo: vi.fn(),
   mockToggleLike: vi.fn().mockResolvedValue({ ok: true, is_liked: true }),
+  mockSetSetting: vi.fn().mockResolvedValue({ ok: true }),
 }));
 
 vi.mock("@decky/api", () => ({
   callable: (name: string) => {
     if (name === "toggle_like") return mockToggleLike;
+    if (name === "set_setting") return mockSetSetting;
     return vi.fn().mockResolvedValue({ ok: true });
   },
   toaster: { toast: mockToast },
@@ -46,7 +48,11 @@ vi.mock("./tabs/SettingsTab", () => ({ SettingsTab: () => ({ type: "SettingsTab"
 vi.mock("../hooks/usePlaybackClock", () => ({
   usePlaybackClock: () => ({ positionMs: 25000, notifySeek: vi.fn(), scrubTo: mockScrubTo, scrubDelta: vi.fn() }),
 }));
-vi.mock("react-icons/fa", () => new Proxy({}, { get: () => () => ({ type: "Icon", props: {} }) }));
+vi.mock("react-icons/fa", async (importOriginal) => {
+  const actual = await importOriginal<Record<string, unknown>>();
+  const Icon = (props: any) => ({ type: "Icon", props });
+  return Object.fromEntries(Object.keys(actual).map((k) => [k, Icon]));
+});
 vi.mock("react-icons/md", () => new Proxy({}, { get: () => () => ({ type: "Icon", props: {} }) }));
 vi.mock("qrcode.react", () => ({ QRCodeSVG: () => ({ type: "QRCodeSVG", props: {} }) }));
 
@@ -105,6 +111,10 @@ vi.mock("react", () => ({
 
 import { Focusable } from "@decky/ui";
 import { DeckifyExpandedModal, SEEK_ACCUMULATION_WINDOW_MS } from "./DeckifyExpandedModal";
+import { PlaylistsTab } from "./tabs/PlaylistsTab";
+import { AlbumsTab } from "./tabs/AlbumsTab";
+import { LikedSongsTab } from "./tabs/LikedSongsTab";
+import { CollectionActionModal } from "./common/CollectionActionModal";
 import { useTriggerNavigation } from "../hooks/useTriggerNavigation";
 
 function findNodes(tree: any, predicate: (node: any) => boolean, results: any[] = []): any[] {
@@ -742,5 +752,231 @@ describe("useTriggerNavigation & DeckifyExpandedModal controller dispatch", () =
     const tree = DeckifyExpandedModal({ closeModal });
     const toastNodes = findNodes(tree, (n) => n.props?.children === errMsg);
     expect(toastNodes.length).toBe(1);
+  });
+
+  it("pins a playlist from PlaylistsTab detail header and shows Pinned to QAM toast", async () => {
+    const closeModal = vi.fn();
+    DeckifyExpandedModal({ closeModal });
+
+    stateValues[0] = "playlists";
+    stateValues[1] = { settings: { trigger_nav_enabled: true, pinned_playlists: [] } };
+    stateValues[2] = {
+      id: "pl-1",
+      name: "Chill Mix",
+      uri: "spotify:playlist:pl-1",
+      image_url: "https://i.scdn.co/image/pl1",
+    };
+
+    stateIdx = 0;
+    refIdx = 0;
+    const tree = DeckifyExpandedModal({ closeModal });
+    const playlistsTabNode = findNodes(tree, (n) => n.type === PlaylistsTab)[0];
+    expect(playlistsTabNode).toBeDefined();
+
+    const plTree = PlaylistsTab(playlistsTabNode.props);
+    const pinBtn = findNodes(plTree, (n) => n.props?.["aria-label"] === "Pin to QAM")[0];
+    expect(pinBtn).toBeDefined();
+
+    await pinBtn.props.onClick();
+
+    expect(mockSetSetting).toHaveBeenCalledWith("pinned_playlists", [
+      {
+        uri: "spotify:playlist:pl-1",
+        name: "Chill Mix",
+        type: "playlist",
+        image_url: "https://i.scdn.co/image/pl1",
+      },
+    ]);
+    expect(mockToast).toHaveBeenCalledWith({
+      title: "Deckify",
+      body: "Pinned to QAM",
+      duration: 2500,
+    });
+  });
+
+  it("unpins an already-pinned item from detail header and shows Unpinned from QAM toast", async () => {
+    const closeModal = vi.fn();
+    DeckifyExpandedModal({ closeModal });
+
+    const existing = [
+      { uri: "spotify:playlist:pl-1", name: "Chill Mix", type: "playlist" as const, image_url: null },
+      { uri: "spotify:album:alb-2", name: "Album 2", type: "album" as const, image_url: null },
+    ];
+    stateValues[0] = "playlists";
+    stateValues[1] = { settings: { trigger_nav_enabled: true, pinned_playlists: existing } };
+    stateValues[2] = {
+      id: "pl-1",
+      name: "Chill Mix",
+      uri: "spotify:playlist:pl-1",
+      image_url: null,
+    };
+
+    stateIdx = 0;
+    refIdx = 0;
+    const tree = DeckifyExpandedModal({ closeModal });
+    const playlistsTabNode = findNodes(tree, (n) => n.type === PlaylistsTab)[0];
+    const plTree = PlaylistsTab(playlistsTabNode.props);
+    const unpinBtn = findNodes(plTree, (n) => n.props?.["aria-label"] === "Unpin from QAM")[0];
+    expect(unpinBtn).toBeDefined();
+
+    await unpinBtn.props.onClick();
+
+    expect(mockSetSetting).toHaveBeenCalledWith("pinned_playlists", [
+      { uri: "spotify:album:alb-2", name: "Album 2", type: "album", image_url: null },
+    ]);
+    expect(mockToast).toHaveBeenCalledWith({
+      title: "Deckify",
+      body: "Unpinned from QAM",
+      duration: 2500,
+    });
+  });
+
+  it("focuses an album row, opens CollectionActionModal on Y, and shows row FaThumbtack badge when pinned", async () => {
+    const closeModal = vi.fn();
+    DeckifyExpandedModal({ closeModal });
+
+    const pinnedAlbum = {
+      id: "alb-1",
+      name: "Discovery",
+      artist: "Daft Punk",
+      uri: "spotify:album:alb-1",
+      image_url: "https://i.scdn.co/image/alb1",
+      track_count: 14,
+    };
+    stateValues[0] = "albums";
+    stateValues[1] = {
+      settings: {
+        trigger_nav_enabled: true,
+        pinned_playlists: [
+          {
+            uri: "spotify:album:alb-1",
+            name: "Discovery",
+            type: "album",
+            image_url: "https://i.scdn.co/image/alb1",
+          },
+        ],
+      },
+    };
+    stateValues[16] = [pinnedAlbum];
+
+    stateIdx = 0;
+    refIdx = 0;
+    for (const cleanup of effectCleanups) cleanup();
+    effectCleanups = [];
+    const tree = DeckifyExpandedModal({ closeModal });
+    const albumsTabNode = findNodes(tree, (n) => n.type === AlbumsTab)[0];
+    expect(albumsTabNode).toBeDefined();
+
+    const albumsTree = AlbumsTab(albumsTabNode.props);
+    const albumRow = findNodes(
+      albumsTree,
+      (n) => n.props?.["data-deckify-label"] === "Discovery"
+    )[0];
+    expect(albumRow).toBeDefined();
+    const badge = findNodes(albumRow, (n) => n.props?.title === "Pinned to QAM")[0];
+    expect(badge).toBeDefined();
+
+    albumRow.props.onFocus();
+    downHandler!(4); // Y button opens CollectionActionModal
+
+    stateIdx = 0;
+    refIdx = 0;
+    const modalTree = DeckifyExpandedModal({ closeModal });
+    const collectionModalNode = findNodes(
+      modalTree,
+      (n) => n.type === CollectionActionModal
+    )[0];
+    expect(collectionModalNode).toBeDefined();
+    expect(collectionModalNode.props.isPinned).toBe(true);
+
+    const renderedModal = CollectionActionModal(collectionModalNode.props);
+    const unpinAction = findNodes(
+      renderedModal,
+      (n) => n.props?.children === "Unpin from QAM"
+    )[0];
+    expect(unpinAction).toBeDefined();
+  });
+
+  it("does not auto-evict when 4 items are already pinned and shows max-4 toast and Y-menu label", async () => {
+    const closeModal = vi.fn();
+    DeckifyExpandedModal({ closeModal });
+
+    const fourPinned = [
+      { uri: "spotify:playlist:1", name: "P1", type: "playlist" as const, image_url: null },
+      { uri: "spotify:playlist:2", name: "P2", type: "playlist" as const, image_url: null },
+      { uri: "spotify:playlist:3", name: "P3", type: "playlist" as const, image_url: null },
+      { uri: "spotify:playlist:4", name: "P4", type: "playlist" as const, image_url: null },
+    ];
+    const fifthPlaylist = {
+      id: "5",
+      name: "P5",
+      uri: "spotify:playlist:5",
+      image_url: null,
+    };
+
+    stateValues[0] = "playlists";
+    stateValues[1] = { settings: { trigger_nav_enabled: true, pinned_playlists: fourPinned } };
+    stateValues[2] = fifthPlaylist;
+
+    stateIdx = 0;
+    refIdx = 0;
+    const tree = DeckifyExpandedModal({ closeModal });
+    const playlistsTabNode = findNodes(tree, (n) => n.type === PlaylistsTab)[0];
+    const plTree = PlaylistsTab(playlistsTabNode.props);
+    const pinBtn = findNodes(plTree, (n) => n.props?.["aria-label"] === "Pin to QAM")[0];
+
+    await pinBtn.props.onClick();
+
+    expect(mockSetSetting).not.toHaveBeenCalled();
+    expect(mockToast).toHaveBeenCalledWith({
+      title: "Deckify",
+      body: "Max 4 pinned items — unpin one first",
+      duration: 3000,
+    });
+
+    // Also verify CollectionActionModal displays "Max 4 Pinned — Unpin One First"
+    const modalAtLimit = CollectionActionModal({
+      collection: { uri: "spotify:playlist:5", name: "P5", type: "playlist", image_url: null },
+      isPinned: false,
+      atLimit: true,
+      onClose: vi.fn(),
+      onPlay: vi.fn(),
+      onTogglePin: vi.fn(),
+    });
+    const limitLabel = findNodes(
+      modalAtLimit,
+      (n) => n.props?.children === "Max 4 Pinned — Unpin One First"
+    )[0];
+    expect(limitLabel).toBeDefined();
+  });
+
+  it("renders Pin to QAM / Unpin from QAM toggle in LikedSongsTab for spotify:collection:tracks", async () => {
+    const closeModal = vi.fn();
+    DeckifyExpandedModal({ closeModal });
+
+    stateValues[0] = "liked";
+    stateValues[1] = { settings: { trigger_nav_enabled: true, pinned_playlists: [] } };
+
+    stateIdx = 0;
+    refIdx = 0;
+    const tree = DeckifyExpandedModal({ closeModal });
+    const likedTabNode = findNodes(tree, (n) => n.type === LikedSongsTab)[0];
+    expect(likedTabNode).toBeDefined();
+    expect(likedTabNode.props.isPinned).toBe(false);
+
+    const likedTree = LikedSongsTab(likedTabNode.props);
+    const pinBtn = findNodes(likedTree, (n) => n.props?.["aria-label"] === "Pin to QAM")[0];
+    expect(pinBtn).toBeDefined();
+
+    await pinBtn.props.onClick();
+
+    expect(mockSetSetting).toHaveBeenCalledWith("pinned_playlists", [
+      {
+        uri: "spotify:collection:tracks",
+        name: "Liked Songs",
+        type: "liked_songs",
+        image_url: null,
+      },
+    ]);
   });
 });
