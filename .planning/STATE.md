@@ -4,16 +4,16 @@ milestone: v0.5
 current_phase: 12
 current_phase_name: Resolve open todos & polish
 status: executing
-stopped_at: Completed 12-01-PLAN.md
-last_updated: "2026-11-15T20:01:44.718Z"
+stopped_at: Completed 12-02-PLAN.md
+last_updated: "2026-11-15T20:09:41.814Z"
 last_activity: 2026-11-15
 last_activity_desc: Phase 12 execution started
-state_head: eb5927e8f6ebd8fcfaddd796534daf156545e996
+state_head: c2317a1edfdaded75a5b5d98ac860b36a69ef665
 progress:
   total_phases: 8
   completed_phases: 6
   total_plans: 22
-  completed_plans: 20
+  completed_plans: 21
 ---
 
 # Project State
@@ -28,7 +28,7 @@ See: [.planning/PROJECT.md](file:///C:/Users/djdje/Deckify/.planning/PROJECT.md)
 ## Current Position
 
 Phase: 12 (Resolve open todos & polish) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-11-15 — Phase 12 execution started
 
@@ -81,6 +81,7 @@ Progress: [█████████░] 86% (Phase 06 complete, Phase 07 plan
 | Phase 11 P02 | 8min | 2 tasks | 7 files |
 | Phase 11.1 P01 | 7min | 3 tasks | 11 files |
 | Phase 12 P01 | 8min | 3 tasks | 18 files |
+| Phase 12 P02 | 6min | 3 tasks | 12 files |
 
 ## Accumulated Context
 
@@ -118,6 +119,7 @@ Recent decisions affecting current work:
 - [Phase 11]: Section-isolated 1h TTL for top_tracks/top_artists per time_range and 4h TTL for made_for_you and new_releases with 403/404 fallbacks
 - [Phase 11]: Guarded idle default-tab transition with setMode((prev) => (prev === 'now_playing' ? 'discovery' : prev)) so explicit tab switches are never overridden
 - [Phase 12]: Wake stopped librespot inside play_tracks 404 handler after _auto_transfer_and_play fails, preserving single-call behavior when external devices are active
+- [Phase 12]: Used existing fetchWithQueueAndCache/imgMemoryCache (get_image RPC) for track_metadata toast cover proxying
 
 ### Pending Todos
 
@@ -145,6 +147,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-15T20:01:40.756Z
-Stopped at: Completed 12-01-PLAN.md
+Last session: 2026-11-15T20:09:38.799Z
+Stopped at: Completed 12-02-PLAN.md
 Resume file: None
