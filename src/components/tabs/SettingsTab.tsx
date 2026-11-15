@@ -764,6 +764,32 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
           </span>
         </InteractiveRow>
 
+        {/* Notification Sound */}
+        <InteractiveRow
+          onClick={async () => {
+            const cur = status?.settings?.toast_sound_enabled ?? false;
+            await backendSetSetting("toast_sound_enabled", !cur);
+            showToast(!cur ? "Notification sound enabled" : "Notification sound muted");
+            refreshStatus();
+          }}
+          active={status?.settings?.toast_sound_enabled ?? false}
+          style={{ justifyContent: "space-between", marginBottom: 8 }}
+        >
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600 }}>Notification Sound</div>
+            <div style={{ fontSize: 11, opacity: 0.6 }}>Play Steam notification chime on track change</div>
+          </div>
+          <span
+            style={{
+              fontSize: 12,
+              fontWeight: 700,
+              color: (status?.settings?.toast_sound_enabled ?? false) ? "#1db954" : "#888",
+            }}
+          >
+            {(status?.settings?.toast_sound_enabled ?? false) ? "ON" : "OFF"}
+          </span>
+        </InteractiveRow>
+
         {/* Gamepad Quick Chords */}
         <InteractiveRow
           onClick={async () => {

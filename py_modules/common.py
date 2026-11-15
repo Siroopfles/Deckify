@@ -97,6 +97,7 @@ DEFAULT_SETTINGS = {
     "voice_ducking_hold_delay": 1.2,
     "gamepad_chords_enabled": True,
     "toast_enabled": True,
+    "toast_sound_enabled": False,
     "toast_position": "top_right",
     "overlay_enabled": False,
     "overlay_position": "top-right",

@@ -169,6 +169,7 @@ export interface EngineSettings {
   auto_ducking_volume?: number;
   gamepad_chords_enabled?: boolean;
   toast_enabled?: boolean;
+  toast_sound_enabled?: boolean;
   toast_position?: string;
   overlay_enabled?: boolean;
   overlay_position?: string;
