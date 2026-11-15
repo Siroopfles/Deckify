@@ -396,8 +396,9 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
     if (!activePlaylist || mixingBusy) return;
     setMixingBusy(true);
     const targetMix = !activePlaylist.is_mixed;
+    const pid = activePlaylist.uri || activePlaylist.id || "";
     try {
-      const res = await backendSetNativeMix(activePlaylist.uri, targetMix, true);
+      const res = await backendSetNativeMix(pid, targetMix, true);
       if (res.ok) {
         setActivePlaylist((prev) => (prev ? { ...prev, is_mixed: targetMix } : null));
         showToast(targetMix ? "Native Mix activated!" : "Native Mix deactivated.");
@@ -459,12 +460,17 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
   }, [showToast, refreshStatus]);
 
   const handlePlayTrack = useCallback(async (uri: string, contextUri?: string, allUris?: string[], startIdx?: number) => {
+    let res;
     if (contextUri) {
-      await backendPlayTracks(contextUri, uri || null, null, 0);
+      res = await backendPlayTracks(contextUri, uri || null, null, startIdx ?? 0);
     } else if (allUris && allUris.length > 0) {
-      await backendPlayTracks(null, null, allUris, startIdx ?? 0);
+      res = await backendPlayTracks(null, null, allUris, startIdx ?? 0);
     } else {
-      await backendPlayTracks(null, uri || null, null, 0);
+      res = await backendPlayTracks(null, uri || null, null, 0);
+    }
+    if (res && res.ok === false) {
+      showToast(res.error || "Playback failed");
+      return;
     }
     showToast("Playback started");
     refreshStatus();

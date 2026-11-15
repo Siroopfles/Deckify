@@ -344,6 +344,8 @@ async def play_tracks(
         body["context_uri"] = context_uri
         if offset_uri:
             body["offset"] = {"uri": offset_uri}
+        elif position > 0:
+            body["offset"] = {"position": position}
         plugin._context_uri = context_uri
     elif uris:
         body["uris"] = uris
@@ -361,6 +363,21 @@ async def play_tracks(
     except urllib.error.HTTPError as e:
         if e.code == 404:
             transfer_res = await plugin._auto_transfer_and_play(token)
+            if (
+                not transfer_res.get("ok")
+                and hasattr(plugin, "_is_engine_running")
+                and not plugin._is_engine_running()
+                and getattr(plugin, "_settings", {}).get("audio_backend", "librespot") == "librespot"
+                and hasattr(plugin, "start_librespot")
+            ):
+                start_res = await plugin.start_librespot()
+                if isinstance(start_res, dict) and start_res.get("ok"):
+                    for _ in range(4):
+                        await asyncio.sleep(0.3)
+                        dev_res = await get_devices(plugin)
+                        if dev_res.get("devices"):
+                            transfer_res = await plugin._auto_transfer_and_play(token)
+                            break
             if transfer_res.get("ok") and body:
                 try:
                     await asyncio.sleep(0.5)
@@ -417,12 +434,13 @@ async def quick_play_pinned(plugin, uri: str, item_type: str = "playlist") -> di
     uri = uri.strip()
 
     if not plugin._is_engine_running():
-        await plugin.start_librespot()
-        for _ in range(4):
-            await asyncio.sleep(0.3)
-            dev_res = await get_devices(plugin)
-            if dev_res.get("devices"):
-                break
+        start_res = await plugin.start_librespot()
+        if isinstance(start_res, dict) and start_res.get("ok"):
+            for _ in range(4):
+                await asyncio.sleep(0.3)
+                dev_res = await get_devices(plugin)
+                if dev_res.get("devices"):
+                    break
 
     if item_type == "liked_songs" or uri in ("spotify:collection:tracks", "deckify:liked_songs"):
         try:
