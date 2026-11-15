@@ -904,6 +904,13 @@ class Plugin:
     async def get_recently_played(self, limit: int = 30) -> dict:
         return await rpc_library.get_recently_played(self, limit)
 
+    async def get_discovery_feed(
+        self,
+        time_range: str = "medium_term",
+        force_refresh: bool = False,
+    ) -> dict:
+        return await rpc_library.get_discovery_feed(self, time_range, force_refresh)
+
     async def search_spotify(
         self,
         query: str,

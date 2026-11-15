@@ -1,6 +1,7 @@
 import base64
 import json
 import secrets
+import time
 import urllib.error
 from py_modules.common import (
     SPOTIFY_CDP_PORT,
@@ -14,6 +15,7 @@ from py_modules.images import (
     _fetch_spotify_image,
 )
 from py_modules.spotify import (
+    SpotifyRateLimitError,
     _spotify_api_request,
     _parse_spotify_error,
     _fetch_lyrics_sync,
@@ -938,4 +940,152 @@ async def get_image(url: str) -> dict:
         b64 = base64.b64encode(body).decode("ascii")
         return {"ok": True, "data_url": f"data:{content_type};base64,{b64}"}
     except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+_VALID_DISCOVERY_RANGES = ("short_term", "medium_term", "long_term")
+
+
+def _format_discovery_playlist(p: dict) -> dict:
+    images = p.get("images") or []
+    img_url = _image_url(images)
+    pid = p.get("id", "")
+    return {
+        "id": pid,
+        "uri": p.get("uri") or (f"spotify:playlist:{pid}" if pid else ""),
+        "name": p.get("name", ""),
+        "image_url": img_url,
+        "artwork_url": img_url,
+        "track_count": (p.get("items") or p.get("tracks") or {}).get("total", 0),
+        "owner_id": (p.get("owner") or {}).get("id", ""),
+    }
+
+
+def _format_discovery_track(t: dict) -> dict:
+    artists = ", ".join(a.get("name", "") for a in t.get("artists", []))
+    album = t.get("album") or {}
+    images = album.get("images") or []
+    img_url = _image_url(images)
+    artist_id = (t.get("artists") or [{}])[0].get("id", "")
+    album_id = album.get("id", "")
+    return {
+        "id": t.get("id"),
+        "name": t.get("name", ""),
+        "artist": artists,
+        "album": album.get("name", ""),
+        "artist_id": artist_id,
+        "album_id": album_id,
+        "uri": t.get("uri", ""),
+        "duration_ms": t.get("duration_ms", 0),
+        "image_url": img_url,
+        "artwork_url": img_url,
+    }
+
+
+def _format_discovery_artist(a: dict) -> dict:
+    images = a.get("images") or []
+    img_url = _image_url(images)
+    aid = a.get("id", "")
+    return {
+        "id": aid,
+        "uri": a.get("uri") or (f"spotify:artist:{aid}" if aid else ""),
+        "name": a.get("name", ""),
+        "genres": a.get("genres") or [],
+        "image_url": img_url,
+        "artwork_url": img_url,
+    }
+
+
+def _format_discovery_album(alb: dict) -> dict:
+    images = alb.get("images") or []
+    img_url = _image_url(images)
+    aid = alb.get("id", "")
+    artists = ", ".join(a.get("name", "") for a in alb.get("artists", []))
+    return {
+        "id": aid,
+        "uri": alb.get("uri") or (f"spotify:album:{aid}" if aid else ""),
+        "name": alb.get("name", ""),
+        "artist": artists,
+        "image_url": img_url,
+        "artwork_url": img_url,
+        "release_date": alb.get("release_date", ""),
+        "total_tracks": alb.get("total_tracks", 0),
+    }
+
+
+async def get_discovery_feed(
+    plugin,
+    time_range: str = "medium_term",
+    force_refresh: bool = False,
+) -> dict:
+    """Aggregate Made For You mixes, Top Tracks, Top Artists, and New Releases."""
+    token = await plugin._ensure_token()
+    if not token:
+        return {"ok": False, "error": "Not authenticated"}
+
+    valid_range = time_range if time_range in _VALID_DISCOVERY_RANGES else "medium_term"
+    _ = bool(force_refresh)
+
+    try:
+        pl_data = await _exec(
+            _spotify_api_request, "me/playlists", token, "GET", {"limit": 50, "offset": 0}
+        )
+        made_for_you = [
+            _format_discovery_playlist(p)
+            for p in (pl_data or {}).get("items", [])
+            if p and (p.get("owner") or {}).get("id") == "spotify"
+        ][:15]
+
+        tt_data = await _exec(
+            _spotify_api_request,
+            "me/top/tracks",
+            token,
+            "GET",
+            {"time_range": valid_range, "limit": 15},
+        )
+        top_tracks = [
+            _format_discovery_track(t)
+            for t in (tt_data or {}).get("items", [])
+            if t
+        ]
+        if top_tracks:
+            await plugin._annotate_tracks_liked(token, top_tracks)
+
+        ta_data = await _exec(
+            _spotify_api_request,
+            "me/top/artists",
+            token,
+            "GET",
+            {"time_range": valid_range, "limit": 15},
+        )
+        top_artists = [
+            _format_discovery_artist(a)
+            for a in (ta_data or {}).get("items", [])
+            if a
+        ]
+
+        nr_data = await _exec(
+            _spotify_api_request, "browse/new-releases", token, "GET", {"limit": 15}
+        )
+        new_releases = [
+            _format_discovery_album(alb)
+            for alb in ((nr_data or {}).get("albums") or {}).get("items", [])
+            if alb
+        ]
+
+        return {
+            "ok": True,
+            "time_range": valid_range,
+            "made_for_you": made_for_you,
+            "made_for_you_fallback": False,
+            "top_tracks": top_tracks,
+            "top_artists": top_artists,
+            "new_releases": new_releases,
+            "needs_reauth": False,
+            "rate_limited": False,
+            "stale": False,
+            "retry_after": 0,
+        }
+    except Exception as e:
+        decky.logger.error("get_discovery_feed failed: %s", e)
         return {"ok": False, "error": str(e)}
