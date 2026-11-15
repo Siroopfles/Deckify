@@ -57,6 +57,7 @@ actuals:
   commits: 3
   plan_head_before: 9388a4cb91a6abd7f9748d7c7c6b6cfe3cbd3abd
   plan_head_after: 554fe9005fb3aae7cae5eaeeb3fe23c073a33fa6
+requirements-completed: [DUCK-02]
 ---
 
 # Phase 06 Plan 02: Voice Activity Detector & SettingsTab Audio Ducking UI Summary
