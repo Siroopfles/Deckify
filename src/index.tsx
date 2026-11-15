@@ -28,6 +28,7 @@ import { DeckifyOverlay } from "./components/DeckifyOverlay";
 import { usePlaybackClock } from "./hooks/usePlaybackClock";
 import { formatMs, focusHalo } from "./components/common/InteractiveRow";
 import { DeckifyImage } from "./components/common/DeckifyImage";
+import { fetchWithQueueAndCache, imgMemoryCache } from "./components/common/imagePipeline";
 import { parseLrc } from "./utils";
 import {
   FaMusic,
@@ -1079,7 +1080,7 @@ export default definePlugin(() => {
     console.warn("Deckify: Gamepad chords setup error:", e);
   }
 
-  // 5. In-game track change toast notification (silent sound: 0, click opens modal)
+  // 5. In-game track change toast notification (click opens modal)
   let lastToastTrackId = "";
   const trackSub = addEventListener<[any]>("track_metadata", async (meta: any) => {
     if (!meta || !meta.name || meta.track_id === lastToastTrackId) return;
@@ -1087,17 +1088,32 @@ export default definePlugin(() => {
     try {
       const curStatus = await backendGetStatus().catch(() => null);
       if (curStatus?.settings?.toast_enabled === false) return;
+      const soundEnabled = Boolean(curStatus?.settings?.toast_sound_enabled);
       const artwork = meta.artwork_url || meta.image_url;
+      let resolvedArtwork: string | null = null;
+      if (typeof artwork === "string" && artwork.length > 0) {
+        if (artwork.startsWith("data:") || artwork.startsWith("http://127.0.0.1")) {
+          resolvedArtwork = artwork;
+        } else {
+          resolvedArtwork = imgMemoryCache.get(artwork) ?? (await fetchWithQueueAndCache(artwork));
+        }
+      }
       toaster.toast({
         title: meta.name,
         body: meta.artist ? `${meta.artist}` : "Deckify",
         duration: 3500,
-        sound: 0 as any,
+        sound: (soundEnabled ? 1 : 0) as any,
+        playSound: soundEnabled,
         onClick: openExpandedView,
-        logo: artwork ? (
-          <img src={artwork} width={28} height={28} style={{ borderRadius: 4, objectFit: "cover" }} />
+        logo: resolvedArtwork ? (
+          <img
+            src={resolvedArtwork}
+            width={48}
+            height={48}
+            style={{ width: 48, height: 48, borderRadius: 6, objectFit: "cover", display: "block" }}
+          />
         ) : (
-          <FaSpotify color="#1db954" />
+          <FaSpotify color="#1db954" size={32} />
         ),
       } as any);
     } catch {}

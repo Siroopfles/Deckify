@@ -497,7 +497,7 @@ class Plugin:
             "normalisation_pregain", "gapless", "autoplay", "playlist_folders",
             "spotify_folder_tree", "game_audio_profiles", "auto_ducking",
             "auto_ducking_volume", "gamepad_chords_enabled", "toast_enabled",
-            "toast_position", "overlay_enabled", "overlay_position",
+            "toast_sound_enabled", "toast_position", "overlay_enabled", "overlay_position",
             "overlay_autohide", "overlay_show_progress",
             "overlay_lyrics_enabled", "overlay_lyrics_offset_ms",
             "overlay_autohide_duration_s", "eq_preset",
@@ -582,7 +582,7 @@ class Plugin:
             value = bool(value)
             if not value and hasattr(self, "_volume_fader") and self._volume_fader:
                 asyncio.create_task(self._volume_fader.set_ducking(False, reason="game"))
-        elif key in ("normalisation", "gapless", "autoplay", "bit_perfect_clock", "overlay_enabled", "toast_enabled", "gamepad_chords_enabled", "overlay_autohide", "overlay_show_progress", "overlay_lyrics_enabled", "voice_ducking_enabled"):
+        elif key in ("normalisation", "gapless", "autoplay", "bit_perfect_clock", "overlay_enabled", "toast_enabled", "toast_sound_enabled", "gamepad_chords_enabled", "overlay_autohide", "overlay_show_progress", "overlay_lyrics_enabled", "voice_ducking_enabled"):
             value = bool(value)
         elif key == "overlay_lyrics_offset_ms":
             try:
