@@ -1,18 +1,19 @@
 ---
 gsd_state_version: "1.0"
 milestone: v0.5
-current_phase: "11.1"
-status: completed
-stopped_at: Phase 12 context gathered
-last_updated: "2026-11-15T19:39:37.381Z"
+current_phase: 12
+current_phase_name: Resolve open todos & polish
+status: executing
+stopped_at: Completed 12-01-PLAN.md
+last_updated: "2026-11-15T20:01:44.718Z"
 last_activity: 2026-11-15
-last_activity_desc: Phase 11.1 complete
-state_head: e7755c504e8431c4cca43ba584b534e700773d2d
+last_activity_desc: Phase 12 execution started
+state_head: eb5927e8f6ebd8fcfaddd796534daf156545e996
 progress:
   total_phases: 8
   completed_phases: 6
-  total_plans: 19
-  completed_plans: 19
+  total_plans: 22
+  completed_plans: 20
 ---
 
 # Project State
@@ -22,14 +23,14 @@ progress:
 See: [.planning/PROJECT.md](file:///C:/Users/djdje/Deckify/.planning/PROJECT.md) (updated 2026-11-12)
 
 **Core value:** Rock-solid Spotify playback and responsive, reliable controller navigation on Steam Deck without UI lag, broken images, or desynchronized playback states.
-**Current focus:** Phase 11.1 — Address tech debt: v0.5 integration & metadata cleanup (INSERTED)
+**Current focus:** Phase 12 — Resolve open todos & polish
 
 ## Current Position
 
-Phase: 11.1
-Plan: Not started
-Status: All phases complete
-Last activity: 2026-11-15 — Phase 11.1 complete
+Phase: 12 (Resolve open todos & polish) — EXECUTING
+Plan: 2 of 3
+Status: Ready to execute
+Last activity: 2026-11-15 — Phase 12 execution started
 
 Progress: [█████████░] 86% (Phase 06 complete, Phase 07 planned)
 
@@ -79,6 +80,7 @@ Progress: [█████████░] 86% (Phase 06 complete, Phase 07 plan
 | Phase 11 P01 | 5min | 2 tasks | 5 files |
 | Phase 11 P02 | 8min | 2 tasks | 7 files |
 | Phase 11.1 P01 | 7min | 3 tasks | 11 files |
+| Phase 12 P01 | 8min | 3 tasks | 18 files |
 
 ## Accumulated Context
 
@@ -115,6 +117,7 @@ Recent decisions affecting current work:
 - [Phase 11]: Replaced blocking time.sleep in _spotify_api_request with fast-fail SpotifyRateLimitError circuit breaker (5s base, 300s cap)
 - [Phase 11]: Section-isolated 1h TTL for top_tracks/top_artists per time_range and 4h TTL for made_for_you and new_releases with 403/404 fallbacks
 - [Phase 11]: Guarded idle default-tab transition with setMode((prev) => (prev === 'now_playing' ? 'discovery' : prev)) so explicit tab switches are never overridden
+- [Phase 12]: Wake stopped librespot inside play_tracks 404 handler after _auto_transfer_and_play fails, preserving single-call behavior when external devices are active
 
 ### Pending Todos
 
@@ -142,6 +145,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-15T19:39:33.357Z
-Stopped at: Phase 12 context gathered
-Resume file: .planning/phases/12-resolve-open-todos-polish/12-CONTEXT.md
+Last session: 2026-11-15T20:01:40.756Z
+Stopped at: Completed 12-01-PLAN.md
+Resume file: None
