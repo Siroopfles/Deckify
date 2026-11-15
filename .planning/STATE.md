@@ -128,6 +128,7 @@ None yet.
 ### Roadmap Evolution
 
 - Phase 11.1 inserted after Phase 11: Address tech debt: v0.5 integration & metadata cleanup (URGENT)
+- Phase 12 added: Resolve open todos & polish
 
 ## Deferred Items
 

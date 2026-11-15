@@ -37,6 +37,7 @@ Milestone v0.5 elevates Deckify from a standalone media controller into an intel
 - [x] **Phase 10: In-Game HUD Overlay 2.0 (Live Synced Lyrics)** - Micro-footprint discrete event-scheduled synced lyrics line in Gamescope HUD (completed 2026-11-15)
 - [x] **Phase 11: Home & Discovery Hub Tab** - Dedicated Discovery tab in Expanded Modal with Top Tracks, Top Artists, and algorithmic mixes (completed 2026-11-15)
 - [x] **Phase 11.1: Address tech debt: v0.5 integration & metadata cleanup** (completed 2026-11-15)
+- [ ] **Phase 12: Resolve open todos & polish**
 
 ---
 
@@ -187,6 +188,16 @@ Phases execute in numeric order: 6 → 7 → 8 → 9 → 10 → 11
 | 9. QAM Pinned Playlists & Quick In-Game Switch | v0.5 | 3/3 | Complete    | 2026-11-15 |
 | 10. In-Game HUD Overlay 2.0 (Live Synced Lyrics) | v0.5 | 3/3 | Complete    | 2026-11-15 |
 | 11. Home & Discovery Hub Tab | v0.5 | 2/2 | Complete    | 2026-11-15 |
+
+### Phase 12: Resolve open todos & polish
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 11
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 12 to break down)
 
 ---
 
