@@ -204,10 +204,10 @@ See [.planning/IDEAS.md](file:///C:/Users/djdje/Deckify/.planning/IDEAS.md) for 
 **Goal:** Close all four actionable v0.5 milestone audit tech-debt items: gate game-exit audio ducking on `running` so the 3000ms exit debounce is respected, enforce `suppressedRef.current` in `useTriggerNavigation` and wire `PlaylistPickerModal` suppression, backfill `requirements-completed` in Phase 06 summaries (`DUCK-01`, `DUCK-02`), and clean stale pre-fix lines in `07-VERIFICATION.md`.
 **Requirements**: DUCK-01, DUCK-02
 **Depends on:** Phase 11
-**Plans:** 1 plans
+**Plans:** 1/1 plans executed
 
 Plans:
-- [ ] 11.1-01-PLAN.md — Fix game-exit ducking debounce & PlaylistPickerModal controller suppression, backfill Phase 06 summary metadata, and clean Phase 07 verification body text
+- [x] 11.1-01-PLAN.md — Fix game-exit ducking debounce & PlaylistPickerModal controller suppression, backfill Phase 06 summary metadata, and clean Phase 07 verification body text
 
 ### Phase 999.1: Follow-up — Phase 09 deferred UAT follow-up: Test 2 (BACKLOG)
 

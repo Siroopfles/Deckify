@@ -1,19 +1,19 @@
 ---
 gsd_state_version: "1.0"
 milestone: v0.5
-current_phase: 11
-status: completed
-stopped_at: Phase 11 complete — all phases complete
-last_updated: "2026-11-15T12:11:44.944Z"
+current_phase: "11.1"
+current_phase_name: "Address tech debt: v0.5 integration & metadata cleanup (INSERTED)"
+status: verifying
+stopped_at: Completed 11.1-01-PLAN.md
+last_updated: "2026-11-15T18:45:44.905Z"
 last_activity: 2026-11-15
-last_activity_desc: Phase 11 complete
-state_head: dd831cfaf7394b8a14ab865fa9b4d54784856816
+last_activity_desc: Phase 11.1 execution started
+state_head: 69538b8011f61de36e2de80c3c0991ef1cdc4f9f
 progress:
-  total_phases: 6
+  total_phases: 7
   completed_phases: 6
-  total_plans: 18
-  completed_plans: 18
-  percent: 100
+  total_plans: 19
+  completed_plans: 19
 ---
 
 # Project State
@@ -23,14 +23,14 @@ progress:
 See: [.planning/PROJECT.md](file:///C:/Users/djdje/Deckify/.planning/PROJECT.md) (updated 2026-11-12)
 
 **Core value:** Rock-solid Spotify playback and responsive, reliable controller navigation on Steam Deck without UI lag, broken images, or desynchronized playback states.
-**Current focus:** Phase 11 — Home & Discovery Hub Tab
+**Current focus:** Phase 11.1 — Address tech debt: v0.5 integration & metadata cleanup (INSERTED)
 
 ## Current Position
 
-Phase: 11
-Plan: Not started
-Status: All phases complete
-Last activity: 2026-11-15 — Phase 11 complete
+Phase: 11.1 (Address tech debt: v0.5 integration & metadata cleanup (INSERTED)) — EXECUTING
+Plan: 1 of 1
+Status: Phase complete — ready for verification
+Last activity: 2026-11-15 — Phase 11.1 execution started
 
 Progress: [██████████] 100% (Phase 06 complete, Phase 07 planned)
 
@@ -78,6 +78,7 @@ Progress: [██████████] 100% (Phase 06 complete, Phase 07 pla
 | Phase 10 P03 | 5min | 2 tasks | 6 files |
 | Phase 11 P01 | 5min | 2 tasks | 5 files |
 | Phase 11 P02 | 8min | 2 tasks | 7 files |
+| Phase 11.1 P01 | 7min | 3 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -123,6 +124,10 @@ None yet.
 
 None yet.
 
+### Roadmap Evolution
+
+- Phase 11.1 inserted after Phase 11: Address tech debt: v0.5 integration & metadata cleanup (URGENT)
+
 ## Deferred Items
 
 Items acknowledged and deferred at milestone close, most recent first:
@@ -136,6 +141,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-15T12:07:16.590Z
-Stopped at: Phase 11 complete — all phases complete
+Last session: 2026-11-15T18:45:41.927Z
+Stopped at: Completed 11.1-01-PLAN.md
 Resume file: None
