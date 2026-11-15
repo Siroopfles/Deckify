@@ -36,7 +36,7 @@ Milestone v0.5 elevates Deckify from a standalone media controller into an intel
 - [x] **Phase 9: QAM Pinned Playlists & Quick In-Game Switch** - Instant 2-second playlist switching pills in the Quick Access Menu mini-player (completed 2026-11-15)
 - [x] **Phase 10: In-Game HUD Overlay 2.0 (Live Synced Lyrics)** - Micro-footprint discrete event-scheduled synced lyrics line in Gamescope HUD (completed 2026-11-15)
 - [x] **Phase 11: Home & Discovery Hub Tab** - Dedicated Discovery tab in Expanded Modal with Top Tracks, Top Artists, and algorithmic mixes (completed 2026-11-15)
-- [ ] **Phase 11.1: Address tech debt: v0.5 integration & metadata cleanup**
+- [x] **Phase 11.1: Address tech debt: v0.5 integration & metadata cleanup** (completed 2026-11-15)
 
 ---
 
@@ -204,7 +204,7 @@ See [.planning/IDEAS.md](file:///C:/Users/djdje/Deckify/.planning/IDEAS.md) for 
 **Goal:** Close all four actionable v0.5 milestone audit tech-debt items: gate game-exit audio ducking on `running` so the 3000ms exit debounce is respected, enforce `suppressedRef.current` in `useTriggerNavigation` and wire `PlaylistPickerModal` suppression, backfill `requirements-completed` in Phase 06 summaries (`DUCK-01`, `DUCK-02`), and clean stale pre-fix lines in `07-VERIFICATION.md`.
 **Requirements**: DUCK-01, DUCK-02
 **Depends on:** Phase 11
-**Plans:** 1/1 plans executed
+**Plans:** 1/1 plans complete
 
 Plans:
 - [x] 11.1-01-PLAN.md — Fix game-exit ducking debounce & PlaylistPickerModal controller suppression, backfill Phase 06 summary metadata, and clean Phase 07 verification body text
