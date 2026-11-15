@@ -17,7 +17,7 @@ import {
   FaGamepad,
   FaCompass,
 } from "react-icons/fa";
-import { ViewMode, StatusResponse } from "../../types";
+import { ViewMode, StatusResponse, TrackItem } from "../../types";
 import { DeckifyImage } from "./DeckifyImage";
 import { InteractiveRow, focusHalo } from "./InteractiveRow";
 
@@ -74,6 +74,8 @@ export interface SidebarProps {
   onSelectMode: (mode: ViewMode) => void;
   status: StatusResponse | null;
   closeModal?: () => void;
+  onFocusTrack?: (track: TrackItem | null) => void;
+  onOpenActions?: (track: TrackItem) => void;
 }
 
 export const Sidebar: FC<SidebarProps> = ({
@@ -81,6 +83,8 @@ export const Sidebar: FC<SidebarProps> = ({
   onSelectMode,
   status,
   closeModal,
+  onFocusTrack,
+  onOpenActions,
 }) => {
   const track = status?.track_meta || status?.track;
   const artwork = track?.artwork_url || track?.image_url;
@@ -136,7 +140,12 @@ export const Sidebar: FC<SidebarProps> = ({
 
       {/* Now Playing Widget in Sidebar */}
       {track?.name && (
-        <div
+        <InteractiveRow
+          onFocus={() => onFocusTrack?.(track as TrackItem)}
+          onBlur={() => onFocusTrack?.(null)}
+          onClick={() =>
+            onOpenActions ? onOpenActions(track as TrackItem) : onSelectMode("now_playing")
+          }
           style={{
             flexShrink: 0,
             padding: 8,
@@ -160,32 +169,26 @@ export const Sidebar: FC<SidebarProps> = ({
               {track.artist}
             </div>
           </div>
-        </div>
+        </InteractiveRow>
       )}
 
       {/* Pinned Back to Steam (B) Footer */}
-      <div
+      <InteractiveRow
+        onClick={() => closeModal?.()}
         style={{
           flexShrink: 0,
           borderTop: "1px solid rgba(255,255,255,0.08)",
-          paddingTop: 8,
           marginTop: 4,
+          minHeight: 44,
+          justifyContent: "center",
+          background: "rgba(255,255,255,0.08)",
+          fontSize: 12,
+          fontWeight: 600,
+          gap: 6,
         }}
       >
-        <InteractiveRow
-          onClick={() => closeModal?.()}
-          style={{
-            minHeight: 44,
-            justifyContent: "center",
-            background: "rgba(255,255,255,0.08)",
-            fontSize: 12,
-            fontWeight: 600,
-            gap: 6,
-          }}
-        >
-          <span>Back to Steam (B)</span>
-        </InteractiveRow>
-      </div>
+        <span>Back to Steam (B)</span>
+      </InteractiveRow>
     </Focusable>
   );
 };

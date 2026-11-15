@@ -126,7 +126,7 @@ describe("Sidebar pinned Back to Steam (B) footer", () => {
     expect(innerFocusables.length).toBe(1);
   });
 
-  it("renders Back to Steam (B) in a flexShrink: 0 pinned footer outside the scrollable wrapper and invokes closeModal", () => {
+  it("renders Back to Steam (B) as a flexShrink: 0 InteractiveRow directly in the column Focusable outside the scrollable wrapper and invokes closeModal", () => {
     const closeModal = vi.fn();
     const tree: any = Sidebar({
       mode: "now_playing",
@@ -145,17 +145,16 @@ describe("Sidebar pinned Back to Steam (B) footer", () => {
     );
     expect(backInScroll.length).toBe(0);
 
-    const footerDivs = findNodes(
+    const backRows = findNodes(
       tree,
       (n) =>
-        n.type === "div" &&
+        n.type === InteractiveRowMock &&
         n.props?.style?.flexShrink === 0 &&
         typeof n.props?.style?.borderTop === "string"
     );
-    expect(footerDivs.length).toBe(1);
+    expect(backRows.length).toBe(1);
 
-    const backRow = findNodes(footerDivs[0], (n) => n.type === InteractiveRowMock)[0];
-    expect(backRow).toBeDefined();
+    const backRow = backRows[0];
     expect(backRow.props.style.minHeight).toBe(44);
 
     backRow.props.onClick();

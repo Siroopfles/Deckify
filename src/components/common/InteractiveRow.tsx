@@ -18,6 +18,7 @@ export interface InteractiveRowProps {
   children: ReactNode;
   onClick: () => void;
   onFocus?: () => void;
+  onBlur?: () => void;
   active?: boolean;
   style?: any;
   tabIndex?: number;
@@ -40,6 +41,7 @@ export interface RoundBtnProps {
   active?: boolean;
   size?: number;
   accent?: boolean;
+  "aria-label"?: string;
 }
 
 export function RoundBtn({
@@ -48,11 +50,13 @@ export function RoundBtn({
   active,
   size = 46,
   accent,
+  "aria-label": ariaLabel,
 }: RoundBtnProps) {
   const [focused, setFocused] = useState(false);
   return (
     <Focusable
       noFocusRing
+      aria-label={ariaLabel}
       onClick={onClick}
       onActivate={onClick}
       onFocus={() => setFocused(true)}
@@ -94,6 +98,7 @@ export function InteractiveRow({
   children,
   onClick,
   onFocus,
+  onBlur,
   active,
   style,
   tabIndex,
@@ -114,12 +119,18 @@ export function InteractiveRow({
         setFocused(true);
         onFocus?.();
       }}
-      onBlur={() => setFocused(false)}
+      onBlur={() => {
+        setFocused(false);
+        onBlur?.();
+      }}
       onGamepadFocus={() => {
         setFocused(true);
         onFocus?.();
       }}
-      onGamepadBlur={() => setFocused(false)}
+      onGamepadBlur={() => {
+        setFocused(false);
+        onBlur?.();
+      }}
       onKeyDown={onKeyDown}
       tabIndex={tabIndex ?? 0}
       style={{

@@ -12,8 +12,9 @@ import {
   FaRegHeart,
   FaVolumeMute,
   FaVolumeUp,
+  FaPlus,
 } from "react-icons/fa";
-import { StatusResponse } from "../../types";
+import { StatusResponse, TrackItem } from "../../types";
 import { DeckifyImage } from "../common/DeckifyImage";
 import { InteractiveRow, RoundBtn, focusHalo, formatMs } from "../common/InteractiveRow";
 import { getScrubStepMs } from "../../hooks/usePlaybackClock";
@@ -30,6 +31,7 @@ export interface NowPlayingTabProps {
   handleVolumeDelta: (delta: number) => void;
   onSetShuffle: (state: boolean) => void;
   onSeekPlayback?: (timeMs: number) => void;
+  onOpenActions?: (track: TrackItem) => void;
 }
 
 export const NowPlayingTab: FC<NowPlayingTabProps> = ({
@@ -44,6 +46,7 @@ export const NowPlayingTab: FC<NowPlayingTabProps> = ({
   handleVolumeDelta,
   onSetShuffle,
   onSeekPlayback,
+  onOpenActions,
 }) => {
   const [isFocused, setIsFocused] = useState(false);
   const [, setIsScrubbing] = useState(false);
@@ -263,6 +266,14 @@ export const NowPlayingTab: FC<NowPlayingTabProps> = ({
 
         <RoundBtn onClick={() => handleToggleLike()} active={status?.is_liked} size={42}>
           {status?.is_liked ? <FaHeart size={16} /> : <FaRegHeart size={16} />}
+        </RoundBtn>
+
+        <RoundBtn
+          onClick={() => track && onOpenActions?.(track as TrackItem)}
+          size={42}
+          aria-label="Add to Playlist"
+        >
+          <FaPlus size={15} />
         </RoundBtn>
       </Focusable>
 

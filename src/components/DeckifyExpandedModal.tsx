@@ -706,6 +706,10 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
     setMode(id);
   }, []);
 
+  const handleFocusTrack = useCallback((t: TrackItem | null) => {
+    focusedTrackRef.current = t;
+  }, []);
+
   const cycleMode = useCallback((direction: 1 | -1) => {
     const curIdx = ALL_MODES.indexOf(modeRef.current);
     if (curIdx === -1) return;
@@ -837,7 +841,7 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
         } else if (action === "R1") {
           cycleMode(1);
         } else if (action === "Y") { // Gamepad Y button opens action menu
-          if (modeRef.current !== "engine" && modeRef.current !== "devices") {
+          if (focusedTrackRef.current || (modeRef.current !== "engine" && modeRef.current !== "devices")) {
             const isActiveTrackMode =
               modeRef.current === "now_playing" || modeRef.current === "lyrics";
             const candidate =
@@ -857,7 +861,7 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
             }
           }
         } else if (action === "X") { // Gamepad X button toggles track like status
-          if (modeRef.current !== "engine" && modeRef.current !== "devices") {
+          if (focusedTrackRef.current || (modeRef.current !== "engine" && modeRef.current !== "devices")) {
             const isActiveTrackMode =
               modeRef.current === "now_playing" || modeRef.current === "lyrics";
             const t = (focusedTrackRef.current ||
@@ -990,6 +994,8 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
               status={status}
               onSelectMode={handleSelectMode}
               closeModal={closeModal}
+              onFocusTrack={handleFocusTrack}
+              onOpenActions={setActionTrack}
             />
 
             {/* Right Content Panel */}
@@ -1024,6 +1030,7 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
                   handleVolumeDelta={handleVolumeDelta}
                   onSetShuffle={handleSetShuffle}
                   onSeekPlayback={handleSeekPlayback}
+                  onOpenActions={setActionTrack}
                 />
               )}
 
