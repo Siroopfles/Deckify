@@ -61,6 +61,7 @@ actuals:
   commits: 3
   plan_head_before: a5848b4ae9dea4e2067050f1a4cc6869b52d6d75
   plan_head_after: 3ce8b832045d921b156336e2942db74cc1bda4e1
+requirements-completed: [DUCK-01]
 ---
 
 # Phase 06 Plan 01: Core Local PipeWire Audio Fader & Game Ducking Summary
