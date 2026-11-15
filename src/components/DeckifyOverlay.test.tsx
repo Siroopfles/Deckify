@@ -34,6 +34,7 @@ let effectSlots: Array<{
   effect: () => void | (() => void);
   deps?: any[];
   cleanup?: () => void;
+  ran?: boolean;
 }> = [];
 let effectIndex = 0;
 let triggerRerender: (() => void) | null = null;
@@ -105,7 +106,8 @@ function resetHooks() {
 function flushEffects() {
   for (let i = 0; i < effectSlots.length; i++) {
     const entry = effectSlots[i];
-    if (entry && !entry.cleanup) {
+    if (entry && !entry.ran) {
+      entry.ran = true;
       const res = entry.effect();
       if (typeof res === "function") {
         entry.cleanup = res;
@@ -497,6 +499,198 @@ describe("DeckifyOverlay Component", () => {
         (n) => n.props && n.props["data-testid"] === "overlay-progress-bar"
       );
       expect(bars.length).toBe(0);
+    });
+  });
+
+  describe("Live Synced Lyrics & Autohide 2.0 (Phase 10)", () => {
+    const sampleLyrics = [
+      { timeMs: 1000, text: "First lyric line" },
+      { timeMs: 3000, text: "Second lyric line" },
+      { timeMs: 6000, text: "Third lyric line" },
+    ];
+
+    it("advances synced lyrics via discrete setTimeout without setInterval or rAF", () => {
+      const setIntervalSpy = vi.spyOn(globalThis, "setInterval");
+      const { getTree } = render({
+        track: { track_id: "t1", name: "Lyric Track", artist: "Artist" },
+        isPlaying: true,
+        visible: true,
+        lyricsEnabled: true,
+        lyricsLoaded: true,
+        syncedLyrics: sampleLyrics,
+        positionMs: 0,
+      });
+
+      expect(setIntervalSpy).not.toHaveBeenCalled();
+
+      let row = findNodes(
+        getTree(),
+        (n) => n.props && n.props["data-testid"] === "overlay-lyric-row"
+      )[0];
+      expect(row).toBeDefined();
+      expect(row.props.style.height).toBe(18);
+      expect(row.props.children.props.children).toBe("♪ •••");
+
+      // Advance to 1000ms -> line 0
+      vi.advanceTimersByTime(1000);
+      row = findNodes(
+        getTree(),
+        (n) => n.props && n.props["data-testid"] === "overlay-lyric-row"
+      )[0];
+      expect(row.props.children.props.children).toBe("First lyric line");
+
+      // Advance another 2000ms (3000ms total) -> line 1
+      vi.advanceTimersByTime(2000);
+      row = findNodes(
+        getTree(),
+        (n) => n.props && n.props["data-testid"] === "overlay-lyric-row"
+      )[0];
+      expect(row.props.children.props.children).toBe("Second lyric line");
+
+      setIntervalSpy.mockRestore();
+    });
+
+    it("recalculates active line and reschedules when lyricsOffsetMs changes", () => {
+      const { getTree, rerender } = render({
+        track: { track_id: "t2", name: "Offset Track" },
+        isPlaying: true,
+        visible: true,
+        lyricsEnabled: true,
+        lyricsLoaded: true,
+        syncedLyrics: sampleLyrics,
+        positionMs: 2500,
+        lyricsOffsetMs: 0,
+      });
+
+      let row = findNodes(
+        getTree(),
+        (n) => n.props && n.props["data-testid"] === "overlay-lyric-row"
+      )[0];
+      expect(row.props.children.props.children).toBe("First lyric line");
+
+      // Positive offset +600ms pushes effectivePosMs to 3100ms -> Second lyric line
+      rerender({ lyricsOffsetMs: 600 });
+      row = findNodes(
+        getTree(),
+        (n) => n.props && n.props["data-testid"] === "overlay-lyric-row"
+      )[0];
+      expect(row.props.children.props.children).toBe("Second lyric line");
+
+      // Negative offset -1600ms pushes effectivePosMs to 900ms -> ♪ •••, then +100ms -> First lyric line
+      rerender({ lyricsOffsetMs: -1600 });
+      row = findNodes(
+        getTree(),
+        (n) => n.props && n.props["data-testid"] === "overlay-lyric-row"
+      )[0];
+      expect(row.props.children.props.children).toBe("♪ •••");
+
+      vi.advanceTimersByTime(100);
+      row = findNodes(
+        getTree(),
+        (n) => n.props && n.props["data-testid"] === "overlay-lyric-row"
+      )[0];
+      expect(row.props.children.props.children).toBe("First lyric line");
+    });
+
+    it("freezes activeLineIndex, clears pending timer, and dims to opacity 0.5 on pause (D-06)", () => {
+      const { getTree, rerender } = render({
+        track: { track_id: "t3", name: "Pause Track" },
+        isPlaying: true,
+        visible: true,
+        lyricsEnabled: true,
+        lyricsLoaded: true,
+        syncedLyrics: sampleLyrics,
+        positionMs: 1200,
+      });
+
+      let row = findNodes(
+        getTree(),
+        (n) => n.props && n.props["data-testid"] === "overlay-lyric-row"
+      )[0];
+      expect(row.props.children.props.children).toBe("First lyric line");
+      expect(row.props.style.opacity).toBe(1);
+
+      // Pause playback before 3000ms line
+      rerender({ isPlaying: false });
+      row = findNodes(
+        getTree(),
+        (n) => n.props && n.props["data-testid"] === "overlay-lyric-row"
+      )[0];
+      expect(row.props.style.opacity).toBe(0.5);
+      expect(row.props.children.props.children).toBe("First lyric line");
+
+      // Advance past 3000ms while paused: lyric remains frozen on line 0
+      vi.advanceTimersByTime(3000);
+      row = findNodes(
+        getTree(),
+        (n) => n.props && n.props["data-testid"] === "overlay-lyric-row"
+      )[0];
+      expect(row.props.children.props.children).toBe("First lyric line");
+    });
+
+    it("shows 'No synced lyrics' when lyricsLoaded is true and syncedLyrics is empty, and '♪ •••' while loading", () => {
+      const { getTree, rerender } = render({
+        track: { track_id: "t4", name: "Empty Lyrics Track" },
+        isPlaying: true,
+        visible: true,
+        lyricsEnabled: true,
+        lyricsLoaded: false,
+        syncedLyrics: [],
+        positionMs: 500,
+      });
+
+      let row = findNodes(
+        getTree(),
+        (n) => n.props && n.props["data-testid"] === "overlay-lyric-row"
+      )[0];
+      expect(row.props.children.props.children).toBe("♪ •••");
+
+      rerender({ lyricsLoaded: true, syncedLyrics: [] });
+      row = findNodes(
+        getTree(),
+        (n) => n.props && n.props["data-testid"] === "overlay-lyric-row"
+      )[0];
+      expect(row.props.children.props.children).toBe("No synced lyrics");
+    });
+
+    it("strictly respects autoHide=false and configurable autoHideDurationMs=10000 (D-08, D-09)", () => {
+      const { getTree: getTreeNoHide } = render({
+        track: { track_id: "t5", name: "Always On" },
+        isPlaying: true,
+        visible: true,
+        autoHide: false,
+        autoHideDurationMs: 3000,
+      });
+
+      vi.advanceTimersByTime(20000);
+      expect(getTreeNoHide().props.style.opacity).toBe(1);
+
+      const { getTree: getTree10s } = render({
+        track: { track_id: "t6", name: "Ten Seconds" },
+        isPlaying: true,
+        visible: true,
+        autoHide: true,
+        autoHideDurationMs: 10000,
+      });
+
+      vi.advanceTimersByTime(9999);
+      expect(getTree10s().props.style.opacity).toBe(1);
+      vi.advanceTimersByTime(1);
+      expect(getTree10s().props.style.opacity).toBe(0);
+    });
+
+    it("preserves pointerEvents: 'none' on .deckify-ingame-overlay root container (HUD-04)", () => {
+      const { getTree } = render({
+        track: { track_id: "t7", name: "Input Safe" },
+        isPlaying: true,
+        visible: true,
+        lyricsEnabled: true,
+        lyricsLoaded: true,
+        syncedLyrics: sampleLyrics,
+      });
+
+      expect(getTree().props.className).toBe("deckify-ingame-overlay");
+      expect(getTree().props.style.pointerEvents).toBe("none");
     });
   });
 });

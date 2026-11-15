@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const mockHandleAppLifetimeEvent = vi.fn().mockResolvedValue({ ok: true });
 const mockTriggerDucking = vi.fn().mockResolvedValue({ ok: true });
@@ -8,6 +8,7 @@ const mockGetAuthStatus = vi.fn().mockResolvedValue({ authenticated: true, needs
 const mockGetDevices = vi.fn().mockResolvedValue({ ok: true, devices: [] });
 const mockGetDuckingState = vi.fn().mockResolvedValue({ is_ducked: false, effective_volume: 50, base_volume: 50, duck_reasons: [] });
 const mockQuickPlayPinned = vi.fn().mockResolvedValue({ ok: true });
+const mockGetLyrics = vi.fn().mockResolvedValue({ ok: true, synced_lyrics: "[00:01.00]Hello world" });
 const mockToasterToast = vi.fn();
 
 let capturedPluginFactory: (() => any) | null = null;
@@ -21,6 +22,7 @@ vi.mock("@decky/api", () => ({
     if (name === "get_devices") return (...args: any[]) => mockGetDevices(...args);
     if (name === "get_ducking_state") return (...args: any[]) => mockGetDuckingState(...args);
     if (name === "quick_play_pinned") return (...args: any[]) => mockQuickPlayPinned(...args);
+    if (name === "get_lyrics") return (...args: any[]) => mockGetLyrics(...args);
     return vi.fn().mockResolvedValue({ ok: true });
   },
   addEventListener: vi.fn(() => vi.fn()),
@@ -56,7 +58,7 @@ vi.mock("@decky/ui", () => ({
 
 vi.mock("./steamMenu", () => ({ registerSteamMenu: vi.fn(() => vi.fn()) }));
 vi.mock("./components/DeckifyExpandedModal", () => ({ DeckifyExpandedModal: () => ({ type: "Modal", props: {} }) }));
-vi.mock("./components/DeckifyOverlay", () => ({ DeckifyOverlay: () => ({ type: "Overlay", props: {} }) }));
+vi.mock("./components/DeckifyOverlay", () => ({ DeckifyOverlay: (props: any) => ({ type: "Overlay", props }) }));
 vi.mock("./hooks/usePlaybackClock", () => ({ usePlaybackClock: () => ({ positionMs: 0, notifySeek: vi.fn() }) }));
 vi.mock("./components/common/InteractiveRow", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./components/common/InteractiveRow")>();
@@ -126,6 +128,13 @@ vi.mock("react", () => ({
       hookValues[i] = typeof val === "function" ? val(hookValues[i]) : val;
     };
     return [hookValues[i], setter];
+  },
+  useRef: (init: any) => {
+    const i = hookIdx++;
+    if (!(i in hookValues)) {
+      hookValues[i] = { current: init };
+    }
+    return hookValues[i];
   },
   useEffect: (fn: any) => {
     if (hookIdx === 0) return;
@@ -383,6 +392,129 @@ describe("src/index.tsx GameSessions AppLifetime & QAM Pinned Playlists", () => 
     expect(pill.props["data-focused"]).toBe("true");
     await pill.props.onActivate();
     expect(mockQuickPlayPinned).toHaveBeenCalledWith("spotify:playlist:focus", "playlist");
+
+    plugin.onDismount?.();
+  });
+});
+
+describe("src/index.tsx DeckifyOverlayWrapper Phase 10 Gating & Modal Suppression", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+    resetHooks();
+    mockGetStatus.mockResolvedValue(null);
+    mockGetLyrics.mockResolvedValue({ ok: true, synced_lyrics: "[00:01.00]Line one" });
+    (globalThis as any).window = {
+      SteamClient: {
+        GameSessions: {
+          RegisterForAppLifetimeNotifications: mockRegisterForAppLifetime,
+        },
+        Input: {},
+      },
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    };
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("gates get_lyrics on overlay_enabled && overlay_lyrics_enabled and deduplicates per track", async () => {
+    await import("./index");
+    const { routerHook } = await import("@decky/api");
+    const plugin = capturedPluginFactory!();
+    const wrapperFactory = (routerHook.addGlobalComponent as any).mock.calls[0][1];
+    const renderWrapper = () => {
+      hookIdx = 0;
+      const el = wrapperFactory();
+      return el.type(el.props || {});
+    };
+
+    // Case 1: overlay_enabled=true, overlay_lyrics_enabled=false -> no get_lyrics
+    mockGetStatus.mockResolvedValue({
+      track: { track_id: "trk1", name: "Song A", artist: "Artist A", duration_ms: 180000 },
+      is_playing: true,
+      position_ms: 0,
+      duration_ms: 180000,
+      settings: { overlay_enabled: true, overlay_lyrics_enabled: false },
+    });
+    renderWrapper();
+    await Promise.resolve();
+    await Promise.resolve();
+    const overlayOff = renderWrapper();
+    expect(overlayOff.props.lyricsEnabled).toBe(false);
+    expect(mockGetLyrics).not.toHaveBeenCalled();
+
+    // Case 2: enable overlay_lyrics_enabled=true -> calls get_lyrics once, deduplicates across re-renders/polls
+    mockGetStatus.mockResolvedValue({
+      track: { track_id: "trk1", name: "Song A", artist: "Artist A", duration_ms: 180000 },
+      is_playing: true,
+      position_ms: 4000,
+      duration_ms: 180000,
+      settings: {
+        overlay_enabled: true,
+        overlay_lyrics_enabled: true,
+        overlay_autohide_duration_s: 9,
+        overlay_lyrics_offset_ms: 200,
+      },
+    });
+    renderWrapper();
+    await Promise.resolve();
+    await Promise.resolve();
+    const overlayOn1 = renderWrapper();
+    await Promise.resolve();
+    await Promise.resolve();
+    const overlayOn2 = renderWrapper();
+
+    expect(mockGetLyrics).toHaveBeenCalledTimes(1);
+    expect(mockGetLyrics).toHaveBeenCalledWith("Song A", "Artist A", 180000, 0);
+    expect(overlayOn2.props.lyricsEnabled).toBe(true);
+    expect(overlayOn2.props.autoHideDurationMs).toBe(9000);
+    expect(overlayOn2.props.lyricsOffsetMs).toBe(200);
+    expect(overlayOn2.props.syncedLyrics).toEqual([{ timeMs: 1000, text: "Line one" }]);
+    expect(overlayOn2.props.lyricsLoaded).toBe(true);
+    expect(overlayOn1.props.visible).toBe(true);
+
+    plugin.onDismount?.();
+  });
+
+  it("suppresses HUD visibility via modalOpenListeners while modal is open and restores on close (D-10)", async () => {
+    await import("./index");
+    const { routerHook } = await import("@decky/api");
+    const { showModal } = await import("@decky/ui");
+    const plugin = capturedPluginFactory!();
+    const wrapperFactory = (routerHook.addGlobalComponent as any).mock.calls[0][1];
+    const renderWrapper = () => {
+      hookIdx = 0;
+      const el = wrapperFactory();
+      return el.type(el.props || {});
+    };
+
+    mockGetStatus.mockResolvedValue({
+      track: { track_id: "trk2", name: "Song B", artist: "Artist B", duration_ms: 120000 },
+      is_playing: true,
+      settings: { overlay_enabled: true, overlay_lyrics_enabled: false },
+    });
+
+    renderWrapper();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(renderWrapper().props.visible).toBe(true);
+
+    // Open expanded modal via DeckifyRouteOpener
+    const routeCalls = (routerHook.addRoute as any).mock.calls;
+    const RouteOpener = routeCalls[routeCalls.length - 1][1];
+    RouteOpener({});
+    vi.advanceTimersByTime(100);
+
+    expect(showModal).toHaveBeenCalledTimes(1);
+    expect(renderWrapper().props.visible).toBe(false);
+
+    // Close modal via closeModal prop passed to DeckifyExpandedModal
+    const modalEl = (showModal as any).mock.calls[0][0];
+    modalEl.props.closeModal();
+    expect(renderWrapper().props.visible).toBe(true);
 
     plugin.onDismount?.();
   });
