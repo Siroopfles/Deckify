@@ -1,10 +1,11 @@
 ---
 phase: "10"
 slug: "in-game-hud-overlay-2-0-live-synced-lyrics"
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
+status: validated
+nyquist_compliant: true
+wave_0_complete: true
 created: "2026-11-15"
+updated: "2026-11-15"
 ---
 
 # Phase 10 — Validation Strategy
@@ -38,9 +39,9 @@ created: "2026-11-15"
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 10-01-01 | 01 | 1 | HUD-03, HUD-04 | T-10-01 | Lyric strings rendered via JSX interpolation, timers clamped | unit | `npx vitest run src/components/DeckifyOverlay.test.tsx` | ✅ | ⬜ pending |
-| 10-02-01 | 02 | 1 | HUD-03 | T-10-02 | Settings clamped in `py_modules/common.py` and `main.py:set_setting` | unit | `py -3 -m unittest tests/test_e2e_requirements.py` | ✅ | ⬜ pending |
-| 10-02-02 | 02 | 2 | HUD-03, HUD-04 | T-10-02 | QAM, SettingsTab, LyricsTab controls and modal suppression | unit | `npx vitest run src/components/tabs/SettingsTab.test.tsx src/index.test.tsx` | ✅ | ⬜ pending |
+| 10-01-01 | 01 | 1 | HUD-03, HUD-04 | T-10-01 | Lyric strings rendered via JSX interpolation, timers clamped | unit | `npx vitest run src/components/DeckifyOverlay.test.tsx` | ✅ | ✅ green |
+| 10-02-01 | 02 | 1 | HUD-03 | T-10-02 | Settings clamped in `py_modules/common.py` and `main.py:set_setting` | unit | `py -3 -m unittest tests/test_e2e_requirements.py` | ✅ | ✅ green |
+| 10-02-02 | 02 | 2 | HUD-03, HUD-04 | T-10-02 | QAM, SettingsTab, LyricsTab controls and modal suppression | unit | `npx vitest run src/components/tabs/SettingsTab.test.tsx src/index.test.tsx` | ✅ | ✅ green |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -62,11 +63,11 @@ Existing infrastructure covers all phase requirements.
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references
-- [ ] No watch-mode flags
-- [ ] Feedback latency < 20s
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify
+- [x] Wave 0 covers all MISSING references
+- [x] No watch-mode flags
+- [x] Feedback latency < 20s
+- [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending
+**Approval:** validated

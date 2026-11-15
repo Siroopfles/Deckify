@@ -1,10 +1,11 @@
 ---
 phase: "07"
 slug: "game-specific-soundtracks-appid-linking-lifecycle-automation"
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
+status: validated
+nyquist_compliant: true
+wave_0_complete: true
 created: "2026-11-12"
+updated: "2026-11-15"
 ---
 
 # Phase 07 — Validation Strategy
@@ -38,12 +39,12 @@ created: "2026-11-12"
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 07-01-01 | 01 | 1 | SOUND-01, SOUND-02 | T-07-01 | Binary VDF unpacking & CRC32 AppID normalization | unit | `py -m unittest tests/test_vdf_parser.py` | ❌ W0 | ⬜ pending |
-| 07-01-02 | 01 | 1 | SOUND-01, SOUND-02 | T-07-01, T-07-02 | SoundtrackManager profile store, launch debounce & wake-up | unit | `py -m unittest tests/test_soundtrack.py -k test_launch` | ❌ W0 | ⬜ pending |
-| 07-01-03 | 01 | 1 | SOUND-03 | T-07-03 | Pre-game playback snapshot & exit restore with in-game pause handling | unit | `py -m unittest tests/test_soundtrack.py -k test_restore` | ❌ W0 | ⬜ pending |
-| 07-02-01 | 02 | 2 | SOUND-01 | T-07-04 | SoundtracksTab game list, search filtering & playlist modes | unit | `pnpm test src/components/tabs/SoundtracksTab.test.tsx` | ❌ W0 | ⬜ pending |
-| 07-02-02 | 02 | 2 | SOUND-01, SOUND-02 | T-07-05 | Playlist & Album Picker modal and QAM 1-click binding | unit / integration | `pnpm test src/components/tabs/PlaylistPickerModal.test.tsx` | ❌ W0 | ⬜ pending |
-| 07-02-03 | 02 | 2 | SOUND-01, SOUND-02, SOUND-03 | T-07-SC | Full suite verification & end-to-end requirement validation | full suite | `py -m unittest discover tests && pnpm test` | ✅ | ⬜ pending |
+| 07-01-01 | 01 | 1 | SOUND-01, SOUND-02 | T-07-01 | Binary VDF unpacking & CRC32 AppID normalization | unit | `py -m unittest tests/test_vdf_parser.py` | ✅ | ✅ green |
+| 07-01-02 | 01 | 1 | SOUND-01, SOUND-02 | T-07-01, T-07-02 | SoundtrackManager profile store, launch debounce & wake-up | unit | `py -m unittest tests/test_soundtrack.py -k test_launch` | ✅ | ✅ green |
+| 07-01-03 | 01 | 1 | SOUND-03 | T-07-03 | Pre-game playback snapshot & exit restore with in-game pause handling | unit | `py -m unittest tests/test_soundtrack.py -k test_restore` | ✅ | ✅ green |
+| 07-02-01 | 02 | 2 | SOUND-01 | T-07-04 | SoundtracksTab game list, search filtering & playlist modes | unit | `pnpm test src/components/tabs/SoundtracksTab.test.tsx` | ✅ | ✅ green |
+| 07-02-02 | 02 | 2 | SOUND-01, SOUND-02 | T-07-05 | Playlist & Album Picker modal and QAM 1-click binding | unit / integration | `pnpm test src/components/tabs/PlaylistPickerModal.test.tsx` | ✅ | ✅ green |
+| 07-02-03 | 02 | 2 | SOUND-01, SOUND-02, SOUND-03 | T-07-SC | Full suite verification & end-to-end requirement validation | full suite | `py -m unittest discover tests && pnpm test` | ✅ | ✅ green |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -51,9 +52,9 @@ created: "2026-11-12"
 
 ## Wave 0 Requirements
 
-- [ ] `tests/test_vdf_parser.py` — unit tests for binary VDF unpacking and unsigned 32-bit CRC AppID computation.
-- [ ] `tests/test_soundtrack.py` — unit tests for `SoundtrackManager`, snapshot/restore engine, and debouncing.
-- [ ] `src/components/tabs/SoundtracksTab.test.tsx` — component tests for the Soundtracks UI and playlist picker.
+- [x] `tests/test_vdf_parser.py` — unit tests for binary VDF unpacking and unsigned 32-bit CRC AppID computation.
+- [x] `tests/test_soundtrack.py` — unit tests for `SoundtrackManager`, snapshot/restore engine, and debouncing.
+- [x] `src/components/tabs/SoundtracksTab.test.tsx` — component tests for the Soundtracks UI and playlist picker.
 
 ---
 
@@ -69,11 +70,11 @@ created: "2026-11-12"
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references
-- [ ] No watch-mode flags
-- [ ] Feedback latency < 10s
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify
+- [x] Wave 0 covers all MISSING references
+- [x] No watch-mode flags
+- [x] Feedback latency < 10s
+- [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending
+**Approval:** validated

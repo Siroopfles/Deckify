@@ -1,10 +1,11 @@
 ---
 phase: "09"
 slug: "qam-pinned-playlists-quick-in-game-switch"
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
+status: validated
+nyquist_compliant: true
+wave_0_complete: true
 created: "2026-11-14"
+updated: "2026-11-15"
 ---
 
 # Phase 9 — Validation Strategy
@@ -38,10 +39,10 @@ created: "2026-11-14"
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 09-01-01 | 01 | 1 | QAM-01 | T-09-01 | Validate `pinned_playlists` max-4 cap, `type` allowlist, and `image_url` domain allowlist | unit (Python) | `py -m unittest tests/test_pinned_playlists.py -v` | ❌ W0 | ⬜ pending |
-| 09-01-02 | 01 | 1 | QAM-01 | T-09-02 | Render QAM pinned pills with `DeckifyImage` (CSP-safe base64) and `flow-children="horizontal"` | unit (Vitest) | `pnpm test -- --run src/index.test.tsx` | ✅ | ⬜ pending |
-| 09-02-01 | 02 | 2 | QAM-02 | T-09-03 | `quick_play_pinned` wakes stopped engine, plays playlist/album/liked_songs without forcing shuffle | unit (Python) | `py -m unittest tests/test_pinned_playlists.py -v` | ❌ W0 | ⬜ pending |
-| 09-02-02 | 02 | 2 | QAM-01, QAM-02 | — | Pin/Unpin in library views (max-4 toast without eviction) + optimistic active pill highlight & rollback on error | unit (Vitest) | `pnpm test -- --run src/index.test.tsx src/components/DeckifyExpandedModal.test.tsx` | ✅ | ⬜ pending |
+| 09-01-01 | 01 | 1 | QAM-01 | T-09-01 | Validate `pinned_playlists` max-4 cap, `type` allowlist, and `image_url` domain allowlist | unit (Python) | `py -m unittest tests/test_pinned_playlists.py -v` | ✅ | ✅ green |
+| 09-01-02 | 01 | 1 | QAM-01 | T-09-02 | Render QAM pinned pills with `DeckifyImage` (CSP-safe base64) and `flow-children="horizontal"` | unit (Vitest) | `pnpm test -- --run src/index.test.tsx` | ✅ | ✅ green |
+| 09-02-01 | 02 | 2 | QAM-02 | T-09-03 | `quick_play_pinned` wakes stopped engine, plays playlist/album/liked_songs without forcing shuffle | unit (Python) | `py -m unittest tests/test_pinned_playlists.py -v` | ✅ | ✅ green |
+| 09-02-02 | 02 | 2 | QAM-01, QAM-02 | — | Pin/Unpin in library views (max-4 toast without eviction) + optimistic active pill highlight & rollback on error | unit (Vitest) | `pnpm test -- --run src/index.test.tsx src/components/DeckifyExpandedModal.test.tsx` | ✅ | ✅ green |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -49,8 +50,8 @@ created: "2026-11-14"
 
 ## Wave 0 Requirements
 
-- [ ] `tests/test_pinned_playlists.py` — covers `pinned_playlists` settings validation/max-4 cap and `quick_play_pinned` engine wake + playlist/album/liked_songs playback.
-- [ ] Extend `src/index.test.tsx` and `src/components/DeckifyExpandedModal.test.tsx` for QAM pill strip, collapsible secondary controls, `Bind` button focus fix, and Pin/Unpin UI flows.
+- [x] `tests/test_pinned_playlists.py` — covers `pinned_playlists` settings validation/max-4 cap and `quick_play_pinned` engine wake + playlist/album/liked_songs playback.
+- [x] Extend `src/index.test.tsx` and `src/components/DeckifyExpandedModal.test.tsx` for QAM pill strip, collapsible secondary controls, `Bind` button focus fix, and Pin/Unpin UI flows.
 
 ---
 
@@ -64,11 +65,11 @@ created: "2026-11-14"
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references
-- [ ] No watch-mode flags
-- [ ] Feedback latency < 15s
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify
+- [x] Wave 0 covers all MISSING references
+- [x] No watch-mode flags
+- [x] Feedback latency < 15s
+- [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending
+**Approval:** validated

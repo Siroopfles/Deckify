@@ -1,10 +1,11 @@
 ---
 phase: "08"
 slug: "controller-l2-r2-ergonomics-trigger-navigation"
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
+status: validated
+nyquist_compliant: true
+wave_0_complete: true
 created: "2026-11-14"
+updated: "2026-11-15"
 ---
 
 # Phase 08 — Validation Strategy
@@ -38,14 +39,14 @@ created: "2026-11-14"
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 08-01-01 | 01 | 1 | CTRL-03 | T-08-01 | Hysteresis & debounce prevent runaway RPCs | unit | `pnpm test --run src/utils/triggerController.test.ts` | ❌ W0 | ⬜ pending |
-| 08-01-02 | 01 | 1 | CTRL-03 | T-08-02 | Modal-scoped listener cleanup on unmount | unit | `pnpm test --run src/components/DeckifyExpandedModal.test.tsx` | ✅ | ⬜ pending |
-| 08-01-03 | 01 | 1 | Sidebar | — | Pinned `Back to Steam (B)` footer outside scroll list | unit | `pnpm test --run src/components/common/Sidebar.test.tsx` | ❌ W0 | ⬜ pending |
-| 08-02-01 | 02 | 2 | CTRL-01 | T-08-03 | Clamp seek target to `[0, duration_ms - 1000]` | unit | `pnpm test --run src/components/DeckifyExpandedModal.test.tsx` | ✅ | ⬜ pending |
-| 08-02-02 | 02 | 2 | Settings | T-08-04 | Clamp `trigger_seek_seconds` (5–30) & `trigger_page_size` (5–50) | unit | `pnpm test --run src/components/tabs/SettingsTab.test.tsx && py -m unittest tests/test_py_modules.py` | ✅ | ⬜ pending |
-| 08-03-01 | 03 | 3 | CTRL-02 | T-08-05 | ±N paging & A–Z anchor jumps with content-focus guard | unit | `pnpm test --run src/utils/listNavigation.test.ts src/components/DeckifyExpandedModal.test.tsx` | ❌ W0 | ⬜ pending |
-| 08-03-02 | 03 | 3 | CTRL-02 | — | Tag Playlists, Albums, Artists, Podcasts rows & A–Z container | typecheck | `pnpm typecheck` | ✅ | ⬜ pending |
-| 08-03-03 | 03 | 3 | CTRL-02 | — | Tag Search, Queue, Soundtracks rows & A–Z container | unit | `pnpm test --run src/components/tabs/QueueTab.test.tsx && pnpm typecheck` | ✅ | ⬜ pending |
+| 08-01-01 | 01 | 1 | CTRL-03 | T-08-01 | Hysteresis & debounce prevent runaway RPCs | unit | `pnpm test --run src/utils/triggerController.test.ts` | ✅ | ✅ green |
+| 08-01-02 | 01 | 1 | CTRL-03 | T-08-02 | Modal-scoped listener cleanup on unmount | unit | `pnpm test --run src/components/DeckifyExpandedModal.test.tsx` | ✅ | ✅ green |
+| 08-01-03 | 01 | 1 | Sidebar | — | Pinned `Back to Steam (B)` footer outside scroll list | unit | `pnpm test --run src/components/common/Sidebar.test.tsx` | ✅ | ✅ green |
+| 08-02-01 | 02 | 2 | CTRL-01 | T-08-03 | Clamp seek target to `[0, duration_ms - 1000]` | unit | `pnpm test --run src/components/DeckifyExpandedModal.test.tsx` | ✅ | ✅ green |
+| 08-02-02 | 02 | 2 | Settings | T-08-04 | Clamp `trigger_seek_seconds` (5–30) & `trigger_page_size` (5–50) | unit | `pnpm test --run src/components/tabs/SettingsTab.test.tsx && py -m unittest tests/test_py_modules.py` | ✅ | ✅ green |
+| 08-03-01 | 03 | 3 | CTRL-02 | T-08-05 | ±N paging & A–Z anchor jumps with content-focus guard | unit | `pnpm test --run src/utils/listNavigation.test.ts src/components/DeckifyExpandedModal.test.tsx` | ✅ | ✅ green |
+| 08-03-02 | 03 | 3 | CTRL-02 | — | Tag Playlists, Albums, Artists, Podcasts rows & A–Z container | typecheck | `pnpm typecheck` | ✅ | ✅ green |
+| 08-03-03 | 03 | 3 | CTRL-02 | — | Tag Search, Queue, Soundtracks rows & A–Z container | unit | `pnpm test --run src/components/tabs/QueueTab.test.tsx && pnpm typecheck` | ✅ | ✅ green |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -53,9 +54,9 @@ created: "2026-11-14"
 
 ## Wave 0 Requirements
 
-- [ ] `src/utils/triggerController.test.ts` — stubs for CTRL-03 Schmidt hysteresis, 300ms debounce, chatter rejection, hold-to-repeat
-- [ ] `src/utils/listNavigation.test.ts` — stubs for CTRL-02 ±N paging, A–Z anchor jumps, short lists, boundary clamping
-- [ ] `src/components/common/Sidebar.test.tsx` — stubs for pinned `Back to Steam (B)` footer structure
+- [x] `src/utils/triggerController.test.ts` — stubs for CTRL-03 Schmidt hysteresis, 300ms debounce, chatter rejection, hold-to-repeat
+- [x] `src/utils/listNavigation.test.ts` — stubs for CTRL-02 ±N paging, A–Z anchor jumps, short lists, boundary clamping
+- [x] `src/components/common/Sidebar.test.tsx` — stubs for pinned `Back to Steam (B)` footer structure
 
 ---
 
@@ -69,11 +70,11 @@ created: "2026-11-14"
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references
-- [ ] No watch-mode flags
-- [ ] Feedback latency < 10s
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify
+- [x] Wave 0 covers all MISSING references
+- [x] No watch-mode flags
+- [x] Feedback latency < 10s
+- [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending
+**Approval:** validated
