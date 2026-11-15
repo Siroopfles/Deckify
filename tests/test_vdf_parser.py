@@ -149,6 +149,28 @@ class TestInstalledGames(unittest.TestCase):
             vdf_parser.get_installed_games()
             self.assertEqual(scan.call_count, 2)
 
+    def test_non_steam_grid_cover_base64(self):
+        with tempfile.TemporaryDirectory() as root:
+            cfg = os.path.join(root, "userdata", "123", "config")
+            grid = os.path.join(cfg, "grid")
+            os.makedirs(grid)
+            with open(os.path.join(cfg, "shortcuts.vdf"), "wb") as f:
+                f.write(_shortcuts([{"name": "Heroic Game", "exe": "/bin/heroic"}]))
+            app_id = vdf_parser.compute_non_steam_appid("/bin/heroic", "Heroic Game")
+            png_bytes = b"\x89PNG\r\n\x1a\nFAKEPNG"
+            with open(os.path.join(grid, f"{app_id}p.png"), "wb") as f:
+                f.write(png_bytes)
+            with patch.object(vdf_parser, "_steam_roots", return_value=[root]):
+                games = vdf_parser._scan_non_steam_games()
+                self.assertEqual(len(games), 1)
+                self.assertTrue(games[0]["icon_url"].startswith("data:image/png;base64,"))
+
+            # Oversized file (> MAX_IMAGE_BYTES) should return ""
+            with patch.object(vdf_parser, "MAX_IMAGE_BYTES", 4), \
+                    patch.object(vdf_parser, "_steam_roots", return_value=[root]):
+                games_oversize = vdf_parser._scan_non_steam_games()
+                self.assertEqual(games_oversize[0]["icon_url"], "")
+
 
 if __name__ == "__main__":
     unittest.main()

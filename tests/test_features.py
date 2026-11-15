@@ -353,6 +353,20 @@ class DeckifyFeatureTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(Plugin.toggle_like, Plugin.toggle_like_track)
         self.assertEqual(Plugin.set_native_mix, Plugin.set_native_playlist_mix)
 
+    async def test_toast_sound_enabled_setting(self):
+        from py_modules.common import DEFAULT_SETTINGS
+        self.assertIn("toast_sound_enabled", DEFAULT_SETTINGS)
+        self.assertIs(DEFAULT_SETTINGS["toast_sound_enabled"], False)
+
+        self.plugin._settings["toast_sound_enabled"] = False
+        status = await self.plugin.get_status()
+        self.assertIn("toast_sound_enabled", status["settings"])
+        self.assertIs(status["settings"]["toast_sound_enabled"], False)
+
+        res = await self.plugin.set_setting("toast_sound_enabled", 1)
+        self.assertTrue(res["ok"])
+        self.assertIs(self.plugin._settings["toast_sound_enabled"], True)
+
 
 
 if __name__ == "__main__":
