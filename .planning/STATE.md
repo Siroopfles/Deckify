@@ -4,16 +4,16 @@ milestone: v0.5
 current_phase: 11
 current_phase_name: Home & Discovery Hub Tab
 status: executing
-stopped_at: Phase 11 UI-SPEC approved
-last_updated: "2026-11-15T11:47:36.548Z"
+stopped_at: Completed 11-01-PLAN.md
+last_updated: "2026-11-15T11:57:05.534Z"
 last_activity: 2026-11-15
-last_activity_desc: Phase 10 complete, transitioned to Phase 11
-state_head: a808e3b443d46ffa27093bc1f096eb0cecf1c675
+last_activity_desc: Phase 11 execution started
+state_head: b269c37cc154301b5789ea26338e9800b78bdb1a
 progress:
   total_phases: 6
   completed_phases: 5
   total_plans: 18
-  completed_plans: 16
+  completed_plans: 17
 ---
 
 # Project State
@@ -23,14 +23,14 @@ progress:
 See: [.planning/PROJECT.md](file:///C:/Users/djdje/Deckify/.planning/PROJECT.md) (updated 2026-11-12)
 
 **Core value:** Rock-solid Spotify playback and responsive, reliable controller navigation on Steam Deck without UI lag, broken images, or desynchronized playback states.
-**Current focus:** Phase 10 — In-Game HUD Overlay 2.0 (Live Synced Lyrics)
+**Current focus:** Phase 11 — Home & Discovery Hub Tab
 
 ## Current Position
 
-Phase: 11 (Home & Discovery Hub Tab) — READY TO EXECUTE
-Plan: Not started
+Phase: 11 (Home & Discovery Hub Tab) — EXECUTING
+Plan: 2 of 2
 Status: Ready to execute
-Last activity: 2026-11-15 — Phase 10 complete, transitioned to Phase 11
+Last activity: 2026-11-15 — Phase 11 execution started
 
 Progress: [████████░░] 83% (Phase 06 complete, Phase 07 planned)
 
@@ -76,6 +76,7 @@ Progress: [████████░░] 83% (Phase 06 complete, Phase 07 plan
 | Phase 10 P01 | 9min | 3 tasks | 9 files |
 | Phase 10 P02 | 7min | 3 tasks | 7 files |
 | Phase 10 P03 | 5min | 2 tasks | 6 files |
+| Phase 11 P01 | 5min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -109,6 +110,8 @@ Recent decisions affecting current work:
 - [Phase 10]: Guarded DeckifyOverlayWrapper get_lyrics responses against stale async overwrites using currentTrackKeyRef
 - [Phase 10]: Kept QAM compact without duration or latency SliderFields, exposing only Overlay Lyrics ToggleField and dynamic Auto-Hide duration label
 - [Phase 10]: Wrapped handleNextLyricsSource modulo 5 alongside direct LYRICS_SOURCES pill selection in LyricsTab
+- [Phase 11]: Replaced blocking time.sleep in _spotify_api_request with fast-fail SpotifyRateLimitError circuit breaker (5s base, 300s cap)
+- [Phase 11]: Section-isolated 1h TTL for top_tracks/top_artists per time_range and 4h TTL for made_for_you and new_releases with 403/404 fallbacks
 
 ### Pending Todos
 
@@ -131,6 +134,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-15T11:37:53.556Z
-Stopped at: Phase 11 UI-SPEC approved
-Resume file: C:/Users/djdje/Deckify/.planning/phases/11-home-discovery-hub-tab/11-UI-SPEC.md
+Last session: 2026-11-15T11:57:03.447Z
+Stopped at: Completed 11-01-PLAN.md
+Resume file: None
