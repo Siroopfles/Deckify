@@ -567,4 +567,51 @@ describe("src/index.tsx DeckifyOverlayWrapper Phase 10 Gating & Modal Suppressio
 
     plugin.onDismount?.();
   });
+
+  it("preserves overlay_lyrics_enabled from settings_changed across subsequent partial get_status() polls", async () => {
+    await import("./index");
+    const { addEventListener, routerHook } = await import("@decky/api");
+    const plugin = capturedPluginFactory!();
+    const wrapperFactory = (routerHook.addGlobalComponent as any).mock.calls[0][1];
+    const renderWrapper = () => {
+      hookIdx = 0;
+      const el = wrapperFactory();
+      return el.type(el.props || {});
+    };
+
+    mockGetStatus.mockResolvedValue({
+      track: { track_id: "trk1", name: "Song A", artist: "Artist A", duration_ms: 180000 },
+      is_playing: true,
+      settings: { overlay_enabled: true, overlay_lyrics_enabled: false },
+    });
+
+    renderWrapper();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const settingsChangedCall = (addEventListener as any).mock.calls.find(
+      (c: any[]) => c[0] === "settings_changed"
+    );
+    expect(settingsChangedCall).toBeDefined();
+    const settingsChangedHandler = settingsChangedCall[1];
+
+    // Simulate a subsequent 4s poll whose settings payload omits overlay_lyrics_enabled
+    mockGetStatus.mockResolvedValue({
+      track: { track_id: "trk1", name: "Song A", artist: "Artist A", duration_ms: 180000 },
+      is_playing: true,
+      settings: { overlay_enabled: true },
+    });
+
+    // Simulate settings_changed event enabling overlay_lyrics_enabled
+    settingsChangedHandler({ overlay_enabled: true, overlay_lyrics_enabled: true });
+    expect(renderWrapper().props.lyricsEnabled).toBe(true);
+
+    vi.advanceTimersByTime(4000);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(renderWrapper().props.lyricsEnabled).toBe(true);
+
+    plugin.onDismount?.();
+  });
 });

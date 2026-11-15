@@ -885,7 +885,7 @@ const DeckifyOverlayWrapper: FC = () => {
       const t = s.track || s.track_meta || null;
       if (t) setTrack(t);
       if (typeof s.is_playing === "boolean") setIsPlaying(s.is_playing);
-      if (s.settings) setSettings(s.settings);
+      if (s.settings) setSettings((prev) => ({ ...(prev ?? ({} as EngineSettings)), ...s.settings }));
       if (typeof s.position_ms === "number") setPositionMs(s.position_ms);
       if (typeof s.duration_ms === "number") {
         setDurationMs(s.duration_ms || t?.duration_ms || 0);
@@ -911,7 +911,7 @@ const DeckifyOverlayWrapper: FC = () => {
       if (typeof ev?.duration_ms === "number") setDurationMs(ev.duration_ms);
     });
     const unsubSettings = addEventListener<[any]>("settings_changed", (st: any) => {
-      if (st) setSettings(st);
+      if (st) setSettings((prev) => ({ ...(prev ?? ({} as EngineSettings)), ...st }));
     });
 
     const poll = setInterval(async () => {

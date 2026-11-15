@@ -1,6 +1,6 @@
 import { FC, useState, useEffect, useCallback } from "react";
 import { Focusable, SliderField, ToggleField } from "@decky/ui";
-import { callable } from "@decky/api";
+import { callable, addEventListener, removeEventListener } from "@decky/api";
 import { FaSlidersH, FaClock, FaPowerOff } from "react-icons/fa";
 import { AudioSinkInfo, StatusResponse, SleepTimerStatus } from "../../types";
 import { InteractiveRow } from "../common/InteractiveRow";
@@ -26,6 +26,7 @@ export interface SettingsTabProps {
 export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showToast }) => {
   const [audioSinks, setAudioSinks] = useState<AudioSinkInfo[]>([]);
   const [officialClientStatus, setOfficialClientStatus] = useState<{ running: boolean; logged_in: boolean } | null>(null);
+  const [localSettings, setLocalSettings] = useState<Record<string, any>>(() => status?.settings || {});
   const [steamMenuPos, setSteamMenuPos] = useState<number>(() => {
     try {
       const saved = localStorage.getItem("DECKIFY_MENU_POSITION");
@@ -55,6 +56,33 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
     loadAudioSinks();
     checkOfficialClient();
   }, [loadAudioSinks, checkOfficialClient]);
+
+  useEffect(() => {
+    if (status?.settings) {
+      setLocalSettings((prev) => ({ ...prev, ...status.settings }));
+    }
+  }, [status?.settings]);
+
+  useEffect(() => {
+    const handler = (st: any) => {
+      if (st && typeof st === "object") {
+        setLocalSettings((prev) => ({ ...prev, ...st }));
+      }
+    };
+    const listener = addEventListener<[any]>("settings_changed", handler);
+    return () => {
+      removeEventListener("settings_changed", listener);
+    };
+  }, []);
+
+  const updateSetting = useCallback(
+    async (key: string, value: unknown) => {
+      setLocalSettings((prev) => ({ ...prev, [key]: value }));
+      await backendSetSetting(key, value);
+      refreshStatus();
+    },
+    [refreshStatus]
+  );
 
   const audioBackend = status?.settings?.audio_backend || "librespot";
   const audioQuality = status?.settings?.audio_quality || "320";
@@ -660,17 +688,16 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
             {/* Overlay Lyrics Toggle */}
             <InteractiveRow
               onClick={async () => {
-                const cur = status?.settings?.overlay_lyrics_enabled || false;
-                await backendSetSetting("overlay_lyrics_enabled", !cur);
+                const cur = localSettings.overlay_lyrics_enabled ?? status?.settings?.overlay_lyrics_enabled ?? false;
                 showToast(!cur ? "Overlay lyrics enabled" : "Overlay lyrics disabled");
-                refreshStatus();
+                await updateSetting("overlay_lyrics_enabled", !cur);
               }}
-              active={status?.settings?.overlay_lyrics_enabled}
+              active={localSettings.overlay_lyrics_enabled ?? status?.settings?.overlay_lyrics_enabled}
               style={{ justifyContent: "space-between", marginTop: 8, marginBottom: 8 }}
             >
               <span style={{ fontSize: 13, fontWeight: 600 }}>Overlay Lyrics</span>
-              <span style={{ fontSize: 12, fontWeight: 700, color: status?.settings?.overlay_lyrics_enabled ? "#1db954" : "#888" }}>
-                {status?.settings?.overlay_lyrics_enabled ? "ON" : "OFF"}
+              <span style={{ fontSize: 12, fontWeight: 700, color: (localSettings.overlay_lyrics_enabled ?? status?.settings?.overlay_lyrics_enabled) ? "#1db954" : "#888" }}>
+                {(localSettings.overlay_lyrics_enabled ?? status?.settings?.overlay_lyrics_enabled) ? "ON" : "OFF"}
               </span>
             </InteractiveRow>
 
@@ -681,11 +708,10 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
               max={15}
               step={1}
               showValue
-              value={status?.settings?.overlay_autohide_duration_s ?? 6}
+              value={localSettings.overlay_autohide_duration_s ?? status?.settings?.overlay_autohide_duration_s ?? 6}
               onChange={async (val: number) => {
                 const clamped = Math.min(15, Math.max(3, val));
-                await backendSetSetting("overlay_autohide_duration_s", clamped);
-                refreshStatus();
+                await updateSetting("overlay_autohide_duration_s", clamped);
               }}
             />
 
@@ -696,11 +722,10 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
               max={2000}
               step={100}
               showValue
-              value={status?.settings?.overlay_lyrics_offset_ms ?? 0}
+              value={localSettings.overlay_lyrics_offset_ms ?? status?.settings?.overlay_lyrics_offset_ms ?? 0}
               onChange={async (val: number) => {
                 const clamped = Math.min(2000, Math.max(-2000, val));
-                await backendSetSetting("overlay_lyrics_offset_ms", clamped);
-                refreshStatus();
+                await updateSetting("overlay_lyrics_offset_ms", clamped);
               }}
             />
           </>
@@ -774,20 +799,18 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
         <ToggleField
           label="L2/R2 Trigger Navigation"
           description="Use L2/R2 triggers to seek in Now Playing/Lyrics and jump pages in lists"
-          checked={status?.settings?.trigger_nav_enabled ?? true}
+          checked={localSettings.trigger_nav_enabled ?? status?.settings?.trigger_nav_enabled ?? true}
           onChange={async (val: boolean) => {
-            await backendSetSetting("trigger_nav_enabled", val);
             showToast(val ? "L2/R2 trigger navigation enabled" : "L2/R2 trigger navigation disabled");
-            refreshStatus();
+            await updateSetting("trigger_nav_enabled", val);
           }}
         />
         <ToggleField
           label="Controller Hint Bar"
           description="Show context-aware controller button hints in the modal footer"
-          checked={status?.settings?.show_controller_hints ?? true}
+          checked={localSettings.show_controller_hints ?? status?.settings?.show_controller_hints ?? true}
           onChange={async (val: boolean) => {
-            await backendSetSetting("show_controller_hints", val);
-            refreshStatus();
+            await updateSetting("show_controller_hints", val);
           }}
         />
         <SliderField
@@ -796,11 +819,10 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
           max={30}
           step={5}
           showValue
-          value={status?.settings?.trigger_seek_seconds ?? 10}
+          value={localSettings.trigger_seek_seconds ?? status?.settings?.trigger_seek_seconds ?? 10}
           onChange={async (val: number) => {
             const clamped = Math.min(30, Math.max(5, val));
-            await backendSetSetting("trigger_seek_seconds", clamped);
-            refreshStatus();
+            await updateSetting("trigger_seek_seconds", clamped);
           }}
         />
         <SliderField
@@ -809,11 +831,10 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
           max={50}
           step={5}
           showValue
-          value={status?.settings?.trigger_page_size ?? 15}
+          value={localSettings.trigger_page_size ?? status?.settings?.trigger_page_size ?? 15}
           onChange={async (val: number) => {
             const clamped = Math.min(50, Math.max(5, val));
-            await backendSetSetting("trigger_page_size", clamped);
-            refreshStatus();
+            await updateSetting("trigger_page_size", clamped);
           }}
         />
       </div>

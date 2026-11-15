@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const mockSetSetting = vi.fn().mockResolvedValue({ ok: true });
+const mockAddEventListener = vi.fn(() => "listener-token");
+const mockRemoveEventListener = vi.fn();
 
 vi.mock("@decky/api", () => ({
   callable: (name: string) => {
@@ -9,6 +11,8 @@ vi.mock("@decky/api", () => ({
     }
     return vi.fn().mockResolvedValue({ ok: true });
   },
+  addEventListener: (...args: any[]) => (mockAddEventListener as any)(...args),
+  removeEventListener: (...args: any[]) => (mockRemoveEventListener as any)(...args),
 }));
 
 vi.mock("@decky/ui", () => ({
@@ -384,5 +388,48 @@ describe("SettingsTab - Smooth Audio Ducking Engine UI (Phase 06)", () => {
     expect(mockSetSetting).toHaveBeenCalledWith("overlay_lyrics_offset_ms", 2000);
     await offsetSlider.props.onChange(-3000);
     expect(mockSetSetting).toHaveBeenCalledWith("overlay_lyrics_offset_ms", -2000);
+  });
+
+  it("registers and cleans up settings_changed listener and applies optimistic updates", async () => {
+    mockAddEventListener.mockClear();
+    mockRemoveEventListener.mockClear();
+    mockSetSetting.mockClear();
+
+    const overlayEnabledStatus: StatusResponse = {
+      ...mockStatus,
+      settings: {
+        ...mockStatus.settings!,
+        overlay_enabled: true,
+        overlay_lyrics_enabled: false,
+        overlay_autohide_duration_s: 6,
+        overlay_lyrics_offset_ms: 0,
+      },
+    };
+    const cleanup = SettingsTab({
+      status: overlayEnabledStatus,
+      refreshStatus,
+      showToast,
+    });
+    expect(cleanup).toBeDefined();
+
+    const settingsListenerCall = (mockAddEventListener.mock.calls as any[][]).find(
+      (c) => c[0] === "settings_changed"
+    );
+    expect(settingsListenerCall).toBeDefined();
+
+    const sliders = findNodes(cleanup, (n) => n.type === SliderField || n.type === "SliderField");
+    const durationSlider = sliders.find((n) => n.props?.label === "Auto-Hide Duration (Seconds)");
+    const offsetSlider = sliders.find((n) => n.props?.label === "Lyrics Latency Offset (ms)");
+    const seekSlider = sliders.find((n) => n.props?.label === "Seek Step (Seconds)");
+    const pageSlider = sliders.find((n) => n.props?.label === "Library Page Jump (Items)");
+
+    await durationSlider.props.onChange(20);
+    expect(mockSetSetting).toHaveBeenCalledWith("overlay_autohide_duration_s", 15);
+    await offsetSlider.props.onChange(-2500);
+    expect(mockSetSetting).toHaveBeenCalledWith("overlay_lyrics_offset_ms", -2000);
+    await seekSlider.props.onChange(45);
+    expect(mockSetSetting).toHaveBeenCalledWith("trigger_seek_seconds", 30);
+    await pageSlider.props.onChange(2);
+    expect(mockSetSetting).toHaveBeenCalledWith("trigger_page_size", 5);
   });
 });
