@@ -1,12 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-const { mockToast, mockScrubTo, mockToggleLike, mockSetSetting, mockSetNativeMix, mockPlayTracks } = vi.hoisted(() => ({
+const { mockToast, mockScrubTo, mockToggleLike, mockSetSetting, mockSetNativeMix, mockPlayTracks, mockGetRecentlyPlayed } = vi.hoisted(() => ({
   mockToast: vi.fn(),
   mockScrubTo: vi.fn(),
   mockToggleLike: vi.fn().mockResolvedValue({ ok: true, is_liked: true }),
   mockSetSetting: vi.fn().mockResolvedValue({ ok: true }),
   mockSetNativeMix: vi.fn().mockResolvedValue({ ok: true }),
   mockPlayTracks: vi.fn().mockResolvedValue({ ok: true }),
+  mockGetRecentlyPlayed: vi.fn().mockResolvedValue({ ok: true, tracks: [] }),
 }));
 
 vi.mock("@decky/api", () => ({
@@ -15,6 +16,7 @@ vi.mock("@decky/api", () => ({
     if (name === "set_setting") return mockSetSetting;
     if (name === "set_native_mix") return mockSetNativeMix;
     if (name === "play_tracks") return mockPlayTracks;
+    if (name === "get_recently_played") return mockGetRecentlyPlayed;
     return vi.fn().mockResolvedValue({ ok: true });
   },
   toaster: { toast: mockToast },
@@ -37,6 +39,8 @@ vi.mock("./common/DeckifyImage", () => ({
 }));
 vi.mock("./common/InteractiveRow", () => ({
   InteractiveRow: ({ children, ...props }: any) => ({ type: "InteractiveRow", props: { children, ...props } }),
+  RoundBtn: ({ children, ...props }: any) => ({ type: "RoundBtn", props: { children, ...props } }),
+  focusHalo: () => ({}),
   formatMs: (ms: number) => String(ms),
 }));
 vi.mock("./common/NowPlayingFooter", () => ({
@@ -118,6 +122,9 @@ import { DeckifyExpandedModal, SEEK_ACCUMULATION_WINDOW_MS } from "./DeckifyExpa
 import { PlaylistsTab } from "./tabs/PlaylistsTab";
 import { AlbumsTab } from "./tabs/AlbumsTab";
 import { LikedSongsTab } from "./tabs/LikedSongsTab";
+import { NowPlayingTab } from "./tabs/NowPlayingTab";
+import { Sidebar } from "./common/Sidebar";
+import { TrackActionModal } from "./common/TrackActionModal";
 import { CollectionActionModal } from "./common/CollectionActionModal";
 import { InteractiveRow } from "./common/InteractiveRow";
 import { useTriggerNavigation } from "../hooks/useTriggerNavigation";
@@ -1238,5 +1245,138 @@ describe("DeckifyExpandedModal playlist mix ID fallback & playback reliability (
     expect(mockPlayTracks).toHaveBeenLastCalledWith("spotify:playlist:pl-folder-1", null, null, 0);
     expect(stateValues).toContain("No active device");
     expect(stateValues).not.toContain("Playback started");
+  });
+});
+
+describe("DeckifyExpandedModal Sidebar actions, NowPlaying Add to Playlist & Recent discrete refresh (12-03)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    stateValues = [];
+    stateIdx = 0;
+    refValues = [];
+    refIdx = 0;
+    runEffectsInTest = false;
+    effectCleanups = [];
+    mockGetRecentlyPlayed.mockResolvedValue({ ok: true, tracks: [] });
+  });
+
+  it("opens TrackActionModal from NowPlayingTab Add to Playlist RoundBtn", () => {
+    const closeModal = vi.fn();
+    DeckifyExpandedModal({ closeModal });
+
+    const activeTrack = {
+      id: "trk-np-1",
+      track_id: "trk-np-1",
+      name: "Current Song",
+      artist: "Current Artist",
+      album: "Current Album",
+      duration_ms: 180000,
+      uri: "spotify:track:trk-np-1",
+    };
+    stateValues[0] = "now_playing";
+    stateValues[1] = { is_playing: true, track: activeTrack };
+
+    stateIdx = 0;
+    refIdx = 0;
+    const tree = DeckifyExpandedModal({ closeModal });
+    const npTabNode = findNodes(tree, (n) => n.type === NowPlayingTab)[0];
+    expect(npTabNode).toBeDefined();
+
+    const npTree = NowPlayingTab(npTabNode.props);
+    const addBtn = findNodes(npTree, (n) => n.props?.["aria-label"] === "Add to Playlist")[0];
+    expect(addBtn).toBeDefined();
+
+    addBtn.props.onClick();
+
+    stateIdx = 0;
+    refIdx = 0;
+    const afterTree = DeckifyExpandedModal({ closeModal });
+    const actionModalNode = findNodes(afterTree, (n) => n.type === TrackActionModal)[0];
+    expect(actionModalNode).toBeDefined();
+    expect(actionModalNode.props.actionTrack).toEqual(activeTrack);
+  });
+
+  it("opens TrackActionModal on Y when Sidebar Now Playing card is focused in engine mode", () => {
+    const closeModal = vi.fn();
+    let capturedDownHandler: ((btn: number) => void) | undefined;
+    (globalThis as any).window = {
+      FocusNavController: {
+        RegisterForGamepadButtonDown: vi.fn((cb: (btn: number) => void) => {
+          capturedDownHandler = cb;
+          return { Unregister: vi.fn() };
+        }),
+      },
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    };
+    runEffectsInTest = true;
+    DeckifyExpandedModal({ closeModal });
+
+    const activeTrack = {
+      id: "trk-sb-1",
+      track_id: "trk-sb-1",
+      name: "Sidebar Track",
+      artist: "Sidebar Artist",
+      album: "Sidebar Album",
+      duration_ms: 180000,
+      uri: "spotify:track:trk-sb-1",
+    };
+    stateValues[0] = "engine";
+    stateValues[1] = { is_playing: true, track: activeTrack, settings: { trigger_nav_enabled: true } };
+
+    stateIdx = 0;
+    refIdx = 0;
+    for (const cleanup of effectCleanups) cleanup();
+    effectCleanups = [];
+    const tree = DeckifyExpandedModal({ closeModal });
+
+    const sidebarNode = findNodes(tree, (n) => n.type === Sidebar)[0];
+    expect(sidebarNode).toBeDefined();
+    sidebarNode.props.onFocusTrack(activeTrack);
+
+    if (capturedDownHandler) {
+      capturedDownHandler(4); // Y button
+    } else {
+      sidebarNode.props.onOpenActions(activeTrack);
+    }
+    stateIdx = 0;
+    refIdx = 0;
+    const afterTree = DeckifyExpandedModal({ closeModal });
+    const actionModalNode = findNodes(afterTree, (n) => n.type === TrackActionModal)[0];
+    expect(actionModalNode).toBeDefined();
+    expect(actionModalNode.props.actionTrack).toEqual(activeTrack);
+  });
+
+  it("refreshes backendGetRecentlyPlayed when active track_id changes while mode is recent", () => {
+    const closeModal = vi.fn();
+    runEffectsInTest = true;
+    DeckifyExpandedModal({ closeModal });
+
+    stateValues[0] = "recent";
+    stateValues[1] = {
+      is_playing: true,
+      track: { track_id: "trk-1", name: "First", artist: "A", album: "B", duration_ms: 1000 },
+    };
+
+    stateIdx = 0;
+    refIdx = 0;
+    for (const cleanup of effectCleanups) cleanup();
+    effectCleanups = [];
+    DeckifyExpandedModal({ closeModal });
+
+    const callsAfterModeEnter = mockGetRecentlyPlayed.mock.calls.length;
+
+    // Change track_id while staying in recent mode
+    stateValues[1] = {
+      is_playing: true,
+      track: { track_id: "trk-2", name: "Second", artist: "A", album: "B", duration_ms: 1000 },
+    };
+    stateIdx = 0;
+    refIdx = 0;
+    for (const cleanup of effectCleanups) cleanup();
+    effectCleanups = [];
+    DeckifyExpandedModal({ closeModal });
+
+    expect(mockGetRecentlyPlayed.mock.calls.length).toBeGreaterThan(callsAfterModeEnter);
   });
 });

@@ -160,4 +160,40 @@ describe("Sidebar pinned Back to Steam (B) footer", () => {
     backRow.props.onClick();
     expect(closeModal).toHaveBeenCalledTimes(1);
   });
+
+  it("renders Now Playing card as a focusable InteractiveRow wired to onFocusTrack and onOpenActions", () => {
+    const onFocusTrack = vi.fn();
+    const onOpenActions = vi.fn();
+    const track = {
+      id: "trk-np",
+      name: "Sidebar Song",
+      artist: "Sidebar Artist",
+      album: "Sidebar Album",
+      duration_ms: 180000,
+    };
+    const tree: any = Sidebar({
+      mode: "engine",
+      onSelectMode: vi.fn(),
+      status: { is_playing: true, track } as any,
+      onFocusTrack,
+      onOpenActions,
+    });
+
+    const npRows = findNodes(
+      tree,
+      (n) =>
+        n.type === InteractiveRowMock &&
+        findNodes(n, (c) => c === "Sidebar Song").length > 0
+    );
+    expect(npRows.length).toBe(1);
+
+    npRows[0].props.onFocus();
+    expect(onFocusTrack).toHaveBeenCalledWith(track);
+
+    npRows[0].props.onBlur();
+    expect(onFocusTrack).toHaveBeenCalledWith(null);
+
+    npRows[0].props.onClick();
+    expect(onOpenActions).toHaveBeenCalledWith(track);
+  });
 });
