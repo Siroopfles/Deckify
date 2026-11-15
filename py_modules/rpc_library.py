@@ -944,6 +944,14 @@ async def get_image(url: str) -> dict:
 
 
 _VALID_DISCOVERY_RANGES = ("short_term", "medium_term", "long_term")
+_TOP_TTL_SECONDS = 3600.0
+_STATIC_TTL_SECONDS = 14400.0
+_DISCOVERY_CACHE: dict[str, dict] = {}
+
+
+def _clear_discovery_cache() -> None:
+    """Clear the in-memory discovery feed TTL cache."""
+    _DISCOVERY_CACHE.clear()
 
 
 def _format_discovery_playlist(p: dict) -> dict:
@@ -1013,29 +1021,63 @@ def _format_discovery_album(alb: dict) -> dict:
     }
 
 
-async def get_discovery_feed(
-    plugin,
-    time_range: str = "medium_term",
-    force_refresh: bool = False,
-) -> dict:
-    """Aggregate Made For You mixes, Top Tracks, Top Artists, and New Releases."""
-    token = await plugin._ensure_token()
-    if not token:
-        return {"ok": False, "error": "Not authenticated"}
-
-    valid_range = time_range if time_range in _VALID_DISCOVERY_RANGES else "medium_term"
-    _ = bool(force_refresh)
-
-    try:
-        pl_data = await _exec(
-            _spotify_api_request, "me/playlists", token, "GET", {"limit": 50, "offset": 0}
+async def _fetch_made_for_you_section(token: str) -> tuple[list[dict], bool]:
+    pl_data = await _exec(
+        _spotify_api_request, "me/playlists", token, "GET", {"limit": 50, "offset": 0}
+    )
+    all_items = list((pl_data or {}).get("items", []))
+    total = (pl_data or {}).get("total", 0)
+    if total > 50:
+        page2 = await _exec(
+            _spotify_api_request, "me/playlists", token, "GET", {"limit": 50, "offset": 50}
         )
-        made_for_you = [
-            _format_discovery_playlist(p)
-            for p in (pl_data or {}).get("items", [])
-            if p and (p.get("owner") or {}).get("id") == "spotify"
-        ][:15]
+        all_items.extend((page2 or {}).get("items", []))
 
+    mixes = [
+        _format_discovery_playlist(p)
+        for p in all_items
+        if p and (p.get("owner") or {}).get("id") == "spotify"
+    ][:15]
+    if mixes:
+        return mixes, False
+
+    recent_data = await _exec(
+        _spotify_api_request, "me/player/recently-played", token, "GET", {"limit": 30}
+    )
+    fallback_items: list[dict] = []
+    seen_uris: set[str] = set()
+    for item in (recent_data or {}).get("items", []):
+        t = item.get("track") or {}
+        if not t:
+            continue
+        album = t.get("album") or {}
+        ctx = item.get("context") or {}
+        ctx_uri = ctx.get("uri") or ""
+        if not ctx_uri:
+            alb_id = album.get("id", "")
+            ctx_uri = album.get("uri") or (f"spotify:album:{alb_id}" if alb_id else "")
+        if not ctx_uri or ctx_uri in seen_uris:
+            continue
+        seen_uris.add(ctx_uri)
+        images = album.get("images") or []
+        img_url = _image_url(images)
+        ctx_id = ctx_uri.split(":")[-1]
+        fallback_items.append({
+            "id": ctx_id,
+            "uri": ctx_uri,
+            "name": album.get("name") or t.get("name", "Recently Played"),
+            "image_url": img_url,
+            "artwork_url": img_url,
+            "track_count": 0,
+            "owner_id": "",
+        })
+        if len(fallback_items) >= 12:
+            break
+    return fallback_items, True
+
+
+async def _fetch_top_tracks_section(plugin, token: str, valid_range: str) -> tuple[list[dict], bool]:
+    try:
         tt_data = await _exec(
             _spotify_api_request,
             "me/top/tracks",
@@ -1043,14 +1085,22 @@ async def get_discovery_feed(
             "GET",
             {"time_range": valid_range, "limit": 15},
         )
-        top_tracks = [
+        tracks = [
             _format_discovery_track(t)
             for t in (tt_data or {}).get("items", [])
             if t
         ]
-        if top_tracks:
-            await plugin._annotate_tracks_liked(token, top_tracks)
+        if tracks:
+            await plugin._annotate_tracks_liked(token, tracks)
+        return tracks, False
+    except urllib.error.HTTPError as e:
+        if e.code == 403:
+            return [], True
+        raise
 
+
+async def _fetch_top_artists_section(token: str, valid_range: str) -> tuple[list[dict], bool]:
+    try:
         ta_data = await _exec(
             _spotify_api_request,
             "me/top/artists",
@@ -1058,33 +1108,115 @@ async def get_discovery_feed(
             "GET",
             {"time_range": valid_range, "limit": 15},
         )
-        top_artists = [
+        artists = [
             _format_discovery_artist(a)
             for a in (ta_data or {}).get("items", [])
             if a
         ]
+        return artists, False
+    except urllib.error.HTTPError as e:
+        if e.code == 403:
+            return [], True
+        raise
 
+
+async def _fetch_new_releases_section(token: str) -> list[dict]:
+    nr_items: list[dict] = []
+    try:
         nr_data = await _exec(
             _spotify_api_request, "browse/new-releases", token, "GET", {"limit": 15}
         )
-        new_releases = [
-            _format_discovery_album(alb)
-            for alb in ((nr_data or {}).get("albums") or {}).get("items", [])
-            if alb
-        ]
+        nr_items = ((nr_data or {}).get("albums") or {}).get("items", [])
+    except urllib.error.HTTPError as e:
+        if e.code not in (403, 404):
+            raise
+    if not nr_items:
+        search_data = await _exec(
+            _spotify_api_request,
+            "search",
+            token,
+            "GET",
+            {"q": "tag:new", "type": "album", "limit": 10},
+        )
+        nr_items = ((search_data or {}).get("albums") or {}).get("items", [])
+    return [_format_discovery_album(alb) for alb in nr_items if alb]
+
+
+async def get_discovery_feed(
+    plugin,
+    time_range: str = "medium_term",
+    force_refresh: bool = False,
+) -> dict:
+    """Aggregate Made For You mixes, Top Tracks, Top Artists, and New Releases with TTL cache."""
+    token = await plugin._ensure_token()
+    if not token:
+        return {"ok": False, "error": "Not authenticated"}
+
+    valid_range = time_range if time_range in _VALID_DISCOVERY_RANGES else "medium_term"
+    bypass = bool(force_refresh)
+
+    needs_reauth = False
+    rate_limited = False
+    stale = False
+    retry_after = 0
+
+    async def _get_section(cache_key: str, ttl: float, fetcher):
+        nonlocal rate_limited, stale, retry_after
+        now = time.monotonic()
+        entry = _DISCOVERY_CACHE.get(cache_key)
+        if not bypass and entry is not None and now < entry["expires_at"]:
+            return entry["data"], entry.get("fallback", False)
+        try:
+            result = await fetcher()
+            if isinstance(result, tuple):
+                data, extra_flag = result
+            else:
+                data, extra_flag = result, False
+            _DISCOVERY_CACHE[cache_key] = {
+                "data": data,
+                "fallback": extra_flag,
+                "expires_at": time.monotonic() + ttl,
+            }
+            return data, extra_flag
+        except SpotifyRateLimitError as rl_err:
+            rate_limited = True
+            retry_after = max(retry_after, int(round(rl_err.retry_after)))
+            if entry is not None:
+                stale = True
+                return entry["data"], entry.get("fallback", False)
+            return [], False
+
+    try:
+        made_for_you, made_for_you_fallback = await _get_section(
+            "made_for_you", _STATIC_TTL_SECONDS, lambda: _fetch_made_for_you_section(token)
+        )
+        top_tracks, reauth_tracks = await _get_section(
+            f"top_tracks:{valid_range}",
+            _TOP_TTL_SECONDS,
+            lambda: _fetch_top_tracks_section(plugin, token, valid_range),
+        )
+        top_artists, reauth_artists = await _get_section(
+            f"top_artists:{valid_range}",
+            _TOP_TTL_SECONDS,
+            lambda: _fetch_top_artists_section(token, valid_range),
+        )
+        new_releases, _ = await _get_section(
+            "new_releases", _STATIC_TTL_SECONDS, lambda: _fetch_new_releases_section(token)
+        )
+        needs_reauth = bool(reauth_tracks or reauth_artists)
 
         return {
             "ok": True,
             "time_range": valid_range,
             "made_for_you": made_for_you,
-            "made_for_you_fallback": False,
+            "made_for_you_fallback": bool(made_for_you_fallback),
             "top_tracks": top_tracks,
             "top_artists": top_artists,
             "new_releases": new_releases,
-            "needs_reauth": False,
-            "rate_limited": False,
-            "stale": False,
-            "retry_after": 0,
+            "needs_reauth": needs_reauth,
+            "rate_limited": rate_limited,
+            "stale": stale,
+            "retry_after": retry_after,
         }
     except Exception as e:
         decky.logger.error("get_discovery_feed failed: %s", e)
