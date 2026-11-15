@@ -172,6 +172,9 @@ export interface EngineSettings {
   overlay_position?: string;
   overlay_autohide?: boolean;
   overlay_show_progress?: boolean;
+  overlay_lyrics_enabled?: boolean;
+  overlay_lyrics_offset_ms?: number;
+  overlay_autohide_duration_s?: number;
   eq_preset?: EqualizerPreset;
   spotify_client_installed?: boolean;
   duck_fade_down_duration?: number;

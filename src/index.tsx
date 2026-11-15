@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, FC, ReactNode } from "react";
+import { useEffect, useState, useCallback, useRef, FC, ReactNode } from "react";
 import {
   PanelSection,
   PanelSectionRow,
@@ -28,6 +28,7 @@ import { DeckifyOverlay } from "./components/DeckifyOverlay";
 import { usePlaybackClock } from "./hooks/usePlaybackClock";
 import { formatMs, focusHalo } from "./components/common/InteractiveRow";
 import { DeckifyImage } from "./components/common/DeckifyImage";
+import { parseLrc } from "./utils";
 import {
   FaMusic,
   FaSpotify,
@@ -51,6 +52,7 @@ import type {
   PinnedPlaylistItem,
   SpotifyDevice,
   StatusResponse,
+  SyncedLine,
   TrackMeta,
 } from "./types";
 
@@ -73,6 +75,7 @@ const backendGetDuckingState = callable<[], { is_ducked: boolean; effective_volu
 const backendHandleAppLifetimeEvent = callable<[number, boolean], { ok: boolean; error?: string }>("handle_app_lifetime_event");
 const backendBindCurrentMusicToGame = callable<[number, string?], { ok: boolean; error?: string }>("bind_current_music_to_game");
 const backendQuickPlayPinned = callable<[string, string], { ok: boolean; error?: string }>("quick_play_pinned");
+const backendGetLyrics = callable<[string, string, number, number?], { ok: boolean; synced_lyrics?: string; plain_lyrics?: string; source?: string; error?: string }>("get_lyrics");
 
 let currentRunningAppId: number | null = null;
 const activeGameListeners = new Set<(appId: number | null) => void>();
@@ -82,13 +85,18 @@ const setActiveGameState = (appId: number | null) => {
 };
 
 let bigOpen = false;
+const modalOpenListeners = new Set<(open: boolean) => void>();
+const setModalOpenState = (open: boolean) => {
+  bigOpen = open;
+  modalOpenListeners.forEach((cb) => cb(open));
+};
 const openExpandedView = () => {
   if (bigOpen) return;
-  bigOpen = true;
+  setModalOpenState(true);
   showModal(
     <DeckifyExpandedModal
       closeModal={() => {
-        bigOpen = false;
+        setModalOpenState(false);
       }}
     />
   );
@@ -836,6 +844,20 @@ const DeckifyOverlayWrapper: FC = () => {
   const [settings, setSettings] = useState<EngineSettings | null>(null);
   const [positionMs, setPositionMs] = useState<number>(0);
   const [durationMs, setDurationMs] = useState<number>(0);
+  const [modalOpen, setModalOpen] = useState<boolean>(bigOpen);
+  const [syncedLyrics, setSyncedLyrics] = useState<SyncedLine[]>([]);
+  const [lyricsLoaded, setLyricsLoaded] = useState<boolean>(false);
+  const lastFetchedTrackKeyRef = useRef<string>("");
+  const currentTrackKeyRef = useRef<string>("");
+
+  useEffect(() => {
+    const listener = (open: boolean) => setModalOpen(open);
+    modalOpenListeners.add(listener);
+    setModalOpen(bigOpen);
+    return () => {
+      modalOpenListeners.delete(listener);
+    };
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -890,17 +912,66 @@ const DeckifyOverlayWrapper: FC = () => {
     };
   }, []);
 
+  const overlayLyricsEnabled = Boolean(
+    settings?.overlay_enabled && settings?.overlay_lyrics_enabled
+  );
+  const trackTitle = track?.name || "";
+  const trackArtist = track?.artist || "";
+  const trackKey =
+    trackTitle && trackArtist
+      ? `${track?.track_id || track?.id || trackTitle}::${trackArtist}`
+      : "";
+  currentTrackKeyRef.current = trackKey;
+
+  useEffect(() => {
+    if (!overlayLyricsEnabled || !trackTitle || !trackArtist || !trackKey) {
+      if (!overlayLyricsEnabled) {
+        lastFetchedTrackKeyRef.current = "";
+        setSyncedLyrics([]);
+        setLyricsLoaded(false);
+      }
+      return;
+    }
+
+    if (lastFetchedTrackKeyRef.current === trackKey) {
+      return;
+    }
+    lastFetchedTrackKeyRef.current = trackKey;
+    setSyncedLyrics([]);
+    setLyricsLoaded(false);
+
+    const fetchKey = trackKey;
+    const dur = durationMs || track?.duration_ms || 0;
+    backendGetLyrics(trackTitle, trackArtist, dur, 0)
+      .then((res) => {
+        if (currentTrackKeyRef.current !== fetchKey) return;
+        const parsed = res?.ok && res?.synced_lyrics ? parseLrc(res.synced_lyrics) : [];
+        setSyncedLyrics(parsed);
+        setLyricsLoaded(true);
+      })
+      .catch(() => {
+        if (currentTrackKeyRef.current !== fetchKey) return;
+        setSyncedLyrics([]);
+        setLyricsLoaded(true);
+      });
+  }, [overlayLyricsEnabled, trackKey, trackTitle, trackArtist, durationMs, track?.duration_ms]);
+
   if (!settings?.overlay_enabled) return null;
   return (
     <DeckifyOverlay
       track={track}
       isPlaying={isPlaying}
       position={settings.overlay_position || "top-right"}
-      visible={Boolean(settings.overlay_enabled)}
+      visible={Boolean(settings.overlay_enabled) && !modalOpen}
       autoHide={Boolean(settings.overlay_autohide)}
+      autoHideDurationMs={(settings.overlay_autohide_duration_s ?? 6) * 1000}
       showProgress={Boolean(settings.overlay_show_progress)}
       positionMs={positionMs}
       durationMs={durationMs}
+      lyricsEnabled={Boolean(settings.overlay_lyrics_enabled)}
+      lyricsOffsetMs={settings.overlay_lyrics_offset_ms ?? 0}
+      syncedLyrics={syncedLyrics}
+      lyricsLoaded={lyricsLoaded}
     />
   );
 };

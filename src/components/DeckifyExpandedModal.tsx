@@ -84,6 +84,10 @@ const backendSetNativeMix = callable<[string, boolean, boolean], { ok: boolean; 
 const backendSetSetting = callable<[string, unknown], { ok: boolean; settings?: any; error?: string }>("set_setting");
 
 export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeModal }) => {
+  const closeModalRef = useRef(closeModal);
+  closeModalRef.current = closeModal;
+  useEffect(() => () => { closeModalRef.current?.(); }, []);
+
   const [mode, setMode] = useState<ViewMode>("now_playing");
   const { status, setStatus, currentPositionMs, refreshStatus, clock } = usePlaybackStatus();
 
