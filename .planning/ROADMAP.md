@@ -165,8 +165,11 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 11-01: Harden `py_modules/spotify.py` with HTTP 429 circuit breaker and build concurrent multi-endpoint discovery feed aggregator in `py_modules/rpc_library.py`.
-- [ ] 11-02: Implement `DiscoveryTab.tsx` with horizontal focus carousels, time-of-day contextual greeting, and controller navigation wiring.
+**Wave 1**
+- [ ] 11-01-PLAN.md — Harden `py_modules/spotify.py` with HTTP 429 circuit breaker, bump `CURRENT_SCOPES_VERSION = 7` (`user-top-read`), and implement TTL-cached `get_discovery_feed` in `py_modules/rpc_library.py` & `main.py`
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [ ] 11-02-PLAN.md — Register `discovery` tab in `src/types.ts` & `Sidebar.tsx`, build `DiscoveryTab.tsx` with 4 horizontal carousels & time-range pills, and wire idle landing + `A`/`Y` actions in `DeckifyExpandedModal.tsx`
 
 ---
 
