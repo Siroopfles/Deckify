@@ -1,6 +1,7 @@
 import { FC, useState, useEffect, useRef } from "react";
 import { FaMusic, FaPlay, FaPause } from "react-icons/fa";
 import { DeckifyImage } from "./common/DeckifyImage";
+import { SyncedLine } from "../types";
 
 export interface OverlayTrack {
   name?: string;
@@ -19,9 +20,14 @@ export interface DeckifyOverlayProps {
   position?: "top-left" | "top-right" | "bottom-left" | "bottom-right" | string;
   visible?: boolean;
   autoHide?: boolean;
+  autoHideDurationMs?: number;
   showProgress?: boolean;
   positionMs?: number;
   durationMs?: number;
+  lyricsEnabled?: boolean;
+  lyricsOffsetMs?: number;
+  syncedLyrics?: SyncedLine[];
+  lyricsLoaded?: boolean;
 }
 
 export const DeckifyOverlay: FC<DeckifyOverlayProps> = ({
@@ -30,19 +36,35 @@ export const DeckifyOverlay: FC<DeckifyOverlayProps> = ({
   position = "top-right",
   visible = true,
   autoHide = false,
+  autoHideDurationMs = 6000,
   showProgress = false,
   positionMs = 0,
   durationMs = 0,
+  lyricsEnabled = false,
+  lyricsOffsetMs = 0,
+  syncedLyrics = [],
+  lyricsLoaded = false,
 }) => {
   const [isVisible, setIsVisible] = useState<boolean>(
     Boolean(visible && track && track.name && isPlaying)
   );
+  const [activeLineIndex, setActiveLineIndex] = useState<number>(-1);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pauseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lyricTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevPlayingRef = useRef<boolean>(isPlaying);
   const prevTrackIdRef = useRef<string | undefined>(
     track?.track_id || track?.id || track?.name
   );
+  const prevLyricTrackRef = useRef<string | undefined>(
+    track?.track_id || track?.id || track?.name
+  );
+  const posAnchorRef = useRef<{ posMs: number; atMs: number }>({
+    posMs: positionMs,
+    atMs: Date.now(),
+  });
+
+  const clampedAutoHideMs = Math.min(15000, Math.max(3000, autoHideDurationMs ?? 6000));
 
   useEffect(() => {
     const currentTrackId = track?.track_id || track?.id || track?.name;
@@ -68,7 +90,7 @@ export const DeckifyOverlay: FC<DeckifyOverlayProps> = ({
       if (autoHide) {
         hideTimerRef.current = setTimeout(() => {
           setIsVisible(false);
-        }, 6000);
+        }, clampedAutoHideMs);
       }
     } else {
       // Music is paused: grace period (D-04: 3-4s with pause icon before fading)
@@ -83,7 +105,83 @@ export const DeckifyOverlay: FC<DeckifyOverlayProps> = ({
       if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
       if (pauseTimerRef.current) clearTimeout(pauseTimerRef.current);
     };
-  }, [isPlaying, track?.name, track?.track_id, track?.id, visible, autoHide]);
+  }, [isPlaying, track?.name, track?.track_id, track?.id, visible, autoHide, clampedAutoHideMs]);
+
+  useEffect(() => {
+    posAnchorRef.current = { posMs: positionMs, atMs: Date.now() };
+  }, [positionMs, isPlaying, track?.track_id, track?.id, track?.name]);
+
+  useEffect(() => {
+    const currentTrackId = track?.track_id || track?.id || track?.name;
+
+    if (lyricTimerRef.current) {
+      clearTimeout(lyricTimerRef.current);
+      lyricTimerRef.current = null;
+    }
+
+    if (!lyricsEnabled) {
+      prevLyricTrackRef.current = currentTrackId;
+      setActiveLineIndex(-1);
+      return;
+    }
+
+    if (prevLyricTrackRef.current !== currentTrackId) {
+      prevLyricTrackRef.current = currentTrackId;
+      setActiveLineIndex(-1);
+    }
+
+    if (!isPlaying) {
+      return;
+    }
+
+    if (syncedLyrics.length === 0) {
+      setActiveLineIndex(-1);
+      return;
+    }
+
+    const clampedOffsetMs = Math.min(2000, Math.max(-2000, lyricsOffsetMs ?? 0));
+
+    const scheduleNext = () => {
+      const effectivePosMs =
+        posAnchorRef.current.posMs +
+        Math.max(0, Date.now() - posAnchorRef.current.atMs) +
+        clampedOffsetMs;
+
+      let idx = -1;
+      for (let i = 0; i < syncedLyrics.length; i++) {
+        if (syncedLyrics[i].timeMs <= effectivePosMs) {
+          idx = i;
+        } else {
+          break;
+        }
+      }
+      setActiveLineIndex(idx);
+
+      const nextIdx = idx + 1;
+      if (nextIdx < syncedLyrics.length) {
+        const delay = Math.max(16, syncedLyrics[nextIdx].timeMs - effectivePosMs);
+        lyricTimerRef.current = setTimeout(scheduleNext, delay);
+      }
+    };
+
+    scheduleNext();
+
+    return () => {
+      if (lyricTimerRef.current) {
+        clearTimeout(lyricTimerRef.current);
+        lyricTimerRef.current = null;
+      }
+    };
+  }, [
+    lyricsEnabled,
+    syncedLyrics,
+    isPlaying,
+    positionMs,
+    lyricsOffsetMs,
+    track?.track_id,
+    track?.id,
+    track?.name,
+  ]);
 
   if (!track || !track.name) {
     return null;
@@ -128,8 +226,23 @@ export const DeckifyOverlay: FC<DeckifyOverlayProps> = ({
   const displayTitle =
     rawTitle.length > 45 ? `${rawTitle.slice(0, 45)}...` : rawTitle;
 
+  let displayLyricText = "♪ •••";
+  let lyricDisplayKey = "placeholder";
+  let hasActiveLine = false;
+  if (syncedLyrics.length === 0 && lyricsLoaded) {
+    displayLyricText = "No synced lyrics";
+    lyricDisplayKey = "no-synced-lyrics";
+  } else if (lyricsLoaded && activeLineIndex >= 0 && syncedLyrics[activeLineIndex]) {
+    displayLyricText = syncedLyrics[activeLineIndex].text;
+    lyricDisplayKey = `line-${activeLineIndex}-${syncedLyrics[activeLineIndex].timeMs}`;
+    hasActiveLine = true;
+  }
+
   return (
     <div style={posStyle} className="deckify-ingame-overlay">
+      {lyricsEnabled && (
+        <style>{`@keyframes deckifyLyricFadeIn { from { opacity: 0; } to { opacity: 1; } }`}</style>
+      )}
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
         {art ? (
           <DeckifyImage
@@ -196,6 +309,41 @@ export const DeckifyOverlay: FC<DeckifyOverlayProps> = ({
           )}
         </div>
       </div>
+
+      {lyricsEnabled && (
+        <div
+          data-testid="overlay-lyric-row"
+          style={{
+            height: 18,
+            lineHeight: "18px",
+            fontSize: 11,
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            borderTop: "1px solid rgba(255, 255, 255, 0.08)",
+            paddingTop: 4,
+            marginTop: 4,
+            opacity: isPlaying ? 1 : 0.5,
+            transition: "opacity 200ms ease",
+            color: hasActiveLine
+              ? "rgba(255, 255, 255, 0.90)"
+              : "rgba(255, 255, 255, 0.55)",
+          }}
+        >
+          <span
+            key={lyricDisplayKey}
+            style={{
+              display: "block",
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              animation: "deckifyLyricFadeIn 200ms ease",
+            }}
+          >
+            {displayLyricText}
+          </span>
+        </div>
+      )}
 
       {showProgress && durationMs > 0 && (
         <div
