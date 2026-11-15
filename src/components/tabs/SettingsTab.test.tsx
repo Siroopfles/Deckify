@@ -33,6 +33,7 @@ vi.mock("react-icons/fa", () => ({
 }));
 
 vi.mock("react/jsx-dev-runtime", () => ({
+  Fragment: "Fragment",
   jsxDEV: (type: any, props: any, key: any) => ({
     type,
     props: { ...props, ...(key !== undefined ? { key } : {}) },
@@ -40,6 +41,7 @@ vi.mock("react/jsx-dev-runtime", () => ({
 }));
 
 vi.mock("react/jsx-runtime", () => ({
+  Fragment: "Fragment",
   jsx: (type: any, props: any, key: any) => ({
     type,
     props: { ...props, ...(key !== undefined ? { key } : {}) },
@@ -60,6 +62,7 @@ vi.mock("react", () => ({
 
 import { SettingsTab } from "./SettingsTab";
 import { SliderField, ToggleField } from "@decky/ui";
+import { InteractiveRow } from "../common/InteractiveRow";
 import { StatusResponse } from "../../types";
 
 function findNodes(tree: any, predicate: (node: any) => boolean, results: any[] = []): any[] {
@@ -338,5 +341,48 @@ describe("SettingsTab - Smooth Audio Ducking Engine UI (Phase 06)", () => {
     await pageSlider.props.onChange(2);
     expect(mockSetSetting).toHaveBeenCalledWith("trigger_page_size", 5);
     expect(refreshStatus).toHaveBeenCalled();
+  });
+
+  it("renders Overlay Lyrics toggle, Auto-Hide Duration slider, and Lyrics Latency Offset slider when overlay_enabled is true and clamps values", async () => {
+    const overlayEnabledStatus: StatusResponse = {
+      ...mockStatus,
+      settings: {
+        ...mockStatus.settings!,
+        overlay_enabled: true,
+        overlay_lyrics_enabled: false,
+        overlay_autohide_duration_s: 6,
+        overlay_lyrics_offset_ms: 0,
+      },
+    };
+    const tree = SettingsTab({
+      status: overlayEnabledStatus,
+      refreshStatus,
+      showToast,
+    });
+
+    const rows = findNodes(tree, (n) => n.type === InteractiveRow);
+    const overlayLyricsRow = rows.find((n) => findText(n).includes("Overlay Lyrics"));
+    expect(overlayLyricsRow).toBeDefined();
+    await overlayLyricsRow.props.onClick();
+    expect(mockSetSetting).toHaveBeenCalledWith("overlay_lyrics_enabled", true);
+    expect(showToast).toHaveBeenCalledWith("Overlay lyrics enabled");
+
+    const sliders = findNodes(tree, (n) => n.type === SliderField || n.type === "SliderField");
+    const durationSlider = sliders.find((n) => n.props?.label === "Auto-Hide Duration (Seconds)");
+    const offsetSlider = sliders.find((n) => n.props?.label === "Lyrics Latency Offset (ms)");
+    expect(durationSlider).toBeDefined();
+    expect(offsetSlider).toBeDefined();
+    expect(durationSlider.props).toMatchObject({ min: 3, max: 15, step: 1, showValue: true, value: 6 });
+    expect(offsetSlider.props).toMatchObject({ min: -2000, max: 2000, step: 100, showValue: true, value: 0 });
+
+    await durationSlider.props.onChange(20);
+    expect(mockSetSetting).toHaveBeenCalledWith("overlay_autohide_duration_s", 15);
+    await durationSlider.props.onChange(1);
+    expect(mockSetSetting).toHaveBeenCalledWith("overlay_autohide_duration_s", 3);
+
+    await offsetSlider.props.onChange(2500);
+    expect(mockSetSetting).toHaveBeenCalledWith("overlay_lyrics_offset_ms", 2000);
+    await offsetSlider.props.onChange(-3000);
+    expect(mockSetSetting).toHaveBeenCalledWith("overlay_lyrics_offset_ms", -2000);
   });
 });

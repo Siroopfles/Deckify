@@ -1060,4 +1060,59 @@ describe("useTriggerNavigation & DeckifyExpandedModal controller dispatch", () =
     mixBtn.props.onClick();
     expect(onToggleMix).toHaveBeenCalledTimes(1);
   });
+
+  it("renders 5 clickable source pills in LyricsTab inside horizontal Focusable alongside Try Next Source", async () => {
+    const { LyricsTab } = await vi.importActual<typeof import("./tabs/LyricsTab")>("./tabs/LyricsTab");
+    const onSelectLyricsSource = vi.fn();
+    const handleNextLyricsSource = vi.fn();
+
+    const tree = LyricsTab({
+      trackName: "Song A",
+      artistName: "Artist A",
+      lyricsSource: "LRCLIB",
+      handleNextLyricsSource,
+      onSelectLyricsSource,
+      loadingLyrics: false,
+      syncedLyrics: [{ timeMs: 1000, text: "Hello" }],
+      plainLyrics: null,
+      currentLineIndex: 0,
+      onSeekPlayback: vi.fn(),
+    });
+
+    const { Focusable } = await import("@decky/ui");
+    const horizontalFocusable = findNodes(
+      tree,
+      (n) => (n.type === Focusable || n.type === "Focusable") && n.props?.["flow-children"] === "horizontal"
+    )[0];
+    expect(horizontalFocusable).toBeDefined();
+
+    const pillRows = findNodes(horizontalFocusable, (n) => n.type === InteractiveRow);
+    expect(pillRows.map((p) => p.props.children)).toEqual([
+      "Spotify",
+      "LRCLIB",
+      "NetEase",
+      "Musixmatch",
+      "Lyrics.ovh",
+    ]);
+
+    const lrclibPill = pillRows.find((p) => p.props.children === "LRCLIB");
+    const neteasePill = pillRows.find((p) => p.props.children === "NetEase");
+    expect(lrclibPill.props.active).toBe(true);
+    expect(lrclibPill.props.style.color).toBe("#1db954");
+    expect(lrclibPill.props.style.background).toBe("rgba(29, 185, 84, 0.2)");
+    expect(neteasePill.props.active).toBe(false);
+    expect(neteasePill.props.style.background).toBe("rgba(255, 255, 255, 0.08)");
+
+    neteasePill.props.onClick();
+    expect(onSelectLyricsSource).toHaveBeenCalledWith(2, "NetEase");
+
+    const allRows = findNodes(tree, (n) => n.type === InteractiveRow);
+    const tryNextBtn = allRows.find((r) => {
+      const ch = Array.isArray(r.props?.children) ? r.props.children.join("") : String(r.props?.children ?? "");
+      return ch.includes("Try Next Source");
+    });
+    expect(tryNextBtn).toBeDefined();
+    tryNextBtn.props.onClick();
+    expect(handleNextLyricsSource).toHaveBeenCalledTimes(1);
+  });
 });
