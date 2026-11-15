@@ -3,17 +3,17 @@ gsd_state_version: "1.0"
 milestone: v0.5
 current_phase: 11
 current_phase_name: Home & Discovery Hub Tab
-status: executing
-stopped_at: Completed 11-01-PLAN.md
-last_updated: "2026-11-15T11:57:05.534Z"
+status: verifying
+stopped_at: Completed 11-02-PLAN.md
+last_updated: "2026-11-15T12:07:18.758Z"
 last_activity: 2026-11-15
 last_activity_desc: Phase 11 execution started
-state_head: b269c37cc154301b5789ea26338e9800b78bdb1a
+state_head: 294ba6bb8a0ab175ed5252a1275bb7176399ae77
 progress:
   total_phases: 6
   completed_phases: 5
   total_plans: 18
-  completed_plans: 17
+  completed_plans: 18
 ---
 
 # Project State
@@ -29,7 +29,7 @@ See: [.planning/PROJECT.md](file:///C:/Users/djdje/Deckify/.planning/PROJECT.md)
 
 Phase: 11 (Home & Discovery Hub Tab) — EXECUTING
 Plan: 2 of 2
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-11-15 — Phase 11 execution started
 
 Progress: [████████░░] 83% (Phase 06 complete, Phase 07 planned)
@@ -77,6 +77,7 @@ Progress: [████████░░] 83% (Phase 06 complete, Phase 07 plan
 | Phase 10 P02 | 7min | 3 tasks | 7 files |
 | Phase 10 P03 | 5min | 2 tasks | 6 files |
 | Phase 11 P01 | 5min | 2 tasks | 5 files |
+| Phase 11 P02 | 8min | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -112,6 +113,7 @@ Recent decisions affecting current work:
 - [Phase 10]: Wrapped handleNextLyricsSource modulo 5 alongside direct LYRICS_SOURCES pill selection in LyricsTab
 - [Phase 11]: Replaced blocking time.sleep in _spotify_api_request with fast-fail SpotifyRateLimitError circuit breaker (5s base, 300s cap)
 - [Phase 11]: Section-isolated 1h TTL for top_tracks/top_artists per time_range and 4h TTL for made_for_you and new_releases with 403/404 fallbacks
+- [Phase 11]: Guarded idle default-tab transition with setMode((prev) => (prev === 'now_playing' ? 'discovery' : prev)) so explicit tab switches are never overridden
 
 ### Pending Todos
 
@@ -134,6 +136,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-15T11:57:03.447Z
-Stopped at: Completed 11-01-PLAN.md
+Last session: 2026-11-15T12:07:16.590Z
+Stopped at: Completed 11-02-PLAN.md
 Resume file: None
