@@ -4,16 +4,16 @@ milestone: v0.5
 current_phase: 10
 current_phase_name: In-Game HUD Overlay 2.0 (Live Synced Lyrics)
 status: executing
-stopped_at: Phase 10 UI-SPEC approved
-last_updated: "2026-11-15T10:06:43.368Z"
+stopped_at: Completed 10-01-PLAN.md
+last_updated: "2026-11-15T10:19:40.203Z"
 last_activity: 2026-11-15
-last_activity_desc: Phase 9 complete, transitioned to Phase 10
-state_head: e90b46c7f6fa196f77959f28c9094f857fecc184
+last_activity_desc: Phase 10 execution started
+state_head: 15bc79d3b020b696dcb36cf15cc48e3eeb0d29a4
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 15
-  completed_plans: 13
+  completed_plans: 14
 ---
 
 # Project State
@@ -23,14 +23,14 @@ progress:
 See: [.planning/PROJECT.md](file:///C:/Users/djdje/Deckify/.planning/PROJECT.md) (updated 2026-11-12)
 
 **Core value:** Rock-solid Spotify playback and responsive, reliable controller navigation on Steam Deck without UI lag, broken images, or desynchronized playback states.
-**Current focus:** Phase 09 — QAM Pinned Playlists & Quick In-Game Switch
+**Current focus:** Phase 10 — In-Game HUD Overlay 2.0 (Live Synced Lyrics)
 
 ## Current Position
 
-Phase: 10 (In-Game HUD Overlay 2.0 (Live Synced Lyrics)) — READY TO EXECUTE
-Plan: Not started
+Phase: 10 (In-Game HUD Overlay 2.0 (Live Synced Lyrics)) — EXECUTING
+Plan: 2 of 2
 Status: Ready to execute
-Last activity: 2026-11-15 — Phase 9 complete, transitioned to Phase 10
+Last activity: 2026-11-15 — Phase 10 execution started
 
 Progress: [███████░░░] 67% (Phase 06 complete, Phase 07 planned)
 
@@ -73,6 +73,7 @@ Progress: [███████░░░] 67% (Phase 06 complete, Phase 07 plan
 | Phase 09 P01 | 12min | 3 tasks | 7 files |
 | Phase 09 P02 | 6min | 3 tasks | 6 files |
 | Phase 09 P03 | ~6min | 2 tasks | 4 files |
+| Phase 10 P01 | 9min | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -102,6 +103,8 @@ Recent decisions affecting current work:
 - [Phase 09]: Grouped secondary QAM controls behind collapsible Controls & Settings toggle when playing, while keeping Open Deckify and Engine toggle directly visible when stopped
 - [Phase 09]: Enforced non-evicting 4-item pinned playlists limit in handleTogglePin with Decky toaster feedback and explicit CollectionActionModal label
 - [Phase 09]: Hardened PlaylistsTab detail header flex layout (minWidth: 0, flexShrink: 0) while keeping Enable Mix gated to spotify_client, and replaced QAM DialogButton pills with focus-tracked PinnedPill using focusHalo
+- [Phase 10]: Updated posAnchorRef in a dedicated useEffect prior to the lyric scheduler useEffect so changing lyricsOffsetMs preserves elapsed wall-clock time
+- [Phase 10]: Guarded DeckifyOverlayWrapper get_lyrics responses against stale async overwrites using currentTrackKeyRef
 
 ### Pending Todos
 
@@ -124,6 +127,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-15T09:59:18.919Z
-Stopped at: Phase 10 UI-SPEC approved
-Resume file: .planning/phases/10-in-game-hud-overlay-2-0-live-synced-lyrics/10-UI-SPEC.md
+Last session: 2026-11-15T10:19:37.672Z
+Stopped at: Completed 10-01-PLAN.md
+Resume file: None

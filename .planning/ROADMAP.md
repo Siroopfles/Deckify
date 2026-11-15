@@ -139,11 +139,11 @@ Plans:
   2. Lyrics in the HUD update using discrete event-scheduled timestamp timeouts (`setTimeout`) rather than continuous millisecond clock polling, preserving 60/90 FPS in demanding games.
   3. Overlay container strictly preserves `pointerEvents: "none"` so gameplay and touchscreen inputs never stall or get blocked.
   4. User can toggle overlay lyrics on or off from the Quick Access Menu and configure a lyrics latency offset slider (-2000ms to +2000ms).
-**Plans**: 2 plans
+**Plans**: 1/2 plans executed
 
 Plans:
 **Wave 1**
-- [ ] 10-01-PLAN.md — Implement discrete `setTimeout` synced lyric scheduler, fixed-height cross-fade row, modal-open suppression, strict autohide + configurable duration, and backend settings persistence/clamping
+- [x] 10-01-PLAN.md — Implement discrete `setTimeout` synced lyric scheduler, fixed-height cross-fade row, modal-open suppression, strict autohide + configurable duration, and backend settings persistence/clamping
 
 **Wave 2** *(blocked on Wave 1 completion)*
 - [ ] 10-02-PLAN.md — Wire QAM Overlay Lyrics toggle, SettingsTab Auto-Hide Duration & Latency Offset sliders, and clickable LyricsTab source pills
@@ -178,7 +178,7 @@ Phases execute in numeric order: 6 → 7 → 8 → 9 → 10 → 11
 | 7. Game-Specific Soundtracks | v0.5 | 3/3 | Complete    | 2026-11-14 |
 | 8. Controller L2/R2 Ergonomics & Trigger Navigation | v0.5 | 5/5 | Complete    | 2026-11-14 |
 | 9. QAM Pinned Playlists & Quick In-Game Switch | v0.5 | 3/3 | Complete    | 2026-11-15 |
-| 10. In-Game HUD Overlay 2.0 (Live Synced Lyrics) | v0.5 | 0/2 | Not started | - |
+| 10. In-Game HUD Overlay 2.0 (Live Synced Lyrics) | v0.5 | 1/2 | In Progress | - |
 | 11. Home & Discovery Hub Tab | v0.5 | 0/2 | Not started | - |
 
 ---

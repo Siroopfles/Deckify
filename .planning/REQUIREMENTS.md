@@ -27,8 +27,8 @@
 - [x] **QAM-02**: User can click any pinned playlist in the QAM to start playback within 2 seconds without opening the full-screen modal.
 
 ### In-Game HUD Overlay 2.0
-- [ ] **HUD-03**: User can enable an active synced lyrics line displayed beneath the artist title in the floating Gamescope HUD overlay.
-- [ ] **HUD-04**: Overlay lyrics update via discrete event-scheduled timestamps rather than continuous clock polling, preserving 60/90 FPS in games and strictly enforcing `pointerEvents: "none"`.
+- [x] **HUD-03**: User can enable an active synced lyrics line displayed beneath the artist title in the floating Gamescope HUD overlay.
+- [x] **HUD-04**: Overlay lyrics update via discrete event-scheduled timestamps rather than continuous clock polling, preserving 60/90 FPS in games and strictly enforcing `pointerEvents: "none"`.
 
 ### Home & Discovery Hub
 - [ ] **DISC-01**: User can navigate to a dedicated "Discovery" / "Made For You" tab in the expanded modal to browse personalized Spotify recommendations.
@@ -68,8 +68,8 @@
 | CTRL-03 | Phase 8 | Complete |
 | QAM-01 | Phase 9 | Complete |
 | QAM-02 | Phase 9 | Complete |
-| HUD-03 | Phase 10 | Pending |
-| HUD-04 | Phase 10 | Pending |
+| HUD-03 | Phase 10 | Complete |
+| HUD-04 | Phase 10 | Complete |
 | DISC-01 | Phase 11 | Pending |
 | DISC-02 | Phase 11 | Pending |
 | DISC-03 | Phase 11 | Pending |
