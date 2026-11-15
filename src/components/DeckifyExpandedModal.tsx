@@ -348,11 +348,20 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
   }, [mode, trackName, artistName, durationSec, fetchLyrics]);
 
   const handleNextLyricsSource = useCallback(() => {
-    const nextOffset = lyricsOffset + 1;
+    const nextOffset = (lyricsOffset + 1) % 5;
     setLyricsOffset(nextOffset);
     fetchLyrics(nextOffset);
     showToast("Trying next lyrics provider...");
   }, [lyricsOffset, fetchLyrics, showToast]);
+
+  const handleSelectLyricsSource = useCallback(
+    (offset: number, label: string) => {
+      setLyricsOffset(offset);
+      fetchLyrics(offset);
+      showToast(`Loading lyrics from ${label}...`);
+    },
+    [fetchLyrics, showToast]
+  );
 
   useEffect(() => {
     if (!syncedLyrics.length) return;
@@ -1003,6 +1012,7 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
                   artistName={artistName}
                   lyricsSource={lyricsSource || undefined}
                   handleNextLyricsSource={handleNextLyricsSource}
+                  onSelectLyricsSource={handleSelectLyricsSource}
                   loadingLyrics={loadingLyrics}
                   syncedLyrics={syncedLyrics}
                   plainLyrics={plainLyrics}
