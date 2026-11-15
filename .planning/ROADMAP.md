@@ -34,7 +34,7 @@ Milestone v0.5 elevates Deckify from a standalone media controller into an intel
 - [x] **Phase 7: Game-Specific Soundtracks (appId Linking & Lifecycle Automation)** - Bind Spotify playlists/albums to Steam games with auto-play and state restore (completed 2026-11-14)
 - [x] **Phase 8: Controller L2/R2 Ergonomics & Trigger Navigation** - Blind ±10s seeking and virtualized library fast-page navigation via analog triggers (completed 2026-11-14)
 - [x] **Phase 9: QAM Pinned Playlists & Quick In-Game Switch** - Instant 2-second playlist switching pills in the Quick Access Menu mini-player (completed 2026-11-15)
-- [ ] **Phase 10: In-Game HUD Overlay 2.0 (Live Synced Lyrics)** - Micro-footprint discrete event-scheduled synced lyrics line in Gamescope HUD
+- [x] **Phase 10: In-Game HUD Overlay 2.0 (Live Synced Lyrics)** - Micro-footprint discrete event-scheduled synced lyrics line in Gamescope HUD (completed 2026-11-15)
 - [ ] **Phase 11: Home & Discovery Hub Tab** - Dedicated Discovery tab in Expanded Modal with Top Tracks, Top Artists, and algorithmic mixes
 
 ---
@@ -139,7 +139,7 @@ Plans:
   2. Lyrics in the HUD update using discrete event-scheduled timestamp timeouts (`setTimeout`) rather than continuous millisecond clock polling, preserving 60/90 FPS in demanding games.
   3. Overlay container strictly preserves `pointerEvents: "none"` so gameplay and touchscreen inputs never stall or get blocked.
   4. User can toggle overlay lyrics on or off from the Quick Access Menu and configure a lyrics latency offset slider (-2000ms to +2000ms).
-**Plans**: 3/3 plans executed
+**Plans**: 3/3 plans complete
 
 Plans:
 **Wave 1**
@@ -181,7 +181,7 @@ Phases execute in numeric order: 6 → 7 → 8 → 9 → 10 → 11
 | 7. Game-Specific Soundtracks | v0.5 | 3/3 | Complete    | 2026-11-14 |
 | 8. Controller L2/R2 Ergonomics & Trigger Navigation | v0.5 | 5/5 | Complete    | 2026-11-14 |
 | 9. QAM Pinned Playlists & Quick In-Game Switch | v0.5 | 3/3 | Complete    | 2026-11-15 |
-| 10. In-Game HUD Overlay 2.0 (Live Synced Lyrics) | v0.5 | 3/3 | In Progress | - |
+| 10. In-Game HUD Overlay 2.0 (Live Synced Lyrics) | v0.5 | 3/3 | Complete    | 2026-11-15 |
 | 11. Home & Discovery Hub Tab | v0.5 | 0/2 | Not started | - |
 
 ---
