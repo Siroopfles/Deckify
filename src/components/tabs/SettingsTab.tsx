@@ -501,61 +501,66 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
                   );
                 })}
               </Focusable>
+              {(status?.settings?.ducking_mode || "proportional") === "proportional" ? (
+                <div style={{ marginTop: 10 }}>
+                  <SliderField
+                    label="Attenuation Percentage"
+                    min={10}
+                    max={90}
+                    step={5}
+                    showValue
+                    value={localSettings.ducking_proportional_pct ?? status?.settings?.ducking_proportional_pct ?? 50}
+                    onChange={async (val: number) => {
+                      const clamped = Math.min(90, Math.max(10, Math.round(val)));
+                      await updateSetting("ducking_proportional_pct", clamped);
+                    }}
+                  />
+                </div>
+              ) : (
+                <div style={{ marginTop: 10 }}>
+                  <SliderField
+                    label="Fixed Target Volume (%)"
+                    min={0}
+                    max={100}
+                    step={5}
+                    showValue
+                    value={localSettings.auto_ducking_volume ?? status?.settings?.auto_ducking_volume ?? 30}
+                    onChange={async (val: number) => {
+                      const clamped = Math.min(100, Math.max(0, Math.round(val)));
+                      await updateSetting("auto_ducking_volume", clamped);
+                    }}
+                  />
+                </div>
+              )}
             </div>
 
-            {/* Fade Down Speed: 0.5s, 1.0s, 1.5s, 2.0s */}
-            <div>
-              <div style={{ fontSize: 12, fontWeight: 600, opacity: 0.8, marginBottom: 6 }}>
-                Fade Down Speed
-              </div>
-              <Focusable flow-children="horizontal" style={{ display: "flex", gap: 8 }}>
-                {[0.5, 1.0, 1.5, 2.0].map((dur) => {
-                  const currentDur = status?.settings?.duck_fade_down_duration ?? 1.0;
-                  const isActive = Math.abs(currentDur - dur) < 0.05;
-                  return (
-                    <InteractiveRow
-                      key={dur}
-                      onClick={async () => {
-                        await backendSetSetting("duck_fade_down_duration", dur);
-                        showToast(`Fade down: ${dur}s`);
-                        refreshStatus();
-                      }}
-                      active={isActive}
-                      style={{ flex: 1, justifyContent: "center", fontSize: 12, fontWeight: 700 }}
-                    >
-                      {dur}s
-                    </InteractiveRow>
-                  );
-                })}
-              </Focusable>
-            </div>
+            {/* Fade Down Speed (0.5s - 3.0s) */}
+            <SliderField
+              label="Fade Down Speed (s)"
+              min={0.5}
+              max={3.0}
+              step={0.1}
+              showValue
+              value={localSettings.duck_fade_down_duration ?? status?.settings?.duck_fade_down_duration ?? 1.0}
+              onChange={async (val: number) => {
+                const clamped = Math.min(3.0, Math.max(0.5, Math.round(val * 10) / 10));
+                await updateSetting("duck_fade_down_duration", clamped);
+              }}
+            />
 
-            {/* Fade Up Speed: 1.0s, 1.5s, 2.0s, 3.0s */}
-            <div>
-              <div style={{ fontSize: 12, fontWeight: 600, opacity: 0.8, marginBottom: 6 }}>
-                Fade Up Speed
-              </div>
-              <Focusable flow-children="horizontal" style={{ display: "flex", gap: 8 }}>
-                {[1.0, 1.5, 2.0, 3.0].map((dur) => {
-                  const currentDur = status?.settings?.duck_fade_up_duration ?? 1.5;
-                  const isActive = Math.abs(currentDur - dur) < 0.05;
-                  return (
-                    <InteractiveRow
-                      key={dur}
-                      onClick={async () => {
-                        await backendSetSetting("duck_fade_up_duration", dur);
-                        showToast(`Fade up: ${dur}s`);
-                        refreshStatus();
-                      }}
-                      active={isActive}
-                      style={{ flex: 1, justifyContent: "center", fontSize: 12, fontWeight: 700 }}
-                    >
-                      {dur}s
-                    </InteractiveRow>
-                  );
-                })}
-              </Focusable>
-            </div>
+            {/* Fade Up Speed (0.5s - 3.0s) */}
+            <SliderField
+              label="Fade Up Speed (s)"
+              min={0.5}
+              max={3.0}
+              step={0.1}
+              showValue
+              value={localSettings.duck_fade_up_duration ?? status?.settings?.duck_fade_up_duration ?? 1.5}
+              onChange={async (val: number) => {
+                const clamped = Math.min(3.0, Math.max(0.5, Math.round(val * 10) / 10));
+                await updateSetting("duck_fade_up_duration", clamped);
+              }}
+            />
 
             {/* Voice Chat Ducking Toggle */}
             <InteractiveRow
@@ -574,33 +579,20 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
               </span>
             </InteractiveRow>
 
-            {/* Silence Hold Delay: 0.8s, 1.2s, 1.6s, 2.0s */}
+            {/* Silence Hold Delay (0.5s - 3.0s) */}
             {(status?.settings?.voice_ducking_enabled ?? true) && (
-              <div>
-                <div style={{ fontSize: 12, fontWeight: 600, opacity: 0.8, marginBottom: 6 }}>
-                  Silence Hold Delay (Speech Hysteresis)
-                </div>
-                <Focusable flow-children="horizontal" style={{ display: "flex", gap: 8 }}>
-                  {[0.8, 1.2, 1.6, 2.0].map((delay) => {
-                    const currentDelay = status?.settings?.voice_ducking_hold_delay ?? 1.2;
-                    const isActive = Math.abs(currentDelay - delay) < 0.05;
-                    return (
-                      <InteractiveRow
-                        key={delay}
-                        onClick={async () => {
-                          await backendSetSetting("voice_ducking_hold_delay", delay);
-                          showToast(`Hold delay: ${delay}s`);
-                          refreshStatus();
-                        }}
-                        active={isActive}
-                        style={{ flex: 1, justifyContent: "center", fontSize: 12, fontWeight: 700 }}
-                      >
-                        {delay}s
-                      </InteractiveRow>
-                    );
-                  })}
-                </Focusable>
-              </div>
+              <SliderField
+                label="Silence Hold Delay (s)"
+                min={0.5}
+                max={3.0}
+                step={0.1}
+                showValue
+                value={localSettings.voice_ducking_hold_delay ?? status?.settings?.voice_ducking_hold_delay ?? 1.2}
+                onChange={async (val: number) => {
+                  const clamped = Math.min(3.0, Math.max(0.5, Math.round(val * 10) / 10));
+                  await updateSetting("voice_ducking_hold_delay", clamped);
+                }}
+              />
             )}
           </div>
         )}

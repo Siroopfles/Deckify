@@ -94,7 +94,7 @@ export const DeckifyOverlay: FC<DeckifyOverlayProps> = ({
       }
     } else {
       // Music is paused: grace period (D-04: 3-4s with pause icon before fading)
-      if (isVisible) {
+      if (autoHide && isVisible) {
         pauseTimerRef.current = setTimeout(() => {
           setIsVisible(false);
         }, 3500);
