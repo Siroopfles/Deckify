@@ -326,4 +326,28 @@ describe("SoundtracksTab Component", () => {
       })
     );
   });
+
+  it("notifies onPickerOpenChange(true) on openPlaylistPicker and onPickerOpenChange(false) on modal close", () => {
+    const onPickerOpenChange = vi.fn();
+    const tree = SoundtracksTab({
+      initialGames: sampleGames,
+      initialProfiles: sampleProfiles,
+      onPickerOpenChange,
+    });
+
+    const addBtn = findNodes(
+      tree,
+      (n) => typeName(n) === "DialogButton" && findText(n).includes("Add Playlist / Album")
+    )[0];
+    expect(addBtn).toBeDefined();
+    addBtn.props.onClick();
+
+    expect(onPickerOpenChange).toHaveBeenCalledWith(true);
+    expect(mockShowModal).toHaveBeenCalledTimes(1);
+    const modalElement = mockShowModal.mock.calls[0][0];
+    expect(modalElement.props.onClose).toBeTypeOf("function");
+
+    modalElement.props.onClose();
+    expect(onPickerOpenChange).toHaveBeenCalledWith(false);
+  });
 });
