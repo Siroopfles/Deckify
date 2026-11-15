@@ -733,8 +733,8 @@ class Plugin:
         running = bool(running)
         try:
             override = manager.ducking_override(valid_id)
-            if override is not False:
-                await self.trigger_ducking(running, "game", valid_id)
+            if override is not False and running:
+                await self.trigger_ducking(True, "game", valid_id)
             await manager.handle_app_lifecycle(valid_id, running)
         except Exception as e:
             decky.logger.error("handle_app_lifetime_event failed: %s", e)
