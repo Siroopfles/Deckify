@@ -35,7 +35,7 @@ Milestone v0.5 elevates Deckify from a standalone media controller into an intel
 - [x] **Phase 8: Controller L2/R2 Ergonomics & Trigger Navigation** - Blind ±10s seeking and virtualized library fast-page navigation via analog triggers (completed 2026-11-14)
 - [x] **Phase 9: QAM Pinned Playlists & Quick In-Game Switch** - Instant 2-second playlist switching pills in the Quick Access Menu mini-player (completed 2026-11-15)
 - [x] **Phase 10: In-Game HUD Overlay 2.0 (Live Synced Lyrics)** - Micro-footprint discrete event-scheduled synced lyrics line in Gamescope HUD (completed 2026-11-15)
-- [ ] **Phase 11: Home & Discovery Hub Tab** - Dedicated Discovery tab in Expanded Modal with Top Tracks, Top Artists, and algorithmic mixes
+- [x] **Phase 11: Home & Discovery Hub Tab** - Dedicated Discovery tab in Expanded Modal with Top Tracks, Top Artists, and algorithmic mixes (completed 2026-11-15)
 
 ---
 
@@ -162,7 +162,7 @@ Plans:
   2. Discovery tab displays curated carousels for user Top Tracks, Top Artists (with short/medium/long-term filters), Discover Weekly, Release Radar, and New Releases.
   3. Selecting any track or mix in the Discovery tab starts immediate playback or drills down into the album/playlist view.
   4. Backend Spotify client handles HTTP 429 rate limits gracefully with an exponential backoff circuit breaker and caches discovery feeds for 1–6 hours in memory to ensure snappy navigation.
-**Plans**: 2/2 plans executed
+**Plans**: 2/2 plans complete
 
 Plans:
 **Wave 1**
@@ -185,7 +185,7 @@ Phases execute in numeric order: 6 → 7 → 8 → 9 → 10 → 11
 | 8. Controller L2/R2 Ergonomics & Trigger Navigation | v0.5 | 5/5 | Complete    | 2026-11-14 |
 | 9. QAM Pinned Playlists & Quick In-Game Switch | v0.5 | 3/3 | Complete    | 2026-11-15 |
 | 10. In-Game HUD Overlay 2.0 (Live Synced Lyrics) | v0.5 | 3/3 | Complete    | 2026-11-15 |
-| 11. Home & Discovery Hub Tab | v0.5 | 2/2 | In Progress | - |
+| 11. Home & Discovery Hub Tab | v0.5 | 2/2 | Complete    | 2026-11-15 |
 
 ---
 
