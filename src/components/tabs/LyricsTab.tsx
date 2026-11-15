@@ -1,13 +1,23 @@
 import { FC, RefObject } from "react";
+import { Focusable } from "@decky/ui";
 import { FaMicrophone, FaSyncAlt } from "react-icons/fa";
 import { SyncedLine } from "../../types";
 import { InteractiveRow } from "../common/InteractiveRow";
+
+export const LYRICS_SOURCES = [
+  { offset: 0, label: "Spotify" },
+  { offset: 1, label: "LRCLIB" },
+  { offset: 2, label: "NetEase" },
+  { offset: 3, label: "Musixmatch" },
+  { offset: 4, label: "Lyrics.ovh" },
+] as const;
 
 export interface LyricsTabProps {
   trackName?: string;
   artistName?: string;
   lyricsSource?: string;
   handleNextLyricsSource: () => void;
+  onSelectLyricsSource?: (offset: number, label: string) => void;
   loadingLyrics: boolean;
   syncedLyrics: SyncedLine[];
   plainLyrics?: string | null;
@@ -21,6 +31,7 @@ export const LyricsTab: FC<LyricsTabProps> = ({
   artistName,
   lyricsSource,
   handleNextLyricsSource,
+  onSelectLyricsSource,
   loadingLyrics,
   syncedLyrics,
   plainLyrics,
@@ -30,7 +41,7 @@ export const LyricsTab: FC<LyricsTabProps> = ({
 }) => {
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <FaMicrophone size={18} color="#1db954" />
           <div>
@@ -51,6 +62,32 @@ export const LyricsTab: FC<LyricsTabProps> = ({
           </InteractiveRow>
         </div>
       </div>
+
+      <Focusable
+        flow-children="horizontal"
+        style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 12 }}
+      >
+        {LYRICS_SOURCES.map((src) => {
+          const isActive = lyricsSource === src.label;
+          return (
+            <InteractiveRow
+              key={src.offset}
+              active={isActive}
+              onClick={() => onSelectLyricsSource?.(src.offset, src.label)}
+              style={{
+                padding: "4px 10px",
+                fontSize: 11,
+                fontWeight: isActive ? 700 : 400,
+                color: isActive ? "#1db954" : "rgba(255, 255, 255, 0.85)",
+                background: isActive ? "rgba(29, 185, 84, 0.2)" : "rgba(255, 255, 255, 0.08)",
+                borderRadius: 12,
+              }}
+            >
+              {src.label}
+            </InteractiveRow>
+          );
+        })}
+      </Focusable>
 
       {loadingLyrics ? (
         <p style={{ opacity: 0.5 }}>Loading lyrics from waterfall...</p>
