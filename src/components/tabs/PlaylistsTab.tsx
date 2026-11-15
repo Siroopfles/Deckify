@@ -83,6 +83,9 @@ export const PlaylistsTab: FC<PlaylistsTabProps> = ({
   };
 
   const categorizedPlaylistIds = new Set<string>();
+  const playlistUri = activePlaylist
+    ? activePlaylist.uri || (activePlaylist.id ? `spotify:playlist:${activePlaylist.id}` : "")
+    : "";
   const collectPlaylistIds = (fl: FolderItem[]) => {
     for (const f of fl) {
       for (const pl of f.playlists || []) categorizedPlaylistIds.add(pl.id);
@@ -346,7 +349,7 @@ export const PlaylistsTab: FC<PlaylistsTabProps> = ({
             </div>
 
             <InteractiveRow
-              onClick={() => onPlayTrack("", activePlaylist.uri)}
+              onClick={() => onPlayTrack("", playlistUri)}
               style={{
                 marginLeft: "auto",
                 background: "#1db954",
@@ -362,10 +365,10 @@ export const PlaylistsTab: FC<PlaylistsTabProps> = ({
             </InteractiveRow>
 
             <InteractiveRow
-              aria-label={pinnedUris?.has(activePlaylist.uri) ? "Unpin from QAM" : "Pin to QAM"}
+              aria-label={pinnedUris?.has(playlistUri) ? "Unpin from QAM" : "Pin to QAM"}
               onClick={() =>
                 onTogglePin?.({
-                  uri: activePlaylist.uri,
+                  uri: playlistUri,
                   name: activePlaylist.name,
                   type: "playlist",
                   image_url: activePlaylist.image_url,
@@ -376,10 +379,10 @@ export const PlaylistsTab: FC<PlaylistsTabProps> = ({
                 borderRadius: 20,
                 gap: 6,
                 flexShrink: 0,
-                background: pinnedUris?.has(activePlaylist.uri)
+                background: pinnedUris?.has(playlistUri)
                   ? "rgba(29, 185, 84, 0.16)"
                   : "rgba(255,255,255,0.08)",
-                color: pinnedUris?.has(activePlaylist.uri) ? "#1db954" : "#fff",
+                color: pinnedUris?.has(playlistUri) ? "#1db954" : "#fff",
               }}
             >
               <FaThumbtack size={12} />
@@ -412,7 +415,8 @@ export const PlaylistsTab: FC<PlaylistsTabProps> = ({
                   key={t.id || t.uri || idx}
                   track={t}
                   index={idx}
-                  contextUri={activePlaylist.uri}
+                  contextUri={playlistUri}
+                  allTracks={playlistTracks}
                   onPlayTrack={onPlayTrack}
                   onToggleLike={onToggleLike}
                   onOpenActions={onOpenActions}

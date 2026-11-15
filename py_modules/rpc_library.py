@@ -104,7 +104,11 @@ async def get_playlist_tracks(
 
             if not data:
                 break
-            items_obj = data.get("items") if isinstance(data, dict) else []
+            items_obj = (
+                (data.get("items") if "items" in data else data.get("tracks"))
+                if isinstance(data, dict)
+                else []
+            )
             if isinstance(items_obj, dict):
                 raw_items = items_obj.get("items", [])
                 total = items_obj.get("total", len(raw_items))
