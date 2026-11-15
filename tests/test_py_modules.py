@@ -517,6 +517,44 @@ class PyModulesPlaylistPlaybackTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(res2["ok"])
         self.assertEqual(mock_api.call_args[0][4], {"context_uri": "spotify:playlist:pl1", "offset": {"uri": "spotify:track:t2"}})
 
+    async def test_get_saved_episodes_handles_null_show_and_direct_items(self):
+        plugin = SimpleNamespace(_ensure_token=AsyncMock(return_value="tok"))
+        payload = {
+            "items": [
+                {
+                    "episode": {
+                        "id": "ep1",
+                        "name": "Wrapped Null Show",
+                        "show": None,
+                        "uri": "spotify:episode:ep1",
+                        "duration_ms": 120000,
+                        "images": [{"url": "https://i.scdn.co/image/ep1"}],
+                        "resume_point": None,
+                    }
+                },
+                {
+                    "id": "ep2",
+                    "name": "Direct Episode",
+                    "show": {"name": "Podcast 2"},
+                    "uri": "spotify:episode:ep2",
+                    "duration_ms": 240000,
+                    "images": [],
+                    "resume_point": {"resume_position_ms": 30000, "fully_played": False},
+                },
+            ],
+            "total": 2,
+        }
+        with patch.object(rpc_library, "_spotify_api_request", return_value=payload):
+            res = await rpc_library.get_saved_episodes(plugin, offset=0)
+
+        self.assertTrue(res["ok"])
+        self.assertEqual(res["total"], 2)
+        self.assertEqual(len(res["episodes"]), 2)
+        self.assertEqual(res["episodes"][0]["show_name"], "")
+        self.assertEqual(res["episodes"][0]["resume_position_ms"], 0)
+        self.assertEqual(res["episodes"][1]["show_name"], "Podcast 2")
+        self.assertEqual(res["episodes"][1]["resume_position_ms"], 30000)
+
 
 if __name__ == "__main__":
     unittest.main()
