@@ -499,15 +499,20 @@ async def get_saved_episodes(plugin, offset: int = 0) -> dict:
         )
         items = data.get("items", []) if data else []
         for item in items:
-            ep = item.get("episode")
-            if ep is None:
+            if not isinstance(item, dict):
                 continue
+            ep = item.get("episode") if "episode" in item else item
+            if not isinstance(ep, dict):
+                continue
+            show = ep.get("show") or {}
+            if not isinstance(show, dict):
+                show = {}
             images = ep.get("images") or []
             resume_point = ep.get("resume_point") or {}
             episodes.append({
                 "id": ep.get("id"),
                 "name": ep.get("name", ""),
-                "show_name": ep.get("show", {}).get("name", ""),
+                "show_name": show.get("name", ""),
                 "uri": ep.get("uri", ""),
                 "duration_ms": ep.get("duration_ms", 0),
                 "image_url": _image_url(images),

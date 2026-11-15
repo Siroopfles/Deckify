@@ -74,14 +74,14 @@ export const PodcastsTab: FC<PodcastsTabProps> = ({
                   data-deckify-list-item="true"
                   data-deckify-label={ep.name || ""}
                   onClick={() => onPlayTrack(ep.uri)}
-                  style={{ gap: 12 }}
+                  style={{ gap: 12, flexShrink: 0 }}
                 >
                   {ep.image_url ? (
-                    <DeckifyImage src={ep.image_url} width={42} height={42} style={{ borderRadius: 6 }} />
+                    <DeckifyImage src={ep.image_url} width={42} height={42} style={{ borderRadius: 6, flexShrink: 0 }} />
                   ) : (
-                    <FaPodcast size={22} color="#888" />
+                    <FaPodcast size={22} color="#888" style={{ flexShrink: 0 }} />
                   )}
-                  <div style={{ flex: 1, overflow: "hidden" }}>
+                  <div style={{ flex: 1, minWidth: 0, overflow: "hidden" }}>
                     <div style={{ fontSize: 13, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                       {ep.name}
                     </div>
