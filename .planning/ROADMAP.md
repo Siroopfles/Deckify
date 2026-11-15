@@ -37,7 +37,7 @@ Milestone v0.5 elevates Deckify from a standalone media controller into an intel
 - [x] **Phase 10: In-Game HUD Overlay 2.0 (Live Synced Lyrics)** - Micro-footprint discrete event-scheduled synced lyrics line in Gamescope HUD (completed 2026-11-15)
 - [x] **Phase 11: Home & Discovery Hub Tab** - Dedicated Discovery tab in Expanded Modal with Top Tracks, Top Artists, and algorithmic mixes (completed 2026-11-15)
 - [x] **Phase 11.1: Address tech debt: v0.5 integration & metadata cleanup** (completed 2026-11-15)
-- [ ] **Phase 12: Resolve open todos & polish**
+- [x] **Phase 12: Resolve open todos & polish** (completed 2026-11-15)
 
 ---
 
@@ -194,7 +194,7 @@ Phases execute in numeric order: 6 → 7 → 8 → 9 → 10 → 11
 **Goal:** Resolve all 20 pending todos and archive the 3 resolved debug sessions across playlist/playback reliability, notifications/ducking/HUD/Non-Steam covers, and sidebar/Now Playing/podcasts/recent UX so the codebase and `.planning/` state are clean for v0.5 completion.
 **Requirements**: DUCK-01, DUCK-02, SOUND-01, CTRL-01, CTRL-02, QAM-01, HUD-03
 **Depends on:** Phase 11
-**Plans:** 3/3 plans executed
+**Plans:** 3/3 plans complete
 
 Plans:
 - [x] 12-01-PLAN.md — Playlist & playback reliability (`get_playlist_tracks` fallback, `Enable Mix` ID passing, `play_tracks` engine wake + context/offset) & archive 3 resolved debug sessions + 9 todos
