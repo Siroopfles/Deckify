@@ -320,6 +320,20 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
 
   // Lyrics Loader
   const track = status?.track_meta || status?.track;
+  const activeTrackId = track?.track_id || track?.id || "";
+  const lastRecentTrackIdRef = useRef<string>(activeTrackId);
+
+  useEffect(() => {
+    if (mode !== "recent") {
+      lastRecentTrackIdRef.current = activeTrackId;
+      return;
+    }
+    if (!activeTrackId) return;
+    if (lastRecentTrackIdRef.current !== activeTrackId) {
+      lastRecentTrackIdRef.current = activeTrackId;
+      loadRecent();
+    }
+  }, [mode, activeTrackId, loadRecent]);
   const trackName = track?.name;
   const artistName = track?.artist;
   const durationSec = Math.round((track?.duration_ms || 0) / 1000);
