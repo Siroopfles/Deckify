@@ -31,13 +31,13 @@
     {
       "number": "11",
       "name": "Home & Discovery Hub Tab",
-      "status": "pending"
+      "status": "complete"
     }
   ],
   "next": {
-    "command": "/gsd-progress --next",
-    "label": "Advance to the next step (plan phase 11)",
-    "reason": "Phase 6 of 6 — needs a plan"
+    "command": "/gsd-new-milestone",
+    "label": "Start a new milestone",
+    "reason": "All phases complete — start a new milestone"
   },
-  "updated_at": "2026-11-15T11:21:49.362Z"
+  "updated_at": "2026-11-15T18:49:00.731Z"
 }
