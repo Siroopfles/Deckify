@@ -51,6 +51,7 @@ export interface SoundtracksTabProps {
   initialGames?: InstalledGame[];
   initialProfiles?: Record<string, SoundtrackProfile>;
   showToast?: (msg: string) => void;
+  onPickerOpenChange?: (open: boolean) => void;
 }
 
 export const SoundtracksTab: FC<SoundtracksTabProps> = ({
@@ -58,6 +59,7 @@ export const SoundtracksTab: FC<SoundtracksTabProps> = ({
   initialGames,
   initialProfiles,
   showToast,
+  onPickerOpenChange,
 }) => {
   const [games, setGames] = useState<InstalledGame[]>(initialGames || []);
   const [profiles, setProfiles] = useState<Record<string, SoundtrackProfile>>(
@@ -89,6 +91,7 @@ export const SoundtracksTab: FC<SoundtracksTabProps> = ({
     });
     return () => {
       mounted = false;
+      onPickerOpenChange?.(false);
       for (const timer of Object.values(saveTimersRef.current)) {
         clearTimeout(timer);
       }
@@ -127,8 +130,10 @@ export const SoundtracksTab: FC<SoundtracksTabProps> = ({
   const openPlaylistPicker = useCallback(
     (game: InstalledGame) => {
       const key = String(game.app_id);
+      onPickerOpenChange?.(true);
       showModal(
         <PlaylistPickerModal
+          onClose={() => onPickerOpenChange?.(false)}
           onSelect={(item: SoundtrackPlaylist) => {
             setProfiles((prev) => {
               const current = prev[key] || defaultProfile(game);
@@ -140,7 +145,7 @@ export const SoundtracksTab: FC<SoundtracksTabProps> = ({
         />
       );
     },
-    [scheduleSave]
+    [scheduleSave, onPickerOpenChange]
   );
 
   const handleDeleteProfile = useCallback(

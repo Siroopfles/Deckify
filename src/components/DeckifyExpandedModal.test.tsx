@@ -344,6 +344,13 @@ describe("useTriggerNavigation & DeckifyExpandedModal controller dispatch", () =
     downHandler!(8);
     expect(onTrigger).not.toHaveBeenCalled();
 
+    // L1/R1/X/Y actions must also be suppressed when suppressed=true
+    downHandler!(3); // X
+    downHandler!(4); // Y
+    downHandler!(5); // L1
+    downHandler!(6); // R1
+    expect(onAction).not.toHaveBeenCalled();
+
     // Unsuppressed, but INPUT element has focus
     stateIdx = 0;
     refIdx = 0;
@@ -858,7 +865,7 @@ describe("useTriggerNavigation & DeckifyExpandedModal controller dispatch", () =
         ],
       },
     };
-    stateValues[16] = [pinnedAlbum];
+    stateValues[17] = [pinnedAlbum];
 
     stateIdx = 0;
     refIdx = 0;

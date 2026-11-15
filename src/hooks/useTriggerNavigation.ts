@@ -60,7 +60,7 @@ export function useTriggerNavigation({
       active && enabledRef.current && !suppressedRef.current && !isTextInputFocused();
 
     const dispatchAction = (action: ModalButtonAction, e?: any) => {
-      if (!active || !enabledRef.current || isTextInputFocused()) return;
+      if (!active || !enabledRef.current || suppressedRef.current || isTextInputFocused()) return;
       const now = Date.now();
       if (now - lastActionTimeRef.current[action] < ACTION_DEDUP_MS) {
         return;

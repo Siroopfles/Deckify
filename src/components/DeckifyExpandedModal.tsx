@@ -113,6 +113,7 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
   const [actionTrack, setActionTrack] = useState<TrackItem | null>(null);
   const [actionCollection, setActionCollection] = useState<PinnedPlaylistItem | null>(null);
   const [showAddToPlaylistModal, setShowAddToPlaylistModal] = useState(false);
+  const [playlistPickerOpen, setPlaylistPickerOpen] = useState(false);
 
   // Library & Data states
   const [folders, setFolders] = useState<FolderItem[]>([]);
@@ -693,6 +694,7 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
     setActionTrack(null);
     setActionCollection(null);
     setShowAddToPlaylistModal(false);
+    setPlaylistPickerOpen(false);
     focusedTrackRef.current = null;
     focusedCollectionRef.current = null;
     setMode(id);
@@ -709,7 +711,7 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
   const triggerNavEnabled = (status?.settings as any)?.trigger_nav_enabled !== false;
   useTriggerNavigation({
     enabled: triggerNavEnabled,
-    suppressed: Boolean(actionTrack || showAddToPlaylistModal || actionCollection),
+    suppressed: Boolean(actionTrack || showAddToPlaylistModal || actionCollection || playlistPickerOpen),
     onTrigger: useCallback(
       (side) => {
         if (!triggerNavEnabled) return;
@@ -1185,7 +1187,7 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
               )}
 
               {mode === "soundtracks" && (
-                <SoundtracksTab showToast={showToast} />
+                <SoundtracksTab showToast={showToast} onPickerOpenChange={setPlaylistPickerOpen} />
               )}
 
               {mode === "engine" && (
