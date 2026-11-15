@@ -1,10 +1,11 @@
 ---
 phase: "11"
 slug: "home-discovery-hub-tab"
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
+status: validated
+nyquist_compliant: true
+wave_0_complete: true
 created: "2026-11-15"
+updated: "2026-11-15"
 ---
 
 # Phase 11 — Validation Strategy
@@ -38,10 +39,10 @@ created: "2026-11-15"
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 11-01-01 | 01 | 1 | DISC-03 | T-11-01 | Global 429 exponential-backoff circuit breaker (`300s` cap) prevents retry storms | unit | `py -m unittest tests/test_discovery.py` | ❌ W0 | ⬜ pending |
-| 11-01-02 | 01 | 1 | DISC-02, DISC-03 | T-11-02 | `time_range` whitelisted, `CURRENT_SCOPES_VERSION=7`, 403 `needs_reauth`, 1h/4h TTL cache | unit | `py -m unittest tests/test_discovery.py` | ❌ W0 | ⬜ pending |
-| 11-02-01 | 02 | 2 | DISC-01 | T-11-03 | All external artwork proxied through `<DeckifyImage>`, `"discovery"` tab & idle default | unit | `pnpm test` | ❌ W0 | ⬜ pending |
-| 11-02-02 | 02 | 2 | DISC-01, DISC-02 | T-11-03 | Carousels, `flow-children="horizontal"`, time-range pills, `A`/`Y` actions, 403/429 UI states | unit | `pnpm test` | ❌ W0 | ⬜ pending |
+| 11-01-01 | 01 | 1 | DISC-03 | T-11-01 | Global 429 exponential-backoff circuit breaker (`300s` cap) prevents retry storms | unit | `py -3 -m unittest tests/test_discovery.py -v` | ✅ | ✅ green |
+| 11-01-02 | 01 | 1 | DISC-02, DISC-03 | T-11-02 | `time_range` whitelisted, `CURRENT_SCOPES_VERSION=7`, 403 `needs_reauth`, 1h/4h TTL cache | unit | `py -3 -m unittest tests/test_discovery.py -v` | ✅ | ✅ green |
+| 11-02-01 | 02 | 2 | DISC-01 | T-11-03 | All external artwork proxied through `<DeckifyImage>`, `"discovery"` tab & idle default | unit | `npx vitest run src/components/tabs/DiscoveryTab.test.tsx src/components/DeckifyExpandedModal.test.tsx src/components/common/Sidebar.test.tsx` | ✅ | ✅ green |
+| 11-02-02 | 02 | 2 | DISC-01, DISC-02 | T-11-03 | Carousels, `flow-children="horizontal"`, time-range pills, `A`/`Y` actions, 403/429 UI states | unit | `npx vitest run src/components/tabs/DiscoveryTab.test.tsx` | ✅ | ✅ green |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -49,8 +50,8 @@ created: "2026-11-15"
 
 ## Wave 0 Requirements
 
-- [ ] `tests/test_discovery.py` — stubs/tests for `DISC-02` and `DISC-03` (circuit breaker, TTL cache, stale fallback, `needs_reauth`, `CURRENT_SCOPES_VERSION == 7`, `get_discovery_feed`)
-- [ ] `src/components/tabs/DiscoveryTab.test.tsx` — stubs/tests for `DISC-01` and `DISC-02` (greeting, time-range pills, carousels, 403 re-auth card, 429 stale banner, `A`/`Y` actions)
+- [x] `tests/test_discovery.py` — 8 unit tests for `DISC-02` and `DISC-03` (circuit breaker, TTL cache, stale fallback, `needs_reauth`, `CURRENT_SCOPES_VERSION == 7`, `get_discovery_feed`)
+- [x] `src/components/tabs/DiscoveryTab.test.tsx` — 5 unit tests for `DISC-01` and `DISC-02` (greeting, time-range pills, carousels, 403 re-auth card, 429 stale banner, `A`/`Y` actions)
 
 ---
 
@@ -65,11 +66,19 @@ created: "2026-11-15"
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references
-- [ ] No watch-mode flags
-- [ ] Feedback latency < 20s
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify
+- [x] Wave 0 covers all MISSING references
+- [x] No watch-mode flags
+- [x] Feedback latency < 20s
+- [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending
+**Approval:** validated (2026-11-15)
+
+## Validation Audit 2026-11-15
+
+| Metric | Count |
+|---|---|
+| Gaps found | 0 |
+| Resolved | 0 |
+| Escalated | 0 |
