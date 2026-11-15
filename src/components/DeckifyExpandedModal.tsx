@@ -27,6 +27,7 @@ import { CollectionActionModal } from "./common/CollectionActionModal";
 // Modular tab components
 import { NowPlayingTab } from "./tabs/NowPlayingTab";
 import { LyricsTab } from "./tabs/LyricsTab";
+import { DiscoveryTab } from "./tabs/DiscoveryTab";
 import { PlaylistsTab } from "./tabs/PlaylistsTab";
 import { LikedSongsTab } from "./tabs/LikedSongsTab";
 import { AlbumsTab } from "./tabs/AlbumsTab";
@@ -90,6 +91,16 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
 
   const [mode, setMode] = useState<ViewMode>("now_playing");
   const { status, setStatus, currentPositionMs, refreshStatus, clock } = usePlaybackStatus();
+  const hasResolvedInitialModeRef = useRef(false);
+
+  useEffect(() => {
+    if (hasResolvedInitialModeRef.current || !status) return;
+    hasResolvedInitialModeRef.current = true;
+    const activeTrack = status.track_meta || status.track;
+    if (!activeTrack?.name) {
+      setMode((prev) => (prev === "now_playing" ? "discovery" : prev));
+    }
+  }, [status]);
 
   // Drill-down states
   const [activePlaylist, setActivePlaylist] = useState<PlaylistItem | null>(null);
@@ -907,6 +918,8 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
   const hintText =
     mode === "now_playing" || mode === "lyrics"
       ? "L2/R2 Seek · X Like · Y Options · L1/R1 Tabs"
+      : mode === "discovery"
+      ? "A Play/Open · Y Options · L1/R1 Tabs"
       : mode === "devices" || mode === "engine"
       ? "L1/R1 Tabs · B Back"
       : "L2/R2 Page · X Like · Y Options · L1/R1 Tabs";
@@ -1019,6 +1032,27 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
                   currentLineIndex={currentLineIndex}
                   activeLineRef={activeLineRef}
                   onSeekPlayback={handleSeekPlayback}
+                />
+              )}
+
+              {mode === "discovery" && (
+                <DiscoveryTab
+                  onPlayTrack={handlePlayTrack}
+                  onOpenPlaylist={handleOpenPlaylist}
+                  onOpenAlbum={handleOpenAlbum}
+                  onOpenArtist={handleOpenArtist}
+                  onOpenActions={(t) => setActionTrack(t)}
+                  onFocusTrack={(t) => {
+                    focusedTrackRef.current = t;
+                    if (t) focusedCollectionRef.current = null;
+                  }}
+                  onFocusCollection={(c) => {
+                    focusedCollectionRef.current = c;
+                    if (c) focusedTrackRef.current = null;
+                  }}
+                  onReauthenticate={() => {
+                    showToast("Open Quick Access Menu to re-authenticate Spotify");
+                  }}
                 />
               )}
 

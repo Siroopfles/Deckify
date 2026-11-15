@@ -4,6 +4,7 @@ export type AudioQuality = "96" | "160" | "320" | "lossless";
 export type ViewMode =
   | "now_playing"
   | "lyrics"
+  | "discovery"
   | "playlists"
   | "liked"
   | "albums"
@@ -19,6 +20,7 @@ export type ViewMode =
 export const ALL_MODES: ViewMode[] = [
   "now_playing",
   "lyrics",
+  "discovery",
   "playlists",
   "liked",
   "albums",
@@ -287,4 +289,27 @@ export interface SoundtrackProfile {
   ducking_override: boolean | null;
   last_track_uri?: string;
   last_position_ms?: number;
+}
+
+
+export type DiscoveryTimeRange = "short_term" | "medium_term" | "long_term";
+
+export interface DiscoveryMixItem extends PlaylistItem {
+  subtitle?: string;
+  is_album?: boolean;
+}
+
+export interface DiscoveryFeedResponse {
+  ok: boolean;
+  time_range?: DiscoveryTimeRange;
+  made_for_you?: DiscoveryMixItem[];
+  made_for_you_fallback?: boolean;
+  top_tracks?: TrackItem[];
+  top_artists?: ArtistItem[];
+  new_releases?: AlbumItem[];
+  needs_reauth?: boolean;
+  rate_limited?: boolean;
+  stale?: boolean;
+  retry_after?: number;
+  error?: string;
 }

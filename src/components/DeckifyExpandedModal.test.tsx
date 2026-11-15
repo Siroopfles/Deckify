@@ -1115,4 +1115,49 @@ describe("useTriggerNavigation & DeckifyExpandedModal controller dispatch", () =
     tryNextBtn.props.onClick();
     expect(handleNextLyricsSource).toHaveBeenCalledTimes(1);
   });
+
+  it("registers discovery right after lyrics in ALL_MODES and defaults to discovery when idle", async () => {
+    const { ALL_MODES } = await import("../types");
+    const lyricsIdx = ALL_MODES.indexOf("lyrics");
+    expect(lyricsIdx).toBeGreaterThanOrEqual(0);
+    expect(ALL_MODES[lyricsIdx + 1]).toBe("discovery");
+
+    // Idle status (no active track) switches mode to "discovery"
+    const closeModal = vi.fn();
+    DeckifyExpandedModal({ closeModal });
+    stateValues[0] = "now_playing";
+    stateValues[1] = {
+      is_playing: false,
+      position_ms: 0,
+      duration_ms: 0,
+      track: null,
+      track_meta: null,
+    };
+
+    stateIdx = 0;
+    refIdx = 0;
+    for (const cleanup of effectCleanups) cleanup();
+    effectCleanups = [];
+    DeckifyExpandedModal({ closeModal });
+    expect(stateValues[0]).toBe("discovery");
+  });
+
+  it("keeps now_playing as default tab when an active track is present", () => {
+    const closeModal = vi.fn();
+    DeckifyExpandedModal({ closeModal });
+    stateValues[0] = "now_playing";
+    stateValues[1] = {
+      is_playing: true,
+      position_ms: 1000,
+      duration_ms: 60000,
+      track: { id: "trk-1", name: "Active Song", artist: "Artist", duration_ms: 60000 },
+    };
+
+    stateIdx = 0;
+    refIdx = 0;
+    for (const cleanup of effectCleanups) cleanup();
+    effectCleanups = [];
+    DeckifyExpandedModal({ closeModal });
+    expect(stateValues[0]).toBe("now_playing");
+  });
 });
