@@ -1,16 +1,20 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-const { mockToast, mockScrubTo, mockToggleLike, mockSetSetting } = vi.hoisted(() => ({
+const { mockToast, mockScrubTo, mockToggleLike, mockSetSetting, mockSetNativeMix, mockPlayTracks } = vi.hoisted(() => ({
   mockToast: vi.fn(),
   mockScrubTo: vi.fn(),
   mockToggleLike: vi.fn().mockResolvedValue({ ok: true, is_liked: true }),
   mockSetSetting: vi.fn().mockResolvedValue({ ok: true }),
+  mockSetNativeMix: vi.fn().mockResolvedValue({ ok: true }),
+  mockPlayTracks: vi.fn().mockResolvedValue({ ok: true }),
 }));
 
 vi.mock("@decky/api", () => ({
   callable: (name: string) => {
     if (name === "toggle_like") return mockToggleLike;
     if (name === "set_setting") return mockSetSetting;
+    if (name === "set_native_mix") return mockSetNativeMix;
+    if (name === "play_tracks") return mockPlayTracks;
     return vi.fn().mockResolvedValue({ ok: true });
   },
   toaster: { toast: mockToast },
@@ -1166,5 +1170,73 @@ describe("useTriggerNavigation & DeckifyExpandedModal controller dispatch", () =
     effectCleanups = [];
     DeckifyExpandedModal({ closeModal });
     expect(stateValues[0]).toBe("now_playing");
+  });
+});
+
+describe("DeckifyExpandedModal playlist mix ID fallback & playback reliability (12-01)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    stateValues = [];
+    stateIdx = 0;
+    refValues = [];
+    refIdx = 0;
+    runEffectsInTest = false;
+    effectCleanups = [];
+    mockSetNativeMix.mockResolvedValue({ ok: true });
+    mockPlayTracks.mockResolvedValue({ ok: true });
+  });
+
+  it("falls back to activePlaylist.id in handleToggleMix when activePlaylist.uri is empty", async () => {
+    const closeModal = vi.fn();
+    DeckifyExpandedModal({ closeModal });
+
+    stateValues[0] = "playlists";
+    stateValues[1] = { settings: { audio_backend: "spotify_client" } };
+    stateValues[2] = { id: "pl-folder-1", name: "Folder Playlist", uri: "", is_mixed: false };
+
+    stateIdx = 0;
+    refIdx = 0;
+    const tree = DeckifyExpandedModal({ closeModal });
+    const playlistsTabNode = findNodes(tree, (n) => n.type === PlaylistsTab)[0];
+    expect(playlistsTabNode).toBeDefined();
+
+    await playlistsTabNode.props.onToggleMix();
+    expect(mockSetNativeMix).toHaveBeenCalledWith("pl-folder-1", true, true);
+  });
+
+  it("passes normalized playlist contextUri and allTracks on track click, and surfaces error toast on failure", async () => {
+    const closeModal = vi.fn();
+    DeckifyExpandedModal({ closeModal });
+
+    const tracks = [
+      { id: "t1", name: "Song 1", artist: "Artist 1", uri: "spotify:track:t1", duration_ms: 180000 },
+      { id: "t2", name: "Song 2", artist: "Artist 2", uri: "spotify:track:t2", duration_ms: 200000 },
+    ];
+    stateValues[0] = "playlists";
+    stateValues[1] = { settings: { audio_backend: "librespot" } };
+    stateValues[2] = { id: "pl-folder-1", name: "Folder Playlist", uri: "" };
+    stateValues[3] = tracks;
+
+    stateIdx = 0;
+    refIdx = 0;
+    const tree = DeckifyExpandedModal({ closeModal });
+    const playlistsTabNode = findNodes(tree, (n) => n.type === PlaylistsTab)[0];
+    const plTree = PlaylistsTab(playlistsTabNode.props);
+
+    const trackRowItems = findNodes(plTree, (n) => n.props?.track?.id === "t2");
+    expect(trackRowItems.length).toBeGreaterThan(0);
+    expect(trackRowItems[0].props.contextUri).toBe("spotify:playlist:pl-folder-1");
+    expect(trackRowItems[0].props.allTracks).toEqual(tracks);
+
+    // Click track and verify startIdx is forwarded
+    await trackRowItems[0].props.onPlayTrack("spotify:track:t2", "spotify:playlist:pl-folder-1", ["spotify:track:t1", "spotify:track:t2"], 1);
+    expect(mockPlayTracks).toHaveBeenCalledWith("spotify:playlist:pl-folder-1", "spotify:track:t2", null, 1);
+
+    // Simulate backend error and verify no false "Playback started" toast
+    mockPlayTracks.mockResolvedValueOnce({ ok: false, error: "No active device" });
+    await playlistsTabNode.props.onPlayTrack("", "spotify:playlist:pl-folder-1");
+    expect(mockPlayTracks).toHaveBeenLastCalledWith("spotify:playlist:pl-folder-1", null, null, 0);
+    expect(stateValues).toContain("No active device");
+    expect(stateValues).not.toContain("Playback started");
   });
 });

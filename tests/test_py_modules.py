@@ -24,6 +24,8 @@ with patch.dict("sys.modules", {"decky": SimpleNamespace(
         device,
         engine,
         images,
+        rpc_library,
+        rpc_playback,
         spotify,
     )
 
@@ -444,6 +446,76 @@ class PyModulesEngineTests(unittest.TestCase):
 
             generic = engine._cdp_get_page_target(port=8080)
             self.assertEqual(generic["type"], "page")
+
+
+class PyModulesPlaylistPlaybackTests(unittest.IsolatedAsyncioTestCase):
+    async def test_get_playlist_tracks_followed_playlist_fallback(self):
+        plugin = SimpleNamespace(
+            _ensure_token=AsyncMock(return_value="tok"),
+            _annotate_tracks_liked=AsyncMock(),
+        )
+
+        def fake_api(endpoint, token, method="GET", params=None, body=None):
+            if endpoint.endswith("/items") or endpoint.endswith("/tracks"):
+                raise HTTPError(endpoint, 404, "Not Found", {}, io.BytesIO(b"{}"))
+            return {
+                "tracks": {
+                    "items": [
+                        {
+                            "track": {
+                                "id": "t1",
+                                "name": "Followed Song",
+                                "artists": [{"id": "a1", "name": "Artist 1"}],
+                                "album": {"id": "alb1", "name": "Album 1", "images": []},
+                                "uri": "spotify:track:t1",
+                                "duration_ms": 180000,
+                            }
+                        }
+                    ],
+                    "total": 1,
+                }
+            }
+
+        with patch.object(rpc_library, "_spotify_api_request", side_effect=fake_api):
+            res = await rpc_library.get_playlist_tracks(plugin, "spotify:playlist:pl_followed")
+
+        self.assertTrue(res["ok"])
+        self.assertEqual(res["total"], 1)
+        self.assertEqual(len(res["tracks"]), 1)
+        self.assertEqual(res["tracks"][0]["name"], "Followed Song")
+
+    async def test_play_tracks_wakes_librespot_and_sets_offset(self):
+        plugin = SimpleNamespace(
+            _ensure_token=AsyncMock(return_value="tok"),
+            _is_engine_running=Mock(return_value=False),
+            _settings={"audio_backend": "librespot"},
+            start_librespot=AsyncMock(return_value={"ok": True}),
+            _auto_transfer_and_play=AsyncMock(side_effect=[{"ok": False, "error": "No devices"}, {"ok": True}]),
+            _context_uri=None,
+        )
+
+        play_calls = []
+
+        def fake_api(endpoint, token, method="GET", params=None, body=None):
+            play_calls.append((endpoint, body))
+            if len(play_calls) == 1:
+                raise HTTPError(endpoint, 404, "Not Found", {}, io.BytesIO(b"{}"))
+            return {}
+
+        with patch.object(rpc_playback, "_spotify_api_request", side_effect=fake_api), \
+             patch.object(rpc_playback, "get_devices", AsyncMock(return_value={"devices": [{"id": "dev-1"}]})), \
+             patch("asyncio.sleep", AsyncMock()):
+            res = await rpc_playback.play_tracks(plugin, context_uri="spotify:playlist:pl1", position=3)
+
+        self.assertTrue(res["ok"])
+        plugin.start_librespot.assert_awaited_once()
+        self.assertEqual(play_calls[-1][1], {"context_uri": "spotify:playlist:pl1", "offset": {"position": 3}})
+
+        # Also verify offset_uri takes precedence when provided
+        with patch.object(rpc_playback, "_spotify_api_request", return_value={}) as mock_api:
+            res2 = await rpc_playback.play_tracks(plugin, context_uri="spotify:playlist:pl1", offset_uri="spotify:track:t2")
+        self.assertTrue(res2["ok"])
+        self.assertEqual(mock_api.call_args[0][4], {"context_uri": "spotify:playlist:pl1", "offset": {"uri": "spotify:track:t2"}})
 
 
 if __name__ == "__main__":
