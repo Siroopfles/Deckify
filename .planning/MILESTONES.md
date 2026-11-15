@@ -1,5 +1,32 @@
 # Milestones
 
+## v0.5 In-Game Flow & Music Discovery (Shipped: 2026-11-15)
+
+**Phases completed:** 8 phases, 22 plans, 51 tasks
+
+**Key accomplishments:**
+- Game-specific Soundtracks UI (`SoundtracksTab` + `PlaylistPickerModal`), QAM 1-click music binding, and `RegisterForAppLifetimeNotifications` lifecycle dispatch with full Vitest and Python E2E verification
+- Closed all 4 Phase 07 UAT gaps: Steam CDN image proxying with User-Agent + FaGamepad fallback, `showModal()` PlaylistPickerModal with offset=0 and playlist URIs, bubble-phase `vgp_oncancel` for SliderField B-button exit, and `SteamClient.GameSessions` + `Router.MainRunningApp` startup seeding.
+- Modal-scoped `TriggerController` (0.75/0.25 Schmidt hysteresis, 300ms debounce, 500ms/300ms hold-to-repeat), `useTriggerNavigation` hook with deduped `FocusNavController` + `vgp_onbuttondown` Y/X/L2/R2 dispatch, and pinned `Back to Steam (B)` Sidebar footer
+- 250ms accumulated L2/R2 playback seeking with `[0, duration_ms - 1000]` clamping, seek error toast, floating delta pill, context-aware controller hint bar, and `Controller & Trigger Navigation` settings card
+- `computeListJump` (±N items and A–Z anchors), `contentPaneRef` focus-guarded scroll+focus transfer, `onLoadMore` pagination, floating position pill, and list row tagging across all 9 library/list tabs
+- Closed all 3 Phase 8 UAT gaps: native `div` `contentPaneRef` wrapper for library list fast-paging, 600ms seek accumulation window across consecutive trigger pulls, `TrackActionModal` focus transfer/restoration, and actionable Spotify 403 Forbidden Like error feedback.
+- Virtual GamepadUI focus detection (`[data-deckify-focused="true"]`, `.gpfocus`) and default `tabIndex={0}` on `InteractiveRow` so L2/R2 library fast-paging jumps and focuses rows when `document.activeElement` stays on `document.body`.
+- End-to-end QAM pinned playlist persistence (max 4), engine-waking `quick_play_pinned` RPC, horizontal DeckifyImage pill strip with optimistic rollback, reorganized QAM layout, and Bind button focus fix
+- Controller-friendly `CollectionActionModal` (`Y` menu) and detail-header `FaThumbtack` Pin/Unpin toggles across `PlaylistsTab`, `AlbumsTab`, and `LikedSongsTab` with row badges and non-evicting 4-item limit feedback
+- Flex-hardened `PlaylistsTab` detail header with single-line ellipsis truncation and focus-tracked `PinnedPill` QAM pills using `Focusable noFocusRing` + `focusHalo` inside a `4px 4px` padded scroll strip.
+- Discrete `setTimeout` synced lyrics engine in `DeckifyOverlay` with 18px fixed-height cross-fade row, `/deckify` modal suppression, gated `get_lyrics` RPCs, and clamped backend settings
+- QAM `Overlay Lyrics` toggle, `SettingsTab` Auto-Hide Duration (3–15s) and Lyrics Latency Offset (-2000..2000ms) sliders, and 5 clickable `LyricsTab` source pills wired to `DeckifyExpandedModal`
+- Exposed Phase 10 and Phase 08 public settings in `main.py:get_status()`, added non-destructive settings merging in `DeckifyOverlayWrapper`, and wired optimistic `localSettings` + `settings_changed` synchronization in `SettingsTab` to eliminate QAM snap-back and frozen settings controls.
+- Hardened Spotify Web API client with a global thread-safe HTTP 429 exponential-backoff circuit breaker, OAuth scope v7 (`user-top-read`), and section-isolated 1h/4h TTL-cached `get_discovery_feed` RPC with Dev Mode 403/404 and stale-cache fallbacks.
+- Implemented the controller-first Discovery hub tab (`DiscoveryTab.tsx`), registered `"discovery"` in `Sidebar.tsx` and `src/types.ts`, wired idle default-tab landing and `A`/`Y` actions in `DeckifyExpandedModal.tsx`, and verified all 403/429/empty states across 143 Vitest tests, 452 Python tests, typecheck, lint, and Rollup build.
+- Gated game-exit ducking on `running` to preserve the 3000ms exit debounce, suppressed `L1`/`R1`/`X`/`Y` alongside `L2`/`R2` during `PlaylistPickerModal`, and cleaned Phase 06/07 audit metadata
+- Fixed followed playlist `/playlists/{pid}` track parsing, `Enable Mix` ID fallback, `play_tracks` 404 librespot auto-wake with offset support, and `PlaylistsTab` context playback, and archived 3 debug sessions + 9 todos.
+- Implemented configurable track-change toast sound & 48x48 base64 cover crop, hardened HUD `autoHide === false` against pause flickers, converted ducking attenuation and fade/hold durations to `SliderField`s, and added base64 local Steam grid cover resolution for Non-Steam games.
+- Wired focusable Sidebar Now Playing actions across all tabs, unified Sidebar Back-to-Steam spatial navigation, added NowPlayingTab quick Add to Playlist, hardened PodcastsTab/get_saved_episodes metadata rendering, and added discrete track-change refresh for RecentTab.
+
+---
+
 ## v0.4: Stability, Polish & Refactoring
 
 **Shipped:** 2026-11-12  
