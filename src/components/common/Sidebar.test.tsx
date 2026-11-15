@@ -40,6 +40,7 @@ vi.mock("react-icons/fa", () => {
     FaCog: Icon,
     FaMusic: Icon,
     FaGamepad: Icon,
+    FaCompass: Icon,
   };
 });
 

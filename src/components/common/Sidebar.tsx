@@ -15,6 +15,7 @@ import {
   FaCog,
   FaMusic,
   FaGamepad,
+  FaCompass,
 } from "react-icons/fa";
 import { ViewMode, StatusResponse } from "../../types";
 import { DeckifyImage } from "./DeckifyImage";
@@ -116,6 +117,7 @@ export const Sidebar: FC<SidebarProps> = ({
           <SidebarBtn id="lyrics" label="Lyrics" icon={<FaMicrophone size={12} />} active={mode === "lyrics"} onSelect={onSelectMode} />
 
           <div style={{ fontSize: 10, fontWeight: 700, opacity: 0.4, padding: "8px 8px 4px", textTransform: "uppercase", letterSpacing: 0.8 }}>Library</div>
+          <SidebarBtn id="discovery" label="Discovery" icon={<FaCompass size={12} />} active={mode === "discovery"} onSelect={onSelectMode} />
           <SidebarBtn id="playlists" label="Playlists" icon={<FaFolder size={12} />} active={mode === "playlists"} onSelect={onSelectMode} />
           <SidebarBtn id="liked" label="Liked Songs" icon={<FaHeart size={12} />} active={mode === "liked"} onSelect={onSelectMode} />
           <SidebarBtn id="albums" label="Albums" icon={<FaCompactDisc size={12} />} active={mode === "albums"} onSelect={onSelectMode} />
