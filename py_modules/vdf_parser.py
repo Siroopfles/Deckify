@@ -4,6 +4,7 @@ Parses Valve binary KeyValues (shortcuts.vdf), text KeyValues
 (libraryfolders.vdf / appmanifest_*.acf) and computes unsigned 32-bit AppIDs
 for Non-Steam shortcuts matching SteamClient.Apps `unAppID`.
 """
+import base64
 import glob
 import os
 import re
@@ -11,7 +12,7 @@ import struct
 import time
 import zlib
 
-from py_modules.common import DECK_HOME, decky
+from py_modules.common import DECK_HOME, MAX_IMAGE_BYTES, decky
 
 _TYPE_DICT = 0
 _TYPE_STRING = 1
@@ -175,6 +176,48 @@ def _scan_steam_games() -> list[dict]:
     return list(games.values())
 
 
+_GRID_EXTENSIONS_MIME = (
+    (".png", "image/png"),
+    (".jpg", "image/jpeg"),
+    (".jpeg", "image/jpeg"),
+    (".webp", "image/webp"),
+)
+
+
+def _read_image_data_uri(file_path: str) -> str:
+    if not file_path or not os.path.isfile(file_path):
+        return ""
+    lower_path = file_path.lower()
+    mime = next((m for ext, m in _GRID_EXTENSIONS_MIME if lower_path.endswith(ext)), "")
+    if not mime:
+        return ""
+    try:
+        if os.path.getsize(file_path) > MAX_IMAGE_BYTES:
+            return ""
+        with open(file_path, "rb") as f:
+            raw = f.read(MAX_IMAGE_BYTES + 1)
+    except OSError:
+        return ""
+    if not raw or len(raw) > MAX_IMAGE_BYTES:
+        return ""
+    return f"data:{mime};base64,{base64.b64encode(raw).decode('ascii')}"
+
+
+def _resolve_non_steam_grid_cover(config_dir: str, app_id: int, icon_path: str = "") -> str:
+    grid_dir = os.path.join(config_dir, "grid")
+    if os.path.isdir(grid_dir):
+        for suffix in (f"{app_id}p", str(app_id)):
+            for ext, _ in _GRID_EXTENSIONS_MIME:
+                uri = _read_image_data_uri(os.path.join(grid_dir, f"{suffix}{ext}"))
+                if uri:
+                    return uri
+    if icon_path:
+        uri = _read_image_data_uri(icon_path)
+        if uri:
+            return uri
+    return ""
+
+
 def _scan_non_steam_games() -> list[dict]:
     games: dict[int, dict] = {}
     for root in _steam_roots():
@@ -184,6 +227,7 @@ def _scan_non_steam_games() -> list[dict]:
                     data = f.read()
             except OSError:
                 continue
+            config_dir = os.path.dirname(path)
             parsed = parse_binary_vdf(data)
             shortcuts = parsed.get("shortcuts") or {}
             if not isinstance(shortcuts, dict):
@@ -196,6 +240,7 @@ def _scan_non_steam_games() -> list[dict]:
                 if not name:
                     continue
                 exe = lower.get("exe", "") or ""
+                icon_path = lower.get("icon", "") or ""
                 raw = lower.get("appid")
                 app_id = compute_non_steam_appid(exe, name, raw if isinstance(raw, int) else None)
                 games.setdefault(app_id, {
@@ -204,7 +249,7 @@ def _scan_non_steam_games() -> list[dict]:
                     "exe": exe,
                     "is_steam": False,
                     "is_non_steam": True,
-                    "icon_url": "",
+                    "icon_url": _resolve_non_steam_grid_cover(config_dir, app_id, icon_path),
                 })
     return list(games.values())
 

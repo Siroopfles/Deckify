@@ -401,7 +401,8 @@ describe("DeckifyOverlay Component", () => {
       const { getTree, rerender } = render({
         track: { name: "Grace Song" },
         isPlaying: true,
-        autoHide: false,
+        autoHide: true,
+        autoHideDurationMs: 10000,
         visible: true,
       });
 
@@ -431,7 +432,8 @@ describe("DeckifyOverlay Component", () => {
       const { getTree, rerender } = render({
         track: { name: "Resume Song" },
         isPlaying: true,
-        autoHide: false,
+        autoHide: true,
+        autoHideDurationMs: 10000,
         visible: true,
       });
 
@@ -443,6 +445,20 @@ describe("DeckifyOverlay Component", () => {
       // Resume playback
       rerender({ isPlaying: true });
       vi.advanceTimersByTime(2000); // would have exceeded 3500ms if not cancelled
+      expect(getTree().props.style.opacity).toBe(1);
+    });
+
+    it("keeps overlay visible when autoHide={false} even after isPlaying transitions to false and 4000ms elapses", () => {
+      const { getTree, rerender } = render({
+        track: { name: "Permanent Song" },
+        isPlaying: true,
+        autoHide: false,
+        visible: true,
+      });
+
+      expect(getTree().props.style.opacity).toBe(1);
+      rerender({ isPlaying: false });
+      vi.advanceTimersByTime(4000);
       expect(getTree().props.style.opacity).toBe(1);
     });
   });

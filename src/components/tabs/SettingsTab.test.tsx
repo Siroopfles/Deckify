@@ -161,31 +161,40 @@ describe("SettingsTab - Smooth Audio Ducking Engine UI (Phase 06)", () => {
     expect(fullText).toContain("Game Audio Ducking");
   });
 
-  it("renders interactive duration pills for Fade Down (0.5s, 1.0s, 1.5s, 2.0s)", () => {
+  it("renders SliderFields for Fade Down Speed, Fade Up Speed, and Attenuation Percentage", () => {
     const tree = SettingsTab({
       status: mockStatus,
       refreshStatus,
       showToast,
     });
 
-    const fullText = findText(tree);
-    expect(fullText).toContain("Fade Down Speed");
-    expect(fullText).toContain("0.5s");
-    expect(fullText).toContain("1s");
-    expect(fullText).toContain("1.5s");
-    expect(fullText).toContain("2s");
+    const sliders = findNodes(tree, (n) => n.type === SliderField || n.type === "SliderField");
+    const attenSlider = sliders.find((n) => n.props?.label === "Attenuation Percentage");
+    const fadeDownSlider = sliders.find((n) => n.props?.label === "Fade Down Speed (s)");
+    const fadeUpSlider = sliders.find((n) => n.props?.label === "Fade Up Speed (s)");
+    expect(attenSlider?.props).toMatchObject({ min: 10, max: 90, step: 5, showValue: true, value: 50 });
+    expect(fadeDownSlider?.props).toMatchObject({ min: 0.5, max: 3.0, step: 0.1, showValue: true, value: 1.0 });
+    expect(fadeUpSlider?.props).toMatchObject({ min: 0.5, max: 3.0, step: 0.1, showValue: true, value: 1.5 });
   });
 
-  it("renders interactive duration pills for Fade Up (1.0s, 1.5s, 2.0s, 3.0s)", () => {
+  it("renders Fixed Target Volume (%) SliderField when ducking_mode is fixed", () => {
+    const fixedStatus: StatusResponse = {
+      ...mockStatus,
+      settings: {
+        ...mockStatus.settings!,
+        ducking_mode: "fixed",
+        auto_ducking_volume: 30,
+      },
+    };
     const tree = SettingsTab({
-      status: mockStatus,
+      status: fixedStatus,
       refreshStatus,
       showToast,
     });
 
-    const fullText = findText(tree);
-    expect(fullText).toContain("Fade Up Speed");
-    expect(fullText).toContain("3s");
+    const sliders = findNodes(tree, (n) => n.type === SliderField || n.type === "SliderField");
+    const fixedSlider = sliders.find((n) => n.props?.label === "Fixed Target Volume (%)");
+    expect(fixedSlider?.props).toMatchObject({ min: 0, max: 100, step: 5, showValue: true, value: 30 });
   });
 
   it("renders Attenuation Mode options (Proportional vs Fixed Level)", () => {
@@ -201,7 +210,7 @@ describe("SettingsTab - Smooth Audio Ducking Engine UI (Phase 06)", () => {
     expect(fullText).toContain("Fixed Level (25%)");
   });
 
-  it("renders Voice Chat Ducking toggle and Silence Hold Delay pills", () => {
+  it("renders Voice Chat Ducking toggle and Silence Hold Delay SliderField", () => {
     const tree = SettingsTab({
       status: mockStatus,
       refreshStatus,
@@ -210,33 +219,34 @@ describe("SettingsTab - Smooth Audio Ducking Engine UI (Phase 06)", () => {
 
     const fullText = findText(tree);
     expect(fullText).toContain("Voice Chat Ducking (Discord / Steam Voice)");
-    expect(fullText).toContain("Silence Hold Delay (Speech Hysteresis)");
-    expect(fullText).toContain("0.8s");
-    expect(fullText).toContain("1.2s");
-    expect(fullText).toContain("1.6s");
-    expect(fullText).toContain("2s");
+    const sliders = findNodes(tree, (n) => n.type === SliderField || n.type === "SliderField");
+    const holdSlider = sliders.find((n) => n.props?.label === "Silence Hold Delay (s)");
+    expect(holdSlider?.props).toMatchObject({ min: 0.5, max: 3.0, step: 0.1, showValue: true, value: 1.2 });
   });
 
-  it("invokes backendSetSetting with selected duration when clicking a Fade Down pill", async () => {
+  it("invokes backendSetSetting when changing Fade Down Speed, Fade Up Speed, and Silence Hold Delay sliders", async () => {
     const tree = SettingsTab({
       status: mockStatus,
       refreshStatus,
       showToast,
     });
 
-    // Find interactive rows in tree
-    const clickableRows = findNodes(tree, (n) => typeof n.props?.onClick === "function");
-    // Find the one for 0.5s
-    const pill05 = clickableRows.find((n) => findText(n).trim() === "0.5s");
-    expect(pill05).toBeDefined();
+    const sliders = findNodes(tree, (n) => n.type === SliderField || n.type === "SliderField");
+    const fadeDownSlider = sliders.find((n) => n.props?.label === "Fade Down Speed (s)");
+    const fadeUpSlider = sliders.find((n) => n.props?.label === "Fade Up Speed (s)");
+    const holdSlider = sliders.find((n) => n.props?.label === "Silence Hold Delay (s)");
 
-    await pill05.props.onClick();
+    await fadeDownSlider.props.onChange(0.5);
     expect(mockSetSetting).toHaveBeenCalledWith("duck_fade_down_duration", 0.5);
-    expect(showToast).toHaveBeenCalledWith("Fade down: 0.5s");
-    expect(refreshStatus).toHaveBeenCalled();
+
+    await fadeUpSlider.props.onChange(2.5);
+    expect(mockSetSetting).toHaveBeenCalledWith("duck_fade_up_duration", 2.5);
+
+    await holdSlider.props.onChange(1.6);
+    expect(mockSetSetting).toHaveBeenCalledWith("voice_ducking_hold_delay", 1.6);
   });
 
-  it("invokes backendSetSetting with selected duration when clicking a Fade Up pill", async () => {
+  it("renders Notification Sound toggle and persists toast_sound_enabled", async () => {
     const tree = SettingsTab({
       status: mockStatus,
       refreshStatus,
@@ -244,13 +254,12 @@ describe("SettingsTab - Smooth Audio Ducking Engine UI (Phase 06)", () => {
     });
 
     const clickableRows = findNodes(tree, (n) => typeof n.props?.onClick === "function");
-    const pill30 = clickableRows.find((n) => findText(n).trim() === "3s");
-    expect(pill30).toBeDefined();
+    const soundRow = clickableRows.find((n) => findText(n).includes("Notification Sound"));
+    expect(soundRow).toBeDefined();
 
-    await pill30.props.onClick();
-    expect(mockSetSetting).toHaveBeenCalledWith("duck_fade_up_duration", 3.0);
-    expect(showToast).toHaveBeenCalledWith("Fade up: 3s");
-    expect(refreshStatus).toHaveBeenCalled();
+    await soundRow.props.onClick();
+    expect(mockSetSetting).toHaveBeenCalledWith("toast_sound_enabled", true);
+    expect(showToast).toHaveBeenCalledWith("Notification sound enabled");
   });
 
   it("invokes backendSetSetting with ducking_mode when selecting Fixed Level", async () => {
@@ -267,22 +276,6 @@ describe("SettingsTab - Smooth Audio Ducking Engine UI (Phase 06)", () => {
     await fixedPill.props.onClick();
     expect(mockSetSetting).toHaveBeenCalledWith("ducking_mode", "fixed");
     expect(showToast).toHaveBeenCalledWith("Ducking mode: Fixed Level (25%)");
-  });
-
-  it("invokes backendSetSetting with voice_ducking_hold_delay when selecting hold delay", async () => {
-    const tree = SettingsTab({
-      status: mockStatus,
-      refreshStatus,
-      showToast,
-    });
-
-    const clickableRows = findNodes(tree, (n) => typeof n.props?.onClick === "function");
-    const holdPill = clickableRows.find((n) => findText(n).trim() === "1.6s");
-    expect(holdPill).toBeDefined();
-
-    await holdPill.props.onClick();
-    expect(mockSetSetting).toHaveBeenCalledWith("voice_ducking_hold_delay", 1.6);
-    expect(showToast).toHaveBeenCalledWith("Hold delay: 1.6s");
   });
 
   it("hides ducking options when Game Audio Ducking is disabled", () => {
