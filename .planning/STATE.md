@@ -1,38 +1,37 @@
 ---
 gsd_state_version: "1.0"
 milestone: v0.5
-current_phase: 12
-status: completed
+milestone_name: In-Game Flow & Music Discovery
+status: Awaiting next milestone
 stopped_at: Phase 12 complete — all phases complete
-last_updated: "2026-11-15T20:23:08.169Z"
+last_updated: "2026-11-15T20:42:54.009Z"
 last_activity: 2026-11-15
-last_activity_desc: Phase 12 complete
-state_head: 54dd4e4eb0c93c0a62679979028048bd47cd78ac
+last_activity_desc: Milestone v0.5 completed and archived
+state_head: beb25f756d54713f8633c55c4804be8025266c36
 progress:
   total_phases: 8
-  completed_phases: 6
+  completed_phases: 8
   total_plans: 22
   completed_plans: 22
-  percent: 75
+  percent: 100
+current_phase: 12
 ---
 
 # Project State
 
 ## Project Reference
 
-See: [.planning/PROJECT.md](file:///C:/Users/djdje/Deckify/.planning/PROJECT.md) (updated 2026-11-12)
+See: [.planning/PROJECT.md](file:///C:/Users/djdje/Deckify/.planning/PROJECT.md) (updated 2026-11-15)
 
 **Core value:** Rock-solid Spotify playback and responsive, reliable controller navigation on Steam Deck without UI lag, broken images, or desynchronized playback states.
-**Current focus:** Phase 12 — Resolve open todos & polish
+**Current focus:** Planning next milestone
 
 ## Current Position
 
-Phase: 12
-Plan: Not started
-Status: All phases complete
-Last activity: 2026-11-15 — Phase 12 complete
-
-Progress: [████████░░] 75% (Phase 06 complete, Phase 07 planned)
+Phase: Milestone v0.5 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-11-15 — Milestone v0.5 completed and archived
 
 ## Performance Metrics
 
@@ -152,3 +151,7 @@ Items acknowledged and deferred at milestone close, most recent first:
 Last session: 2026-11-15T20:19:57.478Z
 Stopped at: Phase 12 complete — all phases complete
 Resume file: None
+
+## Operator Next Steps
+
+- Start the next milestone with /gsd-new-milestone

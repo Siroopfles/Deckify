@@ -1,7 +1,7 @@
 {
   "contract": "1.0.0",
   "flavor": "core",
-  "milestone": "v0.5",
+  "milestone": "v0.5 — In-Game Flow & Music Discovery",
   "phases": [
     {
       "number": "6",
@@ -35,9 +35,9 @@
     }
   ],
   "next": {
-    "command": "/gsd-new-milestone",
-    "label": "Start a new milestone",
-    "reason": "All phases complete — start a new milestone"
+    "command": "/gsd-progress",
+    "label": "Show progress",
+    "reason": "Unsure of state — showing progress"
   },
-  "updated_at": "2026-11-15T20:23:08.294Z"
+  "updated_at": "2026-11-15T20:42:54.099Z"
 }
