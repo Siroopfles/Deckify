@@ -9,6 +9,7 @@ const mockGetDevices = vi.fn().mockResolvedValue({ ok: true, devices: [] });
 const mockGetDuckingState = vi.fn().mockResolvedValue({ is_ducked: false, effective_volume: 50, base_volume: 50, duck_reasons: [] });
 const mockQuickPlayPinned = vi.fn().mockResolvedValue({ ok: true });
 const mockGetLyrics = vi.fn().mockResolvedValue({ ok: true, synced_lyrics: "[00:01.00]Hello world" });
+const mockSetSetting = vi.fn().mockResolvedValue({ ok: true });
 const mockToasterToast = vi.fn();
 
 let capturedPluginFactory: (() => any) | null = null;
@@ -23,6 +24,7 @@ vi.mock("@decky/api", () => ({
     if (name === "get_ducking_state") return (...args: any[]) => mockGetDuckingState(...args);
     if (name === "quick_play_pinned") return (...args: any[]) => mockQuickPlayPinned(...args);
     if (name === "get_lyrics") return (...args: any[]) => mockGetLyrics(...args);
+    if (name === "set_setting") return (...args: any[]) => mockSetSetting(...args);
     return vi.fn().mockResolvedValue({ ok: true });
   },
   addEventListener: vi.fn(() => vi.fn()),
@@ -515,6 +517,53 @@ describe("src/index.tsx DeckifyOverlayWrapper Phase 10 Gating & Modal Suppressio
     const modalEl = (showModal as any).mock.calls[0][0];
     modalEl.props.closeModal();
     expect(renderWrapper().props.visible).toBe(true);
+
+    plugin.onDismount?.();
+  });
+
+  it("renders Overlay Lyrics ToggleField in QAM when overlay_enabled is true and persists overlay_lyrics_enabled", async () => {
+    await import("./index");
+    const plugin = capturedPluginFactory!();
+    const renderContent = () => {
+      hookIdx = 0;
+      return plugin.content.type({});
+    };
+
+    renderContent();
+    const settingsIdx = hookValues.findIndex(
+      (v) => v && typeof v === "object" && "audio_backend" in v
+    );
+    expect(settingsIdx).toBeGreaterThanOrEqual(0);
+    hookValues[settingsIdx] = {
+      ...hookValues[settingsIdx],
+      overlay_enabled: true,
+      overlay_lyrics_enabled: false,
+      overlay_autohide_duration_s: 10,
+    };
+
+    const nodes = flattenNodes(renderContent());
+    const autoHideToggle = nodes.find(
+      (n) => n.type === "ToggleField" && n.props?.label === "Auto-Hide Overlay (10s)"
+    );
+    const overlayLyricsToggle = nodes.find(
+      (n) => n.type === "ToggleField" && n.props?.label === "Overlay Lyrics"
+    );
+    expect(autoHideToggle).toBeDefined();
+    expect(overlayLyricsToggle).toBeDefined();
+    expect(overlayLyricsToggle.props.checked).toBe(false);
+
+    // QAM must stay compact (no duration or latency sliders)
+    const sliders = nodes.filter((n) => n.type === "SliderField");
+    expect(
+      sliders.some(
+        (s) =>
+          s.props?.label === "Auto-Hide Duration (Seconds)" ||
+          s.props?.label === "Lyrics Latency Offset (ms)"
+      )
+    ).toBe(false);
+
+    await overlayLyricsToggle.props.onChange(true);
+    expect(mockSetSetting).toHaveBeenCalledWith("overlay_lyrics_enabled", true);
 
     plugin.onDismount?.();
   });
