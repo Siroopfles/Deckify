@@ -552,3 +552,25 @@ class PluginApiTests(unittest.IsolatedAsyncioTestCase):
         self.execute.return_value = {"authenticated": True, "running": True}
         cdp_status = await self.plugin.get_spotify_client_auth_status()
         self.assertTrue(cdp_status["authenticated"])
+
+    async def test_get_status_exposes_phase10_and_phase08_public_settings(self):
+        self.plugin._settings.update({
+            "overlay_lyrics_enabled": True,
+            "overlay_lyrics_offset_ms": -400,
+            "overlay_autohide_duration_s": 11,
+            "trigger_nav_enabled": False,
+            "trigger_seek_seconds": 20,
+            "trigger_page_size": 25,
+            "show_controller_hints": False,
+            "_internal_secret": "do-not-leak",
+        })
+        res = await self.plugin.get_status()
+        settings = res["settings"]
+        self.assertEqual(settings["overlay_lyrics_enabled"], True)
+        self.assertEqual(settings["overlay_lyrics_offset_ms"], -400)
+        self.assertEqual(settings["overlay_autohide_duration_s"], 11)
+        self.assertEqual(settings["trigger_nav_enabled"], False)
+        self.assertEqual(settings["trigger_seek_seconds"], 20)
+        self.assertEqual(settings["trigger_page_size"], 25)
+        self.assertEqual(settings["show_controller_hints"], False)
+        self.assertNotIn("_internal_secret", settings)
