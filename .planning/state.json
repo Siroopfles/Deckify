@@ -26,7 +26,7 @@
     {
       "number": "10",
       "name": "In-Game HUD Overlay 2.0 (Live Synced Lyrics)",
-      "status": "pending"
+      "status": "in_progress"
     },
     {
       "number": "11",
@@ -36,8 +36,8 @@
   ],
   "next": {
     "command": "/gsd-progress --next",
-    "label": "Advance to the next step (plan phase 10)",
-    "reason": "Phase 5 of 6 — needs a plan"
+    "label": "Advance to the next step",
+    "reason": "Phase 5 of 6 · executing"
   },
-  "updated_at": "2026-11-14T23:43:20.705Z"
+  "updated_at": "2026-11-15T10:19:22.256Z"
 }

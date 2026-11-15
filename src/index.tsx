@@ -509,59 +509,77 @@ const Content: FC = () => {
         />
       </PanelSectionRow>
 
-      {settings.overlay_enabled && (
-        <>
-          <PanelSectionRow>
-            <DropdownItem
-              label="Overlay Position"
-              rgOptions={[
-                { data: "top-left", label: "Top Left" },
-                { data: "top-right", label: "Top Right" },
-                { data: "bottom-left", label: "Bottom Left" },
-                { data: "bottom-right", label: "Bottom Right" },
-              ]}
-              selectedOption={settings.overlay_position || "top-right"}
-              onChange={async (opt) => {
-                setSettings((prev) => ({
-                  ...prev,
-                  overlay_position: opt.data,
-                }));
-                await backendSetSetting("overlay_position", opt.data);
-              }}
-            />
-          </PanelSectionRow>
+      {settings.overlay_enabled && (() => {
+        const autoHideSec = settings.overlay_autohide_duration_s ?? 6;
+        return (
+          <>
+            <PanelSectionRow>
+              <DropdownItem
+                label="Overlay Position"
+                rgOptions={[
+                  { data: "top-left", label: "Top Left" },
+                  { data: "top-right", label: "Top Right" },
+                  { data: "bottom-left", label: "Bottom Left" },
+                  { data: "bottom-right", label: "Bottom Right" },
+                ]}
+                selectedOption={settings.overlay_position || "top-right"}
+                onChange={async (opt) => {
+                  setSettings((prev) => ({
+                    ...prev,
+                    overlay_position: opt.data,
+                  }));
+                  await backendSetSetting("overlay_position", opt.data);
+                }}
+              />
+            </PanelSectionRow>
 
-          <PanelSectionRow>
-            <ToggleField
-              label="Auto-Hide Overlay (6s)"
-              description="Fades out 6s after track starts or resumes"
-              checked={Boolean(settings.overlay_autohide)}
-              onChange={async (val) => {
-                setSettings((prev) => ({
-                  ...prev,
-                  overlay_autohide: val,
-                }));
-                await backendSetSetting("overlay_autohide", val);
-              }}
-            />
-          </PanelSectionRow>
+            <PanelSectionRow>
+              <ToggleField
+                label={`Auto-Hide Overlay (${autoHideSec}s)`}
+                description={`Fades out ${autoHideSec}s after track starts or resumes`}
+                checked={Boolean(settings.overlay_autohide)}
+                onChange={async (val) => {
+                  setSettings((prev) => ({
+                    ...prev,
+                    overlay_autohide: val,
+                  }));
+                  await backendSetSetting("overlay_autohide", val);
+                }}
+              />
+            </PanelSectionRow>
 
-          <PanelSectionRow>
-            <ToggleField
-              label="Show Progress Bar"
-              description="2px progress line at bottom of overlay"
-              checked={Boolean(settings.overlay_show_progress)}
-              onChange={async (val) => {
-                setSettings((prev) => ({
-                  ...prev,
-                  overlay_show_progress: val,
-                }));
-                await backendSetSetting("overlay_show_progress", val);
-              }}
-            />
-          </PanelSectionRow>
-        </>
-      )}
+            <PanelSectionRow>
+              <ToggleField
+                label="Show Progress Bar"
+                description="2px progress line at bottom of overlay"
+                checked={Boolean(settings.overlay_show_progress)}
+                onChange={async (val) => {
+                  setSettings((prev) => ({
+                    ...prev,
+                    overlay_show_progress: val,
+                  }));
+                  await backendSetSetting("overlay_show_progress", val);
+                }}
+              />
+            </PanelSectionRow>
+
+            <PanelSectionRow>
+              <ToggleField
+                label="Overlay Lyrics"
+                description="Show live synced lyric line in HUD"
+                checked={Boolean(settings.overlay_lyrics_enabled)}
+                onChange={async (val) => {
+                  setSettings((prev) => ({
+                    ...prev,
+                    overlay_lyrics_enabled: val,
+                  }));
+                  await backendSetSetting("overlay_lyrics_enabled", val);
+                }}
+              />
+            </PanelSectionRow>
+          </>
+        );
+      })()}
     </>
   );
 

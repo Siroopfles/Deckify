@@ -624,14 +624,17 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
             <InteractiveRow
               onClick={async () => {
                 const cur = status?.settings?.overlay_autohide || false;
+                const autoHideSec = status?.settings?.overlay_autohide_duration_s ?? 6;
                 await backendSetSetting("overlay_autohide", !cur);
-                showToast(!cur ? "Auto-hide enabled (6s)" : "Auto-hide disabled (Permanent)");
+                showToast(!cur ? `Auto-hide enabled (${autoHideSec}s)` : "Auto-hide disabled (Permanent)");
                 refreshStatus();
               }}
               active={status?.settings?.overlay_autohide}
               style={{ justifyContent: "space-between", marginTop: 10 }}
             >
-              <span style={{ fontSize: 13, fontWeight: 600 }}>Auto-Hide Overlay (6s)</span>
+              <span style={{ fontSize: 13, fontWeight: 600 }}>
+                Auto-Hide Overlay ({status?.settings?.overlay_autohide_duration_s ?? 6}s)
+              </span>
               <span style={{ fontSize: 12, fontWeight: 700, color: status?.settings?.overlay_autohide ? "#1db954" : "#888" }}>
                 {status?.settings?.overlay_autohide ? "ON" : "OFF"}
               </span>
@@ -653,6 +656,53 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
                 {status?.settings?.overlay_show_progress ? "ON" : "OFF"}
               </span>
             </InteractiveRow>
+
+            {/* Overlay Lyrics Toggle */}
+            <InteractiveRow
+              onClick={async () => {
+                const cur = status?.settings?.overlay_lyrics_enabled || false;
+                await backendSetSetting("overlay_lyrics_enabled", !cur);
+                showToast(!cur ? "Overlay lyrics enabled" : "Overlay lyrics disabled");
+                refreshStatus();
+              }}
+              active={status?.settings?.overlay_lyrics_enabled}
+              style={{ justifyContent: "space-between", marginTop: 8, marginBottom: 8 }}
+            >
+              <span style={{ fontSize: 13, fontWeight: 600 }}>Overlay Lyrics</span>
+              <span style={{ fontSize: 12, fontWeight: 700, color: status?.settings?.overlay_lyrics_enabled ? "#1db954" : "#888" }}>
+                {status?.settings?.overlay_lyrics_enabled ? "ON" : "OFF"}
+              </span>
+            </InteractiveRow>
+
+            {/* Auto-Hide Duration Slider */}
+            <SliderField
+              label="Auto-Hide Duration (Seconds)"
+              min={3}
+              max={15}
+              step={1}
+              showValue
+              value={status?.settings?.overlay_autohide_duration_s ?? 6}
+              onChange={async (val: number) => {
+                const clamped = Math.min(15, Math.max(3, val));
+                await backendSetSetting("overlay_autohide_duration_s", clamped);
+                refreshStatus();
+              }}
+            />
+
+            {/* Lyrics Latency Offset Slider */}
+            <SliderField
+              label="Lyrics Latency Offset (ms)"
+              min={-2000}
+              max={2000}
+              step={100}
+              showValue
+              value={status?.settings?.overlay_lyrics_offset_ms ?? 0}
+              onChange={async (val: number) => {
+                const clamped = Math.min(2000, Math.max(-2000, val));
+                await backendSetSetting("overlay_lyrics_offset_ms", clamped);
+                refreshStatus();
+              }}
+            />
           </>
         )}
       </div>
