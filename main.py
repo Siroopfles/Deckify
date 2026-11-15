@@ -578,8 +578,18 @@ class Plugin:
             value = bool(value)
             if not value and hasattr(self, "_volume_fader") and self._volume_fader:
                 asyncio.create_task(self._volume_fader.set_ducking(False, reason="game"))
-        elif key in ("normalisation", "gapless", "autoplay", "bit_perfect_clock", "overlay_enabled", "toast_enabled", "gamepad_chords_enabled", "overlay_autohide", "overlay_show_progress", "voice_ducking_enabled"):
+        elif key in ("normalisation", "gapless", "autoplay", "bit_perfect_clock", "overlay_enabled", "toast_enabled", "gamepad_chords_enabled", "overlay_autohide", "overlay_show_progress", "overlay_lyrics_enabled", "voice_ducking_enabled"):
             value = bool(value)
+        elif key == "overlay_lyrics_offset_ms":
+            try:
+                value = max(-2000, min(2000, int(value)))
+            except (TypeError, ValueError):
+                return {"ok": False, "error": "overlay_lyrics_offset_ms must be an integer between -2000 and 2000"}
+        elif key == "overlay_autohide_duration_s":
+            try:
+                value = max(3, min(15, int(value)))
+            except (TypeError, ValueError):
+                return {"ok": False, "error": "overlay_autohide_duration_s must be an integer between 3 and 15"}
         elif key in ("duck_fade_down_duration", "duck_fade_up_duration", "voice_ducking_hold_delay"):
             try:
                 value = max(0.5, min(3.0, float(value)))

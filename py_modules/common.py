@@ -102,6 +102,9 @@ DEFAULT_SETTINGS = {
     "overlay_position": "top-right",
     "overlay_autohide": False,
     "overlay_show_progress": False,
+    "overlay_lyrics_enabled": False,
+    "overlay_lyrics_offset_ms": 0,
+    "overlay_autohide_duration_s": 6,
     "eq_preset": "flat",
     "trigger_nav_enabled": True,
     "trigger_seek_seconds": 10,
@@ -223,6 +226,16 @@ def _load_settings(settings_file: str | None = None) -> dict:
             merged["overlay_autohide"] = bool(merged.get("overlay_autohide", False))
         if not isinstance(merged.get("overlay_show_progress"), bool):
             merged["overlay_show_progress"] = bool(merged.get("overlay_show_progress", False))
+        if not isinstance(merged.get("overlay_lyrics_enabled"), bool):
+            merged["overlay_lyrics_enabled"] = bool(merged.get("overlay_lyrics_enabled", False))
+        try:
+            merged["overlay_lyrics_offset_ms"] = max(-2000, min(2000, int(merged.get("overlay_lyrics_offset_ms", 0))))
+        except (TypeError, ValueError):
+            merged["overlay_lyrics_offset_ms"] = 0
+        try:
+            merged["overlay_autohide_duration_s"] = max(3, min(15, int(merged.get("overlay_autohide_duration_s", 6))))
+        except (TypeError, ValueError):
+            merged["overlay_autohide_duration_s"] = 6
         if merged.get("eq_preset") not in ("flat", "bass", "vocal", "gaming"):
             merged["eq_preset"] = "flat"
         if not isinstance(merged.get("auto_ducking"), bool):

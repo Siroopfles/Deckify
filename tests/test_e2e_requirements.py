@@ -1813,5 +1813,73 @@ class TestTier4RealWorldScenarios(unittest.IsolatedAsyncioTestCase):
         self.plugin.play_tracks.assert_not_awaited()
 
 
+class TestPhase10OverlaySettings(unittest.IsolatedAsyncioTestCase):
+    """Phase 10: Overlay synced lyrics and autohide duration settings persistence and clamping."""
+
+    async def asyncSetUp(self):
+        self.plugin = main.Plugin()
+        self.plugin._settings = dict(common.DEFAULT_SETTINGS)
+        self.save = self.enterContext(patch.object(main, "_save_settings"))
+        self.emit = self.enterContext(patch.object(main.decky, "emit", new_callable=AsyncMock))
+
+    def test_default_settings_include_overlay_lyrics_keys(self):
+        self.assertIs(common.DEFAULT_SETTINGS["overlay_lyrics_enabled"], False)
+        self.assertEqual(common.DEFAULT_SETTINGS["overlay_lyrics_offset_ms"], 0)
+        self.assertEqual(common.DEFAULT_SETTINGS["overlay_autohide_duration_s"], 6)
+
+    def test_load_settings_clamps_and_sanitizes_overlay_keys(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings_path = os.path.join(tmpdir, "settings.json")
+            with open(settings_path, "w", encoding="utf-8") as f:
+                json.dump(
+                    {
+                        "overlay_lyrics_enabled": 1,
+                        "overlay_lyrics_offset_ms": 9999,
+                        "overlay_autohide_duration_s": 1,
+                    },
+                    f,
+                )
+            with patch.object(common, "SETTINGS_FILE", settings_path):
+                loaded = common._load_settings()
+            self.assertIs(loaded["overlay_lyrics_enabled"], True)
+            self.assertEqual(loaded["overlay_lyrics_offset_ms"], 2000)
+            self.assertEqual(loaded["overlay_autohide_duration_s"], 3)
+
+            with open(settings_path, "w", encoding="utf-8") as f:
+                json.dump(
+                    {
+                        "overlay_lyrics_offset_ms": "not-a-number",
+                        "overlay_autohide_duration_s": None,
+                    },
+                    f,
+                )
+            with patch.object(common, "SETTINGS_FILE", settings_path):
+                loaded_bad = common._load_settings()
+            self.assertEqual(loaded_bad["overlay_lyrics_offset_ms"], 0)
+            self.assertEqual(loaded_bad["overlay_autohide_duration_s"], 6)
+
+    async def test_set_setting_overlay_lyrics_and_autohide_duration(self):
+        res_bool = await self.plugin.set_setting("overlay_lyrics_enabled", True)
+        self.assertTrue(res_bool["ok"])
+        self.assertIs(res_bool["settings"]["overlay_lyrics_enabled"], True)
+        self.emit.assert_awaited_with("settings_changed", dict(self.plugin._settings))
+
+        res_offset = await self.plugin.set_setting("overlay_lyrics_offset_ms", -5000)
+        self.assertTrue(res_offset["ok"])
+        self.assertEqual(res_offset["settings"]["overlay_lyrics_offset_ms"], -2000)
+
+        res_dur = await self.plugin.set_setting("overlay_autohide_duration_s", 25)
+        self.assertTrue(res_dur["ok"])
+        self.assertEqual(res_dur["settings"]["overlay_autohide_duration_s"], 15)
+
+        bad_offset = await self.plugin.set_setting("overlay_lyrics_offset_ms", "invalid")
+        self.assertFalse(bad_offset["ok"])
+        self.assertIn("error", bad_offset)
+
+        bad_dur = await self.plugin.set_setting("overlay_autohide_duration_s", "invalid")
+        self.assertFalse(bad_dur["ok"])
+        self.assertIn("error", bad_dur)
+
+
 if __name__ == "__main__":
     unittest.main()
