@@ -194,10 +194,10 @@ Phases execute in numeric order: 6 → 7 → 8 → 9 → 10 → 11
 **Goal:** Resolve all 20 pending todos and archive the 3 resolved debug sessions across playlist/playback reliability, notifications/ducking/HUD/Non-Steam covers, and sidebar/Now Playing/podcasts/recent UX so the codebase and `.planning/` state are clean for v0.5 completion.
 **Requirements**: DUCK-01, DUCK-02, SOUND-01, CTRL-01, CTRL-02, QAM-01, HUD-03
 **Depends on:** Phase 11
-**Plans:** 3 plans
+**Plans:** 1/3 plans executed
 
 Plans:
-- [ ] 12-01-PLAN.md — Playlist & playback reliability (`get_playlist_tracks` fallback, `Enable Mix` ID passing, `play_tracks` engine wake + context/offset) & archive 3 resolved debug sessions + 9 todos
+- [x] 12-01-PLAN.md — Playlist & playback reliability (`get_playlist_tracks` fallback, `Enable Mix` ID passing, `play_tracks` engine wake + context/offset) & archive 3 resolved debug sessions + 9 todos
 - [ ] 12-02-PLAN.md — Notification sound toggle & 48x48 base64 cover crop, HUD `autoHide === false` guard, ducking attenuation/duration `SliderField`s, Non-Steam local grid covers & archive 6 todos
 - [ ] 12-03-PLAN.md — Sidebar `Back to Steam` navigation & focusable Now Playing card, `NowPlayingTab` Add to Playlist button, `PodcastsTab` 20-episode metadata, `RecentTab` discrete track-change refresh, archive 5 todos & full verification suite
 
