@@ -125,9 +125,9 @@ SPOTIFY_SCOPES = (
     "user-read-currently-playing user-read-playback-state user-modify-playback-state "
     "playlist-read-private playlist-read-collaborative playlist-modify-public "
     "playlist-modify-private user-library-read user-library-modify "
-    "user-follow-read user-read-recently-played"
+    "user-follow-read user-read-recently-played user-top-read"
 )
-CURRENT_SCOPES_VERSION = 6
+CURRENT_SCOPES_VERSION = 7
 OAUTH_SERVER_PORT = 39281
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
 MAX_PINNED_PLAYLISTS = 4

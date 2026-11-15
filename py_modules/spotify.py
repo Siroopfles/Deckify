@@ -4,6 +4,7 @@ import json
 import os
 import re
 import threading
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -13,6 +14,29 @@ from py_modules.common import CACHE_DIR, SPOTIFY_API_BASE, SPOTIFY_CDP_PORT, _AP
 LYRICS_CACHE_DIR = os.path.join(CACHE_DIR, "lyrics")
 
 
+class SpotifyRateLimitError(RuntimeError):
+    """Raised when Spotify API returns HTTP 429 or the rate-limit circuit breaker is open."""
+
+    def __init__(self, message: str, retry_after: float = 5.0):
+        super().__init__(message)
+        self.retry_after = float(retry_after)
+
+
+_BREAKER_LOCK = threading.Lock()
+_BREAKER_FAILURES: int = 0
+_BREAKER_OPEN_UNTIL: float = 0.0
+_BREAKER_BASE_SECONDS: float = 5.0
+_BREAKER_MAX_SECONDS: float = 300.0
+
+
+def _reset_rate_limit_breaker() -> None:
+    """Reset the global HTTP 429 circuit breaker state."""
+    global _BREAKER_FAILURES, _BREAKER_OPEN_UNTIL
+    with _BREAKER_LOCK:
+        _BREAKER_FAILURES = 0
+        _BREAKER_OPEN_UNTIL = 0.0
+
+
 def _spotify_api_request(
     endpoint: str,
     token: str,
@@ -20,6 +44,16 @@ def _spotify_api_request(
     params: dict | None = None,
     body: dict | None = None,
 ) -> dict | None:
+    global _BREAKER_FAILURES, _BREAKER_OPEN_UNTIL
+    with _BREAKER_LOCK:
+        now = time.monotonic()
+        if now < _BREAKER_OPEN_UNTIL:
+            remaining = max(0.1, _BREAKER_OPEN_UNTIL - now)
+            raise SpotifyRateLimitError(
+                f"Rate limit circuit breaker open ({remaining:.1f}s remaining)",
+                retry_after=remaining,
+            )
+
     url = f"{SPOTIFY_API_BASE}/{endpoint}"
     if params:
         url = f"{url}?{urllib.parse.urlencode(params)}"
@@ -31,6 +65,9 @@ def _spotify_api_request(
     req = urllib.request.Request(url, data=data, headers=headers, method=method)
     try:
         with urllib.request.urlopen(req, timeout=10, context=_API_SSL_CTX) as resp:
+            with _BREAKER_LOCK:
+                _BREAKER_FAILURES = 0
+                _BREAKER_OPEN_UNTIL = 0.0
             if resp.status == 204:
                 return None
             raw = resp.read()
@@ -42,8 +79,20 @@ def _spotify_api_request(
                 return None
     except urllib.error.HTTPError as e:
         if e.code == 429:
-            retry_after = int(e.headers.get("Retry-After", 1))
-            time.sleep(min(retry_after, 2))
+            raw_retry = e.headers.get("Retry-After", 1) if e.headers else 1
+            try:
+                retry_after = max(0.0, float(raw_retry))
+            except (TypeError, ValueError):
+                retry_after = 1.0
+            with _BREAKER_LOCK:
+                _BREAKER_FAILURES += 1
+                exp_backoff = _BREAKER_BASE_SECONDS * (2 ** min(_BREAKER_FAILURES - 1, 6))
+                cooldown = min(_BREAKER_MAX_SECONDS, max(retry_after, exp_backoff))
+                _BREAKER_OPEN_UNTIL = time.monotonic() + cooldown
+            raise SpotifyRateLimitError(
+                f"Spotify API rate limited (retry after {cooldown:.1f}s)",
+                retry_after=cooldown,
+            ) from e
         raise
 
 
