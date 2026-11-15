@@ -196,6 +196,41 @@ describe("src/index.tsx GameSessions AppLifetime & QAM Pinned Playlists", () => 
     plugin.onDismount?.();
   });
 
+  it("delays backendTriggerDucking(false, 'game') for 3000ms on game exit and cancels if relaunched", async () => {
+    vi.useFakeTimers();
+    try {
+      await import("./index");
+      const plugin = capturedPluginFactory!();
+      const lifecycleCb = mockRegisterForAppLifetime.mock.calls[0][0];
+
+      await lifecycleCb({ unAppID: 440, bRunning: true });
+      mockHandleAppLifetimeEvent.mockClear();
+      mockTriggerDucking.mockClear();
+
+      await lifecycleCb({ unAppID: 440, bRunning: false });
+      expect(mockHandleAppLifetimeEvent).toHaveBeenCalledWith(440, false);
+      expect(mockTriggerDucking).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(2999);
+      expect(mockTriggerDucking).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(mockTriggerDucking).toHaveBeenCalledWith(false, "game");
+
+      mockTriggerDucking.mockClear();
+      await lifecycleCb({ unAppID: 440, bRunning: true });
+      await lifecycleCb({ unAppID: 440, bRunning: false });
+      await vi.advanceTimersByTimeAsync(1500);
+      await lifecycleCb({ unAppID: 440, bRunning: true });
+      await vi.advanceTimersByTimeAsync(3000);
+      expect(mockTriggerDucking).not.toHaveBeenCalled();
+
+      plugin.onDismount?.();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("hides pinned pills strip when 0 items are pinned", async () => {
     await import("./index");
     const plugin = capturedPluginFactory!();

@@ -326,6 +326,15 @@ class TestPluginRpc(unittest.IsolatedAsyncioTestCase):
         await self.plugin.handle_app_lifetime_event(77, True)
         self.plugin.trigger_ducking.assert_not_called()
 
+    async def test_lifecycle_exit_does_not_immediately_unduck(self):
+        mgr = self.plugin._get_soundtrack_manager()
+        mgr.handle_app_lifecycle = AsyncMock()
+        self.plugin.trigger_ducking = AsyncMock(return_value={"ok": True})
+        res = await self.plugin.handle_app_lifetime_event(77, False)
+        self.assertEqual(res, {"ok": True, "app_id": 77, "running": False})
+        mgr.handle_app_lifecycle.assert_awaited_once_with(77, False)
+        self.plugin.trigger_ducking.assert_not_called()
+
     async def test_manual_pause_hooked_in_control_playback(self):
         mgr = self.plugin._get_soundtrack_manager()
         mgr._active_game_app_id = 5
