@@ -32,8 +32,8 @@
 
 ### Home & Discovery Hub
 - [ ] **DISC-01**: User can navigate to a dedicated "Discovery" / "Made For You" tab in the expanded modal to browse personalized Spotify recommendations.
-- [ ] **DISC-02**: User can browse and play their Top Tracks, Top Artists (short/medium/long term), personalized algorithmic mixes (Discover Weekly, Release Radar), and New Releases.
-- [ ] **DISC-03**: Discovery feed requests are cached with an in-memory TTL and protected by an HTTP 429 rate-limit circuit breaker.
+- [x] **DISC-02**: User can browse and play their Top Tracks, Top Artists (short/medium/long term), personalized algorithmic mixes (Discover Weekly, Release Radar), and New Releases.
+- [x] **DISC-03**: Discovery feed requests are cached with an in-memory TTL and protected by an HTTP 429 rate-limit circuit breaker.
 
 ---
 
@@ -71,8 +71,8 @@
 | HUD-03 | Phase 10 | Complete |
 | HUD-04 | Phase 10 | Complete |
 | DISC-01 | Phase 11 | Pending |
-| DISC-02 | Phase 11 | Pending |
-| DISC-03 | Phase 11 | Pending |
+| DISC-02 | Phase 11 | Complete |
+| DISC-03 | Phase 11 | Complete |
 
 **Coverage:**
 - v0.5 requirements: 15 total

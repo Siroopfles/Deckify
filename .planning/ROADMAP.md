@@ -162,11 +162,11 @@ Plans:
   2. Discovery tab displays curated carousels for user Top Tracks, Top Artists (with short/medium/long-term filters), Discover Weekly, Release Radar, and New Releases.
   3. Selecting any track or mix in the Discovery tab starts immediate playback or drills down into the album/playlist view.
   4. Backend Spotify client handles HTTP 429 rate limits gracefully with an exponential backoff circuit breaker and caches discovery feeds for 1–6 hours in memory to ensure snappy navigation.
-**Plans**: 2 plans
+**Plans**: 1/2 plans executed
 
 Plans:
 **Wave 1**
-- [ ] 11-01-PLAN.md — Harden `py_modules/spotify.py` with HTTP 429 circuit breaker, bump `CURRENT_SCOPES_VERSION = 7` (`user-top-read`), and implement TTL-cached `get_discovery_feed` in `py_modules/rpc_library.py` & `main.py`
+- [x] 11-01-PLAN.md — Harden `py_modules/spotify.py` with HTTP 429 circuit breaker, bump `CURRENT_SCOPES_VERSION = 7` (`user-top-read`), and implement TTL-cached `get_discovery_feed` in `py_modules/rpc_library.py` & `main.py`
 
 **Wave 2** *(blocked on Wave 1 completion)*
 - [ ] 11-02-PLAN.md — Register `discovery` tab in `src/types.ts` & `Sidebar.tsx`, build `DiscoveryTab.tsx` with 4 horizontal carousels & time-range pills, and wire idle landing + `A`/`Y` actions in `DeckifyExpandedModal.tsx`
@@ -185,7 +185,7 @@ Phases execute in numeric order: 6 → 7 → 8 → 9 → 10 → 11
 | 8. Controller L2/R2 Ergonomics & Trigger Navigation | v0.5 | 5/5 | Complete    | 2026-11-14 |
 | 9. QAM Pinned Playlists & Quick In-Game Switch | v0.5 | 3/3 | Complete    | 2026-11-15 |
 | 10. In-Game HUD Overlay 2.0 (Live Synced Lyrics) | v0.5 | 3/3 | Complete    | 2026-11-15 |
-| 11. Home & Discovery Hub Tab | v0.5 | 0/2 | Not started | - |
+| 11. Home & Discovery Hub Tab | v0.5 | 1/2 | In Progress | - |
 
 ---
 
