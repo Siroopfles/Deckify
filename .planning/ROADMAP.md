@@ -142,8 +142,11 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 10-01: Implement discrete timestamp-based lyric line scheduler in frontend with fixed-height lyric presentation and cross-fade opacity.
-- [ ] 10-02: Wire overlay lyrics toggle and latency offset calibration into Quick Access Menu and settings.
+**Wave 1**
+- [ ] 10-01-PLAN.md — Implement discrete `setTimeout` synced lyric scheduler, fixed-height cross-fade row, modal-open suppression, strict autohide + configurable duration, and backend settings persistence/clamping
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [ ] 10-02-PLAN.md — Wire QAM Overlay Lyrics toggle, SettingsTab Auto-Hide Duration & Latency Offset sliders, and clickable LyricsTab source pills
 
 ### Phase 11: Home & Discovery Hub Tab
 **Goal**: Provide a dedicated Discovery tab in the expanded modal for exploring personalized Spotify recommendations, algorithmic mixes, and top music.  
