@@ -10,6 +10,7 @@ const mockGetDuckingState = vi.fn().mockResolvedValue({ is_ducked: false, effect
 const mockQuickPlayPinned = vi.fn().mockResolvedValue({ ok: true });
 const mockGetLyrics = vi.fn().mockResolvedValue({ ok: true, synced_lyrics: "[00:01.00]Hello world" });
 const mockSetSetting = vi.fn().mockResolvedValue({ ok: true });
+const mockGetImage = vi.fn().mockResolvedValue({ ok: true, data_url: "data:image/jpeg;base64,MOCKCOVER" });
 const mockToasterToast = vi.fn();
 
 let capturedPluginFactory: (() => any) | null = null;
@@ -25,6 +26,7 @@ vi.mock("@decky/api", () => ({
     if (name === "quick_play_pinned") return (...args: any[]) => mockQuickPlayPinned(...args);
     if (name === "get_lyrics") return (...args: any[]) => mockGetLyrics(...args);
     if (name === "set_setting") return (...args: any[]) => mockSetSetting(...args);
+    if (name === "get_image") return (...args: any[]) => mockGetImage(...args);
     return vi.fn().mockResolvedValue({ ok: true });
   },
   addEventListener: vi.fn(() => vi.fn()),
@@ -646,6 +648,43 @@ describe("src/index.tsx DeckifyOverlayWrapper Phase 10 Gating & Modal Suppressio
     await Promise.resolve();
 
     expect(renderWrapper().props.lyricsEnabled).toBe(true);
+
+    plugin.onDismount?.();
+  });
+
+  it("proxies track_metadata toast cover via get_image at 48x48 and respects toast_sound_enabled", async () => {
+    mockToasterToast.mockClear();
+    mockGetImage.mockClear();
+    await import("./index");
+    const { addEventListener } = await import("@decky/api");
+    const plugin = capturedPluginFactory!();
+
+    const trackMetaCall = (addEventListener as any).mock.calls.find(
+      (c: any[]) => c[0] === "track_metadata"
+    );
+    expect(trackMetaCall).toBeDefined();
+    const trackMetaHandler = trackMetaCall[1];
+
+    mockGetStatus.mockResolvedValue({
+      settings: { toast_enabled: true, toast_sound_enabled: true },
+    });
+    await trackMetaHandler({
+      track_id: "trk-toast-1",
+      name: "Toast Song",
+      artist: "Toast Artist",
+      artwork_url: "https://i.scdn.co/image/abc123",
+    });
+
+    expect(mockGetImage).toHaveBeenCalledWith("https://i.scdn.co/image/abc123");
+    expect(mockToasterToast).toHaveBeenCalledTimes(1);
+    const toastArg = mockToasterToast.mock.calls[0][0];
+    expect(toastArg.sound).toBe(1);
+    expect(toastArg.playSound).toBe(true);
+    expect(toastArg.logo.type).toBe("img");
+    expect(toastArg.logo.props.src).toBe("data:image/jpeg;base64,MOCKCOVER");
+    expect(toastArg.logo.props.width).toBe(48);
+    expect(toastArg.logo.props.height).toBe(48);
+    expect(toastArg.logo.props.style).toMatchObject({ width: 48, height: 48, objectFit: "cover" });
 
     plugin.onDismount?.();
   });
