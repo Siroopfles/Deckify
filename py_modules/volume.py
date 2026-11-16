@@ -94,12 +94,19 @@ async def boost_pa_volume(plugin):
             fader._target_sink_volume = 150.0
 
 
-async def apply_equalizer_preset(plugin, preset: str) -> None:
-    """Persist and emit equalizer preset change."""
+async def apply_equalizer_preset(plugin, preset: str) -> dict:
+    """Apply, persist, and emit equalizer preset change."""
     decky.logger.info("Applying EQ preset: %s", preset)
+    eq_mgr = getattr(plugin, "_equalizer_manager", None)
+    res: dict = {"ok": True, "preset": preset}
+    if eq_mgr is not None:
+        res = await eq_mgr.apply_preset(preset)
+        if isinstance(res, dict) and res.get("ok") is False:
+            return res
     plugin._settings["eq_preset"] = preset
     _save_settings(plugin._settings)
     await decky.emit("eq_preset_changed", {"preset": preset})
+    return res if isinstance(res, dict) else {"ok": True, "preset": preset}
 
 
 async def configure_pipewire_clock(unlock_lossless: bool) -> None:
@@ -139,12 +146,18 @@ async def get_audio_sinks() -> dict:
         return {"ok": False, "error": str(e)}
 
 
-async def set_audio_sink(sink_name: str) -> dict:
-    """Switch active sink input to specified sink name."""
-    if not sink_name or not isinstance(sink_name, str):
-        return {"ok": False, "error": "Missing sink_name"}
+async def set_audio_sink(sink_name: str, plugin=None) -> dict:
+    """Switch active sink input to specified sink name (EQ-isolated when EQ is active)."""
+    if not sink_name or not isinstance(sink_name, str) or not sink_name.strip() or sink_name.strip().startswith("-"):
+        return {"ok": False, "error": "Invalid sink_name"}
+    target = sink_name.strip()
     try:
-        ok = await _exec(_set_pactl_sink_input, sink_name.strip(), timeout=4)
+        eq_mgr = getattr(plugin, "_equalizer_manager", None) if plugin is not None else None
+        if eq_mgr is not None:
+            if eq_mgr.is_active:
+                return await eq_mgr.on_sink_changed(target)
+            eq_mgr._target_hardware_sink = target
+        ok = await _exec(_set_pactl_sink_input, target, timeout=4)
         return {"ok": ok}
     except Exception as e:
         return {"ok": False, "error": str(e)}

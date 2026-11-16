@@ -127,10 +127,29 @@ def _get_pactl_sinks() -> list[dict]:
         return []
 
 
-_SPOTIFY_SINK_ALLOWLIST = ("librespot", "spotify", "com.spotify.client", "deckify_eq_out")
+_SPOTIFY_SINK_ALLOWLIST = ("librespot", "spotify", "com.spotify.client", "deckify_eq_out", "effect_output.deckify_eq")
+_EQ_OUTPUT_TOKENS = ("deckify_eq_out", "effect_output.deckify_eq")
 
 
-def resolve_spotify_sink_input_ids(stdout: str, pids: set[str] | None = None) -> list[str]:
+def _is_eq_output_block(low: str) -> bool:
+    return any(
+        (
+            "application.name" in line
+            or "media.name" in line
+            or "node.name" in line
+            or "application.process.binary" in line
+        )
+        and any(tok in line for tok in _EQ_OUTPUT_TOKENS)
+        for line in low.splitlines()
+    )
+
+
+def resolve_spotify_sink_input_ids(
+    stdout: str,
+    pids: set[str] | None = None,
+    include_eq_output: bool = True,
+    eq_output_only: bool = False,
+) -> list[str]:
     """Resolve active Spotify/Deckify sink-input IDs with strict deny-list and allowlist filtering."""
     if not stdout:
         return []
@@ -164,13 +183,18 @@ def resolve_spotify_sink_input_ids(stdout: str, pids: set[str] | None = None) ->
             for line in low.splitlines()
         ):
             continue
+        is_eq_out = _is_eq_output_block(low)
+        if eq_output_only and not is_eq_out:
+            continue
+        if not include_eq_output and is_eq_out:
+            continue
         filtered_blocks.append((sink_id, block, low))
 
     matched: list[str] = []
     seen: set[str] = set()
 
-    # Pass 1: exact PID priority
-    if pids:
+    # Pass 1: exact PID priority (skipped when targeting eq_output_only)
+    if pids and not eq_output_only:
         for sink_id, block, _ in filtered_blocks:
             if any(f'"{p}"' in block for p in pids if p):
                 if sink_id not in seen:
@@ -195,7 +219,12 @@ def resolve_spotify_sink_input_ids(stdout: str, pids: set[str] | None = None) ->
     return matched
 
 
-def _set_pactl_sink_input(target_sink: str, pids: set[str] | None = None) -> bool:
+def _set_pactl_sink_input(
+    target_sink: str,
+    pids: set[str] | None = None,
+    include_eq_output: bool = True,
+    eq_output_only: bool = False,
+) -> bool:
     """Move active Spotify/Deckify sink inputs to target_sink without touching Steam UI or game audio."""
     if not isinstance(target_sink, str) or not target_sink.strip() or target_sink.strip().startswith("-"):
         return False
@@ -211,7 +240,12 @@ def _set_pactl_sink_input(target_sink: str, pids: set[str] | None = None) -> boo
         )
         if proc.returncode != 0:
             return False
-        ids = resolve_spotify_sink_input_ids(proc.stdout, pids)
+        ids = resolve_spotify_sink_input_ids(
+            proc.stdout,
+            pids,
+            include_eq_output=include_eq_output,
+            eq_output_only=eq_output_only,
+        )
         if not ids:
             decky.logger.debug("No matching Spotify/Deckify sink-inputs found for target %s", target)
             return False

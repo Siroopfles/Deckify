@@ -18,7 +18,7 @@ with patch.dict(
         )
     },
 ):
-    from py_modules import common, equalizer
+    from py_modules import common, engine, equalizer, volume
 
 
 class TestEqualizerHelpers(unittest.TestCase):
@@ -236,6 +236,102 @@ class TestEqualizerManager(unittest.IsolatedAsyncioTestCase):
             self.assertIn("error", res)
             self.assertIsNone(self.mgr._process)
             mock_route.assert_awaited()
+
+
+class TestSinkIsolationAndVolumeEQ(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        self.mock_plugin = SimpleNamespace(
+            _process=SimpleNamespace(pid=12345),
+            _spotify_client_process=None,
+            _settings=dict(common.DEFAULT_SETTINGS),
+        )
+
+    def test_resolve_spotify_sink_input_ids_isolation_modes(self):
+        pactl_out = (
+            "Sink Input #11\n"
+            '    application.process.id = "99999"\n'
+            '    application.name = "steamwebhelper"\n'
+            "Sink Input #12\n"
+            '    application.process.id = "12345"\n'
+            '    application.name = "Chromium"\n'
+            "Sink Input #21\n"
+            '    application.process.id = "12345"\n'
+            '    application.name = "librespot"\n'
+            "Sink Input #22\n"
+            '    application.process.id = "55555"\n'
+            '    node.name = "effect_output.deckify_eq"\n'
+            '    media.name = "deckify_eq_out"\n'
+        )
+        # Default: both librespot and eq_out, never steamwebhelper/Chromium
+        self.assertEqual(engine.resolve_spotify_sink_input_ids(pactl_out, {"12345"}), ["21", "22"])
+        # librespot-only (include_eq_output=False)
+        self.assertEqual(
+            engine.resolve_spotify_sink_input_ids(pactl_out, {"12345"}, include_eq_output=False),
+            ["21"],
+        )
+        # eq_output_only=True
+        self.assertEqual(
+            engine.resolve_spotify_sink_input_ids(pactl_out, {"12345"}, eq_output_only=True),
+            ["22"],
+        )
+
+    def test_set_pactl_sink_input_rejects_flag_or_empty(self):
+        self.assertFalse(engine._set_pactl_sink_input("-bad-sink"))
+        self.assertFalse(engine._set_pactl_sink_input("   "))
+
+    async def test_volume_set_audio_sink_eq_active_vs_flat(self):
+        eq_mgr = equalizer.EqualizerManager(self.mock_plugin)
+        eq_mgr._process = MagicMock()
+        eq_mgr._process.poll.return_value = None
+        self.mock_plugin._equalizer_manager = eq_mgr
+
+        pactl_out = (
+            "Sink Input #21\n"
+            '    application.process.id = "12345"\n'
+            '    application.name = "librespot"\n'
+            "Sink Input #22\n"
+            '    application.process.id = "55555"\n'
+            '    node.name = "effect_output.deckify_eq"\n'
+            '    media.name = "deckify_eq_out"\n'
+        )
+        moved: list[tuple[str, str]] = []
+
+        def fake_run(cmd, **kwargs):
+            joined = " ".join(cmd)
+            if "pactl list sink-inputs" in joined:
+                return SimpleNamespace(returncode=0, stdout=pactl_out, stderr="")
+            if "pactl move-sink-input" in joined:
+                moved.append((cmd[-2], cmd[-1]))
+                return SimpleNamespace(returncode=0, stdout="", stderr="")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        with patch("subprocess.run", side_effect=fake_run):
+            res = await volume.set_audio_sink("hdmi_sink", plugin=self.mock_plugin)
+            self.assertTrue(res["ok"])
+            self.assertIn(("21", "deckify_eq_sink"), moved)
+            self.assertIn(("22", "hdmi_sink"), moved)
+            self.assertNotIn(("21", "hdmi_sink"), moved)
+
+            # Now flat / inactive EQ
+            moved.clear()
+            eq_mgr._process = None
+            res_flat = await volume.set_audio_sink("alsa_sink", plugin=self.mock_plugin)
+            self.assertTrue(res_flat["ok"])
+            self.assertIn(("21", "alsa_sink"), moved)
+
+    async def test_apply_equalizer_preset_delegates_persists_and_emits(self):
+        eq_mgr = MagicMock()
+        eq_mgr.apply_preset = AsyncMock(return_value={"ok": True, "preset": "vocal", "bypassed": False})
+        self.mock_plugin._equalizer_manager = eq_mgr
+
+        with patch.object(volume, "_save_settings") as mock_save, \
+             patch.object(volume.decky, "emit", new_callable=AsyncMock) as mock_emit:
+            res = await volume.apply_equalizer_preset(self.mock_plugin, "vocal")
+            self.assertTrue(res["ok"])
+            eq_mgr.apply_preset.assert_awaited_once_with("vocal")
+            self.assertEqual(self.mock_plugin._settings["eq_preset"], "vocal")
+            mock_save.assert_called_once()
+            mock_emit.assert_awaited_once_with("eq_preset_changed", {"preset": "vocal"})
 
 
 if __name__ == "__main__":
