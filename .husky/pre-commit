@@ -1,10 +1,19 @@
-STAGED_NON_PLANNING=$(git diff --cached --name-only | grep -v '^\.planning/' || true)
-if [ -z "$STAGED_NON_PLANNING" ]; then
+STAGED_FILES=$(git diff --cached --name-only || true)
+
+if [ -z "$STAGED_FILES" ]; then
   exit 0
 fi
 
-pnpm exec lint-staged
-pnpm run typecheck
-pnpm test
-pnpm run build
-python3 -m unittest discover -s tests -p "test_*.py" 2>/dev/null || python -m unittest discover -s tests -p "test_*.py" 2>/dev/null || py -m unittest discover -s tests -p "test_*.py"
+HAS_FRONTEND=$(printf '%s\n' "$STAGED_FILES" | grep -E '^(src/|package\.json$|pnpm-lock\.yaml$|tsconfig\.json$|eslint\.config\.js$|rollup\.config\.js$)' || true)
+HAS_PYTHON=$(printf '%s\n' "$STAGED_FILES" | grep -E '^(main\.py$|py_modules/|tests/)' || true)
+
+if [ -n "$HAS_FRONTEND" ]; then
+  pnpm exec lint-staged
+  pnpm run typecheck
+  pnpm test
+  pnpm run build
+fi
+
+if [ -n "$HAS_PYTHON" ]; then
+  python3 -m unittest discover -s tests -p "test_*.py" 2>/dev/null || python -m unittest discover -s tests -p "test_*.py" 2>/dev/null || py -m unittest discover -s tests -p "test_*.py"
+fi
