@@ -56,10 +56,10 @@ class DeckifyFeatureTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(self.plugin._track_meta["is_liked"])
         self.execute.assert_awaited_once_with(
             main._spotify_api_request,
-            "me/tracks",
+            "me/library",
             "valid-token",
             "PUT",
-            {"ids": "track-123"},
+            {"uris": "spotify:track:track-123"},
         )
 
     async def test_lossless_only_allowed_for_spotify_client_and_clean_backend_switching(self):

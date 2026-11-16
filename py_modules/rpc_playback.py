@@ -5,6 +5,7 @@ from py_modules.common import (
     _exec,
     decky,
 )
+from py_modules.engine import _cdp_toggle_like_track
 from py_modules.images import _image_url
 from py_modules.spotify import (
     _spotify_api_request,
@@ -218,8 +219,8 @@ async def toggle_like_track(plugin, track_id: str = "", liked: bool | None = Non
     method = "PUT" if target_liked else "DELETE"
     try:
         await _exec(
-            _spotify_api_request, "me/tracks", token, method,
-            {"ids": target_id},
+            _spotify_api_request, "me/library", token, method,
+            {"uris": f"spotify:track:{target_id}"},
         )
         now = time.time()
         plugin._liked_cache[target_id] = (now, target_liked)
@@ -231,6 +232,34 @@ async def toggle_like_track(plugin, track_id: str = "", liked: bool | None = Non
         return {"ok": True, "track_id": target_id, "is_liked": target_liked}
     except urllib.error.HTTPError as e:
         if getattr(e, "code", None) == 403:
+            is_spotify_client = (
+                plugin._settings.get("audio_backend") == "spotify_client"
+                and bool(
+                    getattr(plugin, "_spotify_client_process", None)
+                    and plugin._spotify_client_process.poll() is None
+                )
+            )
+            if is_spotify_client:
+                try:
+                    cdp_res = await _exec(
+                        _cdp_toggle_like_track,
+                        f"spotify:track:{target_id}",
+                        target_liked,
+                    )
+                    if isinstance(cdp_res, dict) and cdp_res.get("ok"):
+                        plugin._liked_cache[target_id] = (time.time(), target_liked)
+                        if target_id == plugin._poll_track_id:
+                            plugin._is_liked = target_liked
+                            if plugin._track_meta:
+                                plugin._track_meta["is_liked"] = target_liked
+                                await decky.emit("track_metadata", plugin._track_meta)
+                        return {"ok": True, "track_id": target_id, "is_liked": target_liked}
+                except Exception as cdp_err:
+                    decky.logger.warning(
+                        "toggle_like_track(%s) CDP fallback failed: %s",
+                        target_id,
+                        cdp_err,
+                    )
             decky.logger.warning("toggle_like_track(%s) 403 Forbidden: %s", target_id, e)
             return {
                 "ok": False,

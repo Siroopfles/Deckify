@@ -315,6 +315,17 @@ class FinalCoverageTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("403 Forbidden", res["error"])
         self.assertIn("Re-authenticate in Settings", res["error"])
 
+        # When spotify_client is active and running, 403 invokes _cdp_toggle_like_track and fails if CDP fails
+        self.plugin._settings["audio_backend"] = "spotify_client"
+        proc = MagicMock()
+        proc.poll.return_value = None
+        self.plugin._spotify_client_process = proc
+        self.execute.side_effect = [err_403, {"ok": False, "error": "CDP unavailable"}]
+        res_cdp_fail = await self.plugin.toggle_like_track("spotify:track:other_id", liked=True)
+        self.assertFalse(res_cdp_fail["ok"])
+        self.assertIn("403 Forbidden", res_cdp_fail["error"])
+        self.assertEqual(self.execute.call_count, 3)
+
         err_500 = HTTPError("url", 500, "Server Error", {}, None)
         self.execute.side_effect = [err_500]
         res_500 = await self.plugin.toggle_like_track("spotify:track:other_id", liked=True)
