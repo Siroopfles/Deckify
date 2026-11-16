@@ -39,7 +39,7 @@
 
 ### 🚧 v0.6: Audio DSP, Docked Flow & System Resilience (Active)
 
-- [ ] **Phase 13: Like Button 403 Fix & Sink-Input Guardrails** - Migrate track liking to `/v1/me/library` with CDP fallback and isolate sink-input routing strictly to Deckify streams.
+- [x] **Phase 13: Like Button 403 Fix & Sink-Input Guardrails** - Migrate track liking to `/v1/me/library` with CDP fallback and isolate sink-input routing strictly to Deckify streams. (completed 2026-11-16)
 - [ ] **Phase 14: Gentle Sleep Timer Fade-Out** - Smoothly ramp playback volume to 0% over a configurable fade-out window before pausing and restoring baseline volume.
 - [ ] **Phase 15: Real PipeWire Biquad Equalizer** - Isolated `pipewire -c` `filter-chain` DSP equalizer with presets and live 5-band custom sliders.
 - [ ] **Phase 16: Automatic Docked Audio-Switching** - Automatic USB-DAC/HDMI sink hotplug switching for Deckify streams with `bit_perfect_clock` management.
@@ -57,7 +57,7 @@
   2. Batch liked-status checks handle playlists and queues of any size (>40 tracks) without exceeding Spotify's `/v1/me/library/contains` URI limit.
   3. When `spotify_client` is active and Web API returns 403, liking/unliking falls back cleanly to CDP `LibraryAPI`.
   4. Deckify sink-input routing and volume fader resolution only target `librespot`, `com.spotify.client`, or `deckify_eq_out` streams and never move or mute `steamwebhelper`, `Chromium`, or running game audio streams.
-**Plans:** 2/2 plans executed
+**Plans:** 2/2 plans complete
 
 Plans:
 **Wave 1**
@@ -125,7 +125,7 @@ Plans:
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 13. Like Button 403 Fix & Sink-Input Guardrails | v0.6 | 2/2 | In Progress | - |
+| 13. Like Button 403 Fix & Sink-Input Guardrails | v0.6 | 2/2 | Complete    | 2026-11-16 |
 | 14. Gentle Sleep Timer Fade-Out | v0.6 | 0/TBD | Not started | - |
 | 15. Real PipeWire Biquad Equalizer | v0.6 | 0/TBD | Not started | - |
 | 16. Automatic Docked Audio-Switching | v0.6 | 0/TBD | Not started | - |
