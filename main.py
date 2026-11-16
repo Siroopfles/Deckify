@@ -507,6 +507,7 @@ class Plugin:
             "duck_fade_down_duration", "duck_fade_up_duration", "ducking_mode",
             "ducking_proportional_pct", "voice_ducking_enabled", "voice_ducking_volume",
             "voice_ducking_hold_delay", "pinned_playlists",
+            "sleep_timer_fade_enabled", "sleep_timer_fade_duration",
         )
         return {
             "authenticated": bool(self._access_token),
@@ -583,8 +584,13 @@ class Plugin:
             value = bool(value)
             if not value and hasattr(self, "_volume_fader") and self._volume_fader:
                 asyncio.create_task(self._volume_fader.set_ducking(False, reason="game"))
-        elif key in ("normalisation", "gapless", "autoplay", "bit_perfect_clock", "overlay_enabled", "toast_enabled", "toast_sound_enabled", "gamepad_chords_enabled", "overlay_autohide", "overlay_show_progress", "overlay_lyrics_enabled", "voice_ducking_enabled"):
+        elif key in ("normalisation", "gapless", "autoplay", "bit_perfect_clock", "overlay_enabled", "toast_enabled", "toast_sound_enabled", "gamepad_chords_enabled", "overlay_autohide", "overlay_show_progress", "overlay_lyrics_enabled", "voice_ducking_enabled", "sleep_timer_fade_enabled"):
             value = bool(value)
+        elif key == "sleep_timer_fade_duration":
+            try:
+                value = max(5, min(120, int(value)))
+            except (TypeError, ValueError):
+                return {"ok": False, "error": "sleep_timer_fade_duration must be an integer between 5 and 120"}
         elif key == "overlay_lyrics_offset_ms":
             try:
                 value = max(-2000, min(2000, int(value)))

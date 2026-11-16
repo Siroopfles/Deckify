@@ -112,6 +112,8 @@ DEFAULT_SETTINGS = {
     "trigger_page_size": 15,
     "show_controller_hints": True,
     "pinned_playlists": [],
+    "sleep_timer_fade_enabled": True,
+    "sleep_timer_fade_duration": 30,
 }
 
 # PulseAudio socket for processes
@@ -265,6 +267,12 @@ def _load_settings(settings_file: str | None = None) -> dict:
             merged["voice_ducking_hold_delay"] = max(0.5, min(3.0, float(merged.get("voice_ducking_hold_delay", 1.2))))
         except (TypeError, ValueError):
             merged["voice_ducking_hold_delay"] = 1.2
+        if not isinstance(merged.get("sleep_timer_fade_enabled"), bool):
+            merged["sleep_timer_fade_enabled"] = bool(merged.get("sleep_timer_fade_enabled", True))
+        try:
+            merged["sleep_timer_fade_duration"] = max(5, min(120, int(merged.get("sleep_timer_fade_duration", 30))))
+        except (TypeError, ValueError):
+            merged["sleep_timer_fade_duration"] = 30
         merged["pinned_playlists"] = _sanitize_pinned_playlists(merged.get("pinned_playlists"))
         return merged
     except Exception:
