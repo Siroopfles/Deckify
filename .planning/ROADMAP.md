@@ -86,8 +86,15 @@ Plans:
   2. Enabling, switching, or disabling the equalizer never restarts system `pipewire` or interrupts active game audio or Steam UI sounds.
   3. User can select `Custom` and adjust 5-band frequency sliders (60Hz, 230Hz, 910Hz, 3.6kHz, 14kHz) in `SettingsTab` with live `pw-cli` updates and no audible crackle or subprocess spam.
   4. Selected EQ preset and custom band gains persist across plugin restarts and SteamOS reboots.
-**Plans**: TBD
+**Plans:** 2 plans
 **UI hint**: yes
+
+Plans:
+**Wave 1**
+- [ ] 15-01-PLAN.md — Backend `EqualizerManager` (`pipewire -c` 10-band biquad `filter-chain`, `pw-cli` ~75ms coalescing, `flat` bypass, sink isolation, and `main.py` RPCs)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [ ] 15-02-PLAN.md — Frontend 7-preset & 10-band ISO `SliderField` equalizer UI in `SettingsTab.tsx`, `src/types.ts`, and `SettingsTab.test.tsx`
 
 ### Phase 16: Automatic Docked Audio-Switching
 **Goal**: Connecting a designated external USB-DAC or HDMI sink automatically routes Deckify's audio stream with bit-perfect clock support and restores normal routing on undock.

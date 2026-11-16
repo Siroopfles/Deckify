@@ -2,18 +2,18 @@
 gsd_state_version: "1.0"
 milestone: v0.6
 milestone_name: Audio DSP, Docked Flow & System Resilience (Active)
-current_phase: 14
-current_phase_name: Gentle Sleep Timer Fade-Out
+current_phase: 15
+current_phase_name: Real PipeWire Biquad Equalizer
 status: executing
 stopped_at: Phase 15 context gathered
-last_updated: "2026-11-16T16:18:33.919Z"
+last_updated: "2026-11-16T16:30:52.904Z"
 last_activity: 2026-11-16
 last_activity_desc: Phase 13 complete, transitioned to Phase 14
-state_head: 4c5263c37b26ea3f57a816b55f3c8c15e2beadd5
+state_head: c522d9ef8ccbd4790f0565e4c970fb3f39041006
 progress:
   total_phases: 6
   completed_phases: 1
-  total_plans: 4
+  total_plans: 6
   completed_plans: 4
   percent: 17
 ---
@@ -29,7 +29,7 @@ See: [.planning/PROJECT.md](file:///C:/Users/djdje/Deckify/.planning/PROJECT.md)
 
 ## Current Position
 
-Phase: 14 (Gentle Sleep Timer Fade-Out) — READY TO EXECUTE
+Phase: 15 (Real PipeWire Biquad Equalizer) — READY TO EXECUTE
 Plan: Not started
 Status: Ready to execute
 Last activity: 2026-11-16 — Phase 13 complete, transitioned to Phase 14
