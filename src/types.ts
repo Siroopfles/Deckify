@@ -35,7 +35,14 @@ export const ALL_MODES: ViewMode[] = [
 ];
 
 export type LyricsSource = "Spotify" | "LRCLIB" | "NetEase" | "Musixmatch" | "Lyrics.ovh";
-export type EqualizerPreset = "flat" | "bass" | "vocal" | "gaming";
+export type EqualizerPreset =
+  | "flat"
+  | "bass"
+  | "vocal"
+  | "gaming"
+  | "deck_speakers"
+  | "late_night"
+  | "custom";
 
 export interface TrackMeta {
   track_id?: string;
@@ -179,6 +186,7 @@ export interface EngineSettings {
   overlay_lyrics_offset_ms?: number;
   overlay_autohide_duration_s?: number;
   eq_preset?: EqualizerPreset;
+  eq_custom_bands?: number[];
   spotify_client_installed?: boolean;
   duck_fade_down_duration?: number;
   duck_fade_up_duration?: number;
