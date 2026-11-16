@@ -60,7 +60,10 @@
 **Plans:** 2 plans
 
 Plans:
+**Wave 1**
 - [ ] 13-01-PLAN.md — Migrate track liking & batch checks to `/v1/me/library` with CDP `LibraryAPI` 403 fallback
+
+**Wave 2** *(blocked on Wave 1 completion)*
 - [ ] 13-02-PLAN.md — Centralize `resolve_spotify_sink_input_ids` allowlist/deny-list guardrails for `_set_pactl_sink_input` and `VolumeFader`
 
 ### Phase 14: Gentle Sleep Timer Fade-Out
