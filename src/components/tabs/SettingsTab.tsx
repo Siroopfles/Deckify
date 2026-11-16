@@ -386,7 +386,9 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
           Timer runs reliably in Python background even if Steam Deck goes into sleep/standby.
           {status?.sleep_timer?.active && (
             <b style={{ color: "#1db954", marginLeft: 6 }}>
-              Remaining: {Math.ceil((status.sleep_timer.remaining_seconds || 0) / 60)} min
+              {status.sleep_timer.fading
+                ? "Fading out..."
+                : `Remaining: ${Math.ceil((status.sleep_timer.remaining_seconds || 0) / 60)} min`}
             </b>
           )}
         </p>
@@ -446,6 +448,32 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
             {status?.sleep_timer?.shutdown_on_finish ? "ON" : "OFF"}
           </span>
         </InteractiveRow>
+
+        <div style={{ marginTop: 10 }}>
+          <ToggleField
+            label="Gentle Fade Out"
+            description="Smoothly fade playback volume to 0% before pausing"
+            checked={localSettings.sleep_timer_fade_enabled ?? status?.settings?.sleep_timer_fade_enabled ?? true}
+            onChange={async (val: boolean) => {
+              await updateSetting("sleep_timer_fade_enabled", val);
+              showToast(val ? "Gentle fade out enabled" : "Gentle fade out disabled");
+            }}
+          />
+          {(localSettings.sleep_timer_fade_enabled ?? status?.settings?.sleep_timer_fade_enabled ?? true) && (
+            <SliderField
+              label="Fade Out Duration (Seconds)"
+              min={5}
+              max={120}
+              step={5}
+              showValue
+              value={localSettings.sleep_timer_fade_duration ?? status?.settings?.sleep_timer_fade_duration ?? 30}
+              onChange={async (val: number) => {
+                const clamped = Math.min(120, Math.max(5, Math.round(val)));
+                await updateSetting("sleep_timer_fade_duration", clamped);
+              }}
+            />
+          )}
+        </div>
       </div>
 
       {/* Smooth Audio Ducking Engine */}
