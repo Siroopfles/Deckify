@@ -74,6 +74,7 @@ from py_modules.device import (
 )
 from py_modules import volume
 from py_modules import system
+from py_modules import equalizer
 from py_modules import rpc_playback
 from py_modules import rpc_library
 
