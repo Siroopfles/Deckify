@@ -15,6 +15,7 @@ from py_modules.engine import (
     _parse_pactl_sink_inputs,
     _get_pactl_sinks,
     _set_pactl_sink_input,
+    resolve_spotify_sink_input_ids,
 )
 from py_modules.spotify import (
     _spotify_api_request,
@@ -194,42 +195,8 @@ class VolumeFader:
             if getattr(self.plugin, "_spotify_client_process", None) and hasattr(self.plugin._spotify_client_process, "pid"):
                 pids.add(str(self.plugin._spotify_client_process.pid))
 
-            # Group into sink-input blocks: (sink_id, block_text)
-            blocks: list[tuple[str, str]] = []
-            curr_id: str | None = None
-            curr_lines: list[str] = []
-            for raw_line in res.stdout.splitlines():
-                line = raw_line.strip()
-                if line.startswith("Sink Input #"):
-                    if curr_id:
-                        blocks.append((curr_id, "\n".join(curr_lines)))
-                    parts = line.split("#")
-                    curr_id = parts[1].strip() if len(parts) > 1 and parts[1].strip().isdigit() else None
-                    curr_lines = []
-                elif curr_id:
-                    curr_lines.append(line)
-            if curr_id:
-                blocks.append((curr_id, "\n".join(curr_lines)))
-
-            # Filter out non-Spotify / system audio streams like Steam CEF UI (Chromium/steamwebhelper)
-            filtered_blocks = []
-            for sink_id, block in blocks:
-                low = block.lower()
-                if "steamwebhelper" in low or ("application.name" in low and "chromium" in low):
-                    continue
-                filtered_blocks.append((sink_id, block, low))
-
-            # Pass 1: exact PID match has priority across all candidate sink-input blocks
-            if pids:
-                for sink_id, block, _ in filtered_blocks:
-                    if any(f'"{p}"' in block for p in pids if p):
-                        return sink_id
-
-            # Pass 2: application / media name fallback if no PID matched
-            for sink_id, _, low in filtered_blocks:
-                for line in low.splitlines():
-                    if ("application.name" in line or "media.name" in line) and ("librespot" in line or "spotify" in line):
-                        return sink_id
+            ids = resolve_spotify_sink_input_ids(res.stdout, pids)
+            return ids[0] if ids else None
         except Exception as e:
             decky.logger.warning("Failed to resolve sink input ID: %s", e)
         return None

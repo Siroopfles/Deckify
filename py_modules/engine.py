@@ -7,7 +7,7 @@ import subprocess
 import urllib.parse
 import urllib.request
 
-from py_modules.common import SPOTIFY_CDP_PORT
+from py_modules.common import SPOTIFY_CDP_PORT, _build_deck_command, decky
 
 
 def _update_spotify_prefs_content(
@@ -127,29 +127,107 @@ def _get_pactl_sinks() -> list[dict]:
         return []
 
 
-def _set_pactl_sink_input(target_sink: str) -> bool:
-    """Move all active Spotify/librespot sink inputs to target_sink."""
+_SPOTIFY_SINK_ALLOWLIST = ("librespot", "spotify", "com.spotify.client", "deckify_eq_out")
+
+
+def resolve_spotify_sink_input_ids(stdout: str, pids: set[str] | None = None) -> list[str]:
+    """Resolve active Spotify/Deckify sink-input IDs with strict deny-list and allowlist filtering."""
+    if not stdout:
+        return []
+
+    blocks: list[tuple[str, str]] = []
+    curr_id: str | None = None
+    curr_lines: list[str] = []
+    for raw_line in stdout.splitlines():
+        line = raw_line.strip()
+        if line.startswith("Sink Input #"):
+            if curr_id is not None:
+                blocks.append((curr_id, "\n".join(curr_lines)))
+            parts = line.split("#", 1)
+            candidate = parts[1].strip() if len(parts) > 1 else ""
+            curr_id = candidate if candidate.isdigit() else None
+            curr_lines = []
+        elif curr_id is not None:
+            curr_lines.append(line)
+    if curr_id is not None:
+        blocks.append((curr_id, "\n".join(curr_lines)))
+
+    # Deny-list filter first: never match Steam UI (steamwebhelper / Chromium)
+    filtered_blocks: list[tuple[str, str, str]] = []
+    for sink_id, block in blocks:
+        low = block.lower()
+        if "steamwebhelper" in low:
+            continue
+        if any(
+            ("application.name" in line or "application.process.binary" in line)
+            and "chromium" in line
+            for line in low.splitlines()
+        ):
+            continue
+        filtered_blocks.append((sink_id, block, low))
+
+    matched: list[str] = []
+    seen: set[str] = set()
+
+    # Pass 1: exact PID priority
+    if pids:
+        for sink_id, block, _ in filtered_blocks:
+            if any(f'"{p}"' in block for p in pids if p):
+                if sink_id not in seen:
+                    seen.add(sink_id)
+                    matched.append(sink_id)
+
+    # Pass 2: allowlist fallback on remaining filtered blocks
+    for sink_id, _, low in filtered_blocks:
+        if sink_id in seen:
+            continue
+        for line in low.splitlines():
+            if (
+                "application.name" in line
+                or "media.name" in line
+                or "node.name" in line
+                or "application.process.binary" in line
+            ) and any(token in line for token in _SPOTIFY_SINK_ALLOWLIST):
+                seen.add(sink_id)
+                matched.append(sink_id)
+                break
+
+    return matched
+
+
+def _set_pactl_sink_input(target_sink: str, pids: set[str] | None = None) -> bool:
+    """Move active Spotify/Deckify sink inputs to target_sink without touching Steam UI or game audio."""
+    if not isinstance(target_sink, str) or not target_sink.strip() or target_sink.strip().startswith("-"):
+        return False
+    target = target_sink.strip()
     try:
+        cmd, env = _build_deck_command(["pactl", "list", "sink-inputs"])
         proc = subprocess.run(
-            ["pactl", "list", "short", "sink-inputs"],
+            cmd,
+            env=env,
             capture_output=True,
             text=True,
             timeout=3,
         )
         if proc.returncode != 0:
             return False
+        ids = resolve_spotify_sink_input_ids(proc.stdout, pids)
+        if not ids:
+            decky.logger.debug("No matching Spotify/Deckify sink-inputs found for target %s", target)
+            return False
         success = True
-        for line in proc.stdout.splitlines():
-            parts = line.strip().split("\t")
-            if parts:
-                input_id = parts[0]
-                m_proc = subprocess.run(
-                    ["pactl", "move-sink-input", input_id, target_sink],
-                    capture_output=True,
-                    timeout=3,
-                )
-                if m_proc.returncode != 0:
-                    success = False
+        for input_id in ids:
+            if not input_id.isdigit():
+                continue
+            move_cmd, move_env = _build_deck_command(["pactl", "move-sink-input", input_id, target])
+            m_proc = subprocess.run(
+                move_cmd,
+                env=move_env,
+                capture_output=True,
+                timeout=3,
+            )
+            if m_proc.returncode != 0:
+                success = False
         return success
     except Exception:
         return False
