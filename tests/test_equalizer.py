@@ -334,5 +334,84 @@ class TestSinkIsolationAndVolumeEQ(unittest.IsolatedAsyncioTestCase):
             mock_emit.assert_awaited_once_with("eq_preset_changed", {"preset": "vocal"})
 
 
+from test_token_refresh import main
+
+class TestMainEqualizerIntegration(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        self.plugin = main.Plugin()
+        self.plugin._token_refresh_lock = asyncio.Lock()
+        self.plugin._settings = dict(common.DEFAULT_SETTINGS)
+        self.plugin._equalizer_manager = MagicMock()
+        self.plugin._equalizer_manager.apply_preset = AsyncMock(return_value={"ok": True})
+        self.plugin._equalizer_manager.set_bands = AsyncMock(return_value={"ok": True, "preset": "custom", "bands": [0.0] * 10})
+        self.plugin._equalizer_manager.unload = AsyncMock()
+        self.plugin._equalizer_manager.on_librespot_started = AsyncMock(return_value=True)
+
+    async def test_set_setting_eq_preset_accepts_all_7_presets_and_rejects_unknown(self):
+        with patch.object(main, "_save_settings"), \
+             patch.object(main.volume, "_save_settings"), \
+             patch.object(main.decky, "emit", new_callable=AsyncMock):
+            for preset in ("flat", "bass", "vocal", "gaming", "deck_speakers", "late_night", "custom"):
+                res = await self.plugin.set_setting("eq_preset", preset)
+                self.assertTrue(res["ok"], f"Expected ok for preset {preset}, got {res}")
+
+            bad = await self.plugin.set_setting("eq_preset", "nonexistent")
+            self.assertFalse(bad["ok"])
+
+    async def test_set_eq_bands_validates_and_delegates(self):
+        bad_type = await self.plugin.set_eq_bands("not-a-list")
+        self.assertFalse(bad_type["ok"])
+        bad_len = await self.plugin.set_eq_bands([1.0, 2.0])
+        self.assertFalse(bad_len["ok"])
+        bad_elem = await self.plugin.set_eq_bands(["bad"] + [0.0] * 9)
+        self.assertFalse(bad_elem["ok"])
+
+        good = await self.plugin.set_eq_bands([15.0, -15.0] + [1.5] * 8)
+        self.assertTrue(good["ok"])
+        self.plugin._equalizer_manager.set_bands.assert_awaited_once_with([12.0, -12.0] + [1.5] * 8)
+
+    async def test_set_audio_sink_passes_plugin_self(self):
+        with patch.object(main.volume, "set_audio_sink", new_callable=AsyncMock, return_value={"ok": True}) as mock_sink:
+            res = await self.plugin.set_audio_sink("alsa_output.test")
+            self.assertTrue(res["ok"])
+            mock_sink.assert_awaited_once_with("alsa_output.test", plugin=self.plugin)
+
+    async def test_unload_and_start_librespot_lifecycle(self):
+        self.plugin._soundtrack_manager = MagicMock()
+        self.plugin._sleep_timer_task = None
+        self.plugin._suspend_monitor = None
+        self.plugin._voice_detector = None
+        self.plugin._volume_fader = None
+        with patch.object(self.plugin, "_stop_monitor", new_callable=AsyncMock), \
+             patch.object(self.plugin, "_kill_librespot", new_callable=AsyncMock), \
+             patch.object(self.plugin, "_kill_spotify_client", new_callable=AsyncMock), \
+             patch.object(self.plugin, "_stop_oauth_server", new_callable=AsyncMock), \
+             patch.object(self.plugin, "_stop_api_poll", new_callable=AsyncMock):
+            eq_mgr = self.plugin._equalizer_manager
+            await self.plugin._unload()
+            eq_mgr.unload.assert_awaited_once()
+            self.assertIsNone(self.plugin._equalizer_manager)
+
+        # Test start_librespot routes to EQ when eq_preset != "flat"
+        self.plugin._equalizer_manager = MagicMock()
+        self.plugin._equalizer_manager.on_librespot_started = AsyncMock(return_value=True)
+        self.plugin._settings["eq_preset"] = "bass"
+        fake_proc = MagicMock()
+        fake_proc.pid = 7777
+        fake_proc.poll.return_value = None
+        with patch.object(self.plugin, "_kill_spotify_client", new_callable=AsyncMock), \
+             patch.object(self.plugin, "_configure_pipewire_clock", new_callable=AsyncMock), \
+             patch.object(self.plugin, "_kill_stale_librespot"), \
+             patch("os.path.isfile", return_value=True), \
+             patch("os.makedirs"), \
+             patch("subprocess.Popen", return_value=fake_proc), \
+             patch.object(self.plugin, "_write_pid"), \
+             patch.object(self.plugin, "_start_monitor"), \
+             patch.object(main.decky, "emit", new_callable=AsyncMock):
+            res = await self.plugin.start_librespot()
+            self.assertTrue(res["ok"])
+            self.plugin._equalizer_manager.on_librespot_started.assert_awaited_once()
+
+
 if __name__ == "__main__":
     unittest.main()

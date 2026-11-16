@@ -39,6 +39,7 @@ from py_modules import common
 from py_modules.common import MAX_PINNED_PLAYLISTS, _sanitize_pinned_playlists
 from py_modules import volume
 from py_modules import system
+from py_modules import equalizer
 from py_modules import rpc_playback
 from py_modules import rpc_library
 from py_modules import soundtrack
@@ -148,15 +149,22 @@ class Plugin:
         self._voice_detector = volume.VoiceActivityDetector(self, self._volume_fader)
         self._voice_detector.start()
         self._soundtrack_manager = soundtrack.SoundtrackManager(self)
+        self._equalizer_manager = equalizer.EqualizerManager(self)
         if self._access_token:
             self._start_api_poll()
         await self._sync_native_spotify_folders()
         await self.start_librespot()
+        initial_eq = self._settings.get("eq_preset", "flat")
+        if initial_eq != "flat":
+            await self._equalizer_manager.apply_preset(initial_eq)
 
     async def _unload(self):
         decky.logger.info("Deckify unloading")
         if getattr(self, "_soundtrack_manager", None):
             self._soundtrack_manager.cancel_all()
+        if getattr(self, "_equalizer_manager", None):
+            await self._equalizer_manager.unload()
+            self._equalizer_manager = None
         if self._sleep_timer_task and not self._sleep_timer_task.done():
             self._sleep_timer_task.cancel()
             self._sleep_timer_task = None
@@ -474,6 +482,8 @@ class Plugin:
         self._pa_volume_boosted = False
         self._write_pid(self._process.pid)
         self._start_monitor()
+        if getattr(self, "_equalizer_manager", None) and self._settings.get("eq_preset", "flat") != "flat":
+            await self._equalizer_manager.on_librespot_started()
         await decky.emit("librespot_status", {"running": True, "error": None, "audio_backend": "librespot"})
         decky.logger.info("librespot started, pid=%d", self._process.pid)
         return {"ok": True, "pid": self._process.pid, "audio_backend": "librespot"}
@@ -640,10 +650,12 @@ class Plugin:
                 return {"ok": False, "error": "auto_ducking_volume must be an integer (0-100)"}
         elif key == "eq_preset":
             val = str(value).strip().lower()
-            if val not in ("flat", "bass", "vocal", "gaming"):
+            if val not in equalizer.EQ_PRESETS:
                 return {"ok": False, "error": f"Invalid eq_preset: {value}"}
             value = val
-            await self._apply_equalizer_preset(val)
+            res = await self._apply_equalizer_preset(val)
+            if isinstance(res, dict) and res.get("ok") is False:
+                return res
         elif key == "normalisation_pregain":
             try:
                 value = max(-10.0, min(10.0, float(value)))
@@ -866,8 +878,29 @@ class Plugin:
     async def _sleep_timer_worker(self):
         return await system.sleep_timer_worker(self)
 
-    async def _apply_equalizer_preset(self, preset: str) -> None:
-        await volume.apply_equalizer_preset(self, preset)
+    async def _apply_equalizer_preset(self, preset: str) -> dict:
+        return await volume.apply_equalizer_preset(self, preset)
+
+    async def set_eq_bands(self, bands: list[float]) -> dict:
+        """Update 10-band custom equalizer gains with live PipeWire updates."""
+        if not isinstance(bands, list) or len(bands) != 10:
+            return {"ok": False, "error": "bands must be a list of 10 numbers"}
+        validated: list[float] = []
+        for item in bands:
+            if isinstance(item, bool) or not isinstance(item, (int, float)):
+                return {"ok": False, "error": "All band gains must be numeric"}
+            val = float(item)
+            if val != val:
+                return {"ok": False, "error": "Band gain cannot be NaN"}
+            validated.append(round(max(-12.0, min(12.0, val)), 2))
+        try:
+            eq_mgr = getattr(self, "_equalizer_manager", None)
+            if eq_mgr is None:
+                return {"ok": False, "error": "EqualizerManager not initialized"}
+            return await eq_mgr.set_bands(validated)
+        except Exception as e:
+            decky.logger.error("Failed to set EQ bands: %s", e)
+            return {"ok": False, "error": str(e)}
 
     async def get_spotify_client_auth_status(self) -> dict:
         return await system.get_client_auth_status()
@@ -885,7 +918,7 @@ class Plugin:
         return await volume.get_audio_sinks()
 
     async def set_audio_sink(self, sink_name: str) -> dict:
-        return await volume.set_audio_sink(sink_name)
+        return await volume.set_audio_sink(sink_name, plugin=self)
 
     async def get_liked_tracks(self, offset: int = 0, fetch_all: bool = True) -> dict:
         return await rpc_library.get_liked_tracks(self, offset, fetch_all)
