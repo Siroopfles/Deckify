@@ -14,9 +14,8 @@ updated: 2026-11-16T14:16:55.457Z
 
 ### 1. Followed Playlist Loading & Continuous Playback (12-01)
 expected: Open a followed playlist (including from a folder or search) and click a track or Play. Tracks load properly, playback starts (waking stopped librespot if needed), and playback continues cleanly to the next track in the playlist.
-result: issue
-reported: "Nee werkt niet ik zie niks in de lijst staan van de playlist die ik volg. Maar het volgende nummer uit een playlist paky hij wel gelijk"
-severity: major
+result: pass
+notes: "Retested after CDP PlaylistAPI fallback (99e9006): followed playlists load and continuous playback works."
 
 ### 2. Enable Mix on Folder/Search Playlists (12-01)
 expected: Open a playlist from a folder or search and toggle Enable Mix. No missing-ID error occurs and mix toggles cleanly.
@@ -41,35 +40,16 @@ result: pass
 
 ### 7. Now Playing Quick Add, Podcasts & Recent Auto-Refresh (12-03)
 expected: In NowPlayingTab, clicking the quick Add to Playlist button opens TrackActionModal. In PodcastsTab, saved episodes render full rows without collapsing. In RecentTab, changing tracks refreshes Recently Played automatically.
-result: issue
-reported: "Now playing tab add to playlist button opens track action modal ja. Podscast tab renderd de meeste podcast gewoon goed bij followed maar niet bij saved ik heb daar maar 1tje tussen staan die goed laad de rest heeft allemaal 0:00 erbij staan. Recent tab werkt niet met de laatste nummers er tussen te zetten of te update realtime als een nummer net voorbij is. En als ik een nummer uit de lijst kies om aan te zetten pakt hij een hele andere dus dat loopt nog niet helemaal goed. Heb het idee dat dit alleen bij het eerste nummer uit de recently played lijstje gebeurt."
-severity: major
+result: pass
+notes: "Retested after UAT fixes (99e9006, 534c141): Saved episodes filter null Dev-Mode items + CDP Your Episodes fallback, RecentTab auto-refreshes and plays exact clicked track. Silent toast sound (TOAST-01) deferred to REQUIREMENTS.md backlog."
 
 ## Summary
 
 total: 7
-passed: 5
-issues: 2
+passed: 7
+issues: 0
 pending: 0
 skipped: 0
 blocked: 0
 
 ## Gaps
-
-- gap_id: G-12-1
-  truth: "Open a followed playlist (including from a folder or search) and click a track or Play. Tracks load properly, playback starts (waking stopped librespot if needed), and playback continues cleanly to the next track in the playlist."
-  status: failed
-  reason: "User reported: Nee werkt niet ik zie niks in de lijst staan van de playlist die ik volg. Maar het volgende nummer uit een playlist paky hij wel gelijk"
-  severity: major
-  test: 1
-  artifacts: []
-  missing: []
-
-- gap_id: G-12-7
-  truth: "In PodcastsTab, saved episodes render full rows with valid durations; in RecentTab, changing tracks refreshes Recently Played automatically and clicking a track plays that exact track."
-  status: failed
-  reason: "User reported: Saved episodes in PodcastsTab mostly show 0:00 (only 1 loads properly); RecentTab does not update in real time when a track finishes, and clicking a track (especially the first one) plays a completely different track."
-  severity: major
-  test: 7
-  artifacts: []
-  missing: []

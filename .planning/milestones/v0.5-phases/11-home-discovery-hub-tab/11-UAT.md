@@ -26,26 +26,16 @@ result: pass
 
 ### 4. Card Actions (A Play/Open & Y Action Menu)
 expected: Pressing A on a Top Track plays it, on a Top Artist opens artist detail, and on a Mix/Album opens its tracklist; pressing Y opens the Track or Collection action menu cleanly.
-result: issue
-reported: "New releases niet persoonlijk afgestemd (random nummers/afspeellijsten); Jump Back In opent een niet-gerelateerde eigen playlist of laadt 0 tracks; Top Tracks speelt een heel ander nummer af als je op een nummer drukt."
-severity: major
+result: pass
+notes: "Retested after UAT fixes (99e9006): Top Tracks, Jump Back In, and personalized New Releases verified. Dynamic Daylist / Release Radar / Discover Weekly added to REQUIREMENTS.md backlog (DISC-04)."
 
 ## Summary
 
 total: 4
-passed: 3
-issues: 1
+passed: 4
+issues: 0
 pending: 0
 skipped: 0
 blocked: 0
 
 ## Gaps
-
-- gap_id: G-11-4
-  truth: "Pressing A on a Top Track plays that exact track; pressing A on a Jump Back In / Mix item opens its actual tracklist; New Releases surfaces relevant releases."
-  status: failed
-  reason: "User reported: Top Tracks plays a different track when clicked; Jump Back In opens an unrelated playlist or loads 0 tracks; New Releases shows random unpersonalized tracks/playlists."
-  severity: major
-  test: 4
-  artifacts: []
-  missing: []
