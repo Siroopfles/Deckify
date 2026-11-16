@@ -2,20 +2,20 @@
 gsd_state_version: "1.0"
 milestone: v0.6
 milestone_name: Audio DSP, Docked Flow & System Resilience (Active)
-current_phase: 13
-current_phase_name: Like Button 403 Fix & Sink-Input Guardrails
-status: executing
-stopped_at: Completed 13-02-PLAN.md
-last_updated: "2026-11-16T12:19:24.804Z"
+current_phase: 14
+current_phase_name: Gentle Sleep Timer Fade-Out
+status: planning
+stopped_at: Phase 13 complete, ready to plan Phase 14
+last_updated: "2026-11-16T13:55:05.681Z"
 last_activity: 2026-11-16
-last_activity_desc: v0.6 Roadmap created (Phases 13–18)
-state_head: f41196562e64439bf8d8899933560b8328766181
+last_activity_desc: Phase 13 complete, transitioned to Phase 14
+state_head: 60dc05deeb31e802d42e9da7831906e77278fd7b
 progress:
   total_phases: 6
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 2
   completed_plans: 2
-  percent: 0
+  percent: 17
 ---
 
 # Project State
@@ -29,16 +29,16 @@ See: [.planning/PROJECT.md](file:///C:/Users/djdje/Deckify/.planning/PROJECT.md)
 
 ## Current Position
 
-Phase: 13 (Like Button 403 Fix & Sink-Input Guardrails) — EXECUTING
-Plan: 2 of 2
-Status: Ready to execute Plan 13-02
-Last activity: 2026-11-16 — v0.6 Roadmap created (Phases 13–18)
+Phase: 14 — Gentle Sleep Timer Fade-Out
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-11-16 — Phase 13 complete, transitioned to Phase 14
 
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 29 (7 in v0.4, 22 in v0.5)
+- Total plans completed: 31 (7 in v0.4, 22 in v0.5)
 - Average duration: ~14.7 min
 - Total execution time: ~2.2 hours
 
@@ -55,6 +55,7 @@ Last activity: 2026-11-16 — v0.6 Roadmap created (Phases 13–18)
 | 11 | 2 | - | - |
 | 11.1 | 1 | - | - |
 | 12 | 3 | - | - |
+| 13 | 2 | - | - |
 
 **Recent Trend:**
 - Last 5 plans: 18m, 14m, 16m, 14m, 12m
@@ -155,7 +156,7 @@ Items acknowledged and deferred at milestone close, most recent first:
 ## Session Continuity
 
 Last session: 2026-11-16T12:19:24.755Z
-Stopped at: Completed 13-02-PLAN.md
+Stopped at: Phase 13 complete, ready to plan Phase 14
 Resume file: None
 
 ## Operator Next Steps
