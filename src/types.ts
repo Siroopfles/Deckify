@@ -197,6 +197,8 @@ export interface EngineSettings {
   trigger_page_size?: number;
   show_controller_hints?: boolean;
   pinned_playlists?: PinnedPlaylistItem[];
+  sleep_timer_fade_enabled?: boolean;
+  sleep_timer_fade_duration?: number;
 }
 
 export type DuckingMode = "proportional" | "fixed";
@@ -221,6 +223,7 @@ export interface SleepTimerStatus {
   remaining_seconds: number;
   shutdown_on_finish: boolean;
   end_of_track?: boolean;
+  fading?: boolean;
 }
 
 export interface StatusResponse {

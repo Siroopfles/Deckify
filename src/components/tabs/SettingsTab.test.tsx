@@ -425,4 +425,79 @@ describe("SettingsTab - Smooth Audio Ducking Engine UI (Phase 06)", () => {
     await pageSlider.props.onChange(2);
     expect(mockSetSetting).toHaveBeenCalledWith("trigger_page_size", 5);
   });
+
+  it("renders Sleep Timer Fade Out ToggleField and SliderField", () => {
+    const tree = SettingsTab({
+      status: mockStatus,
+      refreshStatus,
+      showToast,
+    });
+    const toggles = findNodes(tree, (n) => n.type === ToggleField || n.type === "ToggleField");
+    const fadeToggle = toggles.find((n) => n.props?.label === "Gentle Fade Out");
+    expect(fadeToggle).toBeDefined();
+    expect(fadeToggle.props.checked).toBe(true);
+
+    const sliders = findNodes(tree, (n) => n.type === SliderField || n.type === "SliderField");
+    const fadeSlider = sliders.find((n) => n.props?.label === "Fade Out Duration (Seconds)");
+    expect(fadeSlider).toBeDefined();
+    expect(fadeSlider.props.min).toBe(5);
+    expect(fadeSlider.props.max).toBe(120);
+    expect(fadeSlider.props.step).toBe(5);
+    expect(fadeSlider.props.value).toBe(30);
+
+    const disabledStatus: StatusResponse = {
+      ...mockStatus,
+      settings: {
+        ...mockStatus.settings!,
+        sleep_timer_fade_enabled: false,
+      },
+    };
+    const disabledTree = SettingsTab({
+      status: disabledStatus,
+      refreshStatus,
+      showToast,
+    });
+    const disabledSliders = findNodes(disabledTree, (n) => n.type === SliderField || n.type === "SliderField");
+    expect(disabledSliders.find((n) => n.props?.label === "Fade Out Duration (Seconds)")).toBeUndefined();
+  });
+
+  it("updates sleep_timer_fade_enabled and sleep_timer_fade_duration via set_setting", async () => {
+    mockSetSetting.mockClear();
+    const tree = SettingsTab({
+      status: mockStatus,
+      refreshStatus,
+      showToast,
+    });
+    const toggles = findNodes(tree, (n) => n.type === ToggleField || n.type === "ToggleField");
+    const fadeToggle = toggles.find((n) => n.props?.label === "Gentle Fade Out");
+    await fadeToggle.props.onChange(false);
+    expect(mockSetSetting).toHaveBeenCalledWith("sleep_timer_fade_enabled", false);
+
+    const sliders = findNodes(tree, (n) => n.type === SliderField || n.type === "SliderField");
+    const fadeSlider = sliders.find((n) => n.props?.label === "Fade Out Duration (Seconds)");
+    await fadeSlider.props.onChange(2);
+    expect(mockSetSetting).toHaveBeenCalledWith("sleep_timer_fade_duration", 5);
+    await fadeSlider.props.onChange(200);
+    expect(mockSetSetting).toHaveBeenCalledWith("sleep_timer_fade_duration", 120);
+  });
+
+  it("displays 'Fading out...' when sleep_timer.fading is true", () => {
+    const fadingStatus: StatusResponse = {
+      ...mockStatus,
+      sleep_timer: {
+        active: true,
+        remaining_seconds: 15,
+        shutdown_on_finish: false,
+        fading: true,
+      },
+    };
+    const tree = SettingsTab({
+      status: fadingStatus,
+      refreshStatus,
+      showToast,
+    });
+    const text = findText(tree);
+    expect(text).toContain("Fading out...");
+    expect(text).not.toContain("Remaining:");
+  });
 });
