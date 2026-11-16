@@ -3,7 +3,7 @@ status: complete
 phase: 11-home-discovery-hub-tab
 source: [11-01-SUMMARY.md, 11-02-SUMMARY.md]
 started: 2026-11-16T15:18:00+01:00
-updated: 2026-11-16T14:29:12.618Z
+updated: 2026-11-16T14:30:15.351Z
 ---
 
 ## Current Test
@@ -27,7 +27,7 @@ result: pass
 ### 4. Card Actions (A Play/Open & Y Action Menu)
 expected: Pressing A on a Top Track plays it, on a Top Artist opens artist detail, and on a Mix/Album opens its tracklist; pressing Y opens the Track or Collection action menu cleanly.
 result: issue
-reported: "Top Artist werkt wel, maar bij Top Tracks speelt hij een heel ander nummer af. Bij Jump Back In opent hij een eigen playlist die er niks mee te maken heeft of laadt iets met 0 tracks. New Releases zijn random nummers of afspeellijsten (niet persoonlijk afgestemd)."
+reported: "New releases niet persoonlijk afgestemd (random nummers/afspeellijsten); Jump Back In opent een niet-gerelateerde eigen playlist of laadt 0 tracks; Top Tracks speelt een heel ander nummer af als je op een nummer drukt."
 severity: major
 
 ## Summary
@@ -42,9 +42,9 @@ blocked: 0
 ## Gaps
 
 - gap_id: G-11-4
-  truth: "Pressing A on a Top Track plays that track, pressing A on a Jump Back In / Mix item opens its actual tracklist, and New Releases shows relevant releases."
+  truth: "Pressing A on a Top Track plays that exact track; pressing A on a Jump Back In / Mix item opens its actual tracklist; New Releases surfaces relevant releases."
   status: failed
-  reason: "User reported: Top Tracks A plays a completely different track; Jump Back In A opens an unrelated user playlist or loads 0 tracks; New Releases shows random unpersonalized tracks/playlists."
+  reason: "User reported: Top Tracks plays a different track when clicked; Jump Back In opens an unrelated playlist or loads 0 tracks; New Releases shows random unpersonalized tracks/playlists."
   severity: major
   test: 4
   artifacts: []
