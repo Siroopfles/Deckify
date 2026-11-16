@@ -155,8 +155,9 @@ async def set_repeat(plugin, state: str, device_id: str = "") -> dict:
 
 
 async def check_tracks_liked(plugin, token: str, track_ids: list[str]) -> dict[str, bool]:
-    """Batch-check saved status via Spotify's /me/tracks/contains endpoint with cache."""
-    clean_ids = [tid for tid in dict.fromkeys(track_ids) if tid]
+    """Batch-check saved status via Spotify's /me/library/contains endpoint with cache."""
+    raw_ids = [str(tid).strip().split(":")[-1] for tid in track_ids if tid and str(tid).strip()]
+    clean_ids = [tid for tid in dict.fromkeys(raw_ids) if tid]
     if not clean_ids:
         return {}
     result: dict[str, bool] = {}
@@ -171,13 +172,13 @@ async def check_tracks_liked(plugin, token: str, track_ids: list[str]) -> dict[s
     if not missing_ids:
         return result
 
-    for i in range(0, len(missing_ids), 50):
-        chunk = missing_ids[i:i + 50]
-        ids_str = ",".join(chunk)
+    for i in range(0, len(missing_ids), 40):
+        chunk = missing_ids[i:i + 40]
+        uris_str = ",".join(f"spotify:track:{tid}" for tid in chunk)
         try:
             res = await _exec(
-                _spotify_api_request, "me/tracks/contains", token, "GET",
-                {"ids": ids_str},
+                _spotify_api_request, "me/library/contains", token, "GET",
+                {"uris": uris_str},
             )
             if isinstance(res, list):
                 for tid, flag in zip(chunk, res):
@@ -185,7 +186,7 @@ async def check_tracks_liked(plugin, token: str, track_ids: list[str]) -> dict[s
                     result[tid] = b_flag
                     plugin._liked_cache[tid] = (now, b_flag)
         except Exception as e:
-            decky.logger.warning("me/tracks/contains check failed: %s", e)
+            decky.logger.warning("me/library/contains check failed: %s", e)
     return result
 
 

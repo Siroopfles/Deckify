@@ -22,6 +22,7 @@ from py_modules.spotify import (
 )
 from py_modules.engine import (
     _cdp_evaluate,
+    _cdp_get_liked_tracks,
     _fetch_spotify_cdp_folder_tree,
 )
 from py_modules.rpc_playback import annotate_tracks_liked
@@ -481,6 +482,23 @@ async def get_liked_tracks(plugin, offset: int = 0, fetch_all: bool = True) -> d
             if not fetch_all or not items or len(tracks) >= total or len(tracks) >= 1000:
                 break
         return {"ok": True, "tracks": tracks, "total": total, "offset": offset}
+    except urllib.error.HTTPError as e:
+        if getattr(e, "code", None) == 403:
+            is_spotify_client = (
+                plugin._settings.get("audio_backend") == "spotify_client"
+                and bool(
+                    getattr(plugin, "_spotify_client_process", None)
+                    and plugin._spotify_client_process.poll() is None
+                )
+            )
+            if is_spotify_client:
+                try:
+                    cdp_res = await _exec(_cdp_get_liked_tracks, offset, fetch_all)
+                    if isinstance(cdp_res, dict) and cdp_res.get("ok"):
+                        return cdp_res
+                except Exception as cdp_err:
+                    decky.logger.warning("get_liked_tracks CDP fallback failed: %s", cdp_err)
+        return {"ok": False, "error": _parse_spotify_error(e)}
     except Exception as e:
         decky.logger.error("get_liked_tracks failed: %s", e)
         return {"ok": False, "error": str(e)}
