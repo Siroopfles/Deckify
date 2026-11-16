@@ -1,7 +1,8 @@
 ---
 phase: "15"
 slug: "real-pipewire-biquad-equalizer"
-status: draft
+status: approved
+reviewed_at: "2026-11-16T16:25:35Z"
 shadcn_initialized: false
 preset: none
 created: "2026-11-16"
@@ -107,7 +108,7 @@ Inside the `"Equalizer & Audio Presets"` card (`maxWidth: 640`):
   2. `bass` — `Bass Boost`
   3. `vocal` — `Vocal Clarity`
   4. `gaming` — `Gaming Balance`
-- **Row 2 (`<Focusable flow-children="horizontal" style={{ display: "flex", gap: 8, marginBottom: 12 }}>`):**
+- **Row 2 (`<Focusable flow-children="horizontal" style={{ display: "flex", gap: 8, marginBottom: 16 }}>`):**
   5. `deck_speakers` — `Deck Speakers`
   6. `late_night` — `Late Night`
   7. `custom` — `Custom`
