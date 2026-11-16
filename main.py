@@ -106,6 +106,7 @@ class Plugin:
     _sleep_timer_shutdown: bool = False
     _sleep_timer_end_of_track: bool = False
     _sleep_timer_initial_track_id: str | None = None
+    _sleep_timer_fading: bool = False
     _liked_cache: dict[str, tuple[float, bool]] = {}
     _volume_fader: volume.VolumeFader | None = None
     _voice_detector: volume.VoiceActivityDetector | None = None

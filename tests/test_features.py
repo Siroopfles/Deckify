@@ -1,5 +1,6 @@
 import asyncio
 import tempfile
+import time
 import unittest
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
@@ -366,6 +367,157 @@ class DeckifyFeatureTests(unittest.IsolatedAsyncioTestCase):
         res = await self.plugin.set_setting("toast_sound_enabled", 1)
         self.assertTrue(res["ok"])
         self.assertIs(self.plugin._settings["toast_sound_enabled"], True)
+
+    async def test_sleep_timer_fade_timed_pauses_drains_restores_before_shutdown(self):
+        from py_modules import system as sys_mod
+
+        events = []
+        fading_during_start = []
+
+        async def mock_start_fade(duration):
+            fading_during_start.append(self.plugin._sleep_timer_fading)
+            events.append(("start_sleep_fade", round(duration, 1)))
+
+        async def mock_release(restore_duration=0.0, wait=False):
+            events.append(("release_sleep_lock", restore_duration, wait))
+
+        async def mock_control(action):
+            events.append(("control_playback", action))
+            return {"ok": True}
+
+        async def mock_shutdown():
+            events.append(("shutdown_system",))
+            return {"ok": True}
+
+        self.plugin._settings["sleep_timer_fade_enabled"] = True
+        self.plugin._settings["sleep_timer_fade_duration"] = 30
+        self.plugin._sleep_timer_end_of_track = False
+        self.plugin._sleep_timer_shutdown = True
+        self.plugin._sleep_timer_end = time.time() + 10.0  # < 30s -> immediate fade
+        self.plugin._volume_fader = main.volume.VolumeFader(self.plugin)
+        self.plugin._volume_fader.start_sleep_fade = AsyncMock(side_effect=mock_start_fade)
+        self.plugin._volume_fader.release_sleep_lock = AsyncMock(side_effect=mock_release)
+        self.plugin.control_playback = AsyncMock(side_effect=mock_control)
+        self.plugin.shutdown_system = AsyncMock(side_effect=mock_shutdown)
+
+        sleep_calls = []
+        real_sleep = asyncio.sleep
+
+        async def mock_sleep(delay):
+            sleep_calls.append(delay)
+            await real_sleep(0)
+
+        with patch.object(sys_mod.asyncio, "sleep", side_effect=mock_sleep):
+            await sys_mod.sleep_timer_worker(self.plugin)
+
+        self.assertEqual(fading_during_start, [True])
+        self.assertFalse(self.plugin._sleep_timer_fading)
+        self.assertIn(1.2, sleep_calls)
+        self.assertEqual(
+            [e[0] for e in events],
+            ["start_sleep_fade", "control_playback", "release_sleep_lock", "shutdown_system"],
+        )
+        self.assertEqual(events[1], ("control_playback", "pause"))
+        self.assertEqual(events[2], ("release_sleep_lock", 0.0, True))
+
+    async def test_sleep_timer_end_of_track_skips_fade(self):
+        from py_modules import system as sys_mod
+
+        self.plugin._settings["sleep_timer_fade_enabled"] = True
+        self.plugin._sleep_timer_end_of_track = True
+        self.plugin._sleep_timer_shutdown = False
+        self.plugin._poll_track_id = "track-1"
+        self.plugin._poll_play_state = "playing"
+        self.plugin._volume_fader = main.volume.VolumeFader(self.plugin)
+        self.plugin._volume_fader.start_sleep_fade = AsyncMock()
+        self.plugin.control_playback = AsyncMock(return_value={"ok": True})
+
+        async def mock_sleep(_delay):
+            self.plugin._poll_track_id = "track-2"
+
+        with patch.object(sys_mod.asyncio, "sleep", side_effect=mock_sleep):
+            await sys_mod.sleep_timer_worker(self.plugin)
+
+        self.plugin._volume_fader.start_sleep_fade.assert_not_awaited()
+        self.plugin.control_playback.assert_awaited_once_with("pause")
+
+    async def test_sleep_timer_fade_disabled_skips_fade(self):
+        from py_modules import system as sys_mod
+
+        self.plugin._settings["sleep_timer_fade_enabled"] = False
+        self.plugin._sleep_timer_end_of_track = False
+        self.plugin._sleep_timer_shutdown = False
+        self.plugin._sleep_timer_end = time.time() - 0.1
+        self.plugin._volume_fader = main.volume.VolumeFader(self.plugin)
+        self.plugin._volume_fader.start_sleep_fade = AsyncMock()
+        self.plugin.control_playback = AsyncMock(return_value={"ok": True})
+
+        await sys_mod.sleep_timer_worker(self.plugin)
+
+        self.plugin._volume_fader.start_sleep_fade.assert_not_awaited()
+        self.plugin.control_playback.assert_awaited_once_with("pause")
+
+    async def test_sleep_timer_cancel_mid_fade_restores_half_second(self):
+        from py_modules import system as sys_mod
+
+        self.plugin._settings["sleep_timer_fade_enabled"] = True
+        self.plugin._settings["sleep_timer_fade_duration"] = 30
+        self.plugin._volume_fader = main.volume.VolumeFader(self.plugin)
+
+        fade_started = asyncio.Event()
+
+        async def hang_fade(_duration):
+            self.plugin._volume_fader._sleep_locked = True
+            fade_started.set()
+            await asyncio.sleep(10)
+
+        self.plugin._volume_fader.start_sleep_fade = AsyncMock(side_effect=hang_fade)
+        self.plugin._volume_fader.release_sleep_lock = AsyncMock()
+
+        await sys_mod.set_sleep_timer(self.plugin, minutes=1, shutdown_on_finish=False, end_of_track=False)
+        # Force immediate fade by moving _sleep_timer_end within fade window
+        self.plugin._sleep_timer_end = time.time() + 5
+        await asyncio.wait_for(fade_started.wait(), timeout=2.0)
+
+        cancel_res = await sys_mod.set_sleep_timer(self.plugin, minutes=0)
+        self.assertTrue(cancel_res["ok"])
+        self.assertFalse(cancel_res["sleep_timer"]["active"])
+        self.assertFalse(self.plugin._sleep_timer_fading)
+        self.plugin._volume_fader.release_sleep_lock.assert_awaited_once_with(0.5, wait=False)
+
+    async def test_get_sleep_timer_status_includes_fading(self):
+        from py_modules import system as sys_mod
+
+        # Inactive -> fading: False
+        self.plugin._sleep_timer_task = None
+        inactive = sys_mod.get_sleep_timer_status(self.plugin)
+        self.assertFalse(inactive["fading"])
+
+        # Active & fading -> fading: True
+        async def _wait_forever():
+            await asyncio.sleep(10)
+
+        task = asyncio.create_task(_wait_forever())
+        try:
+            self.plugin._sleep_timer_task = task
+            self.plugin._sleep_timer_end = time.time() + 10
+            self.plugin._sleep_timer_end_of_track = False
+            self.plugin._sleep_timer_shutdown = False
+            self.plugin._sleep_timer_fading = True
+
+            active_fading = sys_mod.get_sleep_timer_status(self.plugin)
+            self.assertTrue(active_fading["active"])
+            self.assertTrue(active_fading["fading"])
+
+            self.plugin._sleep_timer_fading = False
+            active_not_fading = sys_mod.get_sleep_timer_status(self.plugin)
+            self.assertFalse(active_not_fading["fading"])
+        finally:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
 
 
 
