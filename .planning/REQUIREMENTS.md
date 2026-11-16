@@ -10,7 +10,7 @@
 
 ### Spotify Library & Audio Guardrails
 - [x] **LIB-01**: User can like and unlike tracks via `toggle_like_track` and check liked status via `check_tracks_liked` without HTTP 403 errors (migrated from deprecated `/v1/me/tracks` to `/v1/me/library` & `/v1/me/library/contains` with CDP `LibraryAPI` fallback when `spotify_client` is active).
-- [ ] **LIB-02**: Audio sink-input routing (`_set_pactl_sink_input` / `resolve_spotify_sink_input_ids`) strictly targets only Deckify/Spotify streams (`librespot`, `com.spotify.client`, `deckify_eq_out`) and never moves or mutes `steamwebhelper`, `Chromium`, or game audio streams.
+- [x] **LIB-02**: Audio sink-input routing (`_set_pactl_sink_input` / `resolve_spotify_sink_input_ids`) strictly targets only Deckify/Spotify streams (`librespot`, `com.spotify.client`, `deckify_eq_out`) and never moves or mutes `steamwebhelper`, `Chromium`, or game audio streams.
 
 ### Sleep Timer
 - [ ] **SLEEP-01**: When the sleep timer expires, Deckify smoothly fades playback volume down to 0% over a configurable fade-out window (default 30s) using `VolumeFader` with a `"sleep"` priority lock before pausing playback and restoring baseline volume after audio drain.
@@ -54,7 +54,7 @@
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | LIB-01 | Phase 13 | Complete |
-| LIB-02 | Phase 13 | Pending |
+| LIB-02 | Phase 13 | Complete |
 | SLEEP-01 | Phase 14 | Pending |
 | EQ-01 | Phase 15 | Pending |
 | EQ-02 | Phase 15 | Pending |

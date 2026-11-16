@@ -1,9 +1,9 @@
 ---
 phase: "13"
 slug: "like-button-403-fix-sink-input-guardrails"
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
+status: complete
+nyquist_compliant: true
+wave_0_complete: true
 created: "2026-11-16"
 ---
 
@@ -38,9 +38,9 @@ created: "2026-11-16"
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 13-01-01 | 01 | 1 | LIB-01 | T-13-01 | Only valid `spotify:track:{id}` URIs sent to `me/library`; CDP fallback only when `spotify_client` active | unit | `py -3 -m unittest discover -s tests -p "test_features.py"` | ✅ | ⬜ pending |
-| 13-01-02 | 01 | 1 | LIB-01 | T-13-02 | Batch `me/library/contains` strictly capped at 40 URIs per request | unit | `py -3 -m unittest discover -s tests -p "test_phase13.py"` | ❌ W0 | ⬜ pending |
-| 13-02-01 | 02 | 1 | LIB-02 | T-13-03 | `resolve_spotify_sink_input_ids` enforces allowlist + `steamwebhelper`/`Chromium` deny-list and no-ops on 0 matches | unit | `py -3 -m unittest discover -s tests -p "test_volume.py"` | ✅ | ⬜ pending |
+| 13-01-01 | 01 | 1 | LIB-01 | T-13-01 | Only valid `spotify:track:{id}` URIs sent to `me/library`; CDP fallback only when `spotify_client` active | unit | `py -3 -m unittest discover -s tests -p "test_features.py"` | ✅ | ✅ green |
+| 13-01-02 | 01 | 1 | LIB-01 | T-13-02 | Batch `me/library/contains` strictly capped at 40 URIs per request | unit | `py -3 -m unittest discover -s tests -p "test_phase13.py"` | ✅ | ✅ green |
+| 13-02-01 | 02 | 1 | LIB-02 | T-13-03 | `resolve_spotify_sink_input_ids` enforces allowlist + `steamwebhelper`/`Chromium` deny-list and no-ops on 0 matches | unit | `py -3 -m unittest discover -s tests -p "test_volume.py"` | ✅ | ✅ green |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -48,7 +48,7 @@ created: "2026-11-16"
 
 ## Wave 0 Requirements
 
-- [ ] `tests/test_phase13.py` — covers >40 URI batching in `check_tracks_liked`, CDP `LibraryAPI` fallback in `toggle_like_track` & `get_liked_tracks`, and `resolve_spotify_sink_input_ids` / `_set_pactl_sink_input` guardrails.
+- [x] `tests/test_phase13.py` — covers >40 URI batching in `check_tracks_liked`, CDP `LibraryAPI` fallback in `toggle_like_track` & `get_liked_tracks`, and `resolve_spotify_sink_input_ids` / `_set_pactl_sink_input` guardrails.
 
 ---
 
@@ -67,6 +67,6 @@ created: "2026-11-16"
 - [x] Wave 0 covers all MISSING references
 - [x] No watch-mode flags
 - [x] Feedback latency < 30s
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending
+**Approval:** complete
