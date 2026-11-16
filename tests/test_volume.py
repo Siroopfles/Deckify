@@ -103,6 +103,43 @@ class TestVolumeFader(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(sink_id)
 
     @patch("subprocess.run")
+    async def test_resolve_sink_input_id_skips_steamwebhelper_and_chromium_for_spotify_client(self, mock_run):
+        mock_output = (
+            "Sink Input #10\n"
+            "    Driver: PipeWire\n"
+            "    application.name = \"Chromium\"\n"
+            "    application.process.binary = \"steamwebhelper\"\n"
+            "    media.name = \"spotify\"\n"
+            "Sink Input #11\n"
+            "    Driver: PipeWire\n"
+            "    application.name = \"Chromium\"\n"
+            "    application.process.binary = \"chromium\"\n"
+            "Sink Input #12\n"
+            "    Driver: PipeWire\n"
+            "    application.name = \"Spotify\"\n"
+            "    node.name = \"com.spotify.client\"\n"
+        )
+        mock_run.return_value = SimpleNamespace(returncode=0, stdout=mock_output, stderr="")
+        self.mock_plugin._process = None
+        sink_id = await self.fader.resolve_sink_input_id()
+        self.assertEqual(sink_id, "12")
+
+    @patch("subprocess.run")
+    async def test_resolve_sink_input_id_matches_deckify_eq_out(self, mock_run):
+        mock_output = (
+            "Sink Input #21\n"
+            "    Driver: PipeWire\n"
+            "    application.name = \"steamwebhelper\"\n"
+            "Sink Input #22\n"
+            "    Driver: PipeWire\n"
+            "    node.name = \"deckify_eq_out\"\n"
+        )
+        mock_run.return_value = SimpleNamespace(returncode=0, stdout=mock_output, stderr="")
+        self.mock_plugin._process = None
+        sink_id = await self.fader.resolve_sink_input_id()
+        self.assertEqual(sink_id, "22")
+
+    @patch("subprocess.run")
     async def test_apply_sink_volume_failure_handles_gracefully(self, mock_run):
         mock_run.side_effect = Exception("pactl set-volume error")
         res = await self.fader._apply_sink_volume("42", 50.0)

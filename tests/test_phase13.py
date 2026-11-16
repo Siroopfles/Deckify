@@ -142,3 +142,90 @@ class TestPhase13LibraryAndGuardrails(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(second_call[0], engine._cdp_get_liked_tracks)
             self.assertEqual(second_call[1], 0)
             self.assertTrue(second_call[2])
+
+
+class TestPhase13SinkInputGuardrails(unittest.TestCase):
+    MULTI_STREAM_FIXTURE = (
+        "Sink Input #10\n"
+        "    Driver: PipeWire\n"
+        "    application.name = \"Chromium\"\n"
+        "    application.process.binary = \"steamwebhelper\"\n"
+        "    application.process.id = \"1001\"\n"
+        "    media.name = \"spotify\"\n"
+        "Sink Input #11\n"
+        "    Driver: PipeWire\n"
+        "    application.name = \"Chromium\"\n"
+        "    application.process.binary = \"chromium\"\n"
+        "    application.process.id = \"1002\"\n"
+        "Sink Input #12\n"
+        "    Driver: PipeWire\n"
+        "    application.name = \"Cyberpunk2077\"\n"
+        "    application.process.binary = \"wine64-preloader\"\n"
+        "    application.process.id = \"2001\"\n"
+        "Sink Input #13\n"
+        "    Driver: PipeWire\n"
+        "    application.name = \"librespot\"\n"
+        "    application.process.id = \"3001\"\n"
+        "Sink Input #14\n"
+        "    Driver: PipeWire\n"
+        "    node.name = \"com.spotify.client\"\n"
+        "    application.process.id = \"3002\"\n"
+        "Sink Input #15\n"
+        "    Driver: PipeWire\n"
+        "    node.name = \"deckify_eq_out\"\n"
+        "    application.process.id = \"3003\"\n"
+    )
+
+    def test_resolve_spotify_sink_input_ids_filters_denylist_and_games(self):
+        # Even if steamwebhelper PID were passed or "spotify" appears in its media.name,
+        # deny-list must exclude #10 and #11, and game #12 must be ignored.
+        ids = engine.resolve_spotify_sink_input_ids(self.MULTI_STREAM_FIXTURE, pids={"1001", "3002"})
+        self.assertEqual(ids, ["14", "13", "15"])
+
+    def test_set_pactl_sink_input_moves_only_matched_spotify_streams(self):
+        from types import SimpleNamespace
+
+        list_proc = SimpleNamespace(returncode=0, stdout=self.MULTI_STREAM_FIXTURE, stderr="")
+        move_proc = SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        with patch("py_modules.engine.subprocess.run", side_effect=[list_proc, move_proc, move_proc, move_proc]) as mock_run:
+            ok = engine._set_pactl_sink_input("alsa_output.pci")
+
+        self.assertTrue(ok)
+        self.assertEqual(mock_run.call_count, 4)
+        moved_cmds = [call.args[0][-3:] for call in mock_run.call_args_list[1:]]
+        self.assertEqual(
+            moved_cmds,
+            [
+                ["move-sink-input", "13", "alsa_output.pci"],
+                ["move-sink-input", "14", "alsa_output.pci"],
+                ["move-sink-input", "15", "alsa_output.pci"],
+            ],
+        )
+
+    def test_set_pactl_sink_input_zero_match_noop_and_flag_injection_guard(self):
+        from types import SimpleNamespace
+
+        no_spotify_stdout = (
+            "Sink Input #10\n"
+            "    application.name = \"Chromium\"\n"
+            "    application.process.binary = \"steamwebhelper\"\n"
+            "Sink Input #12\n"
+            "    application.name = \"Cyberpunk2077\"\n"
+            "    application.process.binary = \"wine64-preloader\"\n"
+        )
+        list_proc = SimpleNamespace(returncode=0, stdout=no_spotify_stdout, stderr="")
+
+        with patch("py_modules.engine.subprocess.run", return_value=list_proc) as mock_run, \
+             patch.object(engine.decky.logger, "debug") as mock_debug:
+            ok = engine._set_pactl_sink_input("alsa_output.pci")
+
+        self.assertFalse(ok)
+        self.assertEqual(mock_run.call_count, 1)
+        mock_debug.assert_called_once()
+
+        # Flag-injection / empty target_sink guard
+        with patch("py_modules.engine.subprocess.run") as mock_run_bad:
+            self.assertFalse(engine._set_pactl_sink_input("-bad"))
+            self.assertFalse(engine._set_pactl_sink_input("   "))
+            mock_run_bad.assert_not_called()
