@@ -76,9 +76,19 @@ async def sleep_timer_worker(plugin):
         if plugin._sleep_timer_end_of_track:
             start_track = plugin._poll_track_id
             while True:
-                await asyncio.sleep(1)
                 if plugin._poll_track_id != start_track or plugin._poll_play_state != "playing":
                     break
+                duration_ms = getattr(plugin, "_poll_duration_ms", 0) or 0
+                progress_ms = getattr(plugin, "_poll_progress_ms", 0) or 0
+                updated_at = getattr(plugin, "_poll_updated_at", 0.0) or 0.0
+                if isinstance(duration_ms, (int, float)) and duration_ms > 0 and isinstance(updated_at, (int, float)) and updated_at > 0:
+                    elapsed_ms = max(0.0, (time.time() - updated_at) * 1000.0)
+                    remaining_s = (duration_ms - (progress_ms + elapsed_ms)) / 1000.0
+                    if remaining_s <= 0.15:
+                        break
+                    await asyncio.sleep(min(0.5, max(0.05, remaining_s - 0.1)))
+                else:
+                    await asyncio.sleep(0.25)
         else:
             settings = getattr(plugin, "_settings", {})
             fade_enabled = bool(settings.get("sleep_timer_fade_enabled", True))

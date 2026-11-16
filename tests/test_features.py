@@ -576,6 +576,20 @@ class DeckifyFeatureTests(unittest.IsolatedAsyncioTestCase):
         finally:
             os.remove(path)
 
+    async def test_end_of_track_pauses_at_duration_boundary_before_next_track(self):
+        from py_modules import system
+
+        self.plugin._sleep_timer_end_of_track = True
+        self.plugin._sleep_timer_end = 0
+        self.plugin._poll_track_id = "track_same"
+        self.plugin._poll_play_state = "playing"
+        self.plugin._poll_duration_ms = 180000
+        self.plugin._poll_progress_ms = 179900
+        self.plugin._poll_updated_at = time.time()
+        self.plugin.control_playback = AsyncMock(return_value={"ok": True})
+
+        await asyncio.wait_for(system.sleep_timer_worker(self.plugin), timeout=1.0)
+        self.plugin.control_playback.assert_awaited_once_with("pause")
 
 
 if __name__ == "__main__":
