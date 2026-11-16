@@ -1,207 +1,154 @@
-# Project Research Summary: Milestone v0.5
+# Project Research Summary
 
-**Project:** Deckify  
-**Domain:** SteamOS GamepadUI Decky Plugin / Embedded Spotify Client & Gaming Audio Companion  
-**Researched:** 2026-11-12  
-**Target Milestone:** v0.5 — In-Game Flow & Music Discovery  
-**Overall Confidence:** HIGH  
-
----
+**Project:** Deckify (v0.6 — Audio DSP, Docked Flow & System Resilience)
+**Domain:** SteamOS 3.5+ / Decky Loader Spotify Client, PipeWire Audio DSP, D-Bus/MPRIS2, & Event-Driven Daemon IPC
+**Researched:** 2026-11-16
+**Confidence:** HIGH
 
 ## Executive Summary
 
-Deckify is an open-source Spotify client and Decky Loader plugin for Valve's Steam Deck, operating across SteamOS GamepadUI (Chromium Embedded Framework), the Gamescope compositor, local audio daemons (PipeWire / PulseAudio), and background Spotify Connect engines (`librespot` / `spotifyd`). Following the successful modularization and UI hardening in v0.4, Milestone v0.5 focuses on transforming Deckify into a seamless, reactive in-game companion that adapts automatically to running games and enables instant music discovery from controller input.
+Deckify v0.6 transitions the plugin from a polling-based Spotify controller with stubbed audio settings into a low-latency, stream-isolated SteamOS audio subsystem. Across all six v0.6 deliverables—fixing the Spotify Like button HTTP 403, delivering real PipeWire biquad EQ (`EQ-01`), adding automatic docked USB-DAC/HDMI audio switching (`DOCK-01`), replacing 3-second Web API polling with `librespot --onevent` + suspend/Wi-Fi resilience, exposing an MPRIS2 D-Bus bridge for Bluetooth headset controls, and adding a 30-second sleep timer fade-out—the research converges on a zero-dependency approach: every capability uses binaries already shipped on SteamOS 3.5+ (`pipewire`, `pw-cli`, `pw-dump`, `pw-metadata`, `pactl`, `busctl`) or pure-Python stdlib/vendored code with zero C extensions or runtime `pip install` steps.
 
-The recommended architectural approach is strictly **zero external runtime bloat**, leveraging native SteamOS platform APIs (`window.SteamClient.Apps.RegisterForAppLifetimeNotifications`, `FocusNavController`), hardware-level audio control (`pactl set-sink-input-volume`), and public Spotify Web API personalization endpoints (`/v1/me/top/*`). Core features include: game-specific soundtrack auto-play tied to Steam `appId`, smooth non-blocking audio ducking (~1.5s local fading curves) for game audio and voice chat, instant 2-second QAM pinned playlist switching, blind L2/R2 trigger seeking (±10s) and fast list paging, a micro-footprint live synced lyrics HUD in the Gamescope overlay, and a dedicated Home / Discovery tab.
+The recommended architecture preserves Deckify's strict SteamOS boundaries: `main.py` remains the central coordinator while four focused modules (`py_modules/equalizer.py`, `py_modules/dock.py`, `py_modules/resilience.py`, `py_modules/mpris.py`) encapsulate the new subsystems, paired with targeted fixes to `py_modules/rpc_playback.py`, `py_modules/engine.py`, `py_modules/volume.py`, and `py_modules/system.py`. Rather than restarting `pipewire.service` or hijacking system default sinks (which severs game audio and `steamwebhelper` UI clicks), EQ runs as a managed `pipewire -c` child process under the `deck` user (UID 1000) and routes only Deckify's stream.
 
-The primary technical risks center on cross-boundary friction between SteamOS CEF, background audio processes, and Spotify API quotas. Specifically: (1) multi-step Web API volume adjustments trigger HTTP 429 rate limits and audible stepping; (2) Proton launcher child processes cause rapid `AppLifetime` event flapping; (3) analog trigger chatter causes wild seeking; and (4) high-frequency DOM re-renders in Gamescope degrade game frame rates. All four risks have well-defined, zero-cost architectural mitigations: local PipeWire sink fading, 3–5s lifetime debounce with state snapshot/restore, 75%/25% Schmidt trigger hysteresis, and discrete event-driven lyrics timers.
-
----
+The primary risks in v0.6 are SteamOS-specific privilege and audio-graph collisions: (1) Decky Loader runs Python as `root` (UID 0), which fails D-Bus `EXTERNAL` auth on `/run/user/1000/bus` unless MPRIS2 runs as UID 1000 via `_build_deck_command`; (2) `py_modules/engine.py:_set_pactl_sink_input()` currently moves all sink-inputs indiscriminately and must be hardened to filter out `steamwebhelper`/`Chromium` before `EQ-01` and `DOCK-01` ship; (3) `EQ-01`, `DOCK-01`, and `VolumeFader` share the same audio chain (`librespot` → `deckify_eq_sink` → hardware sink), so docked switching must move the EQ output stream when EQ is active; and (4) `librespot --onevent` and `SuspendResumeMonitor` must avoid blocking audio transitions or racing Wi-Fi reconnection on wake.
 
 ## Key Findings
 
 ### Recommended Stack
 
-Milestone v0.5 introduces no new external NPM or Python dependencies. All capabilities are implemented using existing platform APIs, system utilities, and standard libraries.
+Deckify v0.6 requires **zero new npm packages** and **zero runtime pip dependencies**, keeping the Decky plugin bundle self-contained and compatible with Decky's PyInstaller Python 3.11+ runtime (`LD_LIBRARY_PATH` stripped via `_build_deck_command`). See [STACK.md](file:///C:/Users/djdje/Deckify/.planning/research/STACK.md).
 
 **Core technologies:**
-- **PipeWire / PulseAudio (`pactl set-sink-input-volume`)**: Smooth local volume fading on the active `librespot`/`spotifyd` audio sink — zero Spotify API calls, 0ms network latency, preserves cloud volume settings across other devices.
-- **`pactl list source-outputs`**: Non-invasive voice activity detection for Discord Flatpak, Steam Voice, and Steamcord — triggers ducking with a 1.5s silence hold timer.
-- **`window.SteamClient.Apps.RegisterForAppLifetimeNotifications`**: Event-driven game launch and exit detection directly in CEF — zero polling overhead.
-- **`vgp_onbuttondown` (Controller Triggers 6 & 7)**: Captures L2/R2 hardware trigger events inside the Expanded Modal for instant blind seeking and fast list paging.
-- **Spotify Web API (`/v1/me/top/tracks`, `/v1/me/top/artists`, `/v1/recommendations`)**: Official personalization endpoints for the Discovery Tab — cached in memory with a 1–6 hour TTL.
-- **Discrete Lyrics Scheduler (`setTimeout`)**: Drives the in-game HUD lyric line by scheduling line transitions on timestamps — eliminates continuous clock ticker repaints in Gamescope.
+- **Spotify Web API `/v1/me/library`**: Unified library endpoints (`PUT/DELETE /v1/me/library?uris=...`, `GET /v1/me/library/contains?uris=...`, max 40 URIs) — fixes silent HTTP 403 on deprecated `/v1/me/tracks` in 2026 Development Mode apps.
+- **PipeWire `filter-chain` (`pipewire -c`) + `pw-cli` / `pw-dump`**: Isolated user subprocess with built-in `bq_lowshelf`, `bq_peaking`, and `bq_highshelf` nodes — delivers real-time biquad EQ (`EQ-01`) with live `pw-cli set-param` updates and zero `pipewire.service` restarts.
+- **`pactl` (`libpulse` utils) + `pw-metadata`**: Targeted sink-input routing (`DOCK-01`), `bit_perfect_clock` (`clock.allowed-rates`), and local 30s sleep fade via existing `VolumeFader`.
+- **`librespot --onevent` + `asyncio.start_unix_server`**: Local Unix domain socket push for `PLAYER_EVENT` / `TRACK_ID` / `POSITION_MS` — eliminates tight Web API polling and 429 rate limits.
+- **Pure-Python D-Bus (`dbus-next` vendored or stdlib `asyncio` wire bridge)**: Exposes `org.mpris.MediaPlayer2.deckify` on `/run/user/1000/bus` without `dbus-python`/`PyGObject` C-extension conflicts.
 
 ### Expected Features
 
-Detailed in [FEATURES.md](file:///C:/Users/djdje/Deckify/.planning/research/FEATURES.md):
+All six v0.6 items are P1 deliverables that either fix broken/stubbed user expectations or deliver high-value Steam Deck/Steam Machine workflows. See [FEATURES.md](file:///C:/Users/djdje/Deckify/.planning/research/FEATURES.md).
 
 **Must have (table stakes):**
-- **Game-Specific Soundtrack Auto-Play & Handoff**: Auto-plays mapped Spotify playlist/album on game launch; cleanly restores pre-game track and position upon exit.
-- **Smooth Audio Ducking (1.0s – 1.5s Fade)**: Non-blocking logarithmic volume attenuation curve preventing jarring audio pops during game launch.
-- **Voice Chat & Mic Activity Ducking**: Automatic music dipping during active speech with 1.2s–1.5s silence hysteresis.
-- **QAM Pinned Playlists**: 3–4 horizontal playlist pills in the Decky Quick Access Menu for 2-second mid-game soundtrack switching.
-- **L2/R2 Controller Trigger Seeking (±10s Blind Seek)**: Fast-forward / rewind in Now Playing and Lyrics tabs without shifting D-pad focus.
-- **L2/R2 Fast List Page Jumping**: Skips 15–20 items per trigger pull in long library lists (Liked Songs, Playlists, Albums).
-- **In-Game HUD Overlay 2.0 (Active Synced Lyric Line)**: Single subtle lyric line beneath artist with graceful ellipsis truncation and auto-collapse.
-- **Home / "Made For You" Discovery Tab**: Full-screen modal tab for Top Tracks, Top Artists, Algorithmic Mixes, and New Releases.
+- **Reliable Like / Save Track (403 Fix)** — `toggle_like_track` and `check_tracks_liked` must succeed via `/v1/me/library` without silent 403 failures.
+- **Working Equalizer Presets (`EQ-01` Base)** — Existing `Flat`, `Bass Boost`, `Vocal Clarity`, and `Gaming Balance` pills in `SettingsTab.tsx` must audibly filter Deckify's stream.
+- **Bluetooth Headset Play/Pause/Skip (`MPRIS2`)** — AVRCP media keys routed via BlueZ `mpris-proxy` to `org.mpris.MediaPlayer2.deckify`.
+- **Resilient Playback Across Sleep & Wi-Fi Drops** — `PrepareForSleep` bookmark persistence + network-ready reconnect without dual-restart races.
+- **Gentle Sleep Timer Fade-Out** — 30-second local PipeWire cosine ramp-down before pause, followed by baseline volume restore.
 
-**Should have (differentiators):**
-- **1-Click "Bind Current Music to Game" Action**: Instantly binds currently playing album/playlist to the active game's `appId` with toast confirmation.
-- **Zero-Network Local Sink Fading**: Pure PipeWire DSP attenuation invisible to remote Spotify Connect clients.
-- **Dynamic Ambient Accent Tinting on Overlay Lyric**: Matches active lyric text glow to the album art palette or Spotify green.
-- **Contextual Time-of-Day Discovery Greeting**: Displays "Morning Energy", "Late Night Focus", and highlights daily mixes.
+**Should have (competitive differentiators):**
+- **Custom 5-Band EQ Sliders (`EQ-01` Pro)** — Optional `Custom` preset revealing 60Hz, 230Hz, 910Hz, 3.6kHz, 14kHz (±12 dB) `SliderField` controls in `SettingsTab.tsx`.
+- **Automatic Docked Audio-Switching (`DOCK-01`) + `bit_perfect_clock`** — `pactl subscribe` hotplug watcher moving only Deckify's stream to configured USB-DAC/HDMI sinks.
+- **Event-Driven `librespot` (`--onevent`) via `decky.emit`** — Sub-100ms track/play-state updates to QAM, HUD Overlay 2.0, and MPRIS2.
 
-**Defer (v2+ / backlog):**
-- **Biquad Equalizer PipeWire Filter-Chain DSP**: Requires complex system-level PipeWire configuration files.
-- **Audio Peak Cutscene Detection**: Requires continuous RMS audio stream analysis; standard app-lifetime ducking solves 90% of user needs.
-- **Word-by-Word Karaoke Highlighting in HUD**: Unnecessary visual clutter during fast-paced gameplay.
+**Defer (v2+):**
+- **10-band Parametric EQ with Q-factor/frequency editing & AutoEQ import** — excessive controller navigation complexity for handheld use.
+- **Per-App / Per-Game EQ Profiles** — defer until base `EQ-01` stability is proven.
 
 ### Architecture Approach
 
-Detailed in [ARCHITECTURE.md](file:///C:/Users/djdje/Deckify/.planning/research/ARCHITECTURE.md):
-
-The system maintains Deckify's strict separation between the React frontend (`src/components/tabs/`) and Python backend (`py_modules/`) connected via `@decky/api` RPC bridges.
-
-```
-+---------------------------------------------------------------------------------------+
-|                                SteamOS GamepadUI (CEF)                                |
-|  +---------------------------+  +-------------------------------+  +---------------+  |
-|  |     Gamescope Overlay     |  |    Quick Access Menu (QAM)    |  | Expanded Modal|  |
-|  |  - Song / Artist / Bar    |  |  - Mini-Player Controls       |  | - DiscoveryTab|  |
-|  |  - Active Synced Lyric    |  |  - Pinned Playlists (3-4)     |  | - L2/R2 Scrub |  |
-|  +---------------------------+  +-------------------------------+  +---------------+  |
-+-------------------------------------------|-------------------------------------------+
-                                            v @decky/api RPC
-+---------------------------------------------------------------------------------------+
-|                                Python Backend Daemon                                  |
-|  +-----------------------+  +---------------------------+  +-----------------------+  |
-|  |   py_modules/volume   |  |   py_modules/rpc_playback |  | py_modules/rpc_library|  |
-|  |  - VolumeFader Task   |  |  - Pre-Game Snapshot      |  |  - Discovery Feed |  |
-|  |  - pactl PipeWire     |  |  - Soundtrack Mapping     |  |  - Pinned Playlists|  |
-|  +-----------------------+  +---------------------------+  +-----------------------+  |
-+---------------------------------------------------------------------------------------+
-```
+v0.6 extends Deckify's three-layer architecture (React GamepadUI ↔ `@decky/api` RPC/Events ↔ Python Backend + SteamOS Host Services) with four new `py_modules/` managers and one lightweight `--onevent` hook script, keeping each module under ~350 LOC and independently unit-testable. See [ARCHITECTURE.md](file:///C:/Users/djdje/Deckify/.planning/research/ARCHITECTURE.md).
 
 **Major components:**
-1. **`VolumeFader` (`py_modules/volume.py`)**: Asynchronous non-blocking worker managing cosine volume transitions over PipeWire sink inputs, canceling superseded fade tasks cleanly.
-2. **`SoundtrackManager` / Playback Snapshot (`py_modules/rpc_playback.py`)**: Captures playback context, URI, track index, and position before game launch; cleanly restores or pauses upon game dismount.
-3. **QAM Mini-Player Extensions (`src/index.tsx`)**: Renders pinned playlist pill buttons with `flow-children="horizontal"` directly under playback controls.
-4. **Trigger Input Controller (`src/components/DeckifyExpandedModal.tsx`)**: Intercepts L2/R2 button codes with Schmidt trigger hysteresis, optimistic local scrub accumulation, and virtualized list anchor focus restoration.
-5. **Discrete Lyrics HUD (`DeckifyOverlay.tsx` & `DeckifyOverlayWrapper`)**: Lightweight single-line display scheduled on lyric timestamps, preserving strict `pointerEvents: "none"` and zero continuous CEF invalidations.
-6. **`DiscoveryTab` (`src/components/tabs/DiscoveryTab.tsx`)**: Multi-row carousel presenting Top Tracks, Top Artists, and curated mixes using concurrent backend fetches.
+1. **`py_modules/rpc_playback.py` & `py_modules/volume.py` + `engine.py`** — Migrates `me/tracks` → `me/library` and centralizes PID/application-filtered `resolve_spotify_sink_input_ids()` (excluding `steamwebhelper` and `Chromium`).
+2. **`py_modules/system.py` (`sleep_timer_worker`)** — Coordinates with `VolumeFader` for 30s cosine fade-out, pause/drain, and baseline volume restore.
+3. **`py_modules/equalizer.py` (`EqualizerManager`)** — Supervises `pipewire -c` `deckify_eq_sink` (`bq_lowshelf`, `bq_peaking`, `bq_highshelf`) and throttled `pw-cli set-param` live updates.
+4. **`py_modules/dock.py` (`DockAudioSwitcher`)** — Watches `pactl subscribe` sink events, debounces hotplugs, moves `effect_output.deckify_eq` (or `librespot` if EQ bypassed), and scopes `bit_perfect_clock` to wired/DAC/HDMI sinks.
+5. **`py_modules/resilience.py` (`LibrespotEventServer`, `SessionBookmarkManager`)** — Hosts `onevent.sock` (`asyncio.start_unix_server`), relaxes `_poll_api_loop` from 3s to 20s when `--onevent` is healthy, and unifies sleep/Wi-Fi bookmark recovery.
+6. **`py_modules/mpris.py` (`MprisBridge`)** — Runs `org.mpris.MediaPlayer2.deckify` on the `deck` user session D-Bus and bridges AVRCP commands to `control_playback`.
 
 ### Critical Pitfalls
 
-Detailed in [PITFALLS.md](file:///C:/Users/djdje/Deckify/.planning/research/PITFALLS.md):
-
-1. **Spotify Web API Volume Ducking & Subprocess Flooding**: Calling Web API volume endpoints triggers HTTP 429 rate-limiting; repeatedly running `pactl list sink-inputs` spawns 40 subprocesses in 1.5s.  
-   *Mitigation:* Resolve `sink_input_id` once at the start of the fade; run all volume steps locally via PipeWire in an `asyncio` task at 50ms intervals. Never use the Spotify Web API for ducking.
-2. **AppLifetime Multi-Process Flapping & Non-Steam AppIDs**: Intermediate game launchers (EA, Ubisoft, Proton helper scripts) emit rapid `bRunning: false` / `true` transitions; non-Steam game shortcuts produce negative signed 32-bit AppIDs.  
-   *Mitigation:* Apply a 3–5 second debounce grace window before treating a game exit as real; normalize AppIDs using `String(Number(rawId) >>> 0)`; snapshot full pre-game playback state.
-3. **Analog Trigger Chatter & In-Game Input Hijacking**: Continuous analog trigger noise fires dozens of digital seek events per tap; registering global trigger listeners captures game controls (e.g. aiming or accelerating).  
-   *Mitigation:* Enforce 0.75 / 0.25 Schmidt trigger hysteresis with a 300ms software debounce; strictly scope L2/R2 listeners to the open Expanded Modal (`bigOpen === true`).
-4. **Gamescope Compositor Stutter from High-Frequency Overlay Re-Renders**: Subscribing the HUD overlay to the millisecond clock ticker forces CEF to re-composite on top of Vulkan games 5–10 times per second, dropping game FPS.  
-   *Mitigation:* Decouple overlay lyrics from clock tickers; schedule discrete `setTimeout` updates only at line transition timestamps; eliminate CSS blur shaders in the overlay.
-5. **Spotify API 429 Crash & Non-Existent Discovery Endpoints**: Missing `import time` in `_spotify_api_request` crashes the backend on HTTP 429; querying proprietary endpoints like `/v1/me/made-for-you` returns HTTP 404.  
-   *Mitigation:* Fix `time` import and implement a global rate-limit circuit breaker; use valid public endpoints (`/v1/me/top/*`) and user playlist filters; cache discovery data with a 1–6 hour TTL.
-
----
+1. **Restarting PipeWire or moving all sink-inputs breaks game audio & Steam UI clicks** — Never touch `~/.config/pipewire/pipewire.conf.d/` or call `systemctl --user restart pipewire`. Run `pipewire -c` as a child process with `priority.session = 0` and fix `_set_pactl_sink_input()` to exclude `steamwebhelper`/`Chromium`. See [PITFALLS.md](file:///C:/Users/djdje/Deckify/.planning/research/PITFALLS.md).
+2. **`DOCK-01` bypassing `EQ-01` & `bit_perfect_clock` sample-rate lockouts** — Move `effect_output.deckify_eq` when EQ is active (not `librespot` off the EQ), debounce dock hotplugs by 1.5–2.0s, and reset `clock.allowed-rates` to `[ 48000 ]` when undocking to internal speakers or Bluetooth.
+3. **`librespot --onevent` blocking & dual suspend-recovery races** — Keep the `--onevent` hook ultra-lightweight (<5–10ms, non-blocking socket write) so rapid track skipping never stutters audio; consolidate `SuspendResumeMonitor` and `_monitor_process` behind an `asyncio.Lock` and wait for Wi-Fi/DNS readiness before restoring the session bookmark.
+4. **MPRIS2 D-Bus UID 0 `EXTERNAL` auth rejection** — Decky runs as `root` (UID 0), which `/run/user/1000/bus` rejects. Spawn the MPRIS2 D-Bus helper under `deck` (UID 1000) via `_build_deck_command` with zero C-extension dependencies.
+5. **Sleep timer fade-out clobbered by ducking or loud restore pop** — Give `VolumeFader` a `"sleep"` priority lock so game/voice ducking cannot override it; pause/mute first and wait 600–800ms for audio drain before restoring baseline volume (and before `systemctl poweroff`).
 
 ## Implications for Roadmap
 
-Based on dependency analysis, hardware boundaries, and architectural prerequisites, the recommended phase breakdown for Milestone v0.5 comprises 6 structured phases:
+Based on dependencies and risk, a **6-phase roadmap** is recommended:
 
-### Phase 1: Smooth Audio Ducking Engine & PipeWire Fader
-**Rationale:** Audio ducking is the foundational low-level primitive required by both game-specific soundtracks (Phase 2) and voice chat integration. It must be built and validated locally first.  
-**Delivers:** `VolumeFader` class in `py_modules/volume.py`, single sink-input resolution, 50ms easing curve steps, task cancellation safety, and microphone activity monitoring via `pactl list source-outputs`.  
-**Addresses:** Smooth Fading Audio Ducking, Voice Chat & Mic Activity Ducking.  
-**Avoids:** Pitfall 1 (Subprocess flooding, PipeWire buffer clicks, Web API rate limiting) and Pitfall 7 (Voice ducking pumping/oscillation).
+### Phase 1: Like Button 403 Fix & Sink-Input Guardrails
+**Rationale:** Immediate high-impact fix for a broken core action (`toggle_like_track` 403) combined with hardening the shared `resolve_spotify_sink_input_ids()` / `_set_pactl_sink_input()` foundation that Phases 2, 3, and 4 all depend on.
+**Delivers:** Working Like/Unlike & batch liked-status checks via `/v1/me/library`, plus Steam-UI-safe sink-input filtering.
+**Addresses:** Reliable Like / Save Track (`FEATURES.md`).
+**Avoids:** Spotify `me/tracks` 403 deprecation & 40-URI batch overflow (`PITFALLS.md`); `steamwebhelper` contamination (`PITFALLS.md`).
 
-### Phase 2: Game-Specific Soundtracks (`appId` Linking & Lifecycle Automation)
-**Rationale:** Relies directly on Phase 1's `VolumeFader` to transition audio when games launch. Requires robust SteamOS `SteamClient.Apps` lifetime event handling and persistent settings schemas.  
-**Delivers:** Settings schema for `game_audio_profiles`, `appLifetimeSub` listener with 3-5s child-process debounce, AppID unsigned 32-bit normalization, pre-game playback snapshot & restore engine, and "Bind Current Music to Game" action.  
-**Addresses:** Game-Specific Soundtrack Auto-Play & Handoff, 1-Click Game Binding.  
-**Avoids:** Pitfall 2 (Proton launcher flapping, non-Steam AppID mismatch, session wipeout).
+### Phase 2: Gentle Sleep Timer Fade-Out
+**Rationale:** Low-risk vertical slice that builds directly on existing `VolumeFader` and `sleep_timer_worker` without waiting on PipeWire filter-chain or D-Bus subsystems.
+**Delivers:** 30-second cosine-eased PipeWire fade-out, `"sleep"` fade priority lock, post-pause baseline volume restore (including on cancel and before `shutdown_on_finish`), and `SettingsTab.tsx` toggle.
+**Uses:** `VolumeFader` (`py_modules/volume.py`), `sleep_timer_worker` (`py_modules/system.py`).
+**Avoids:** Ducking clobbering sleep fade, 200ms loud restore pop, and 0% `module-stream-restore` persistence across reboots (`PITFALLS.md`).
 
-### Phase 3: Controller L2/R2 Ergonomics & Trigger Seeking
-**Rationale:** Self-contained frontend input layer enhancement in `DeckifyExpandedModal.tsx`. Provides fast controller gestures before building the Discovery tab.  
-**Delivers:** Schmidt trigger hysteresis (0.75 / 0.25 threshold), 300ms software debounce, modal-scoped event capture, optimistic local seek accumulator (±10s blind seek), and virtualized list page jumping with focus anchor re-targeting.  
-**Addresses:** L2/R2 Controller Trigger Seeking, L2/R2 Fast List Page Jumping, Alphabet Jump.  
-**Avoids:** Pitfall 3 (Analog trigger chatter, in-game trigger hijacking) and Pitfall 8 (Virtualized list focus loss).
+### Phase 3: Real PipeWire Biquad Equalizer (`EQ-01`)
+**Rationale:** Depends on Phase 1's hardened sink-input resolver and must be in place before `DOCK-01` (Phase 4) can coordinate routing of `effect_output.deckify_eq`.
+**Delivers:** `py_modules/equalizer.py` (`pipewire -c` managed subprocess), working `Flat` (bypass), `Bass Boost`, `Vocal Clarity`, and `Gaming Balance` presets, plus `Custom` 5-band sliders with throttled `pw-cli set-param` live updates in `SettingsTab.tsx`.
+**Implements:** `EqualizerManager` (`ARCHITECTURE.md`).
+**Avoids:** Restarting `pipewire.service`, hijacking `@DEFAULT_SINK@`, unthrottled `pw-cli` subprocess spam, and EQ preamp clipping (`PITFALLS.md`).
 
-### Phase 4: QAM Pinned Playlists & Quick In-Game Switch
-**Rationale:** Enhances the Steam Quick Access Menu mini-player so players can switch soundtracks in 2 seconds without opening the full-screen modal during gameplay.  
-**Delivers:** Horizontal pill container (`flow-children="horizontal"`) in QAM mini-player, maximum 4 pinned playlist items, cached base64 thumbnails, direct context play RPC, and playlist pin toggle in Library tabs.  
-**Addresses:** QAM Pinned Playlists (2-second quick switch).  
-**Avoids:** Pitfall 9 (QAM UI hitching from uncached RPCs) and CEF spatial navigation jump bugs.
+### Phase 4: Automatic Docked Audio-Switching (`DOCK-01`)
+**Rationale:** Directly coordinates with Phase 3's `EqualizerManager` (`set_target_sink`) and Phase 1's sink-input filter.
+**Delivers:** `py_modules/dock.py` (`pactl subscribe` hotplug watcher with 1.5–2s debounce), per-sink auto-switch preferences in `SettingsTab.tsx`, Bluetooth override guard, and sink-scoped `bit_perfect_clock` (`44.1/88.2/96kHz` on DAC/HDMI, `[ 48000 ]` on internal/BT).
+**Implements:** `DockAudioSwitcher` (`ARCHITECTURE.md`).
+**Avoids:** Moving `librespot` off the EQ graph, hotplug flapping, and sample-rate crackling on undock (`PITFALLS.md`).
 
-### Phase 5: In-Game Overlay 2.0 (Live Synced Lyrics HUD)
-**Rationale:** Extends the existing Gamescope HUD (`DeckifyOverlay.tsx`) to render real-time sing-along lyrics while playing games. Built after core audio and QAM controls are proven stable.  
-**Delivers:** Discrete timestamp-based lyric line scheduler (`setTimeout`), single active line rendering beneath artist with cross-fade opacity, strict layout shift prevention (fixed height), negative latency offset compensation (-200ms default), and QAM visibility toggle.  
-**Addresses:** In-Game HUD Overlay 2.0 (Active Synced Lyric Line), Dynamic Ambient Accent Tinting.  
-**Avoids:** Pitfall 4 (Gamescope frame pacing stutter from CEF repaints) and Pitfall 10 (Audio buffer latency desync).
+### Phase 5: Event-Driven `librespot` (`--onevent`) & Suspend/Wi-Fi Resilience
+**Rationale:** Replaces 3s Web API polling with local Unix socket push events and provides instant, accurate state/position snapshots needed by both session bookmarking and Phase 6's MPRIS2 bridge.
+**Delivers:** Lightweight `--onevent` hook + `py_modules/resilience.py` (`LibrespotEventServer`, `SessionBookmarkManager`), Base16→Base62 `TRACK_ID` conversion, adaptive 20s fallback polling, unified `asyncio.Lock` suspend/wake recovery with Wi-Fi/DNS readiness wait, and `SettingsTab.tsx` toggle/status.
+**Implements:** `LibrespotEventServer` & `SessionBookmarkManager` (`ARCHITECTURE.md`).
+**Avoids:** Heavy `--onevent` cold-start audio stutters and dual `SuspendResumeMonitor` / `_monitor_process` wake races (`PITFALLS.md`).
 
-### Phase 6: Home / Discovery Hub Tab & Spotify API Hardening
-**Rationale:** Capstone feature completing Milestone v0.5. Requires Spotify client hardening (fixing 429 handling) to ensure high-volume recommendation fetching never destabilizes the plugin.  
-**Delivers:** Fix `import time` and add circuit breaker in `py_modules/spotify.py`; concurrent feed assembler in `py_modules/rpc_library.py`; multi-hour cache store; `DiscoveryTab.tsx` with Top Tracks, Top Artists, Algorithmic Mixes, and New Releases; and contextual time-of-day greeting.  
-**Addresses:** Personalized Discovery Tab ("Made For You"), Contextual Time-of-Day Mixes.  
-**Avoids:** Pitfall 5 (HTTP 429 crash, invalid discovery endpoints) and Pitfall 6 (Waterfall lyrics RPC stalling).
-
----
+### Phase 6: MPRIS2 D-Bus Bridge (`org.mpris.MediaPlayer2.deckify`)
+**Rationale:** Benefits from Phase 5's instant `--onevent` state push for zero-lag AVRCP metadata/playback updates and is cleanly isolated as the final subsystem.
+**Delivers:** `py_modules/mpris.py` running under `deck` (UID 1000) via `_build_deck_command`, vendored pure-Python `dbus-next` (or stdlib D-Bus bridge), `Play`/`Pause`/`PlayPause`/`Next`/`Previous` AVRCP handling, `mpris-proxy` status detection, and `SettingsTab.tsx` toggle.
+**Implements:** `MprisBridge` (`ARCHITECTURE.md`).
+**Avoids:** UID 0 D-Bus `EXTERNAL` auth rejection, C-extension `LD_LIBRARY_PATH` crashes, and 1s `PropertiesChanged` battery drain (`PITFALLS.md`).
 
 ### Phase Ordering Rationale
 
-1. **Phase 1 -> Phase 2 Dependency**: Game soundtrack auto-play requires volume fading to transition smoothly into the game; building the fader first ensures the lifecycle handlers have a robust audio backend to call.
-2. **Phase 3 & Phase 4 Parallelism / Staging**: Trigger seeking (modal) and QAM pinned playlists (sidebar) refine handheld ergonomics across the two primary UI surfaces before adding new media tabs.
-3. **Phase 5 Overlay Isolation**: The Gamescope overlay runs in a separate compositor layer; isolating its lyric enhancements prevents regressions in the main modal.
-4. **Phase 6 API Hardening at the End**: Fetching discovery feeds hits multiple Spotify endpoints; hardening the HTTP client and rate-limiting circuit breaker first guarantees reliable feed retrieval.
+- **Dependency chain:** Phase 1 hardens `resolve_spotify_sink_input_ids()` before Phases 2–4 touch sink-inputs; Phase 3 creates `deckify_eq_sink` before Phase 4 routes its output stream; Phase 5 delivers `--onevent` push state before Phase 6 binds MPRIS2 `PropertiesChanged` to it.
+- **Risk-first delivery:** Quick, high-value fixes (Like 403, Sleep Fade) ship first while higher-complexity PipeWire/D-Bus integrations are isolated into single-subsystem phases.
 
 ### Research Flags
 
-- **Phase 1 (Smooth Ducking Engine)**: *Standard Patterns* — `pactl` sink-input control and `asyncio` task management are well-documented; skip `/gsd-plan-phase --research-phase`.
-- **Phase 2 (Game Soundtracks & AppLifetime)**: *Needs Deeper Research during Planning* (`/gsd-plan-phase --research-phase 2`) — Validate exact SteamOS 3.5 vs 3.7+ preview payload structures for `window.SteamClient.Apps.RegisterForAppLifetimeNotifications` and non-Steam shortcut ID bitwise masks.
-- **Phase 3 (L2/R2 Controller Triggers)**: *Standard Patterns* — Synthesized DOM gamepad events in `@decky/ui` are proven; skip research-phase.
-- **Phase 4 (QAM Pinned Playlists)**: *Standard Patterns* — Uses established `@decky/ui` `PanelSectionRow` and `Focusable`; skip research-phase.
-- **Phase 5 (In-Game Overlay 2.0)**: *Needs Verification during Planning* — Test Gamescope overlay frame time impact on Steam Deck LCD vs OLED under 60FPS/90FPS GPU load.
-- **Phase 6 (Discovery Tab & API Hardening)**: *Needs Deeper Research during Planning* (`/gsd-plan-phase --research-phase 6`) — Validate exact response schemas for `/v1/me/top/tracks` and public fallback behavior for new Spotify accounts with low play history.
+Phases likely needing deeper research/validation during planning:
+- **Phase 3 (`EQ-01`):** Verify exact SteamOS 3.5+/3.7+ PipeWire `filter-chain` `pw-dump` node naming and `pw-cli set-param` `Props` syntax on target hardware.
+- **Phase 5 (`--onevent`):** Benchmark POSIX shell (`socat`/`nc`) vs minimal Python hook execution latency (<10ms target) and verify `librespot` `--onevent` flags in the bundled `bin/librespot` binary.
+- **Phase 6 (`MPRIS2`):** Confirm vendored `dbus-next` footprint vs minimal stdlib `AF_UNIX` D-Bus `EXTERNAL` server, and verify BlueZ `mpris-proxy` behavior inside SteamOS Gamescope sessions.
 
----
+Phases with standard patterns (skip research-phase):
+- **Phase 1 (Like 403 & Sink-Input Filter):** Exact Spotify `/v1/me/library` contract and `VolumeFader.resolve_sink_input_id()` pattern are already verified in the codebase.
+- **Phase 2 (Sleep Timer Fade-Out):** Directly reuses existing `VolumeFader.fade_to()` and `sleep_timer_worker()`.
+- **Phase 4 (`DOCK-01`):** Uses standard `pactl subscribe`, `pactl move-sink-input`, and existing `configure_pipewire_clock()`.
 
 ## Confidence Assessment
 
 | Area | Confidence | Notes |
 |------|------------|-------|
-| **Stack** | HIGH | Zero new external dependencies. Leverages verified SteamOS GamepadUI globals (`window.SteamClient`), PipeWire `pactl`, and Spotify Web API. |
-| **Features** | HIGH | Requirements benchmarked against PS5 Control Center and Xbox Guide handheld media standards; anti-features rigorously identified. |
-| **Architecture** | HIGH | Preserves v0.4 modular seams (`src/components/tabs/`, `py_modules/`), respects Steam CEF CSP, and maintains non-blocking asyncio patterns. |
-| **Pitfalls** | HIGH | Real-world failure modes documented with concrete, testable mitigations (Proton launcher flapping, PipeWire fork bombs, trigger noise, CEF repaints). |
+| Stack | HIGH | All binaries (`pipewire`, `pw-cli`, `pactl`, `busctl`) and existing codebase primitives verified directly. |
+| Features | HIGH | Cross-checked against `SettingsTab.tsx`, `PROJECT.md`, 2026 Spotify API spec, and SteamOS PipeWire/BlueZ specs. |
+| Architecture | HIGH | Aligns with existing `py_modules/` modularization and SteamOS UID/CSP/stream-isolation constraints. |
+| Pitfalls | HIGH | Grounded in direct inspection of `py_modules/engine.py`, `volume.py`, `system.py`, `device.py`, and `main.py`. |
 
-**Overall confidence:** **HIGH**
+**Overall confidence:** HIGH
 
 ### Gaps to Address
 
-- **SteamOS 3.7+ Preview Compatibility for `RegisterForAppLifetimeNotifications`**: Verify whether SteamOS 3.7+ alters the event signature or property names (`unAppID` vs `nAppID`).  
-  *Handling:* Provide a defensive normalization helper with fallback checks during Phase 2 planning.
-- **Non-Steam Shortcut CRC32 Bitwise Masking**: Confirm whether all non-Steam shortcuts consistently conform to `(Number(rawId) >>> 0)`.  
-  *Handling:* Test against EmulationStation and Heroic Launcher during Phase 2 execution.
-- **Audio Buffer Delay on Bluetooth Headphones**: Local PipeWire sink latency is ~150-200ms for internal speakers, but Bluetooth (A2DP/AAC) can add 150-300ms.  
-  *Handling:* Ensure the user lyrics offset slider (-2000ms to +2000ms) in Settings is fully wired in Phase 5.
-
----
+- **`--onevent` hook implementation (`bin/librespot-event.py` vs POSIX `sh` + `socat`/`nc`):** `ARCHITECTURE.md` suggests a minimal stdlib Python script while `PITFALLS.md` and `FEATURES.md` warn that spawning Python takes 150–400ms on Steam Deck. Resolve during Phase 5 planning by preferring a POSIX `#!/bin/sh` + `nc`/`socat` (or compiled) emitter and benchmarking on-device.
+- **Bundled `bin/librespot` `--onevent` support & `mpris-proxy` status in Gamescope:** Verify the exact `librespot` binary version/flags and whether `mpris-proxy.service` is active by default in SteamOS 3.5+/3.7+ Gaming Mode during Phases 5 and 6.
+- **PipeWire `filter-chain` `pw-cli` node ID & `Gain` param format:** Confirm exact `pw-dump` JSON structure and `pw-cli set-param` syntax against SteamOS's installed PipeWire version during Phase 3 planning.
 
 ## Sources
 
 ### Primary (HIGH confidence)
-- **Deckify v0.4 Production Codebase**: `main.py`, `py_modules/volume.py`, `py_modules/spotify.py`, `src/index.tsx`, `src/components/DeckifyExpandedModal.tsx`, `src/components/DeckifyOverlay.tsx`.
-- **SteamOS GamepadUI & `@decky/ui` (4.11.1)**: Spatial navigation primitives, `FocusNavController`, `SteamClient.Apps.RegisterForAppLifetimeNotifications`.
-- **PipeWire / PulseAudio Linux Standards**: `pactl list sink-inputs`, `pactl set-sink-input-volume`, `pactl list source-outputs` verified on SteamOS 3.5+.
-- **Official Spotify Web API Documentation**: Endpoints `/v1/me/player/*`, `/v1/me/top/tracks`, `/v1/me/top/artists`, `/v1/recommendations`, and HTTP 429 rate limit backoff specifications.
-
-### Secondary (MEDIUM confidence)
-- **Steamcord Decky Plugin Architecture**: Audio stream classification patterns for detecting active Discord voice packets on Steam Deck.
-- **Console Platform UX Benchmarks**: PlayStation 5 Control Center Media Card & Xbox Series X Guide Media Widget controller ergonomics.
+- Deckify codebase (`main.py`, `py_modules/volume.py`, `py_modules/engine.py`, `py_modules/device.py`, `py_modules/system.py`, `py_modules/rpc_playback.py`, `py_modules/common.py`, `src/components/tabs/SettingsTab.tsx`)
+- Spotify Web API 2026 `/v1/me/library` & `/v1/me/tracks` deprecation documentation (`developer.spotify.com`)
+- PipeWire `libpipewire-module-filter-chain`, `pw-cli`, and `pw-metadata` documentation (`docs.pipewire.org`)
+- `librespot` `--onevent` environment variable specification (`github.com/librespot-org/librespot`)
+- BlueZ `mpris-proxy` & MPRIS2 D-Bus specification (`org.mpris.MediaPlayer2.Player`)
 
 ---
-*Research completed: 2026-11-12*  
-*Ready for roadmap: yes*  
+*Research completed: 2026-11-16*
+*Ready for roadmap: yes*
