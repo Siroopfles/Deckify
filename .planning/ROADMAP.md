@@ -57,14 +57,14 @@
   2. Batch liked-status checks handle playlists and queues of any size (>40 tracks) without exceeding Spotify's `/v1/me/library/contains` URI limit.
   3. When `spotify_client` is active and Web API returns 403, liking/unliking falls back cleanly to CDP `LibraryAPI`.
   4. Deckify sink-input routing and volume fader resolution only target `librespot`, `com.spotify.client`, or `deckify_eq_out` streams and never move or mute `steamwebhelper`, `Chromium`, or running game audio streams.
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans executed
 
 Plans:
 **Wave 1**
 - [x] 13-01-PLAN.md — Migrate track liking & batch checks to `/v1/me/library` with CDP `LibraryAPI` 403 fallback
 
 **Wave 2** *(blocked on Wave 1 completion)*
-- [ ] 13-02-PLAN.md — Centralize `resolve_spotify_sink_input_ids` allowlist/deny-list guardrails for `_set_pactl_sink_input` and `VolumeFader`
+- [x] 13-02-PLAN.md — Centralize `resolve_spotify_sink_input_ids` allowlist/deny-list guardrails for `_set_pactl_sink_input` and `VolumeFader`
 
 ### Phase 14: Gentle Sleep Timer Fade-Out
 **Goal**: Expiring sleep timers gently fade playback volume to zero before pausing and cleanly restore baseline volume afterward.
@@ -125,7 +125,7 @@ Plans:
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 13. Like Button 403 Fix & Sink-Input Guardrails | v0.6 | 1/2 | In Progress | - |
+| 13. Like Button 403 Fix & Sink-Input Guardrails | v0.6 | 2/2 | In Progress | - |
 | 14. Gentle Sleep Timer Fade-Out | v0.6 | 0/TBD | Not started | - |
 | 15. Real PipeWire Biquad Equalizer | v0.6 | 0/TBD | Not started | - |
 | 16. Automatic Docked Audio-Switching | v0.6 | 0/TBD | Not started | - |

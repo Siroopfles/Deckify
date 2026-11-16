@@ -5,16 +5,16 @@ milestone_name: Audio DSP, Docked Flow & System Resilience (Active)
 current_phase: 13
 current_phase_name: Like Button 403 Fix & Sink-Input Guardrails
 status: executing
-stopped_at: Completed 13-01-PLAN.md
-last_updated: "2026-11-16T12:15:16.908Z"
+stopped_at: Completed 13-02-PLAN.md
+last_updated: "2026-11-16T12:19:24.804Z"
 last_activity: 2026-11-16
 last_activity_desc: v0.6 Roadmap created (Phases 13–18)
-state_head: d118aa4b94ca397dd0a07bc7a261f1e7b44e8721
+state_head: f41196562e64439bf8d8899933560b8328766181
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 2
-  completed_plans: 1
+  completed_plans: 2
   percent: 0
 ---
 
@@ -86,6 +86,7 @@ Last activity: 2026-11-16 — v0.6 Roadmap created (Phases 13–18)
 | Phase 12 P02 | 6min | 3 tasks | 12 files |
 | Phase 12 P03 | 9min | 3 tasks | 14 files |
 | Phase 13 P01 | 3min | 2 tasks | 6 files |
+| Phase 13 P02 | 3min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -124,6 +125,7 @@ Recent decisions affecting current work:
 - [Phase 11]: Guarded idle default-tab transition with setMode((prev) => (prev === 'now_playing' ? 'discovery' : prev)) so explicit tab switches are never overridden
 - [Phase 12]: Wake stopped librespot inside play_tracks 404 handler after _auto_transfer_and_play fails, preserving single-call behavior when external devices are active
 - [Phase 12]: Used existing fetchWithQueueAndCache/imgMemoryCache (get_image RPC) for track_metadata toast cover proxying
+- [Phase 13]: D-05/D-06: Centralized sink-input resolution in resolve_spotify_sink_input_ids with steamwebhelper/Chromium deny-list, allowlist fallback, and 0-match debug no-op in _set_pactl_sink_input
 
 ### Pending Todos
 
@@ -152,8 +154,8 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-16T12:15:16.869Z
-Stopped at: Completed 13-01-PLAN.md
+Last session: 2026-11-16T12:19:24.755Z
+Stopped at: Completed 13-02-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
