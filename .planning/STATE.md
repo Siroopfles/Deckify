@@ -1,20 +1,16 @@
 ---
 gsd_state_version: "1.0"
-milestone: v0.5
-milestone_name: In-Game Flow & Music Discovery
-status: Awaiting next milestone
-stopped_at: Phase 12 complete — all phases complete
-last_updated: "2026-11-15T20:42:54.009Z"
-last_activity: 2026-11-15
-last_activity_desc: Milestone v0.5 completed and archived
-state_head: beb25f756d54713f8633c55c4804be8025266c36
+milestone: v0.6
+milestone_name: Audio DSP, Docked Flow & System Resilience
+status: planning
+last_updated: "2026-11-16T06:01:15.094Z"
+last_activity: 2026-11-16
 progress:
-  total_phases: 8
-  completed_phases: 8
-  total_plans: 22
-  completed_plans: 22
-  percent: 100
-current_phase: 12
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -28,10 +24,11 @@ See: [.planning/PROJECT.md](file:///C:/Users/djdje/Deckify/.planning/PROJECT.md)
 
 ## Current Position
 
-Phase: Milestone v0.5 complete
+Phase: Not started (defining requirements)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-11-15 — Milestone v0.5 completed and archived
+Status: Defining requirements
+Last activity: 2026-11-16 — Milestone v0.6 started
+
 
 ## Performance Metrics
 

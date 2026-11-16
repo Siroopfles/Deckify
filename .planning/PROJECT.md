@@ -11,8 +11,20 @@ Rock-solid Spotify playback and responsive, reliable controller navigation on St
 ## Current State
 
 - **Current Version:** v0.5 (shipped 2026-11-15)
-- **Active Milestone:** None (run `/gsd-new-milestone` to plan next milestone)
+- **Active Milestone:** v0.6 — Audio DSP, Docked Flow & System Resilience
 - **Codebase Health:** Modular TypeScript frontend (`src/`, 13,995 LOC) and Python backend (`main.py` + `py_modules/`, 5,776 LOC), 458 Python `unittest` tests, 152 Vitest tests across 16 files, zero TypeScript errors, zero ESLint errors.
+
+## Current Milestone: v0.6 Audio DSP, Docked Flow & System Resilience
+
+**Goal:** Deliver real PipeWire biquad EQ filtering, automatic docked USB-DAC/HDMI audio switching, event-driven `librespot` & suspend/Wi-Fi resilience, MPRIS2 Bluetooth headset controls, gentle sleep timer fade-out, and fix the Like button HTTP 403 error.
+
+**Target features:**
+- Fix Like button HTTP 403 error (`toggle_like_track`)
+- Real PipeWire biquad Equalizer (`filter-chain` DSP + presets/sliders)
+- Automatic Docked Audio-Switching (USB-DAC / HDMI sink routing + `bit_perfect_clock`)
+- Event-driven `librespot` (`--onevent`) & Suspend/Wi-Fi session bookmark resilience
+- MPRIS2 D-Bus Bridge for Bluetooth headset media controls
+- Gentle Sleep Timer fade-out (30s gradual volume ramp-down)
 
 ## Requirements
 
@@ -39,7 +51,14 @@ Rock-solid Spotify playback and responsive, reliable controller navigation on St
 
 ### Active
 
-(None — run `/gsd-new-milestone` to define next milestone requirements)
+<!-- Scope for Milestone v0.6: Audio DSP, Docked Flow & System Resilience -->
+
+- [ ] **Like Button 403 Fix**: Resolve HTTP 403 error on `toggle_like_track` so liking/unliking tracks works reliably across backends.
+- [ ] **Real PipeWire Equalizer (`EQ-01`)**: Active PipeWire `filter-chain` / biquad DSP filtering on the Spotify/librespot sink-input with presets and custom band sliders.
+- [ ] **Automatic Docked Audio-Switching (`DOCK-01`)**: Configurable USB-DAC / HDMI sink watcher that routes only the Deckify audio stream and enables `bit_perfect_clock`.
+- [ ] **Event-Driven `librespot` & Suspend/Wi-Fi Resilience**: `--onevent` local event emission via `decky.emit` (reducing Web API polling) plus session bookmark restoration after sleep or Wi-Fi drops.
+- [ ] **MPRIS2 D-Bus Bridge**: Register `org.mpris.MediaPlayer2.deckify` on user D-Bus for Bluetooth headset play/pause/skip controls.
+- [ ] **Gentle Sleep Timer Fade-Out**: 30-second gradual volume ramp-down before pausing playback and restoring volume.
 
 ### Out of Scope
 
@@ -73,5 +92,22 @@ Rock-solid Spotify playback and responsive, reliable controller navigation on St
 | Global HTTP 429 circuit breaker & section-isolated TTL caching for Discovery | Protects Spotify Web API quota while keeping Discovery navigation snappy | ✓ Shipped in Phase 11 |
 | Auto-wake stopped librespot on `play_tracks` 404 & base64 Non-Steam grid covers | Fixes cold-start playback failures and Steam CEF CSP grid artwork blocking | ✓ Shipped in Phase 12 |
 
+## Evolution
+
+This document evolves at phase transitions and milestone boundaries.
+
+**After each phase transition** (via `/gsd-transition`):
+1. Requirements invalidated? → Move to Out of Scope with reason
+2. Requirements validated? → Move to Validated with phase reference
+3. New requirements emerged? → Add to Active
+4. Decisions to log? → Add to Key Decisions
+5. "What This Is" still accurate? → Update if drifted
+
+**After each milestone** (via `/gsd-complete-milestone`):
+1. Full review of all sections
+2. Core Value check — still the right priority?
+3. Audit Out of Scope — reasons still valid?
+4. Update Context with current state
+
 ---
-*Last updated: 2026-11-15 after v0.5 milestone*
+*Last updated: 2026-11-16 after v0.6 milestone start*
