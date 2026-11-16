@@ -225,13 +225,13 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
     setLoadingContent(false);
   }, []);
 
-  const loadRecent = useCallback(async () => {
-    setLoadingContent(true);
+  const loadRecent = useCallback(async (silent = false) => {
+    if (!silent) setLoadingContent(true);
     try {
       const res = await backendGetRecentlyPlayed(40);
       if (res.ok && res.tracks) setRecentlyPlayed(res.tracks);
     } catch {}
-    setLoadingContent(false);
+    if (!silent) setLoadingContent(false);
   }, []);
 
   const loadEpisodes = useCallback(async () => {
@@ -333,19 +333,19 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
       lastRecentTrackIdRef.current = activeTrackId;
       return undefined;
     }
-    if (!activeTrackId) return undefined;
-    if (lastRecentTrackIdRef.current !== activeTrackId) {
-      lastRecentTrackIdRef.current = activeTrackId;
-      loadRecent();
-      // Spotify /me/player/recently-played lags several seconds behind track transitions
-      const t1 = setTimeout(() => loadRecent(), 3000);
-      const t2 = setTimeout(() => loadRecent(), 8000);
-      return () => {
-        clearTimeout(t1);
-        clearTimeout(t2);
-      };
+    const interval = setInterval(() => loadRecent(true), 10000);
+    if (!activeTrackId || lastRecentTrackIdRef.current === activeTrackId) {
+      return () => clearInterval(interval);
     }
-    return undefined;
+    lastRecentTrackIdRef.current = activeTrackId;
+    loadRecent(true);
+    const t1 = setTimeout(() => loadRecent(true), 3000);
+    const t2 = setTimeout(() => loadRecent(true), 8000);
+    return () => {
+      clearInterval(interval);
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
   }, [mode, activeTrackId, loadRecent]);
   const trackName = track?.name;
   const artistName = track?.artist;

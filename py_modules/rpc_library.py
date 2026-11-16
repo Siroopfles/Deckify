@@ -24,6 +24,7 @@ from py_modules.engine import (
     _cdp_evaluate,
     _cdp_get_liked_tracks,
     _cdp_get_playlist_tracks,
+    _cdp_get_saved_episodes,
     _fetch_spotify_cdp_folder_tree,
 )
 from py_modules.rpc_playback import annotate_tracks_liked
@@ -569,18 +570,21 @@ async def get_saved_episodes(plugin, offset: int = 0) -> dict:
             ep = item.get("episode") if "episode" in item else item
             if not isinstance(ep, dict):
                 continue
+            ep_id = ep.get("id")
+            ep_name = ep.get("name") or ""
+            if not ep_id and not ep_name:
+                continue
             show = ep.get("show") or {}
             if not isinstance(show, dict):
                 show = {}
             images = ep.get("images") or []
             resume_point = ep.get("resume_point") or {}
             dur_ms = int(ep.get("duration_ms") or 0)
-            ep_id = ep.get("id")
             if dur_ms <= 0 and ep_id:
                 missing_duration_ids.append(ep_id)
             episodes.append({
                 "id": ep_id,
-                "name": ep.get("name", ""),
+                "name": ep_name,
                 "show_name": show.get("name", ""),
                 "uri": ep.get("uri", ""),
                 "duration_ms": dur_ms,
@@ -589,6 +593,21 @@ async def get_saved_episodes(plugin, offset: int = 0) -> dict:
                 "resume_position_ms": int(resume_point.get("resume_position_ms") or 0),
                 "fully_played": bool(resume_point.get("fully_played", False)),
             })
+        if len(episodes) < len(items):
+            is_spotify_client = (
+                plugin._settings.get("audio_backend") == "spotify_client"
+                and bool(
+                    getattr(plugin, "_spotify_client_process", None)
+                    and plugin._spotify_client_process.poll() is None
+                )
+            )
+            if is_spotify_client:
+                try:
+                    cdp_res = await _exec(_cdp_get_saved_episodes, offset)
+                    if isinstance(cdp_res, dict) and cdp_res.get("ok") and cdp_res.get("episodes"):
+                        return cdp_res
+                except Exception as cdp_err:
+                    decky.logger.warning("get_saved_episodes CDP fallback failed: %s", cdp_err)
         if missing_duration_ids:
             try:
                 ep_batch = await _exec(
