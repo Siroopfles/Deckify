@@ -107,6 +107,7 @@ DEFAULT_SETTINGS = {
     "overlay_lyrics_offset_ms": 0,
     "overlay_autohide_duration_s": 6,
     "eq_preset": "flat",
+    "eq_custom_bands": [0.0] * 10,
     "trigger_nav_enabled": True,
     "trigger_seek_seconds": 10,
     "trigger_page_size": 15,
@@ -239,8 +240,25 @@ def _load_settings(settings_file: str | None = None) -> dict:
             merged["overlay_autohide_duration_s"] = max(3, min(15, int(merged.get("overlay_autohide_duration_s", 6))))
         except (TypeError, ValueError):
             merged["overlay_autohide_duration_s"] = 6
-        if merged.get("eq_preset") not in ("flat", "bass", "vocal", "gaming"):
+        if merged.get("eq_preset") not in ("flat", "bass", "vocal", "gaming", "deck_speakers", "late_night", "custom"):
             merged["eq_preset"] = "flat"
+        raw_bands = merged.get("eq_custom_bands")
+        if isinstance(raw_bands, list):
+            clamped_bands: list[float] = []
+            for idx in range(10):
+                if idx < len(raw_bands):
+                    try:
+                        b_val = float(raw_bands[idx])
+                        if b_val != b_val:
+                            b_val = 0.0
+                    except (TypeError, ValueError):
+                        b_val = 0.0
+                else:
+                    b_val = 0.0
+                clamped_bands.append(round(max(-12.0, min(12.0, b_val)), 2))
+            merged["eq_custom_bands"] = clamped_bands
+        else:
+            merged["eq_custom_bands"] = [0.0] * 10
         if not isinstance(merged.get("auto_ducking"), bool):
             merged["auto_ducking"] = bool(merged.get("auto_ducking", True))
         try:
