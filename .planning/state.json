@@ -1,78 +1,43 @@
 {
   "contract": "1.0.0",
   "flavor": "core",
-  "milestone": "v0.6",
+  "milestone": "v0.6 — Audio DSP, Docked Flow & System Resilience (Active)",
   "phases": [
     {
-      "number": "1",
-      "name": "Architecture & Monolith Decoupling",
+      "number": "13",
+      "name": "Like Button 403 Fix & Sink-Input Guardrails",
       "status": "complete"
     },
     {
-      "number": "2",
-      "name": "Artwork & Image Pipeline Stabilization",
-      "status": "complete"
+      "number": "14",
+      "name": "Gentle Sleep Timer Fade-Out",
+      "status": "pending"
     },
     {
-      "number": "3",
-      "name": "Live Playback Ticker & Gamepad Seekbar Scrubbing",
-      "status": "complete"
+      "number": "15",
+      "name": "Real PipeWire Biquad Equalizer",
+      "status": "pending"
     },
     {
-      "number": "4",
-      "name": "Queue Navigation & Live State Synchronization",
-      "status": "complete"
+      "number": "16",
+      "name": "Automatic Docked Audio-Switching",
+      "status": "pending"
     },
     {
-      "number": "5",
-      "name": "In-Game HUD Overlay Restoration",
-      "status": "complete"
+      "number": "17",
+      "name": "Event-Driven librespot & Suspend/Wi-Fi Resilience",
+      "status": "pending"
     },
     {
-      "number": "6",
-      "name": "Smooth Audio Ducking Engine & PipeWire Fader",
-      "status": "complete"
-    },
-    {
-      "number": "7",
-      "name": "Game-Specific Soundtracks (appId Linking & Lifecycle Automation)",
-      "status": "complete"
-    },
-    {
-      "number": "8",
-      "name": "Controller L2/R2 Ergonomics & Trigger Navigation",
-      "status": "complete"
-    },
-    {
-      "number": "9",
-      "name": "QAM Pinned Playlists & Quick In-Game Switch",
-      "status": "complete"
-    },
-    {
-      "number": "10",
-      "name": "In-Game HUD Overlay 2.0 (Live Synced Lyrics)",
-      "status": "complete"
-    },
-    {
-      "number": "11",
-      "name": "Home & Discovery Hub Tab",
-      "status": "complete"
-    },
-    {
-      "number": "11.1",
-      "name": "Address tech debt: v0.5 integration & metadata cleanup",
-      "status": "complete"
-    },
-    {
-      "number": "12",
-      "name": "Resolve open todos & polish",
-      "status": "complete"
+      "number": "18",
+      "name": "MPRIS2 D-Bus Bridge",
+      "status": "pending"
     }
   ],
   "next": {
-    "command": "/gsd-discuss-phase",
-    "label": "Discuss the first phase",
-    "reason": "Project initialized — plan your first phase"
+    "command": "/gsd-progress --next",
+    "label": "Advance to the next step",
+    "reason": "Phase 4 of 6 · 17% · executing"
   },
-  "updated_at": "2026-11-16T06:01:15.104Z"
+  "updated_at": "2026-11-16T20:55:20.341Z"
 }
