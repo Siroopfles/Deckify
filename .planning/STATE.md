@@ -2,11 +2,11 @@
 gsd_state_version: "1.0"
 milestone: v0.6
 milestone_name: Audio DSP, Docked Flow & System Resilience
-status: planning
-last_updated: "2026-11-16T06:01:15.094Z"
+status: ready_to_plan
+last_updated: "2026-11-16T06:10:00Z"
 last_activity: 2026-11-16
 progress:
-  total_phases: 0
+  total_phases: 6
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -17,23 +17,23 @@ progress:
 
 ## Project Reference
 
-See: [.planning/PROJECT.md](file:///C:/Users/djdje/Deckify/.planning/PROJECT.md) (updated 2026-11-15)
+See: [.planning/PROJECT.md](file:///C:/Users/djdje/Deckify/.planning/PROJECT.md) (updated 2026-11-16)
 
 **Core value:** Rock-solid Spotify playback and responsive, reliable controller navigation on Steam Deck without UI lag, broken images, or desynchronized playback states.
-**Current focus:** Planning next milestone
+**Current focus:** Phase 13 — Like Button 403 Fix & Sink-Input Guardrails
 
 ## Current Position
 
-Phase: Not started (defining requirements)
-Plan: —
-Status: Defining requirements
-Last activity: 2026-11-16 — Milestone v0.6 started
+Phase: 13 of 18 (Like Button 403 Fix & Sink-Input Guardrails)
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-11-16 — v0.6 Roadmap created (Phases 13–18)
 
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 29 (7 in v0.4, 2 in v0.5)
+- Total plans completed: 29 (7 in v0.4, 22 in v0.5)
 - Average duration: ~14.7 min
 - Total execution time: ~2.2 hours
 
@@ -131,6 +131,7 @@ None yet.
 
 - Phase 11.1 inserted after Phase 11: Address tech debt: v0.5 integration & metadata cleanup (URGENT)
 - Phase 12 added: Resolve open todos & polish
+- Phases 13–18 added: v0.6 Audio DSP, Docked Flow & System Resilience
 
 ## Deferred Items
 
@@ -138,17 +139,17 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 | Category | Item | Status | Deferred At | Milestone |
 |----------|------|--------|-------------|-----------|
-| Audio DSP | EQ-01: Parametric 10-band PipeWire DSP biquad equalizer filter chain | Deferred | 2026-11-12 | v0.5 |
+| Audio DSP | EQ-01: Parametric 10-band PipeWire DSP biquad equalizer filter chain | Active in v0.6 (Phase 15) | 2026-11-12 | v0.5 |
 | Native Client | CDP-01: Spotify CDP offline downloads | Deferred | 2026-11-12 | v0.5 |
 | Queue API | QUEUE-03: Interactive queue reordering/clearing via CDP | Deferred | 2026-11-12 | v0.5 |
-| Audio Hardware | DOCK-01: Auto audio sink switching to external USB-DAC/HDMI dock | Deferred | 2026-11-12 | v0.5 |
+| Audio Hardware | DOCK-01: Auto audio sink switching to external USB-DAC/HDMI dock | Active in v0.6 (Phase 16) | 2026-11-12 | v0.5 |
 
 ## Session Continuity
 
-Last session: 2026-11-15T20:19:57.478Z
-Stopped at: Phase 12 complete — all phases complete
+Last session: 2026-11-16T06:10:00Z
+Stopped at: v0.6 Roadmap created (Phases 13–18)
 Resume file: None
 
 ## Operator Next Steps
 
-- Start the next milestone with /gsd-new-milestone
+- Plan Phase 13 with `/gsd-plan-phase 13`

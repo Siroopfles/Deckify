@@ -53,18 +53,18 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| LIB-01 | Pending | Pending |
-| LIB-02 | Pending | Pending |
-| SLEEP-01 | Pending | Pending |
-| EQ-01 | Pending | Pending |
-| EQ-02 | Pending | Pending |
-| DOCK-01 | Pending | Pending |
-| DOCK-02 | Pending | Pending |
-| RESIL-01 | Pending | Pending |
-| RESIL-02 | Pending | Pending |
-| MPRIS-01 | Pending | Pending |
+| LIB-01 | Phase 13 | Pending |
+| LIB-02 | Phase 13 | Pending |
+| SLEEP-01 | Phase 14 | Pending |
+| EQ-01 | Phase 15 | Pending |
+| EQ-02 | Phase 15 | Pending |
+| DOCK-01 | Phase 16 | Pending |
+| DOCK-02 | Phase 16 | Pending |
+| RESIL-01 | Phase 17 | Pending |
+| RESIL-02 | Phase 17 | Pending |
+| MPRIS-01 | Phase 18 | Pending |
 
 **Coverage:**
 - v0.6 requirements: 10 total
-- Mapped to phases: 0 (pending roadmap)
-- Unmapped: 10
+- Mapped to phases: 10
+- Unmapped: 0

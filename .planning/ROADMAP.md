@@ -2,8 +2,9 @@
 
 ## Milestones
 
-- ✅ **v0.4: Stability, Polish & Refactoring** — Phases 1-5 (shipped 2026-11-12) — [Full Archive](file:///C:/Users/djdje/Deckify/.planning/milestones/v0.4-ROADMAP.md)
-- ✅ **v0.5: In-Game Flow & Music Discovery** — Phases 6-12 (shipped 2026-11-15) — [Full Archive](file:///C:/Users/djdje/Deckify/.planning/milestones/v0.5-ROADMAP.md)
+- ✅ **v0.4: Stability, Polish & Refactoring** — Phases 1-5 (shipped 2026-11-12) — [Full Archive](.planning/milestones/v0.4-ROADMAP.md)
+- ✅ **v0.5: In-Game Flow & Music Discovery** — Phases 6-12 (shipped 2026-11-15) — [Full Archive](.planning/milestones/v0.5-ROADMAP.md)
+- 🚧 **v0.6: Audio DSP, Docked Flow & System Resilience** — Phases 13-18 (in progress)
 
 ## Phases
 
@@ -16,7 +17,7 @@
 - [x] **Phase 4: Queue Navigation & Live State Synchronization** — Queue direct track selection with explicit sliced URIs sequence and Now Playing card.
 - [x] **Phase 5: In-Game HUD Overlay Restoration** — Gamescope floating overlay with `pointerEvents: "none"`, auto-hide timer, pause grace, progress bar, and direct QAM controls.
 
-*Archived in:* [.planning/milestones/v0.4-ROADMAP.md](file:///C:/Users/djdje/Deckify/.planning/milestones/v0.4-ROADMAP.md)
+*Archived in:* [.planning/milestones/v0.4-ROADMAP.md](.planning/milestones/v0.4-ROADMAP.md)
 
 </details>
 
@@ -32,15 +33,103 @@
 - [x] **Phase 11.1: Address tech debt: v0.5 integration & metadata cleanup** (1/1 plan) — Fixed game-exit ducking debounce, PlaylistPickerModal suppression, and audit metadata (completed 2026-11-15)
 - [x] **Phase 12: Resolve open todos & polish** (3/3 plans) — Resolved all 20 pending todos and archived 3 resolved debug sessions across playback, HUD/ducking, Non-Steam covers, and UX (completed 2026-11-15)
 
-*Archived in:* [.planning/milestones/v0.5-ROADMAP.md](file:///C:/Users/djdje/Deckify/.planning/milestones/v0.5-ROADMAP.md)
+*Archived in:* [.planning/milestones/v0.5-ROADMAP.md](.planning/milestones/v0.5-ROADMAP.md)
 
 </details>
+
+### 🚧 v0.6: Audio DSP, Docked Flow & System Resilience (Active)
+
+- [ ] **Phase 13: Like Button 403 Fix & Sink-Input Guardrails** - Migrate track liking to `/v1/me/library` with CDP fallback and isolate sink-input routing strictly to Deckify streams.
+- [ ] **Phase 14: Gentle Sleep Timer Fade-Out** - Smoothly ramp playback volume to 0% over a configurable fade-out window before pausing and restoring baseline volume.
+- [ ] **Phase 15: Real PipeWire Biquad Equalizer** - Isolated `pipewire -c` `filter-chain` DSP equalizer with presets and live 5-band custom sliders.
+- [ ] **Phase 16: Automatic Docked Audio-Switching** - Automatic USB-DAC/HDMI sink hotplug switching for Deckify streams with `bit_perfect_clock` management.
+- [ ] **Phase 17: Event-Driven librespot & Suspend/Wi-Fi Resilience** - Local `--onevent` Unix socket push updates, relaxed fallback polling, and unified suspend/Wi-Fi bookmark recovery.
+- [ ] **Phase 18: MPRIS2 D-Bus Bridge** - Register `org.mpris.MediaPlayer2.deckify` on the `deck` user D-Bus for Bluetooth headset AVRCP playback and metadata.
+
+## Phase Details
+
+### Phase 13: Like Button 403 Fix & Sink-Input Guardrails
+**Goal**: Users can reliably like/unlike tracks without HTTP 403 errors, and Deckify audio routing strictly isolates Spotify/Deckify streams from Steam UI and game audio.
+**Depends on**: Nothing (first phase of v0.6)
+**Requirements**: LIB-01, LIB-02
+**Success Criteria** (what must be TRUE):
+  1. User can like and unlike tracks in the Expanded Modal and QAM without triggering HTTP 403 Forbidden errors, and liked-heart indicators accurately reflect saved library state.
+  2. Batch liked-status checks handle playlists and queues of any size (>40 tracks) without exceeding Spotify's `/v1/me/library/contains` URI limit.
+  3. When `spotify_client` is active and Web API returns 403, liking/unliking falls back cleanly to CDP `LibraryAPI`.
+  4. Deckify sink-input routing and volume fader resolution only target `librespot`, `com.spotify.client`, or `deckify_eq_out` streams and never move or mute `steamwebhelper`, `Chromium`, or running game audio streams.
+**Plans**: TBD
+
+### Phase 14: Gentle Sleep Timer Fade-Out
+**Goal**: Expiring sleep timers gently fade playback volume to zero before pausing and cleanly restore baseline volume afterward.
+**Depends on**: Phase 13
+**Requirements**: SLEEP-01
+**Success Criteria** (what must be TRUE):
+  1. When the sleep timer expires with fade-out enabled, Deckify smoothly ramps playback volume down to 0% over the configured fade-out window (default 30s) before pausing playback.
+  2. Active game or voice ducking events cannot interrupt or override an in-progress sleep timer fade-out.
+  3. After playback pauses and audio drains, Deckify restores the pre-fade baseline volume (including before `shutdown_on_finish` poweroff) so the next session does not start muted or pop loudly.
+  4. Cancelling an active sleep timer during fade-out immediately aborts the fade and restores baseline volume.
+**Plans**: TBD
+
+### Phase 15: Real PipeWire Biquad Equalizer
+**Goal**: Users can shape Deckify's audio output in real time using preset or custom 5-band PipeWire biquad EQ without disrupting game or Steam UI audio.
+**Depends on**: Phase 13
+**Requirements**: EQ-01, EQ-02
+**Success Criteria** (what must be TRUE):
+  1. User can select `Flat` (bypass), `Bass Boost`, `Vocal Clarity`, or `Gaming Balance` EQ presets and hear real-time biquad filtering applied only to Deckify's audio stream.
+  2. Enabling, switching, or disabling the equalizer never restarts system `pipewire` or interrupts active game audio or Steam UI sounds.
+  3. User can select `Custom` and adjust 5-band frequency sliders (60Hz, 230Hz, 910Hz, 3.6kHz, 14kHz) in `SettingsTab` with live `pw-cli` updates and no audible crackle or subprocess spam.
+  4. Selected EQ preset and custom band gains persist across plugin restarts and SteamOS reboots.
+**Plans**: TBD
+**UI hint**: yes
+
+### Phase 16: Automatic Docked Audio-Switching
+**Goal**: Connecting a designated external USB-DAC or HDMI sink automatically routes Deckify's audio stream with bit-perfect clock support and restores normal routing on undock.
+**Depends on**: Phase 13, Phase 15
+**Requirements**: DOCK-01, DOCK-02
+**Success Criteria** (what must be TRUE):
+  1. User can enable automatic docked audio-switching and select a designated USB-DAC or HDMI target sink in `SettingsTab`.
+  2. Connecting the designated dock/DAC sink automatically moves only Deckify's stream (`effect_output.deckify_eq` when EQ is active, or `librespot` when bypassed) to the target sink after hotplug debounce, without hijacking game audio or overriding active Bluetooth headphones if configured.
+  3. Designated USB-DAC/HDMI sinks receive `bit_perfect_clock` (`clock.allowed-rates`) configuration when docked.
+  4. Undocking cleanly restores normal sink routing and resets `clock.allowed-rates` to `[ 48000 ]` so internal speakers and Bluetooth audio do not crackle.
+**Plans**: TBD
+**UI hint**: yes
+
+### Phase 17: Event-Driven librespot & Suspend/Wi-Fi Resilience
+**Goal**: Playback state updates instantaneously via local `librespot --onevent` events and recovers seamlessly from Steam Deck sleep/wake and Wi-Fi drops.
+**Depends on**: Phase 13
+**Requirements**: RESIL-01, RESIL-02
+**Success Criteria** (what must be TRUE):
+  1. Track changes, play/pause transitions, and seeks in `librespot` update the QAM, Expanded Modal, and HUD overlay immediately via local Unix socket `--onevent` push without audible stutter during rapid skipping.
+  2. When `--onevent` is healthy, background Web API polling relaxes from tight 3s intervals to low-frequency fallback polling, reducing HTTP 429 rate-limit pressure.
+  3. On Steam Deck suspend (`PrepareForSleep`) or Wi-Fi disconnect/reconnect, Deckify snapshots the active playback bookmark (`track_uri`, `context_uri`, `position_ms`) and restores playback cleanly once network and OAuth tokens recover, without dual-restart races.
+**Plans**: TBD
+
+### Phase 18: MPRIS2 D-Bus Bridge
+**Goal**: Bluetooth headsets and earbuds can control Deckify playback and display track metadata via standard MPRIS2 D-Bus media controls.
+**Depends on**: Phase 17
+**Requirements**: MPRIS-01
+**Success Criteria** (what must be TRUE):
+  1. Deckify registers `org.mpris.MediaPlayer2.deckify` on the `deck` (UID 1000) user session D-Bus without requiring C-extension D-Bus bindings.
+  2. Pressing Play, Pause, Play/Pause, Next, or Previous on connected Bluetooth headsets/earbuds (via BlueZ `mpris-proxy`) controls Deckify playback reliably.
+  3. Connected Bluetooth devices and D-Bus media controllers reflect current track title, artist, album, and playback status updates.
+**Plans**: TBD
+
+## Progress
+
+| Phase | Milestone | Plans Complete | Status | Completed |
+|-------|-----------|----------------|--------|-----------|
+| 13. Like Button 403 Fix & Sink-Input Guardrails | v0.6 | 0/TBD | Not started | - |
+| 14. Gentle Sleep Timer Fade-Out | v0.6 | 0/TBD | Not started | - |
+| 15. Real PipeWire Biquad Equalizer | v0.6 | 0/TBD | Not started | - |
+| 16. Automatic Docked Audio-Switching | v0.6 | 0/TBD | Not started | - |
+| 17. Event-Driven librespot & Suspend/Wi-Fi Resilience | v0.6 | 0/TBD | Not started | - |
+| 18. MPRIS2 D-Bus Bridge | v0.6 | 0/TBD | Not started | - |
 
 ---
 
 ## Backlog & Future Milestones
 
-See [.planning/IDEAS.md](file:///C:/Users/djdje/Deckify/.planning/IDEAS.md) for the full **Deckify Master Feature & Upgrade Plan** (38+ structured ideas across 5 strategic pillars):
+See [.planning/IDEAS.md](.planning/IDEAS.md) for the full **Deckify Master Feature & Upgrade Plan** (38+ structured ideas across 5 strategic pillars):
 1. **Audio, PipeWire & Playback (EQ-01, DOCK-01):** Parametric 10-band PipeWire DSP biquad equalizer filter chain, auto dock audio switching (USB-DAC/HDMI), in-game cutscene auto-pause, crossfade, BPM badges, podcast speed/chapters, gentle sleep timer fade, local music/Steam soundtrack library.
 2. **In-Game Integration, Chords & Overlays:** Configureerbare chords + haptics, peek mode for HUD, Search/Queue gamepad shortcuts, live Steam menu position switcher.
 3. **Chrome DevTools Protocol (CDP), Library & Lyrics (CDP-01, QUEUE-03):** Offline downloads via `OfflineAPI`, interactive queue reordering and clearing via CDP `PlayerAPI`, real Spotify synced LRC data via CDP, bilingual/karaoke NetEase lyrics, Spotify Canvas video-loops, custom playlist folders UI, in-playlist filter/sort, podcast drilldown.
