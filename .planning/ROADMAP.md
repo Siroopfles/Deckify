@@ -164,3 +164,11 @@ See [.planning/IDEAS.md](.planning/IDEAS.md) for the full **Deckify Master Featu
 **Deferred at:** 2026-11-15 during /gsd-verify-work 09 session completion
 **Follow-ups:**
 - [ ] Test 2: QAM UX/styling verbeteren en ooit kijken naar hoe Steamcord is gemaakt en hoe zij dit aanpakken (deferred 2026-11-15)
+
+### Phase 999.2: Follow-up — Phase 15 deferred UAT follow-up: Test 2 (BACKLOG)
+
+**Goal:** Resolve the UAT checkpoint deferred during Phase 15 verification
+**Source phase:** 15
+**Deferred at:** 2026-11-16 during /gsd-verify-work 15 session completion
+**Follow-ups:**
+- [ ] Test 2: Preamp handmatig custom kunnen aanpassen in SettingsTab (naast of als override op automatische negatieve preamp) (deferred 2026-11-16)
