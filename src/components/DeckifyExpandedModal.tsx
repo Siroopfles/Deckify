@@ -277,6 +277,7 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
   const handleOpenPlaylist = useCallback(async (pl: PlaylistItem) => {
     focusedCollectionRef.current = null;
     setActivePlaylist(pl);
+    setPlaylistTracks([]);
     setMode("playlists");
     setLoadingContent(true);
     try {
@@ -286,10 +287,14 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
         if (res.is_mixed !== undefined) {
           setActivePlaylist((prev) => (prev ? { ...prev, is_mixed: res.is_mixed } : null));
         }
+      } else {
+        showToast(res?.error || "Failed to load playlist tracks");
       }
-    } catch {}
+    } catch {
+      showToast("Failed to load playlist tracks");
+    }
     setLoadingContent(false);
-  }, []);
+  }, [showToast]);
 
   const handleOpenAlbum = useCallback(async (alb: AlbumItem) => {
     focusedCollectionRef.current = null;
@@ -326,13 +331,21 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
   useEffect(() => {
     if (mode !== "recent") {
       lastRecentTrackIdRef.current = activeTrackId;
-      return;
+      return undefined;
     }
-    if (!activeTrackId) return;
+    if (!activeTrackId) return undefined;
     if (lastRecentTrackIdRef.current !== activeTrackId) {
       lastRecentTrackIdRef.current = activeTrackId;
       loadRecent();
+      // Spotify /me/player/recently-played lags several seconds behind track transitions
+      const t1 = setTimeout(() => loadRecent(), 3000);
+      const t2 = setTimeout(() => loadRecent(), 8000);
+      return () => {
+        clearTimeout(t1);
+        clearTimeout(t2);
+      };
     }
+    return undefined;
   }, [mode, activeTrackId, loadRecent]);
   const trackName = track?.name;
   const artistName = track?.artist;
@@ -478,7 +491,7 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
     if (contextUri) {
       res = await backendPlayTracks(contextUri, uri || null, null, startIdx ?? 0);
     } else if (allUris && allUris.length > 0) {
-      res = await backendPlayTracks(null, null, allUris, startIdx ?? 0);
+      res = await backendPlayTracks(null, uri || null, allUris, startIdx ?? 0);
     } else {
       res = await backendPlayTracks(null, uri || null, null, 0);
     }
