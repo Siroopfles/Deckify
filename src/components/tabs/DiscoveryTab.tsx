@@ -1,4 +1,4 @@
-import { FC, useCallback, useEffect, useState } from "react";
+import { FC, useCallback, useEffect, useRef, useState } from "react";
 import { Focusable } from "@decky/ui";
 import { callable } from "@decky/api";
 import { FaCompass, FaExclamationTriangle, FaLock, FaSync } from "react-icons/fa";
@@ -255,6 +255,10 @@ export const DiscoveryTab: FC<DiscoveryTabProps> = ({
   const [feed, setFeed] = useState<DiscoveryFeedResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [refreshFocused, setRefreshFocused] = useState(false);
+  const onFocusTrackRef = useRef(onFocusTrack);
+  const onFocusCollectionRef = useRef(onFocusCollection);
+  onFocusTrackRef.current = onFocusTrack;
+  onFocusCollectionRef.current = onFocusCollection;
 
   const loadFeed = useCallback(async (range: DiscoveryTimeRange, forceRefresh = false) => {
     setLoading(true);
@@ -290,10 +294,10 @@ export const DiscoveryTab: FC<DiscoveryTabProps> = ({
 
     return () => {
       mounted = false;
-      onFocusTrack(null);
-      onFocusCollection(null);
+      onFocusTrackRef.current(null);
+      onFocusCollectionRef.current(null);
     };
-  }, [timeRange, onFocusTrack, onFocusCollection]);
+  }, [timeRange]);
 
   const handleSelectRange = useCallback(
     (range: DiscoveryTimeRange) => {
