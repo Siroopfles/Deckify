@@ -166,6 +166,7 @@ class VolumeFader:
         self._target_sink_volume: float = self._current_sink_volume
         self._cached_sink_input_id: str | None = None
         self._duck_reasons: set[str] = set()
+        self._sleep_locked: bool = False
 
     @property
     def is_ducked(self) -> bool:
@@ -219,6 +220,27 @@ class VolumeFader:
         except Exception:
             return False
 
+    def _compute_target_sink_volume(self) -> float:
+        """Compute target sink-input percentage from active ducking reasons and settings."""
+        settings = getattr(self.plugin, "_settings", {})
+        baseline_sink_vol = 150.0 if getattr(self.plugin, "_pa_volume_boosted", False) else 100.0
+        if len(self._duck_reasons) == 0:
+            return baseline_sink_vol
+
+        mode = settings.get("ducking_mode", "proportional")
+        if mode == "proportional":
+            attenuation_pct = float(settings.get("ducking_proportional_pct", 50))
+            factor = max(0.05, 1.0 - (attenuation_pct / 100.0))
+        else:
+            if "voice" in self._duck_reasons and "game" not in self._duck_reasons:
+                fixed_vol = float(settings.get("voice_ducking_volume", 25))
+            else:
+                fixed_vol = float(settings.get("auto_ducking_volume", 25))
+            base_spotify_vol = float(getattr(self.plugin, "_poll_volume", 80) or 80)
+            factor = min(1.0, fixed_vol / max(1.0, base_spotify_vol))
+
+        return baseline_sink_vol * factor
+
     async def set_ducking(self, active: bool, reason: str = "game") -> None:
         """Coordinate ducking state changes from game lifecycle or voice chat."""
         if active:
@@ -226,32 +248,32 @@ class VolumeFader:
         else:
             self._duck_reasons.discard(reason)
 
-        target_should_duck = len(self._duck_reasons) > 0
+        if self._sleep_locked:
+            return
+
         settings = getattr(self.plugin, "_settings", {})
-
-        baseline_sink_vol = 150.0 if getattr(self.plugin, "_pa_volume_boosted", False) else 100.0
-
-        if target_should_duck:
+        if len(self._duck_reasons) > 0:
             duration = float(settings.get("duck_fade_down_duration", 1.0))
-            mode = settings.get("ducking_mode", "proportional")
-
-            if mode == "proportional":
-                attenuation_pct = float(settings.get("ducking_proportional_pct", 50))
-                factor = max(0.05, 1.0 - (attenuation_pct / 100.0))
-            else:
-                if "voice" in self._duck_reasons and "game" not in self._duck_reasons:
-                    fixed_vol = float(settings.get("voice_ducking_volume", 25))
-                else:
-                    fixed_vol = float(settings.get("auto_ducking_volume", 25))
-                base_spotify_vol = float(getattr(self.plugin, "_poll_volume", 80) or 80)
-                factor = min(1.0, fixed_vol / max(1.0, base_spotify_vol))
-
-            target_sink_vol = baseline_sink_vol * factor
         else:
             duration = float(settings.get("duck_fade_up_duration", 1.5))
-            target_sink_vol = baseline_sink_vol
 
+        target_sink_vol = self._compute_target_sink_volume()
         await self.fade_to(target_sink_vol, duration)
+
+    async def start_sleep_fade(self, duration_sec: float) -> None:
+        """Acquire sleep priority lock and fade sink volume to 0%, awaiting completion."""
+        self._sleep_locked = True
+        await self.fade_to(0.0, duration_sec)
+        if self._fade_task and not self._fade_task.done():
+            await self._fade_task
+
+    async def release_sleep_lock(self, restore_duration: float = 0.0, wait: bool = False) -> None:
+        """Release sleep priority lock and restore to active ducked or baseline target."""
+        self._sleep_locked = False
+        target_vol = self._compute_target_sink_volume()
+        await self.fade_to(target_vol, restore_duration)
+        if wait and self._fade_task and not self._fade_task.done():
+            await self._fade_task
 
     async def fade_to(self, target_sink_volume: float, duration_sec: float) -> None:
         """Fade volume smoothly using cosine easing curve."""

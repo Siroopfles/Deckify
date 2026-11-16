@@ -284,6 +284,47 @@ class TestVolumeFader(unittest.IsolatedAsyncioTestCase):
         self.fader._current_sink_volume = 75.0
         self.assertEqual(self.fader.effective_volume, 40)
 
+    async def test_sleep_lock_blocks_ducking_fades_and_tracks_reasons(self):
+        self.fader.resolve_sink_input_id = AsyncMock(return_value="42")
+        self.fader._apply_sink_volume = AsyncMock(return_value=True)
+
+        await self.fader.start_sleep_fade(0.05)
+
+        self.assertTrue(self.fader._sleep_locked)
+        self.assertAlmostEqual(self.fader._current_sink_volume, 0.0, places=2)
+
+        with patch.object(self.fader, "fade_to", new_callable=AsyncMock) as mock_fade_to:
+            await self.fader.set_ducking(True, reason="game")
+            self.assertIn("game", self.fader._duck_reasons)
+            mock_fade_to.assert_not_called()
+            self.assertAlmostEqual(self.fader._current_sink_volume, 0.0, places=2)
+
+            await self.fader.set_ducking(True, reason="voice")
+            self.assertIn("voice", self.fader._duck_reasons)
+            await self.fader.set_ducking(False, reason="voice")
+            self.assertNotIn("voice", self.fader._duck_reasons)
+            self.assertIn("game", self.fader._duck_reasons)
+            mock_fade_to.assert_not_called()
+
+    async def test_release_sleep_lock_restores_ducked_or_baseline(self):
+        self.fader.resolve_sink_input_id = AsyncMock(return_value="42")
+        self.fader._apply_sink_volume = AsyncMock(return_value=True)
+
+        # Case 1: _duck_reasons non-empty -> restores to ducked target (50% of 100 = 50.0)
+        await self.fader.start_sleep_fade(0.0)
+        await self.fader.set_ducking(True, reason="game")
+        await self.fader.release_sleep_lock(0.05, wait=True)
+
+        self.assertFalse(self.fader._sleep_locked)
+        self.assertAlmostEqual(self.fader._current_sink_volume, 50.0, places=2)
+
+        # Case 2: _duck_reasons empty -> restores to full baseline (100.0)
+        await self.fader.start_sleep_fade(0.0)
+        await self.fader.set_ducking(False, reason="game")
+        await self.fader.release_sleep_lock(0.0, wait=True)
+
+        self.assertFalse(self.fader._sleep_locked)
+        self.assertAlmostEqual(self.fader._current_sink_volume, 100.0, places=2)
 
 
 class test_volume_fader(TestVolumeFader):
