@@ -519,6 +519,63 @@ class DeckifyFeatureTests(unittest.IsolatedAsyncioTestCase):
             except asyncio.CancelledError:
                 pass
 
+    async def test_sleep_timer_fade_settings_defaults_and_clamping(self):
+        self.assertTrue(main.DEFAULT_SETTINGS.get("sleep_timer_fade_enabled"))
+        self.assertEqual(main.DEFAULT_SETTINGS.get("sleep_timer_fade_duration"), 30)
+
+        res_low = await self.plugin.set_setting("sleep_timer_fade_duration", 2)
+        self.assertTrue(res_low["ok"])
+        self.assertEqual(self.plugin._settings["sleep_timer_fade_duration"], 5)
+
+        res_high = await self.plugin.set_setting("sleep_timer_fade_duration", 300)
+        self.assertTrue(res_high["ok"])
+        self.assertEqual(self.plugin._settings["sleep_timer_fade_duration"], 120)
+
+        res_bad = await self.plugin.set_setting("sleep_timer_fade_duration", "bad")
+        self.assertFalse(res_bad["ok"])
+        self.assertIn("error", res_bad)
+
+        res_toggle = await self.plugin.set_setting("sleep_timer_fade_enabled", False)
+        self.assertTrue(res_toggle["ok"])
+        self.assertFalse(self.plugin._settings["sleep_timer_fade_enabled"])
+
+    async def test_sleep_timer_fade_settings_exposed_in_get_status(self):
+        self.plugin._is_engine_running = MagicMock(return_value=False)
+        self.plugin._is_librespot_running = MagicMock(return_value=False)
+        self.plugin._is_spotify_client_running = MagicMock(return_value=False)
+        status = await self.plugin.get_status()
+        self.assertIn("sleep_timer_fade_enabled", status["settings"])
+        self.assertIn("sleep_timer_fade_duration", status["settings"])
+        self.assertTrue(status["settings"]["sleep_timer_fade_enabled"])
+        self.assertEqual(status["settings"]["sleep_timer_fade_duration"], 30)
+
+    async def test_load_settings_impl_sanitizes_sleep_fade(self):
+        import json
+        import os
+        import tempfile
+        from py_modules.common import _load_settings
+
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as tf:
+            json.dump({"sleep_timer_fade_enabled": 0, "sleep_timer_fade_duration": 2}, tf)
+            path = tf.name
+        try:
+            loaded = _load_settings(path)
+            self.assertIs(loaded["sleep_timer_fade_enabled"], False)
+            self.assertEqual(loaded["sleep_timer_fade_duration"], 5)
+
+            with open(path, "w") as f:
+                json.dump({"sleep_timer_fade_enabled": "yes", "sleep_timer_fade_duration": 999}, f)
+            loaded_high = _load_settings(path)
+            self.assertIs(loaded_high["sleep_timer_fade_enabled"], True)
+            self.assertEqual(loaded_high["sleep_timer_fade_duration"], 120)
+
+            with open(path, "w") as f:
+                json.dump({"sleep_timer_fade_duration": "invalid"}, f)
+            loaded_bad = _load_settings(path)
+            self.assertEqual(loaded_bad["sleep_timer_fade_duration"], 30)
+        finally:
+            os.remove(path)
+
 
 
 if __name__ == "__main__":
