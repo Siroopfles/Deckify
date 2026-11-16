@@ -2,10 +2,56 @@ import { FC, useState, useEffect, useCallback } from "react";
 import { Focusable, SliderField, ToggleField } from "@decky/ui";
 import { callable, addEventListener, removeEventListener } from "@decky/api";
 import { FaSlidersH, FaClock, FaPowerOff } from "react-icons/fa";
-import { AudioSinkInfo, StatusResponse, SleepTimerStatus } from "../../types";
+import { AudioSinkInfo, EqualizerPreset, StatusResponse, SleepTimerStatus } from "../../types";
 import { InteractiveRow } from "../common/InteractiveRow";
 
+const EQ_BAND_LABELS = [
+  "31 Hz",
+  "62 Hz",
+  "125 Hz",
+  "250 Hz",
+  "500 Hz",
+  "1 kHz",
+  "2 kHz",
+  "4 kHz",
+  "8 kHz",
+  "16 kHz",
+];
+
+const EQ_PRESET_ROWS: Array<Array<{ id: EqualizerPreset; label: string }>> = [
+  [
+    { id: "flat", label: "Flat" },
+    { id: "bass", label: "Bass Boost" },
+    { id: "vocal", label: "Vocal Clarity" },
+    { id: "gaming", label: "Gaming Balance" },
+  ],
+  [
+    { id: "deck_speakers", label: "Deck Speakers" },
+    { id: "late_night", label: "Late Night" },
+    { id: "custom", label: "Custom" },
+  ],
+];
+
+const EQ_PRESET_CURVES: Record<Exclude<EqualizerPreset, "custom">, number[]> = {
+  flat: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  bass: [5, 6, 4.5, 2, 0, 0, 0.5, 1, 1.5, 1],
+  vocal: [-2, -1.5, -1, 0, 1.5, 3.5, 4.5, 3.5, 1.5, 0],
+  gaming: [2.5, 2, 0.5, -2.5, -3.5, -3, -1.5, 1, 2.5, 2],
+  deck_speakers: [0, 1.5, 4, 2.5, -2, 0, 1.5, 3, 3.5, 2],
+  late_night: [4, 3.5, 2, 0, -0.5, -1, -1.5, -1, 2, 3],
+};
+
+function normalizeEqBands(bands?: unknown): number[] {
+  if (!Array.isArray(bands)) return [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+  return Array.from({ length: 10 }, (_, idx) => {
+    const raw = Number(bands[idx]);
+    if (!Number.isFinite(raw)) return 0;
+    return Math.min(12, Math.max(-12, Math.round(raw * 2) / 2));
+  });
+}
+
 const backendSetSetting = callable<[string, unknown], { ok: boolean; settings?: any; error?: string }>("set_setting");
+const backendSetEqBands = callable<[number[]], { ok: boolean; error?: string }>("set_eq_bands");
 const backendGetAudioSinks = callable<[], { ok: boolean; sinks?: AudioSinkInfo[]; error?: string }>("get_audio_sinks");
 const backendSetAudioSink = callable<[string], { ok: boolean; error?: string }>("set_audio_sink");
 const backendGetSpotifyClientAuthStatus = callable<
@@ -27,6 +73,19 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
   const [audioSinks, setAudioSinks] = useState<AudioSinkInfo[]>([]);
   const [officialClientStatus, setOfficialClientStatus] = useState<{ running: boolean; logged_in: boolean } | null>(null);
   const [localSettings, setLocalSettings] = useState<Record<string, any>>(() => status?.settings || {});
+  const [localEqPreset, setLocalEqPreset] = useState<EqualizerPreset>(
+    () => (status?.settings?.eq_preset as EqualizerPreset) || "flat"
+  );
+  const [localCustomBands, setLocalCustomBands] = useState<number[]>(() =>
+    normalizeEqBands(status?.settings?.eq_custom_bands)
+  );
+  const [localBands, setLocalBands] = useState<number[]>(() => {
+    const preset = (status?.settings?.eq_preset as EqualizerPreset) || "flat";
+    if (preset === "custom") {
+      return normalizeEqBands(status?.settings?.eq_custom_bands);
+    }
+    return [...(EQ_PRESET_CURVES[preset] || EQ_PRESET_CURVES.flat)];
+  });
   const [steamMenuPos, setSteamMenuPos] = useState<number>(() => {
     try {
       const saved = localStorage.getItem("DECKIFY_MENU_POSITION");
@@ -60,6 +119,15 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
   useEffect(() => {
     if (status?.settings) {
       setLocalSettings((prev) => ({ ...prev, ...status.settings }));
+      const nextPreset = (status.settings.eq_preset as EqualizerPreset) || "flat";
+      const nextCustom = normalizeEqBands(status.settings.eq_custom_bands);
+      setLocalEqPreset(nextPreset);
+      setLocalCustomBands(nextCustom);
+      setLocalBands(
+        nextPreset === "custom"
+          ? nextCustom
+          : [...(EQ_PRESET_CURVES[nextPreset] || EQ_PRESET_CURVES.flat)]
+      );
     }
   }, [status?.settings]);
 
@@ -322,32 +390,73 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
 
       {/* Equalizer & Audio Presets */}
       <div style={{ marginBottom: 20, padding: 14, borderRadius: 10, background: "rgba(255,255,255,0.04)" }}>
-        <h3 style={{ fontSize: 14, fontWeight: 700, color: "#1db954", marginBottom: 6, display: "flex", alignItems: "center", gap: 8 }}>
-          <FaSlidersH /> Equalizer & Audio Presets
-        </h3>
-        <Focusable flow-children="horizontal" style={{ display: "flex", gap: 8 }}>
-          {[
-            { id: "flat", label: "Flat" },
-            { id: "bass", label: "Bass Boost" },
-            { id: "vocal", label: "Vocal Clarity" },
-            { id: "gaming", label: "Gaming Balance" },
-          ].map((eq) => {
-            const curEq = status?.settings?.eq_preset || "flat";
-            return (
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+          <h3 style={{ fontSize: 14, fontWeight: 700, color: "#1db954", margin: 0, display: "flex", alignItems: "center", gap: 8 }}>
+            <FaSlidersH /> Equalizer & Audio Presets
+          </h3>
+          {localEqPreset === "flat" ? (
+            <span style={{ fontSize: 12, fontWeight: 700, opacity: 0.6 }}>Bypass (0.0 dB)</span>
+          ) : (
+            <span style={{ fontSize: 12, fontWeight: 700, color: "#1db954" }}>
+              {`Preamp: ${(Math.max(0, ...localBands) > 0 ? -Math.max(0, ...localBands) : 0).toFixed(1)} dB`}
+            </span>
+          )}
+        </div>
+        {EQ_PRESET_ROWS.map((row, rowIdx) => (
+          <Focusable
+            key={rowIdx}
+            flow-children="horizontal"
+            style={{ display: "flex", gap: 8, marginBottom: rowIdx === 0 ? 8 : 16 }}
+          >
+            {row.map((eq) => (
               <InteractiveRow
                 key={eq.id}
                 onClick={async () => {
-                  await backendSetSetting("eq_preset", eq.id);
-                  showToast(`Audio preset: ${eq.label}`);
-                  refreshStatus();
+                  setLocalEqPreset(eq.id);
+                  if (eq.id === "custom") {
+                    setLocalBands([...localCustomBands]);
+                  } else {
+                    setLocalBands([...EQ_PRESET_CURVES[eq.id]]);
+                  }
+                  const res = await backendSetSetting("eq_preset", eq.id);
+                  if (res && res.ok === false) {
+                    showToast("Equalizer engine unavailable — routed directly to hardware output");
+                  } else {
+                    showToast(`Audio preset: ${eq.label}`);
+                    refreshStatus();
+                  }
                 }}
-                active={curEq === eq.id}
+                active={localEqPreset === eq.id}
                 style={{ flex: 1, justifyContent: "center", fontSize: 12, fontWeight: 700 }}
               >
                 {eq.label}
               </InteractiveRow>
-            );
-          })}
+            ))}
+          </Focusable>
+        ))}
+        <Focusable flow-children="column" style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          {EQ_BAND_LABELS.map((label, idx) => (
+            <SliderField
+              key={idx}
+              label={label}
+              min={-12}
+              max={12}
+              step={0.5}
+              showValue
+              value={localBands[idx] ?? 0}
+              onChange={async (val: number) => {
+                const clamped = Math.min(12, Math.max(-12, Math.round(val * 2) / 2));
+                const nextBands = localBands.map((b, i) => (i === idx ? clamped : b));
+                setLocalBands(nextBands);
+                setLocalCustomBands(nextBands);
+                setLocalEqPreset("custom");
+                const res = await backendSetEqBands(nextBands);
+                if (res && res.ok === false) {
+                  showToast("Equalizer engine unavailable — routed directly to hardware output");
+                }
+              }}
+            />
+          ))}
         </Focusable>
       </div>
 
