@@ -556,30 +556,34 @@ describe("Equalizer & Audio Presets", () => {
     ]);
   });
 
-  it("renders all 10 ISO SliderField bands (31 Hz to 16 kHz) with +/-12 dB range and 0.5 step", () => {
+  it("renders all 10 vertical ISO graphic EQ sliders (31 Hz to 16 kHz) side-by-side with +/-12 dB range", () => {
     const tree = SettingsTab({
       status: mockStatus,
       refreshStatus,
       showToast,
     });
-    const sliders = findNodes(tree, (n) => n.type === SliderField || n.type === "SliderField");
+    const sliders = findNodes(tree, (n) => n.props?.role === "slider");
     const expectedLabels = ["31 Hz", "62 Hz", "125 Hz", "250 Hz", "500 Hz", "1 kHz", "2 kHz", "4 kHz", "8 kHz", "16 kHz"];
-    const eqSliders = sliders.filter((s) => expectedLabels.includes(s.props?.label));
-    expect(eqSliders.length).toBe(10);
-    expect(eqSliders.map((s) => s.props?.label)).toEqual(expectedLabels);
-    for (const s of eqSliders) {
-      expect(s.props.min).toBe(-12);
-      expect(s.props.max).toBe(12);
-      expect(s.props.step).toBe(0.5);
-      expect(s.props.showValue).toBe(true);
+    expect(sliders.length).toBe(10);
+    expect(sliders.map((s) => s.props?.["aria-label"])).toEqual(expectedLabels);
+    for (const s of sliders) {
+      expect(s.props["aria-valuemin"]).toBe(-12);
+      expect(s.props["aria-valuemax"]).toBe(12);
     }
   });
 
-  it("calls set_setting on preset click and set_eq_bands on slider adjustment", async () => {
+  it("calls set_setting on preset click and set_eq_bands (+0.5 dB) preserving curve on band adjustment", async () => {
     mockSetSetting.mockClear();
     mockSetEqBands.mockClear();
+    const bassStatus: StatusResponse = {
+      ...mockStatus,
+      settings: {
+        ...mockStatus.settings!,
+        eq_preset: "bass",
+      },
+    };
     const tree = SettingsTab({
-      status: mockStatus,
+      status: bassStatus,
       refreshStatus,
       showToast,
     });
@@ -595,14 +599,14 @@ describe("Equalizer & Audio Presets", () => {
     await lateNightPill.props.onClick();
     expect(mockSetSetting).toHaveBeenCalledWith("eq_preset", "late_night");
 
-    const sliders = findNodes(tree, (n) => n.type === SliderField || n.type === "SliderField");
-    const band31 = sliders.find((s) => s.props?.label === "31 Hz");
-    expect(band31).toBeDefined();
-    await band31.props.onChange(4.5);
+    const inc31 = pills.find((p) => p.props?.["aria-label"] === "Increase 31 Hz");
+    expect(inc31).toBeDefined();
+    await inc31.props.onClick();
     expect(mockSetEqBands).toHaveBeenCalledTimes(1);
     const sentBands = mockSetEqBands.mock.calls[0][0];
     expect(sentBands).toHaveLength(10);
-    expect(sentBands[0]).toBe(4.5);
+    expect(sentBands[0]).toBe(5.5);
+    expect(sentBands[1]).toBe(3.5);
   });
 
   it("displays 'Bypass (0.0 dB)' for flat and 'Preamp: -6.0 dB' for bass preset", () => {
