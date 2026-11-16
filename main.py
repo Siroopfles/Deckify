@@ -514,7 +514,7 @@ class Plugin:
             "toast_sound_enabled", "toast_position", "overlay_enabled", "overlay_position",
             "overlay_autohide", "overlay_show_progress",
             "overlay_lyrics_enabled", "overlay_lyrics_offset_ms",
-            "overlay_autohide_duration_s", "eq_preset",
+            "overlay_autohide_duration_s", "eq_preset", "eq_custom_bands",
             "trigger_nav_enabled", "trigger_seek_seconds",
             "trigger_page_size", "show_controller_hints",
             "duck_fade_down_duration", "duck_fade_up_duration", "ducking_mode",

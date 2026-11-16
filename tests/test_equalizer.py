@@ -412,6 +412,14 @@ class TestMainEqualizerIntegration(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(res["ok"])
             self.plugin._equalizer_manager.on_librespot_started.assert_awaited_once()
 
+    async def test_get_status_includes_eq_custom_bands(self):
+        custom = [4.5, 2.0, 0.5, -2.5, -3.5, -3.0, -1.5, 1.0, 2.5, 2.0]
+        self.plugin._settings["eq_preset"] = "custom"
+        self.plugin._settings["eq_custom_bands"] = custom
+        status = await self.plugin.get_status()
+        self.assertEqual(status["settings"]["eq_preset"], "custom")
+        self.assertEqual(status["settings"]["eq_custom_bands"], custom)
+
 
 if __name__ == "__main__":
     unittest.main()
