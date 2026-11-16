@@ -1,184 +1,98 @@
-# Technology Stack: Milestone v0.5 (In-Game Flow & Music Discovery)
+# Stack Research — v0.6 Audio DSP, Docked Flow & System Resilience
 
-**Project:** Deckify  
-**Researched:** 2026-11-12  
-**Overall Confidence:** HIGH  
+**Domain:** SteamOS 3.5+ Audio DSP, D-Bus/MPRIS2, Event-Driven Daemon IPC, & Spotify Web API (Decky Loader Plugin)
+**Researched:** 2026-11-16
+**Confidence:** HIGH
 
----
+## Recommended Stack
 
-## Executive Summary
+Deckify v0.6 builds on the existing zero-runtime-pip-dependency Python 3.11+ backend (`main.py`, `py_modules/`) and React 19 + TypeScript 5.9 (`@decky/ui`, `@decky/api`) frontend. Every v0.6 capability uses **system binaries already present on SteamOS 3.5+** or **Python stdlib / vendored pure-Python code**, avoiding C extensions, `pip install` steps on the Deck, or heavy npm packages.
 
-Deckify Milestone v0.5 expands Deckify from an in-library controller client into a seamless in-game companion on SteamOS. The new capabilities center on:
-1. **Game-Specific Soundtracks**: Automatic playlist binding to Steam game `appId` via SteamClient lifetime events.
-2. **Smooth Audio Ducking & Voice Awareness**: Hardware-level volume fading curves and microphone/Steamcord activity detection via PipeWire/PulseAudio sink-inputs.
-3. **QAM Pinned Playlists**: Instant 2-second playlist switching directly inside the compact Steam Quick Access Menu.
-4. **L2/R2 Controller Trigger Bindings**: Blind 10s scrub in modal views and rapid page/alphabet jumps in long lists.
-5. **In-Game Live Lyrics Line**: Micro-footprint synced lyrics rendering inside the gamescope overlay HUD without layout shift.
-6. **Home / Discovery Tab**: High-speed browsing of top tracks, top artists, new releases, and personalized Spotify mixes.
+### Core Technologies
 
-The architectural philosophy for this stack remains **zero external bloat**: leveraging native SteamOS CEF globals (`window.SteamClient`, `FocusNavController`), existing system audio tooling (`pactl` over local Unix sockets), and standard Spotify Web API endpoints with in-memory caching.
+| Technology | Version / Binary | Purpose | Why Recommended |
+|------------|------------------|---------|-----------------|
+| **Spotify Web API `/v1/me/library`** | REST v1 (2026 unified library) | Fix Like button HTTP 403 (`toggle_like_track`, `check_tracks_liked`) | Spotify deprecated `PUT/DELETE /v1/me/tracks` and `GET /v1/me/tracks/contains` in favor of `/v1/me/library?uris=...` and `/v1/me/library/contains?uris=...`, returning silent HTTP 403 on legacy endpoints. Official Spotify Client CDP `LibraryAPI` serves as secondary fallback if Web API returns 403 in Developer Mode. |
+| **PipeWire `filter-chain` (`pipewire -c`)** | SteamOS 3.5+ PipeWire (`0.3.x` / `1.0+`) | Real-time biquad Equalizer (`EQ-01`) | Runs as an isolated user subprocess (`pipewire -c <eq.conf>`) loading `libpipewire-module-filter-chain` with built-in `bq_lowshelf`, `bq_peaking`, and `bq_highshelf` nodes—zero `pipewire.service` restarts, instant teardown on SIGTERM, and zero external DSP packages. |
+| **`pw-cli` & `pw-dump`** | SteamOS PipeWire CLI tools | Live EQ band gain/freq updates & clock rate control | `pw-cli set-param <node-id> Props '{ params = [ "<band>:Gain" <dB> ] }'` updates biquad controls live without audio dropouts; `pw-dump` / `pw-cli ls Node` resolves the filter-chain node ID; `pw-metadata -n settings 0 clock.allowed-rates` (already in `py_modules/volume.py`) handles `bit_perfect_clock`. |
+| **`pactl` (`libpulse` utils)** | SteamOS PulseAudio/PipeWire compat | Docked sink discovery, targeted stream routing (`DOCK-01`), & 30s sleep fade | `pactl list short sinks` / `pactl list sinks` detects USB-DAC and HDMI sinks; `pactl move-sink-input <id> <sink>` routes **only** Deckify (`librespot` / `com.spotify.client` / EQ virtual sink), explicitly filtering out `steamwebhelper` and `Chromium`. Existing `VolumeFader` (`pactl set-sink-input-volume`) powers the 30s sleep fade. |
+| **`librespot --onevent`** | Bundled `bin/librespot` | Event-driven playback state & track transitions | Invokes a lightweight executable hook with `PLAYER_EVENT` (`playing`, `paused`, `stopped`, `changed`), `TRACK_ID`, `POSITION_MS`, `DURATION_MS`, and `VOLUME` over local Unix domain socket (`asyncio.start_unix_server`) to `main.py`, eliminating tight Web API polling and 429s. |
+| **`busctl` (`systemd-logind`)** | SteamOS systemd | Suspend/Resume detection (`PrepareForSleep`) | Already integrated in `py_modules/device.py` (`SuspendResumeMonitor`); pair with a session bookmark (`track_uri`, `context_uri`, `position_ms`, `was_playing`, `volume`) on `PrepareForSleep=true` and Wi-Fi/resume recovery on `PrepareForSleep=false`. |
+| **Pure-Python D-Bus (`dbus-next` vendored or stdlib `asyncio` wire bridge)** | Python 3.11+ (MIT pure-Python, 0 C deps) | MPRIS2 D-Bus Bridge (`org.mpris.MediaPlayer2.deckify`) | SteamOS user session bus (`unix:path=/run/user/1000/bus`) has no `dbus-python` or `PyGObject` (`gi`) in Decky's PyInstaller runtime. Vendoring pure-Python `dbus-next` (or a minimal stdlib `asyncio` D-Bus `EXTERNAL`-auth server) exposes `/org/mpris/MediaPlayer2` for Bluetooth AVRCP headset controls (`Play`, `Pause`, `PlayPause`, `Next`, `Previous`). |
 
----
+### Supporting Libraries & Existing Primitives
 
-## Recommended Stack Additions
+| Component | Location | Purpose | When to Use |
+|-----------|----------|---------|-------------|
+| **`VolumeFader` (`cosine_ease`)** | `py_modules/volume.py` | 30-second gradual sleep timer fade-out | Reuse `VolumeFader.fade_to(0.0, 30.0)` inside `sleep_timer_worker` (`py_modules/system.py`) before `control_playback("pause")`, then restore baseline sink volume (`150%` if boosted, else `100%`) after pause. |
+| **`_build_deck_command`** | `py_modules/common.py` | Execute `pactl`, `pw-cli`, `pw-dump`, `pipewire`, `busctl` as `deck` (UID 1000) | Mandatory for all PipeWire/PulseAudio/session-D-Bus commands when Decky runs as `root` with `LD_LIBRARY_PATH` stripped. |
+| **`_cdp_evaluate`** | `py_modules/engine.py` | Spotify Desktop Client CDP fallback for Like button | When `audio_backend == "spotify_client"` or Web API `/v1/me/library` returns 403, invoke Spotify's internal `LibraryAPI` (`add`/`remove`) over `SPOTIFY_CDP_PORT`. |
+| **Native HTML/SVG / CSS Flex** | `src/components/` | EQ Band Sliders & Preset Selector UI | Build with `@decky/ui` `SliderField` / `DropdownItem` and `Focusable` (`flow-children="horizontal"`)—no charting or slider libraries needed. |
 
-### 1. Game-Specific Soundtracks & SteamOS App Lifetime
+### Development Tools
 
-| Technology / API | Version / Location | Purpose | Why |
-|------------------|-------------------|---------|-----|
-| `window.SteamClient.Apps.RegisterForAppLifetimeNotifications` | SteamOS GamepadUI Global | Listen to game launch and exit events (`unAppID`, `bRunning`) | Native SteamOS API, event-driven, zero polling overhead, runs directly in Decky plugin sandbox. |
-| `window.SteamClient.Apps.GetAppData` / `GetAppOverviewByAppID` | SteamOS GamepadUI Global | Retrieve game display name, capsule, and icon for settings UI | Avoids external Steam Store Web API requests or scraping; works offline for cached games. |
-| `py_modules/soundtrack.py` | Python 3.11+ (Internal) | State restoration engine (capturing pre-game context, auto-play, pause on exit) | Keeps game state tracking isolated from core playback RPCs; handles seamless context switching. |
+| Tool | Purpose | Notes |
+|------|---------|-------|
+| **Python `unittest`** | Backend unit tests (`tests/test_*.py`) | Mock `subprocess.run`, `asyncio.create_subprocess_exec`, and `_spotify_api_request` for EQ, DOCK-01, MPRIS2, `--onevent`, and sleep fade. |
+| **Vitest + ESLint + `tsc`** | Frontend tests & typechecking | Existing `pnpm test`, `pnpm lint`, `tsc --noEmit` gates. |
 
-#### Settings Schema (`settings.json` & `src/types.ts`)
-```typescript
-export interface GameSoundtrackConfig {
-  app_id: string;             // Steam AppID as string key
-  game_name?: string;         // Human-readable title
-  soundtrack_uri: string;     // spotify:playlist:... or spotify:album:...
-  soundtrack_name?: string;   // Display name of bound playlist/album
-  auto_play: boolean;         // Start music when game launches (default: true)
-  pause_on_exit: boolean;     // Pause music when game quits (default: true)
-  restore_previous: boolean;  // Resume pre-game track/playlist upon exit (default: false)
-}
+## Installation
 
-// Stored in EngineSettings as:
-// game_soundtracks?: Record<string, GameSoundtrackConfig>;
-```
+**No new npm or runtime pip packages are required.**
 
----
+- **Frontend:** 0 new `package.json` dependencies.
+- **Backend:** 0 runtime `pip install` dependencies.
+  - If vendoring `dbus-next` for MPRIS2: copy the pure-Python `dbus_next/` package (MIT license) into `py_modules/dbus_next/` so it ships inside the Decky plugin bundle with zero install steps.
+  - System binaries verified on SteamOS 3.5+: `pipewire`, `pw-cli`, `pw-dump`, `pw-metadata`, `pactl`, `busctl`.
 
-### 2. Smooth Audio Ducking & PipeWire / Voice Activity Detection
+## Alternatives Considered
 
-| Technology / API | Command / Version | Purpose | Why |
-|------------------|-------------------|---------|-----|
-| `pactl set-sink-input-volume` | PulseAudio 16+ / PipeWire | Smooth volume fading on Spotify/librespot sink-input | **Local hardware-level control:** avoids Spotify Web API rate limits (HTTP 429), eliminates network latency (0ms), works offline, doesn't change account volume on other devices. |
-| `pactl list source-outputs` | PulseAudio 16+ / PipeWire | Detect active microphone recording streams (Voice Chat / Steamcord / WebRTC) | Non-invasive voice activity detection; detects Discord Flatpak, Steam Voice, and Steamcord without plugin IPC. |
-| `asyncio` Fading Curve Worker | Python 3.11+ (Internal in `py_modules/volume.py`) | Interpolate volume over ~1.0-1.5s in 15-20 discrete steps | Uses smoothstep / cosine attenuation curve ($vol(t) = start + (target - start) \times \frac{1 - \cos(\pi t)}{2}$) to eliminate jarring volume cuts. |
+| Recommended | Alternative | When to Use Alternative |
+|-------------|-------------|-------------------------|
+| **`pipewire -c <eq.conf>` (`libpipewire-module-filter-chain`)** | EasyEffects / PulseEffects Flatpak | Only if user wants a standalone GUI DSP suite; cannot be embedded or controlled seamlessly from Decky QAM without Flatpak IPC overhead. |
+| **Vendored pure-Python `dbus-next` (or stdlib D-Bus wire server)** | `dbus-python` or `PyGObject` (`gi`) | Never in Decky Loader—both require C shared libraries (`libdbus-1`, `libgirepository`) that conflict with Decky's PyInstaller `LD_LIBRARY_PATH` and are absent from SteamOS immutable rootfs. |
+| **`--onevent` Unix domain socket push** | 1s Spotify Web API `/me/player` polling | Fallback only when `audio_backend == "spotify_client"` or playback is on an external Spotify Connect device (phone/PC). |
+| **Spotify `/v1/me/library` + CDP `LibraryAPI` fallback** | Legacy `/v1/me/tracks` | Never—`/v1/me/tracks` returns HTTP 403 on Spotify's updated Web API. |
 
-#### PipeWire Command Patterns
-```bash
-# Set specific sink-input volume to 30% smoothly
-pactl set-sink-input-volume <sink_input_id> 30%
+## What NOT to Use
 
-# Inspect active microphone recording clients (returns active recording streams)
-pactl list source-outputs
-# Active stream indicator: "Corked: no" and non-empty "application.process.id"
-```
+| Avoid | Why | Use Instead |
+|-------|-----|-------------|
+| **`PUT/DELETE /v1/me/tracks` & `GET /v1/me/tracks/contains`** | Deprecated by Spotify Web API; returns HTTP 403 Forbidden even with valid `user-library-modify` / `user-library-read` scopes. | `PUT/DELETE /v1/me/library?uris=spotify:track:<id>` and `GET /v1/me/library/contains?uris=spotify:track:<id>`. |
+| **`_set_pactl_sink_input` without stream filtering** | Current helper in `py_modules/engine.py` moves **all** `pactl list short sink-inputs`—including `steamwebhelper` / `Chromium`, which breaks Steam UI sounds and `module-stream-restore`. | Filter `pactl list sink-inputs` blocks to match only `librespot` PID, `com.spotify.client`, or Deckify's EQ virtual sink, explicitly skipping `steamwebhelper` and `Chromium`. |
+| **`dbus-send` / `busctl` as an MPRIS2 server** | `dbus-send` and `busctl` are D-Bus **clients**; they cannot own `org.mpris.MediaPlayer2.deckify` or handle incoming `Play`/`Pause`/`Next`/`Previous` method calls. | Pure-Python `asyncio` D-Bus connection (`dbus-next` vendored or stdlib `AF_UNIX` wire server) on `DBUS_SESSION_BUS_ADDRESS`. |
+| **Restarting `pipewire.service` for EQ changes** | Drops all game and SteamOS system audio for 1-2 seconds and risks breaking Gamescope audio routing. | Spawn/stop a dedicated `pipewire -c <eq.conf>` child process and update gains live via `pw-cli set-param <id> Props`. |
+| **Spotify Web API volume stepping for 30s sleep fade** | Triggers HTTP 429 rate limits and 200ms+ jitter per step. | Local `VolumeFader.fade_to(0.0, 30.0)` over `pactl set-sink-input-volume` in 50ms slices. |
 
----
+## Stack Patterns by Variant
 
-### 3. QAM Pinned Playlists (`@decky/ui` Quick Access Menu)
+**If `EQ-01` (PipeWire Equalizer) is enabled:**
+- Write `~/.config/deckify/eq-filter-chain.conf` with `libpipewire-module-filter-chain` (`bq_lowshelf`, `bq_peaking` x N bands, `bq_highshelf`), `capture.props.node.name = "deckify_eq_in"` (`media.class = "Audio/Sink"`), and `playback.props.node.name = "deckify_eq_out"` (`node.passive = true`).
+- Start `pipewire -c ~/.config/deckify/eq-filter-chain.conf` via `_build_deck_command` as `deck`, route `librespot` / `com.spotify.client` sink-input to `deckify_eq_in`, and route `deckify_eq_out` to the active physical/docked sink.
+- Update band gains live via `pw-cli set-param <node_id> Props '{ params = [ "<band_name>:Gain" <float_db> ] }'`.
 
-| Technology / Component | Version | Purpose | Why |
-|-----------------------|---------|---------|-----|
-| `@decky/ui` `PanelSectionRow` + `Focusable` | 4.11.1 | Horizontal scroll container for 3-4 pinned playlist chips | Preserves Steam Deck spatial D-pad navigation; fits comfortably into compact 340px QAM width. |
-| `DeckifyImage` | Internal Component | Base64-proxied 32x32 playlist artwork thumbnails | Bypasses Steam CEF CSP image blocks while reusing cached image bytes. |
-| `backendPlayTracks` | Internal Decky RPC | 1-click context playback initiation | Fires instant playback (`spotify:playlist:<id>`) without opening full-screen modal. |
+**If `DOCK-01` (Docked Audio-Switching) detects a USB-DAC or HDMI sink:**
+- Match preferred sink names/patterns from `pactl list short sinks` (e.g. `alsa_output.usb-*`, `alsa_output.pci-*.hdmi-stereo*`), move **only** Deckify's sink-input (or `deckify_eq_out`), and toggle `bit_perfect_clock` via `pw-metadata -n settings 0 clock.allowed-rates "[ 44100 48000 88200 96000 ]"` when `audio_quality == "lossless"`.
 
-#### Settings Schema
-```typescript
-export interface PinnedPlaylistItem {
-  id: string;
-  name: string;
-  uri: string;
-  image_url?: string;
-}
+**If `librespot --onevent` is active:**
+- Pass `--onevent <plugin_dir>/bin/deckify-onevent.py` (or `.sh` + `nc`/`python3`) which sends a single JSON line (`{"event": PLAYER_EVENT, "track_id": TRACK_ID, "position_ms": POSITION_MS, ...}`) to a local Unix socket `/run/user/1000/deckify-events.sock` (or `XDG_RUNTIME_DIR/deckify-events.sock`) hosted by `asyncio.start_unix_server` in `main.py`.
 
-// Stored in EngineSettings as:
-// pinned_playlists: PinnedPlaylistItem[]; // Max 4-5 items
-```
+## Version Compatibility
 
----
+| Component A | Compatible With | Notes |
+|-------------|-----------------|-------|
+| **SteamOS 3.5+ PipeWire (`0.3.x` / `1.0+`)** | `libpipewire-module-filter-chain` builtins | `bq_lowshelf`, `bq_peaking`, `bq_highshelf` are built into PipeWire's `filter-chain` module without LADSPA/LV2 plugin packages. |
+| **Decky Loader PyInstaller Python 3.11+** | Pure-Python `dbus-next` / stdlib `asyncio` | `LD_LIBRARY_PATH` must remain popped (`os.environ.pop("LD_LIBRARY_PATH", None)` in `main.py`) before spawning `pipewire`, `pw-cli`, `pactl`, or `busctl`. |
+| **Spotify Web API `/v1/me/library`** | `user-library-read`, `user-library-modify` scopes | Existing `SPOTIFY_SCOPES` in `py_modules/common.py` already includes both scopes; no OAuth re-auth is required for users on `CURRENT_SCOPES_VERSION = 7`. |
 
-### 4. L2/R2 Controller Trigger Bindings
+## Sources
 
-| Technology / Event | Event Code / Identifier | Purpose | Why |
-|-------------------|-------------------------|---------|-----|
-| `vgp_onbuttondown` | Steam GamepadUI DOM Event | Capture controller buttons inside modal | Zero-overhead, event-driven; already proven in `DeckifyExpandedModal.tsx` for X/Y/L1/R1. |
-| Trigger Left (L2) | Button `6` / `TRIGGER_LEFT` / `LT` | Seek -10s in NowPlaying/Lyrics; Jump -15 items in Lists | Allows rapid blind scrubbing without moving D-pad focus away from playlist/lyrics. |
-| Trigger Right (R2) | Button `7` / `TRIGGER_RIGHT` / `RT` | Seek +10s in NowPlaying/Lyrics; Jump +15 items in Lists | Standard handheld navigation paradigm (accelerated pagination in long lists). |
-| `FocusNavController` | SteamOS GamepadUI Global | Fallback listener for trigger button chords | Ensures compatibility across SteamOS 3.5 and 3.7+ preview builds. |
-
-#### Trigger Code Mappings
-```typescript
-// Steam GamepadUI trigger identifiers:
-const isL2 = btn === "L2" || btn === "LT" || btn === 6 || btn === "TRIGGER_LEFT" || btn === "BUTTON_LEFT_TRIGGER";
-const isR2 = btn === "R2" || btn === "RT" || btn === 7 || btn === "TRIGGER_RIGHT" || btn === "BUTTON_RIGHT_TRIGGER";
-```
+- Spotify Web API `/v1/me/library` & `/v1/me/tracks` 403 deprecation (`developer.spotify.com`, 2026) — HIGH confidence (verified via web search & codebase inspection of `py_modules/rpc_playback.py`)
+- PipeWire `libpipewire-module-filter-chain` biquad builtins & `pw-cli set-param` (`docs.pipewire.org`) — HIGH confidence (verified via web search)
+- `librespot --onevent` environment variables (`github.com/librespot-org/librespot`) — HIGH confidence (verified via web search)
+- Pure-Python D-Bus `dbus-next` (`pypi.org/project/dbus-next`) — HIGH confidence (verified via web search; zero C/GLib dependencies)
+- Existing codebase primitives (`main.py`, `py_modules/volume.py`, `py_modules/engine.py`, `py_modules/device.py`, `py_modules/system.py`, `py_modules/rpc_playback.py`, `py_modules/common.py`) — HIGH confidence (direct file inspection)
 
 ---
-
-### 5. In-Game Synced Lyrics in Overlay HUD (`DeckifyOverlay.tsx`)
-
-| Technology / Pattern | Purpose | Why |
-|---------------------|---------|-----|
-| `DeckifyOverlay.tsx` with Fixed Line Container | Render 1 active synced lyric line under artist | Gamescope floating HUD (`pointerEvents: "none"`) remains completely non-intrusive. |
-| `parseLrc` (`src/utils.ts`) | Parse synced LRC timestamp into `{ timeMs, text }[]` | Lightweight (<30 lines), zero dependencies, runs on client once per track. |
-| CSS Height Locking (`height: 18px`, `overflow: hidden`) | Strict layout shift prevention | Changing lyrics length or empty lines (`&nbsp;`) never causes HUD jitter or resizing during gameplay. |
-| `addEventListener("synced_lyrics")` / `backendGetLyrics` | Fetch lyrics on track change | Avoids bloating periodic 3s `get_status` payloads with 10KB lyric strings. |
-
----
-
-### 6. Home / Discovery Tab
-
-| Endpoint / API | Method | Purpose | Cache Strategy |
-|----------------|--------|---------|----------------|
-| `/v1/me/top/tracks` | `GET` | User top tracks (short_term: 4 wks, medium_term: 6 mos) | In-memory backend cache (TTL: 15 min) |
-| `/v1/me/top/artists` | `GET` | User most listened artists | In-memory backend cache (TTL: 15 min) |
-| `/v1/browse/new-releases` | `GET` | New albums and single releases | In-memory backend cache (TTL: 30 min) |
-| `/v1/browse/featured-playlists` | `GET` | Contextual editorial playlists (Morning, Gaming, Focus) | In-memory backend cache (TTL: 30 min) |
-| Spotify CDP / Rootlist ("Made For You") | Internal CDP | Personalized mix links (*Discover Weekly*, *Release Radar*, *Daylist*) | Read directly from client rootlist structure |
-
----
-
-## Anti-Stack: What NOT to Add (Avoiding Bloat)
-
-| Library / Tool | Why Considered | Why Strictly Rejected |
-|----------------|----------------|-----------------------|
-| `webrtcvad` / `numpy` / `scipy` | Audio DSP / Voice Activity Detection | Heavy C extensions (100MB+), compile issues on SteamOS read-only rootfs; `pactl list source-outputs` already provides VAD for free. |
-| `Spotify Web API Volume PUT` for Ducking | Volume adjustment | High network latency (200-500ms), causes HTTP 429 rate limits over multi-step fades, changes account volume across all phones/PCs. |
-| `gamepad.js` / `navigator.getGamepads()` | Controller input polling | JS `requestAnimationFrame` polling wastes CPU/battery in gamescope; SteamOS `vgp_onbuttondown` is 100% event-driven. |
-| External Steam Web API / `cheerio` | Scraping Steam game names | Network overhead and requires API keys; `window.SteamClient.Apps` provides local metadata instantly. |
-| Redux / Zustand / MobX | State management for Discovery tab | Massive bundle bloat for Rollup ESM; standard React hooks (`useState`, `useCallback`) are clean and sufficient. |
-| Canvas-based Lyrics Renderers | In-game lyrics visualization | Significant GPU usage in gamescope layer; a single 18px text element with CSS opacity transition is zero-cost. |
-
----
-
-## Installation & Dependencies
-
-No new external NPM or Python packages are required! Milestone v0.5 is built entirely upon native SteamOS platform primitives and validated internal patterns:
-
-```bash
-# Frontend dependencies (All existing in package.json)
-# - @decky/ui (4.11.1)
-# - @decky/api (1.1.3)
-# - react (19.x)
-# - react-icons (5.5.0)
-
-# Backend runtime (All existing in Python 3.11+ stdlib & SteamOS base)
-# - asyncio, subprocess, json, urllib.request, math
-# - pactl, pw-cli, pw-metadata (System binaries on SteamOS 3.5+)
-```
-
----
-
-## Architecture Integration Matrix
-
-| Feature | Frontend Layer | RPC Seam | Backend Layer | System / OS Boundary |
-|---------|----------------|----------|---------------|-----------------------|
-| **Game Soundtracks** | `src/index.tsx` (`SteamClient.Apps`) | `backendSetGameSoundtrack`, `backendOnAppLifetime` | `py_modules/rpc_library.py` | SteamOS `SteamClient` runtime |
-| **Smooth Ducking** | `src/index.tsx` (trigger) / `SettingsTab.tsx` | `backendFadeVolume`, `backendToggleVoiceDucking` | `py_modules/volume.py` (`asyncio` loop) | PipeWire `pactl` sink-inputs / source-outputs |
-| **QAM Pinned** | `src/index.tsx` (`PanelSectionRow`) | `backendPlayTracks` | `py_modules/rpc_playback.py` | Spotify Connect engine (`librespot`) |
-| **L2/R2 Triggers** | `DeckifyExpandedModal.tsx` (`vgp_onbuttondown`) | None (Direct UI/clock scrub) | `py_modules/rpc_playback.py` (commit) | SteamOS GamepadUI virtual gamepad |
-| **HUD Lyrics** | `DeckifyOverlay.tsx` | `backendGetLyrics` (cached) | `py_modules/spotify.py` | Gamescope compositor overlay |
-| **Discovery Tab** | `src/components/tabs/HomeTab.tsx` | `backendGetHomeFeed` | `py_modules/rpc_library.py` | Spotify Web API (`/v1/me/top/...`) |
-
----
-
-## Sources & Confidence Assessment
-
-- `window.SteamClient.Apps` lifetime events verified against SteamOS GamepadUI production build.
-- `pactl list sink-inputs` & `pactl list source-outputs` verified against PipeWire 1.0 on SteamOS 3.5+.
-- Spotify Web API personalization endpoints (`/v1/me/top/tracks`, `/v1/me/top/artists`) documented per official Spotify Developer Reference (Scopes: `user-top-read`).
-- Overall Confidence: **HIGH**. All technologies align with existing validated Deckify constraints.
+*Stack research for: Deckify v0.6 Audio DSP, Docked Flow & System Resilience*
+*Researched: 2026-11-16*
