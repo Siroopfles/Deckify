@@ -784,3 +784,93 @@ def _cdp_get_playlist_tracks(
         return {"ok": False, "error": "CDP PlaylistAPI returned no result"}
     except Exception as e:
         return {"ok": False, "error": str(e)}
+
+
+def _cdp_get_saved_episodes(offset: int = 0, port: int = SPOTIFY_CDP_PORT) -> dict:
+    """Fetch Your Episodes (saved podcast episodes) via Official Spotify Client CDP."""
+    safe_offset = max(0, int(offset))
+    expr = f"""
+    (async () => {{
+      try {{
+        const el = document.querySelector('#main');
+        if (!el) return {{ ok: false, error: 'Spotify UI root not found' }};
+        const fk = Object.keys(el).find(k => k.startsWith('__reactFiber$') || k.startsWith('__reactContainer$'));
+        if (!fk) return {{ ok: false, error: 'React fiber root not found' }};
+        const queue = [el[fk]];
+        const visited = new Set();
+        let registry = null;
+        while (queue.length > 0 && !registry && visited.size < 5000) {{
+          const n = queue.shift();
+          if (!n || visited.has(n)) continue;
+          visited.add(n);
+          const val = n.memoizedProps?.value;
+          if (val && val._map instanceof Map) {{ registry = val; break; }}
+          if (val && typeof val.getRegistry === 'function') {{ registry = val.getRegistry(); break; }}
+          if (n.child) queue.push(n.child);
+          if (n.sibling) queue.push(n.sibling);
+        }}
+        if (!registry || !(registry._map instanceof Map)) return {{ ok: false, error: 'Platform registry not found' }};
+        let libApi = null;
+        let playlistApi = null;
+        for (const [k, v] of registry._map.entries()) {{
+          const d = k?.description || String(k);
+          if (d === 'LibraryAPI') libApi = v?.instance || v;
+          if (d === 'PlaylistAPI') playlistApi = v?.instance || v;
+        }}
+        if (!libApi || !playlistApi || typeof playlistApi.getContents !== 'function') {{
+          return {{ ok: false, error: 'LibraryAPI/PlaylistAPI unavailable' }};
+        }}
+        let yeUri = 'spotify:collection:podcasts:episodes';
+        try {{
+          const lib = await libApi.getContents({{ limit: 50 }});
+          const ye = (lib?.items || []).find(i => i && i.type === 'your-episodes');
+          if (ye?.uri) yeUri = ye.uri;
+        }} catch (e) {{}}
+        const page = await playlistApi.getContents(yeUri, {{ offset: {safe_offset}, limit: 50 }});
+        const items = Array.isArray(page?.items) ? page.items : [];
+        const total = typeof page?.totalLength === 'number' ? page.totalLength : items.length;
+        const parseImg = (images) => {{
+          const raw = images?.[0]?.url || '';
+          if (!raw) return null;
+          if (raw.startsWith('http://') || raw.startsWith('https://')) return raw;
+          if (raw.startsWith('spotify:image:')) return 'https://i.scdn.co/image/' + raw.split(':')[2];
+          if (raw.startsWith('spotify:mosaic:')) return 'https://i.scdn.co/image/' + raw.split(':')[2];
+          return null;
+        }};
+        const episodes = [];
+        for (const ep of items) {{
+          if (!ep || (!ep.uri && !ep.name)) continue;
+          const uri = ep.uri || '';
+          const eid = ep.id || (uri.includes(':') ? uri.split(':').pop() : '');
+          const durMs = ep.duration?.milliseconds ?? ep.duration_ms ?? 0;
+          const timeLeftMs = ep.playedState?.timeLeft?.milliseconds ?? 0;
+          const fullyPlayed = ep.playedState?.state === 'COMPLETED';
+          const resumeMs = (!fullyPlayed && durMs > 0 && timeLeftMs > 0 && timeLeftMs < durMs) ? (durMs - timeLeftMs) : 0;
+          const imgUrl = parseImg(ep.images || ep.show?.images);
+          episodes.push({{
+            id: eid,
+            name: ep.name || '',
+            show_name: ep.show?.name || '',
+            uri,
+            duration_ms: durMs,
+            image_url: imgUrl,
+            artwork_url: imgUrl,
+            resume_position_ms: resumeMs,
+            fully_played: fullyPlayed
+          }});
+        }}
+        return {{ ok: true, episodes, total, offset: {safe_offset} }};
+      }} catch (e) {{
+        return {{ ok: false, error: String(e?.message || e) }};
+      }}
+    }})()
+    """
+    try:
+        res = _cdp_evaluate(expr, port=port, timeout=8.0)
+        if isinstance(res, dict) and res.get("ok"):
+            return res
+        if isinstance(res, dict):
+            return {"ok": False, "error": res.get("error") or "CDP Your Episodes failed"}
+        return {"ok": False, "error": "CDP Your Episodes returned no result"}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}

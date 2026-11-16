@@ -37,6 +37,8 @@
 - **QUEUE-03**: Interactive queue reordering and clearing via CDP `PlayerAPI`.
 - **TV-01**: Split-view TV / Steam Machine 10-foot mode (Now Playing + Lyrics side-by-side).
 - **JAM-01**: Spotify Jam QR-code session sharing.
+- **DISC-04**: Personalized Spotify mixes in Discovery (Made For You mixes, Release Radar, Discover Weekly, dynamic Daylist) via CDP / Spotify client discovery.
+- **TOAST-01**: Respect silent track-change notifications when `toast_sound_enabled` is false (custom silent overlay toast or SteamOS notification sound bypass).
 
 ---
 
