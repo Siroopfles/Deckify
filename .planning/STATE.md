@@ -2,18 +2,18 @@
 gsd_state_version: "1.0"
 milestone: v0.6
 milestone_name: Audio DSP, Docked Flow & System Resilience (Active)
-current_phase: 15
-current_phase_name: Real PipeWire Biquad Equalizer
+current_phase: 16
+current_phase_name: Automatic Docked Audio-Switching
 status: executing
-stopped_at: Phase 16 context gathered
-last_updated: "2026-11-16T20:39:26.092Z"
+stopped_at: Phase 16 UI-SPEC approved
+last_updated: "2026-11-16T20:55:20.206Z"
 last_activity: 2026-11-16
 last_activity_desc: Phase 13 complete, transitioned to Phase 14
-state_head: 26e8c2a13ed63c1ffd47774b35cf26962a63a6f1
+state_head: 3b3f01d6f3d5e1f6559d231634b00e0d20b73887
 progress:
   total_phases: 6
   completed_phases: 1
-  total_plans: 6
+  total_plans: 8
   completed_plans: 6
   percent: 17
 ---
@@ -29,7 +29,7 @@ See: [.planning/PROJECT.md](file:///C:/Users/djdje/Deckify/.planning/PROJECT.md)
 
 ## Current Position
 
-Phase: 15 (Real PipeWire Biquad Equalizer) — READY TO EXECUTE
+Phase: 16 (Automatic Docked Audio-Switching) — READY TO EXECUTE
 Plan: Not started
 Status: Ready to execute
 Last activity: 2026-11-16 — Phase 13 complete, transitioned to Phase 14
@@ -155,9 +155,9 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-16T20:39:24.008Z
-Stopped at: Phase 16 context gathered
-Resume file: .planning/phases/16-automatic-docked-audio-switching/16-CONTEXT.md
+Last session: 2026-11-16T20:44:37.855Z
+Stopped at: Phase 16 UI-SPEC approved
+Resume file: .planning/phases/16-automatic-docked-audio-switching/16-UI-SPEC.md
 
 ## Operator Next Steps
 

@@ -105,8 +105,15 @@ Plans:
   2. Connecting the designated dock/DAC sink automatically moves only Deckify's stream (`effect_output.deckify_eq` when EQ is active, or `librespot` when bypassed) to the target sink after hotplug debounce, without hijacking game audio or overriding active Bluetooth headphones if configured.
   3. Designated USB-DAC/HDMI sinks receive `bit_perfect_clock` (`clock.allowed-rates`) configuration when docked.
   4. Undocking cleanly restores normal sink routing and resets `clock.allowed-rates` to `[ 48000 ]` so internal speakers and Bluetooth audio do not crackle.
-**Plans**: TBD
+**Plans:** 2 plans
 **UI hint**: yes
+
+Plans:
+**Wave 1**
+- [ ] 16-01-PLAN.md — Backend `DockAudioSwitcher` (`pactl subscribe` + 1.8s debounce, `USB-DAC > HDMI`, Bluetooth/manual override, EQ/clock coordination, `main.py` integration)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [ ] 16-02-PLAN.md — Frontend `DockStatusInfo` types, `SettingsTab.tsx` Docked Audio-Switching card, `src/index.tsx` toast listener, and `SettingsTab.test.tsx`
 
 ### Phase 17: Event-Driven librespot & Suspend/Wi-Fi Resilience
 **Goal**: Playback state updates instantaneously via local `librespot --onevent` events and recovers seamlessly from Steam Deck sleep/wake and Wi-Fi drops.
