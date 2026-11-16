@@ -1102,7 +1102,7 @@ export default definePlugin(() => {
         title: meta.name,
         body: meta.artist ? `${meta.artist}` : "Deckify",
         duration: 3500,
-        sound: (soundEnabled ? 1 : 0) as any,
+        ...(soundEnabled ? { sound: 1 } : {}),
         playSound: soundEnabled,
         onClick: openExpandedView,
         logo: resolvedArtwork ? (
