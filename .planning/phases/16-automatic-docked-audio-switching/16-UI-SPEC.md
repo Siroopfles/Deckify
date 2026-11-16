@@ -1,7 +1,8 @@
 ---
 phase: "16"
 slug: "automatic-docked-audio-switching"
-status: draft
+status: approved
+reviewed_at: "2026-11-16T21:41:59+01:00"
 shadcn_initialized: false
 preset: none
 created: "2026-11-16"
@@ -143,16 +144,17 @@ Inside `<Focusable flow-children="column" style={{ display: "flex", flexDirectio
 
 ## UI Considerations
 
-Applicable state considerations resolved: 6 covered, 0 backstop, 0 unresolved.
+Applicable state considerations resolved: 20 covered, 0 backstop, 0 unresolved.
 
 | Category | Element(s) | Status | Resolution / Reason |
 |----------|------------|--------|---------------------|
-| Spatial D-pad navigation | Target Sink `InteractiveRow` list & `ToggleField` stack | ✅ covered | All toggles and sink rows are stacked vertically inside `<Focusable flow-children="column">` so D-pad Up/Down moves cleanly without focus traps or vertical jumps. |
-| Empty external sink state | Target Sink selector when no USB-DAC/HDMI sink is connected | ✅ covered | `Auto (USB-DAC / HDMI)` remains selectable at all times and displays the documented empty-state guidance copy below it when no external dock/DAC sinks are present. |
-| Bluetooth & manual override states | Header live status badge | ✅ covered | Displays distinct `Bluetooth Held` and `Manual Override` states so users know why Deckify did not hijack their headphones or manual sink choice while docked. |
-| Compact QAM constraint | Quick Access Menu (`src/index.tsx`) | ✅ covered | QAM remains untouched with zero dock-switching controls; all controls live exclusively in `SettingsTab.tsx`. |
-| Long sink descriptions | `InteractiveRow` sink label | ✅ covered | Sink labels use `minWidth: 0` with `overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap"` so long USB-DAC / HDMI ALSA descriptions never push the `Active` badge off-screen. |
-| Error / fallback state | Dock switch failure | ✅ covered | If `set_audio_sink` fails during hotplug, backend preserves current routing and surfaces the documented error toast (`Dock audio switch failed — kept current audio output. Check PipeWire sinks in Settings.`). |
+| Spatial D-pad navigation | `E2` ToggleField stack & `E3` Target Sink `InteractiveRow` list | ✅ resolved (explicit) | All toggles and sink rows are stacked vertically inside `<Focusable flow-children="column">` so D-pad Up/Down moves cleanly without focus traps or vertical jumps. |
+| Empty / zero-one-many | `E1` Status badge & `E3` Target Sink selector | ✅ resolved (explicit) | `Auto (USB-DAC / HDMI)` is always rendered first; when zero external USB-DAC/HDMI sinks exist, the empty-state guidance from `## Copywriting Contract` renders below it. Header badge shows `Disabled` or `Monitoring` when no dock is active. |
+| Loading state | `E1`, `E2`, `E3`, `E4` | ✅ resolved (explicit) | Initial `status` / `audioSinks` fetch renders defaults (`Disabled` / `Auto (USB-DAC / HDMI)` + cached `settings`) without blocking or blanking the card; no extra spinner needed. |
+| Populated / partial state | `E1` Status badge & `E3` Target Sink list | ✅ resolved (explicit) | Normal populated state lists `Auto` + all detected PipeWire sinks; partial sink metadata (`description` missing) falls back to `s.name`. Header badge distinguishes `Docked: {label}`, `Bluetooth Held`, `Manual Override`, `Monitoring`, and `Disabled`. |
+| Overflow / long-text | `E1` Status badge, `E2` ToggleField labels, `E3` Sink labels, `E4` Toasts | ✅ resolved (explicit) | Sink labels and header badge use `minWidth: 0`, `overflow: "hidden"`, `textOverflow: "ellipsis"`, `whiteSpace: "nowrap"` so long USB-DAC/HDMI names never push `Active` badges off-screen; `ToggleField` descriptions wrap naturally. |
+| Error / fallback state | `E1`, `E2`, `E3`, `E4` | ✅ resolved (explicit) | Failed `set_setting` or dock hotplug `set_audio_sink` preserves current routing, reverts optimistic UI state on next `refreshStatus()`, and displays the error toast from `## Copywriting Contract`. |
+| Compact QAM constraint | Quick Access Menu (`src/index.tsx`) | ✅ resolved (explicit) | QAM remains untouched with zero dock-switching controls; all controls live exclusively in `SettingsTab.tsx`. |
 
 ---
 
@@ -167,12 +169,12 @@ Applicable state considerations resolved: 6 covered, 0 backstop, 0 unresolved.
 
 ## Checker Sign-Off
 
-- [ ] Dimension 1 Copywriting: PASS
-- [ ] Dimension 2 Visuals: PASS
-- [ ] Dimension 3 Color: PASS
-- [ ] Dimension 4 Typography: PASS
-- [ ] Dimension 5 Spacing: PASS
-- [ ] Dimension 6 Registry Safety: PASS
-- [ ] Dimension 7 Inventory Provenance: PASS
+- [x] Dimension 1 Copywriting: PASS
+- [x] Dimension 2 Visuals: PASS
+- [x] Dimension 3 Color: PASS
+- [x] Dimension 4 Typography: PASS
+- [x] Dimension 5 Spacing: PASS
+- [x] Dimension 6 Registry Safety: PASS
+- [x] Dimension 7 Inventory Provenance: PASS
 
-**Approval:** pending
+**Approval:** approved
