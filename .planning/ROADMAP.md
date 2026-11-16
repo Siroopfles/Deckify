@@ -172,3 +172,4 @@ See [.planning/IDEAS.md](.planning/IDEAS.md) for the full **Deckify Master Featu
 **Deferred at:** 2026-11-16 during /gsd-verify-work 15 session completion
 **Follow-ups:**
 - [ ] Test 2: Preamp handmatig custom kunnen aanpassen in SettingsTab (naast of als override op automatische negatieve preamp) (deferred 2026-11-16)
+- [ ] Steam Machine EQ preset: `TV / Soundbar` preset toevoegen en/of `Deck Speakers` automatisch vervangen/verbergen wanneer er geen Steam Deck `acp5x` interne speakers aanwezig zijn (deferred 2026-11-16)
