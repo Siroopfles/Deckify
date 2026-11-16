@@ -5,16 +5,16 @@ milestone_name: Audio DSP, Docked Flow & System Resilience (Active)
 current_phase: 15
 current_phase_name: Real PipeWire Biquad Equalizer
 status: executing
-stopped_at: Phase 15 context gathered
-last_updated: "2026-11-16T16:30:52.904Z"
+stopped_at: Phase 16 context gathered
+last_updated: "2026-11-16T20:39:26.092Z"
 last_activity: 2026-11-16
 last_activity_desc: Phase 13 complete, transitioned to Phase 14
-state_head: c522d9ef8ccbd4790f0565e4c970fb3f39041006
+state_head: 26e8c2a13ed63c1ffd47774b35cf26962a63a6f1
 progress:
   total_phases: 6
   completed_phases: 1
   total_plans: 6
-  completed_plans: 4
+  completed_plans: 6
   percent: 17
 ---
 
@@ -155,9 +155,9 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-16T16:18:33.036Z
-Stopped at: Phase 15 context gathered
-Resume file: .planning/phases/15-real-pipewire-biquad-equalizer/15-CONTEXT.md
+Last session: 2026-11-16T20:39:24.008Z
+Stopped at: Phase 16 context gathered
+Resume file: .planning/phases/16-automatic-docked-audio-switching/16-CONTEXT.md
 
 ## Operator Next Steps
 
