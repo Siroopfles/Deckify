@@ -86,7 +86,7 @@ export const PodcastsTab: FC<PodcastsTabProps> = ({
                       {ep.name}
                     </div>
                     <div style={{ fontSize: 11, opacity: 0.6, marginBottom: resumeMs > 0 ? 4 : 0 }}>
-                      {ep.show_name} · {formatMs(ep.duration_ms || 0)}
+                      {ep.show_name}{(ep.duration_ms || 0) > 0 ? `${ep.show_name ? " · " : ""}${formatMs(ep.duration_ms || 0)}` : ""}
                     </div>
                     {resumeMs > 0 && (
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>

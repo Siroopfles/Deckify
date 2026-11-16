@@ -378,9 +378,14 @@ async def play_tracks(
             body["offset"] = {"position": position}
         plugin._context_uri = context_uri
     elif uris:
-        body["uris"] = uris
-        if position > 0:
-            body["offset"] = {"position": position}
+        if offset_uri and offset_uri in uris:
+            idx = uris.index(offset_uri)
+            body["uris"] = uris[idx:]
+            body["offset"] = {"position": 0}
+        else:
+            body["uris"] = uris
+            if position > 0:
+                body["offset"] = {"position": position}
     elif offset_uri and str(offset_uri).strip():
         body["uris"] = [str(offset_uri).strip()]
     if body and position_ms is not None and int(position_ms) > 0:

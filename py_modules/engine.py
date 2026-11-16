@@ -674,3 +674,113 @@ def _cdp_get_liked_tracks(
         return {"ok": False, "error": "CDP LibraryAPI returned no result"}
     except Exception as e:
         return {"ok": False, "error": str(e)}
+
+
+def _cdp_get_playlist_tracks(
+    playlist_id: str, offset: int = 0, fetch_all: bool = True, port: int = SPOTIFY_CDP_PORT
+) -> dict:
+    """Fetch playlist tracks via Official Spotify Client CDP PlaylistAPI."""
+    pid = str(playlist_id or "").strip()
+    if pid.startswith("spotify:playlist:"):
+        pid = pid.split(":")[-1]
+    uri_js = json.dumps(f"spotify:playlist:{pid}")
+    safe_offset = max(0, int(offset))
+    fetch_all_js = "true" if fetch_all else "false"
+    expr = f"""
+    (async () => {{
+      try {{
+        const el = document.querySelector('#main');
+        if (!el) return {{ ok: false, error: 'Spotify UI root not found' }};
+        const fk = Object.keys(el).find(k => k.startsWith('__reactFiber$') || k.startsWith('__reactContainer$'));
+        if (!fk) return {{ ok: false, error: 'React fiber root not found' }};
+        const queue = [el[fk]];
+        const visited = new Set();
+        let registry = null;
+        while (queue.length > 0 && !registry && visited.size < 5000) {{
+          const n = queue.shift();
+          if (!n || visited.has(n)) continue;
+          visited.add(n);
+          const val = n.memoizedProps?.value;
+          if (val && val._map instanceof Map) {{ registry = val; break; }}
+          if (val && typeof val.getRegistry === 'function') {{ registry = val.getRegistry(); break; }}
+          if (n.child) queue.push(n.child);
+          if (n.sibling) queue.push(n.sibling);
+        }}
+        if (!registry || !(registry._map instanceof Map)) return {{ ok: false, error: 'Platform registry not found' }};
+        let playlistApi = null;
+        for (const [k, v] of registry._map.entries()) {{
+          if ((k?.description || String(k)) === 'PlaylistAPI') {{
+            playlistApi = v?.instance || v;
+            break;
+          }}
+        }}
+        if (!playlistApi) return {{ ok: false, error: 'PlaylistAPI not found' }};
+        const parseImg = (images) => {{
+          const raw = images?.[0]?.url || '';
+          if (!raw) return null;
+          if (raw.startsWith('http://') || raw.startsWith('https://')) return raw;
+          if (raw.startsWith('spotify:image:')) return 'https://i.scdn.co/image/' + raw.split(':')[2];
+          if (raw.startsWith('spotify:mosaic:')) return 'https://i.scdn.co/image/' + raw.split(':')[2];
+          return null;
+        }};
+        const uri = {uri_js};
+        const startOffset = {safe_offset};
+        const fetchAll = {fetch_all_js};
+        const limit = 100;
+        let curOffset = startOffset;
+        let total = 0;
+        const tracks = [];
+        while (true) {{
+          let page = null;
+          if (typeof playlistApi.getContents === 'function') {{
+            page = await playlistApi.getContents(uri, {{ offset: curOffset, limit }});
+          }} else if (typeof playlistApi.getPlaylist === 'function') {{
+            const pl = await playlistApi.getPlaylist(uri, {{}}, {{ offset: curOffset, limit }});
+            page = pl?.contents || pl;
+          }} else {{
+            return {{ ok: false, error: 'PlaylistAPI.getContents/getPlaylist not found' }};
+          }}
+          const items = Array.isArray(page?.items) ? page.items : [];
+          total = typeof page?.totalLength === 'number' ? page.totalLength : (typeof page?.total === 'number' ? page.total : items.length);
+          for (const entry of items) {{
+            const t = entry?.item || entry?.track || entry;
+            if (!t || (!t.uri && !t.name)) continue;
+            const turi = t.uri || '';
+            const tid = t.id || (turi.includes(':') ? turi.split(':').pop() : '');
+            const artists = Array.isArray(t.artists) ? t.artists.map(a => a?.name || '').filter(Boolean).join(', ') : '';
+            const artistUri = t.artists?.[0]?.uri || '';
+            const artistId = t.artists?.[0]?.id || (artistUri.includes(':') ? artistUri.split(':').pop() : '');
+            const albumUri = t.album?.uri || '';
+            const albumId = t.album?.id || (albumUri.includes(':') ? albumUri.split(':').pop() : '');
+            const imgUrl = parseImg(t.album?.images || t.images);
+            tracks.push({{
+              id: tid,
+              name: t.name || '',
+              artist: artists,
+              album: t.album?.name || '',
+              artist_id: artistId,
+              album_id: albumId,
+              uri: turi,
+              duration_ms: t.duration?.milliseconds ?? t.duration_ms ?? 0,
+              image_url: imgUrl,
+              artwork_url: imgUrl
+            }});
+          }}
+          curOffset += items.length;
+          if (!fetchAll || items.length === 0 || tracks.length >= total || tracks.length >= 1000) break;
+        }}
+        return {{ ok: true, tracks, total: total || tracks.length, offset: startOffset }};
+      }} catch (e) {{
+        return {{ ok: false, error: String(e) }};
+      }}
+    }})()
+    """
+    try:
+        res = _cdp_evaluate(expr, port=port, timeout=8.0)
+        if isinstance(res, dict) and res.get("ok"):
+            return res
+        if isinstance(res, dict):
+            return {"ok": False, "error": res.get("error") or "CDP PlaylistAPI failed"}
+        return {"ok": False, "error": "CDP PlaylistAPI returned no result"}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}

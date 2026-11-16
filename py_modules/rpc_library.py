@@ -23,6 +23,7 @@ from py_modules.spotify import (
 from py_modules.engine import (
     _cdp_evaluate,
     _cdp_get_liked_tracks,
+    _cdp_get_playlist_tracks,
     _fetch_spotify_cdp_folder_tree,
 )
 from py_modules.rpc_playback import annotate_tracks_liked
@@ -145,11 +146,56 @@ async def get_playlist_tracks(
             if not fetch_all or not raw_items or cur_offset >= total or len(tracks) >= 1000:
                 break
 
+        if not tracks and cur_offset == 0:
+            is_spotify_client = (
+                plugin._settings.get("audio_backend") == "spotify_client"
+                and bool(
+                    getattr(plugin, "_spotify_client_process", None)
+                    and plugin._spotify_client_process.poll() is None
+                )
+            )
+            if is_spotify_client:
+                try:
+                    cdp_res = await _exec(_cdp_get_playlist_tracks, pid, offset, fetch_all)
+                    if isinstance(cdp_res, dict) and cdp_res.get("ok") and cdp_res.get("tracks"):
+                        tracks = cdp_res["tracks"]
+                        total = cdp_res.get("total", len(tracks))
+                except Exception as cdp_err:
+                    decky.logger.warning("get_playlist_tracks CDP fallback failed: %s", cdp_err)
+
         try:
             await plugin._annotate_tracks_liked(token, tracks)
         except Exception as ex:
             decky.logger.warning("Failed to annotate tracks liked: %s", ex)
         return {"ok": True, "tracks": tracks, "total": total or len(tracks), "offset": offset}
+    except urllib.error.HTTPError as e:
+        if getattr(e, "code", None) == 403:
+            is_spotify_client = (
+                plugin._settings.get("audio_backend") == "spotify_client"
+                and bool(
+                    getattr(plugin, "_spotify_client_process", None)
+                    and plugin._spotify_client_process.poll() is None
+                )
+            )
+            if is_spotify_client:
+                try:
+                    cdp_res = await _exec(_cdp_get_playlist_tracks, pid, offset, fetch_all)
+                    if isinstance(cdp_res, dict) and cdp_res.get("ok"):
+                        cdp_tracks = cdp_res.get("tracks") or []
+                        try:
+                            await plugin._annotate_tracks_liked(token, cdp_tracks)
+                        except Exception:
+                            pass
+                        return {
+                            "ok": True,
+                            "tracks": cdp_tracks,
+                            "total": cdp_res.get("total", len(cdp_tracks)),
+                            "offset": offset,
+                        }
+                except Exception as cdp_err:
+                    decky.logger.warning("get_playlist_tracks CDP 403 fallback failed: %s", cdp_err)
+        decky.logger.error("get_playlist_tracks failed: %s", e)
+        return {"ok": False, "error": _parse_spotify_error(e)}
     except Exception as e:
         decky.logger.error("get_playlist_tracks failed: %s", e)
         return {"ok": False, "error": str(e)}
@@ -513,9 +559,10 @@ async def get_saved_episodes(plugin, offset: int = 0) -> dict:
         episodes = []
         data = await _exec(
             _spotify_api_request, "me/episodes", token, "GET",
-            {"limit": 50, "offset": offset},
+            {"limit": 50, "offset": offset, "market": "from_token"},
         )
         items = data.get("items", []) if data else []
+        missing_duration_ids: list[str] = []
         for item in items:
             if not isinstance(item, dict):
                 continue
@@ -527,17 +574,46 @@ async def get_saved_episodes(plugin, offset: int = 0) -> dict:
                 show = {}
             images = ep.get("images") or []
             resume_point = ep.get("resume_point") or {}
+            dur_ms = int(ep.get("duration_ms") or 0)
+            ep_id = ep.get("id")
+            if dur_ms <= 0 and ep_id:
+                missing_duration_ids.append(ep_id)
             episodes.append({
-                "id": ep.get("id"),
+                "id": ep_id,
                 "name": ep.get("name", ""),
                 "show_name": show.get("name", ""),
                 "uri": ep.get("uri", ""),
-                "duration_ms": ep.get("duration_ms", 0),
+                "duration_ms": dur_ms,
                 "image_url": _image_url(images),
                 "artwork_url": _image_url(images),
-                "resume_position_ms": resume_point.get("resume_position_ms", 0),
+                "resume_position_ms": int(resume_point.get("resume_position_ms") or 0),
                 "fully_played": bool(resume_point.get("fully_played", False)),
             })
+        if missing_duration_ids:
+            try:
+                ep_batch = await _exec(
+                    _spotify_api_request,
+                    "episodes",
+                    token,
+                    "GET",
+                    {"ids": ",".join(missing_duration_ids[:50]), "market": "from_token"},
+                )
+                dur_map = {}
+                for full_ep in (ep_batch or {}).get("episodes") or []:
+                    if isinstance(full_ep, dict) and full_ep.get("id"):
+                        dur_map[full_ep["id"]] = (
+                            int(full_ep.get("duration_ms") or 0),
+                            (full_ep.get("show") or {}).get("name", "") if isinstance(full_ep.get("show"), dict) else "",
+                        )
+                for row in episodes:
+                    if row.get("duration_ms", 0) <= 0 and row.get("id") in dur_map:
+                        d_ms, s_name = dur_map[row["id"]]
+                        if d_ms > 0:
+                            row["duration_ms"] = d_ms
+                        if not row.get("show_name") and s_name:
+                            row["show_name"] = s_name
+            except Exception as ex:
+                decky.logger.warning("get_saved_episodes duration backfill failed: %s", ex)
         total = data.get("total", 0) if data else 0
         return {"ok": True, "episodes": episodes, "total": total, "offset": offset}
     except Exception as e:
@@ -1080,24 +1156,91 @@ async def _fetch_made_for_you_section(token: str) -> tuple[list[dict], bool]:
         album = t.get("album") or {}
         ctx = item.get("context") or {}
         ctx_uri = ctx.get("uri") or ""
+        alb_id = album.get("id", "")
+        alb_uri = album.get("uri") or (f"spotify:album:{alb_id}" if alb_id else "")
         if not ctx_uri:
-            alb_id = album.get("id", "")
-            ctx_uri = album.get("uri") or (f"spotify:album:{alb_id}" if alb_id else "")
+            ctx_uri = alb_uri
         if not ctx_uri or ctx_uri in seen_uris:
             continue
-        seen_uris.add(ctx_uri)
-        images = album.get("images") or []
-        img_url = _image_url(images)
-        ctx_id = ctx_uri.split(":")[-1]
-        fallback_items.append({
-            "id": ctx_id,
-            "uri": ctx_uri,
-            "name": album.get("name") or t.get("name", "Recently Played"),
-            "image_url": img_url,
-            "artwork_url": img_url,
-            "track_count": 0,
-            "owner_id": "",
-        })
+
+        if ctx_uri.startswith("spotify:playlist:"):
+            pl_id = ctx_uri.split(":")[-1]
+            pl_name = ""
+            pl_img = ""
+            pl_total = 0
+            pl_owner = ""
+            try:
+                pl_meta = await _exec(
+                    _spotify_api_request,
+                    f"playlists/{pl_id}",
+                    token,
+                    "GET",
+                    {"fields": "id,name,images,owner(id),tracks(total)"},
+                )
+                if isinstance(pl_meta, dict) and pl_meta.get("name"):
+                    pl_name = pl_meta["name"]
+                    pl_img = _image_url(pl_meta.get("images") or [])
+                    pl_total = (pl_meta.get("tracks") or {}).get("total", 0)
+                    pl_owner = (pl_meta.get("owner") or {}).get("id", "")
+            except Exception:
+                pass
+            if pl_name:
+                seen_uris.add(ctx_uri)
+                fallback_items.append({
+                    "id": pl_id,
+                    "uri": ctx_uri,
+                    "name": pl_name,
+                    "image_url": pl_img or _image_url(album.get("images") or []),
+                    "artwork_url": pl_img or _image_url(album.get("images") or []),
+                    "track_count": pl_total,
+                    "owner_id": pl_owner,
+                })
+            elif alb_uri and alb_uri not in seen_uris:
+                seen_uris.add(alb_uri)
+                artists = ", ".join(a.get("name", "") for a in (album.get("artists") or t.get("artists") or []) if a.get("name"))
+                img_url = _image_url(album.get("images") or [])
+                fallback_items.append({
+                    "id": alb_uri.split(":")[-1],
+                    "uri": alb_uri,
+                    "name": album.get("name") or t.get("name", "Recently Played"),
+                    "subtitle": artists,
+                    "is_album": True,
+                    "image_url": img_url,
+                    "artwork_url": img_url,
+                    "track_count": album.get("total_tracks", 0),
+                    "owner_id": "",
+                })
+        elif ctx_uri.startswith("spotify:album:"):
+            seen_uris.add(ctx_uri)
+            artists = ", ".join(a.get("name", "") for a in (album.get("artists") or t.get("artists") or []) if a.get("name"))
+            img_url = _image_url(album.get("images") or [])
+            fallback_items.append({
+                "id": ctx_uri.split(":")[-1],
+                "uri": ctx_uri,
+                "name": album.get("name") or t.get("name", "Recently Played"),
+                "subtitle": artists,
+                "is_album": True,
+                "image_url": img_url,
+                "artwork_url": img_url,
+                "track_count": album.get("total_tracks", 0),
+                "owner_id": "",
+            })
+        elif alb_uri and alb_uri not in seen_uris:
+            seen_uris.add(alb_uri)
+            artists = ", ".join(a.get("name", "") for a in (album.get("artists") or t.get("artists") or []) if a.get("name"))
+            img_url = _image_url(album.get("images") or [])
+            fallback_items.append({
+                "id": alb_uri.split(":")[-1],
+                "uri": alb_uri,
+                "name": album.get("name") or t.get("name", "Recently Played"),
+                "subtitle": artists,
+                "is_album": True,
+                "image_url": img_url,
+                "artwork_url": img_url,
+                "track_count": album.get("total_tracks", 0),
+                "owner_id": "",
+            })
+
         if len(fallback_items) >= 12:
             break
     return fallback_items, True
@@ -1148,6 +1291,50 @@ async def _fetch_top_artists_section(token: str, valid_range: str) -> tuple[list
 
 
 async def _fetch_new_releases_section(token: str) -> list[dict]:
+    personalized_albums: dict[str, dict] = {}
+    artist_ids: list[str] = []
+    try:
+        fol_data = await _exec(
+            _spotify_api_request, "me/following", token, "GET", {"type": "artist", "limit": 10}
+        )
+        for a in ((fol_data or {}).get("artists") or {}).get("items") or []:
+            if a and a.get("id") and a["id"] not in artist_ids:
+                artist_ids.append(a["id"])
+    except Exception:
+        pass
+    if len(artist_ids) < 6:
+        try:
+            top_a_data = await _exec(
+                _spotify_api_request, "me/top/artists", token, "GET", {"time_range": "short_term", "limit": 8}
+            )
+            for a in (top_a_data or {}).get("items") or []:
+                if a and a.get("id") and a["id"] not in artist_ids:
+                    artist_ids.append(a["id"])
+        except Exception:
+            pass
+    for aid in artist_ids[:6]:
+        try:
+            alb_data = await _exec(
+                _spotify_api_request,
+                f"artists/{aid}/albums",
+                token,
+                "GET",
+                {"include_groups": "album,single", "limit": 4},
+            )
+            for alb in (alb_data or {}).get("items") or []:
+                alb_id = alb.get("id") if isinstance(alb, dict) else None
+                if alb_id and alb_id not in personalized_albums:
+                    personalized_albums[alb_id] = alb
+        except Exception:
+            continue
+    if personalized_albums:
+        sorted_albums = sorted(
+            personalized_albums.values(),
+            key=lambda a: str(a.get("release_date") or ""),
+            reverse=True,
+        )[:15]
+        return [_format_discovery_album(alb) for alb in sorted_albums]
+
     nr_items: list[dict] = []
     try:
         nr_data = await _exec(
