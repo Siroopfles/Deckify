@@ -346,8 +346,24 @@ class EqualizerManager:
         await self._discover_node_id()
         return {"ok": True}
 
+    async def _resolve_hardware_sink(self) -> str:
+        if self._target_hardware_sink:
+            return self._target_hardware_sink
+        cmd, env = self._deck_cmd(["pactl", "get-default-sink"])
+        try:
+            res = await _exec(
+                lambda: subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=2),
+                timeout=3,
+            )
+            sink = (res.stdout or "").strip() if res.returncode == 0 else ""
+            if sink and sink != EQ_SINK_NAME and _is_valid_sink_name(sink):
+                return sink
+        except Exception:
+            pass
+        return "@DEFAULT_SINK@"
+
     async def _fallback_to_hardware_sink(self) -> None:
-        fallback_sink = self._target_hardware_sink or "@DEFAULT_SINK@"
+        fallback_sink = await self._resolve_hardware_sink()
         try:
             await self._route_librespot_to_sink(fallback_sink)
         except Exception:
@@ -365,8 +381,15 @@ class EqualizerManager:
 
         async with self._lock:
             if preset == "flat":
+                # Move librespot back to hardware sink BEFORE destroying deckify_eq_sink
+                # so PipeWire does not cork/stop active playback during teardown.
+                was_active = self.is_active
+                if was_active:
+                    await self._fallback_to_hardware_sink()
+                    await asyncio.sleep(0.05)
                 await self.stop()
-                await self._fallback_to_hardware_sink()
+                if not was_active:
+                    await self._fallback_to_hardware_sink()
                 return {"ok": True, "preset": "flat", "bypassed": True}
 
             bands = self._resolve_preset_bands(preset)

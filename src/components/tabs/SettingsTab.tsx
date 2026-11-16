@@ -1,4 +1,4 @@
-import { FC, useState, useEffect, useCallback } from "react";
+import { FC, useState, useEffect, useCallback, useRef } from "react";
 import { Focusable, SliderField, ToggleField } from "@decky/ui";
 import { callable, addEventListener, removeEventListener } from "@decky/api";
 import { FaSlidersH, FaClock, FaPowerOff } from "react-icons/fa";
@@ -17,6 +17,8 @@ const EQ_BAND_LABELS = [
   "8 kHz",
   "16 kHz",
 ];
+
+const EQ_SHORT_LABELS = ["31", "62", "125", "250", "500", "1k", "2k", "4k", "8k", "16k"];
 
 const EQ_PRESET_ROWS: Array<Array<{ id: EqualizerPreset; label: string }>> = [
   [
@@ -116,18 +118,50 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
     checkOfficialClient();
   }, [loadAudioSinks, checkOfficialClient]);
 
+  const eqDirtyUntilRef = useRef<number>(0);
+  const lastSyncedEqRef = useRef<string>("");
+  const localBandsRef = useRef<number[]>(localBands);
+  localBandsRef.current = localBands;
+
+  const handleBandChange = useCallback(async (idx: number, rawVal: number) => {
+    const clamped = Math.min(12, Math.max(-12, Math.round(rawVal * 2) / 2));
+    const nextBands = localBandsRef.current.map((b, i) => (i === idx ? clamped : b));
+    localBandsRef.current = nextBands;
+    eqDirtyUntilRef.current = Date.now() + 2500;
+    lastSyncedEqRef.current = `custom:${nextBands.join(",")}`;
+    setLocalBands(nextBands);
+    setLocalCustomBands(nextBands);
+    setLocalEqPreset("custom");
+    const res = await backendSetEqBands(nextBands);
+    if (res && res.ok === false) {
+      showToast("Equalizer engine unavailable — routed directly to hardware output");
+    }
+  }, [showToast]);
+
+  const handleFaderPointer = useCallback((idx: number, clientY: number, rect: DOMRect) => {
+    if (rect.height <= 0) return;
+    const ratio = Math.min(1, Math.max(0, (rect.bottom - clientY) / rect.height));
+    const rawDb = -12 + ratio * 24;
+    void handleBandChange(idx, rawDb);
+  }, [handleBandChange]);
+
   useEffect(() => {
     if (status?.settings) {
       setLocalSettings((prev) => ({ ...prev, ...status.settings }));
       const nextPreset = (status.settings.eq_preset as EqualizerPreset) || "flat";
       const nextCustom = normalizeEqBands(status.settings.eq_custom_bands);
-      setLocalEqPreset(nextPreset);
-      setLocalCustomBands(nextCustom);
-      setLocalBands(
-        nextPreset === "custom"
-          ? nextCustom
-          : [...(EQ_PRESET_CURVES[nextPreset] || EQ_PRESET_CURVES.flat)]
-      );
+      const sig = `${nextPreset}:${nextCustom.join(",")}`;
+      if (Date.now() >= eqDirtyUntilRef.current && sig !== lastSyncedEqRef.current) {
+        lastSyncedEqRef.current = sig;
+        setLocalEqPreset(nextPreset);
+        setLocalCustomBands(nextCustom);
+        const resolved =
+          nextPreset === "custom"
+            ? nextCustom
+            : [...(EQ_PRESET_CURVES[nextPreset] || EQ_PRESET_CURVES.flat)];
+        localBandsRef.current = resolved;
+        setLocalBands(resolved);
+      }
     }
   }, [status?.settings]);
 
@@ -412,12 +446,15 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
               <InteractiveRow
                 key={eq.id}
                 onClick={async () => {
+                  eqDirtyUntilRef.current = Date.now() + 2500;
                   setLocalEqPreset(eq.id);
-                  if (eq.id === "custom") {
-                    setLocalBands([...localCustomBands]);
-                  } else {
-                    setLocalBands([...EQ_PRESET_CURVES[eq.id]]);
-                  }
+                  const resolved =
+                    eq.id === "custom"
+                      ? [...localCustomBands]
+                      : [...EQ_PRESET_CURVES[eq.id]];
+                  localBandsRef.current = resolved;
+                  setLocalBands(resolved);
+                  lastSyncedEqRef.current = `${eq.id}:${localCustomBands.join(",")}`;
                   const res = await backendSetSetting("eq_preset", eq.id);
                   if (res && res.ok === false) {
                     showToast("Equalizer engine unavailable — routed directly to hardware output");
@@ -434,29 +471,148 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
             ))}
           </Focusable>
         ))}
-        <Focusable flow-children="column" style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-          {EQ_BAND_LABELS.map((label, idx) => (
-            <SliderField
-              key={idx}
-              label={label}
-              min={-12}
-              max={12}
-              step={0.5}
-              showValue
-              value={localBands[idx] ?? 0}
-              onChange={async (val: number) => {
-                const clamped = Math.min(12, Math.max(-12, Math.round(val * 2) / 2));
-                const nextBands = localBands.map((b, i) => (i === idx ? clamped : b));
-                setLocalBands(nextBands);
-                setLocalCustomBands(nextBands);
-                setLocalEqPreset("custom");
-                const res = await backendSetEqBands(nextBands);
-                if (res && res.ok === false) {
-                  showToast("Equalizer engine unavailable — routed directly to hardware output");
-                }
-              }}
-            />
-          ))}
+        <Focusable
+          flow-children="horizontal"
+          style={{
+            display: "flex",
+            gap: 4,
+            padding: "10px 6px",
+            borderRadius: 8,
+            background: "rgba(0,0,0,0.22)",
+          }}
+        >
+          {EQ_BAND_LABELS.map((label, idx) => {
+            const gain = localBands[idx] ?? 0;
+            const pct = ((gain + 12) / 24) * 100;
+            const fillBottom = gain >= 0 ? 50 : pct;
+            const fillHeight = Math.abs(pct - 50);
+            const gainText = gain > 0 ? `+${gain.toFixed(1)}` : gain.toFixed(1);
+            return (
+              <Focusable
+                key={idx}
+                flow-children="column"
+                aria-label={label}
+                style={{
+                  flex: 1,
+                  minWidth: 0,
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  gap: 4,
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: 10,
+                    fontWeight: 700,
+                    fontVariantNumeric: "tabular-nums",
+                    color: gain !== 0 ? "#1db954" : "rgba(255,255,255,0.55)",
+                    lineHeight: 1.2,
+                  }}
+                >
+                  {gainText}
+                </span>
+                <InteractiveRow
+                  onClick={() => handleBandChange(idx, gain + 0.5)}
+                  aria-label={`Increase ${label}`}
+                  style={{
+                    width: "100%",
+                    justifyContent: "center",
+                    padding: "2px 0",
+                    minHeight: 20,
+                    fontSize: 11,
+                    fontWeight: 700,
+                  }}
+                >
+                  +
+                </InteractiveRow>
+                <div
+                  role="slider"
+                  aria-label={label}
+                  aria-valuemin={-12}
+                  aria-valuemax={12}
+                  aria-valuenow={gain}
+                  onPointerDown={(e) => {
+                    e.currentTarget.setPointerCapture?.(e.pointerId);
+                    handleFaderPointer(idx, e.clientY, e.currentTarget.getBoundingClientRect());
+                  }}
+                  onPointerMove={(e) => {
+                    if (e.buttons === 1) {
+                      handleFaderPointer(idx, e.clientY, e.currentTarget.getBoundingClientRect());
+                    }
+                  }}
+                  style={{
+                    position: "relative",
+                    width: 24,
+                    height: 96,
+                    display: "flex",
+                    justifyContent: "center",
+                    cursor: "ns-resize",
+                    touchAction: "none",
+                  }}
+                >
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: 0,
+                      bottom: 0,
+                      width: 4,
+                      borderRadius: 2,
+                      background: "rgba(255,255,255,0.12)",
+                    }}
+                  />
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: "50%",
+                      width: 12,
+                      height: 1,
+                      background: "rgba(255,255,255,0.28)",
+                    }}
+                  />
+                  <div
+                    style={{
+                      position: "absolute",
+                      bottom: `${fillBottom}%`,
+                      height: `${fillHeight}%`,
+                      width: 4,
+                      borderRadius: 2,
+                      background: "#1db954",
+                    }}
+                  />
+                  <div
+                    style={{
+                      position: "absolute",
+                      bottom: `calc(${pct}% - 6px)`,
+                      width: 12,
+                      height: 12,
+                      borderRadius: "50%",
+                      background: gain !== 0 ? "#1db954" : "#ffffff",
+                      boxShadow: "0 0 6px rgba(29,185,84,0.45)",
+                      pointerEvents: "none",
+                    }}
+                  />
+                </div>
+                <InteractiveRow
+                  onClick={() => handleBandChange(idx, gain - 0.5)}
+                  aria-label={`Decrease ${label}`}
+                  style={{
+                    width: "100%",
+                    justifyContent: "center",
+                    padding: "2px 0",
+                    minHeight: 20,
+                    fontSize: 11,
+                    fontWeight: 700,
+                  }}
+                >
+                  -
+                </InteractiveRow>
+                <span style={{ fontSize: 10, fontWeight: 600, opacity: 0.75, lineHeight: 1.2 }}>
+                  {EQ_SHORT_LABELS[idx]}
+                </span>
+              </Focusable>
+            );
+          })}
         </Focusable>
       </div>
 
