@@ -1,8 +1,33 @@
 {
   "contract": "1.0.0",
   "flavor": "core",
-  "milestone": "v0.5 — In-Game Flow & Music Discovery",
+  "milestone": "v0.6",
   "phases": [
+    {
+      "number": "1",
+      "name": "Architecture & Monolith Decoupling",
+      "status": "complete"
+    },
+    {
+      "number": "2",
+      "name": "Artwork & Image Pipeline Stabilization",
+      "status": "complete"
+    },
+    {
+      "number": "3",
+      "name": "Live Playback Ticker & Gamepad Seekbar Scrubbing",
+      "status": "complete"
+    },
+    {
+      "number": "4",
+      "name": "Queue Navigation & Live State Synchronization",
+      "status": "complete"
+    },
+    {
+      "number": "5",
+      "name": "In-Game HUD Overlay Restoration",
+      "status": "complete"
+    },
     {
       "number": "6",
       "name": "Smooth Audio Ducking Engine & PipeWire Fader",
@@ -10,7 +35,7 @@
     },
     {
       "number": "7",
-      "name": "Game-Specific Soundtracks",
+      "name": "Game-Specific Soundtracks (appId Linking & Lifecycle Automation)",
       "status": "complete"
     },
     {
@@ -32,12 +57,22 @@
       "number": "11",
       "name": "Home & Discovery Hub Tab",
       "status": "complete"
+    },
+    {
+      "number": "11.1",
+      "name": "Address tech debt: v0.5 integration & metadata cleanup",
+      "status": "complete"
+    },
+    {
+      "number": "12",
+      "name": "Resolve open todos & polish",
+      "status": "complete"
     }
   ],
   "next": {
-    "command": "/gsd-progress",
-    "label": "Show progress",
-    "reason": "Unsure of state — showing progress"
+    "command": "/gsd-discuss-phase",
+    "label": "Discuss the first phase",
+    "reason": "Project initialized — plan your first phase"
   },
-  "updated_at": "2026-11-15T20:42:54.099Z"
+  "updated_at": "2026-11-16T06:01:15.104Z"
 }
