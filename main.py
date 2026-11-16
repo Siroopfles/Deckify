@@ -87,6 +87,9 @@ class Plugin:
     # Playback poll state
     _poll_play_state: str | None = None   # "playing" | "paused" | None
     _poll_track_id: str | None = None
+    _poll_progress_ms: int = 0
+    _poll_duration_ms: int = 0
+    _poll_updated_at: float = 0.0
     _poll_volume: int | None = None
     _active_device: dict | None = None  # {id, name, type}
     _shuffle_state: bool = False
@@ -1402,6 +1405,9 @@ class Plugin:
         progress_ms = data.get("progress_ms", 0)
         track_id = item.get("id", "")
         duration_ms = item.get("duration_ms", 0)
+        self._poll_progress_ms = int(progress_ms or 0)
+        self._poll_duration_ms = int(duration_ms or 0)
+        self._poll_updated_at = time.time()
         ctx = data.get("context") or {}
         self._context_uri = ctx.get("uri", "") if isinstance(ctx, dict) else ""
 
