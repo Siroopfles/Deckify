@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const mockSetSetting = vi.fn().mockResolvedValue({ ok: true });
+const mockSetEqBands = vi.fn().mockResolvedValue({ ok: true });
 const mockAddEventListener = vi.fn(() => "listener-token");
 const mockRemoveEventListener = vi.fn();
 
@@ -8,6 +9,9 @@ vi.mock("@decky/api", () => ({
   callable: (name: string) => {
     if (name === "set_setting") {
       return (...args: any[]) => mockSetSetting(...args);
+    }
+    if (name === "set_eq_bands") {
+      return (...args: any[]) => mockSetEqBands(...args);
     }
     return vi.fn().mockResolvedValue({ ok: true });
   },
@@ -71,6 +75,12 @@ import { StatusResponse } from "../../types";
 
 function findNodes(tree: any, predicate: (node: any) => boolean, results: any[] = []): any[] {
   if (!tree) return results;
+  if (Array.isArray(tree)) {
+    for (const item of tree) {
+      findNodes(item, predicate, results);
+    }
+    return results;
+  }
   if (predicate(tree)) results.push(tree);
   if (tree.props && tree.props.children) {
     const children = Array.isArray(tree.props.children)
@@ -86,6 +96,7 @@ function findNodes(tree: any, predicate: (node: any) => boolean, results: any[] 
 function findText(tree: any): string {
   if (!tree) return "";
   if (typeof tree === "string" || typeof tree === "number") return String(tree);
+  if (Array.isArray(tree)) return tree.map(findText).join("");
   if (tree.props && tree.props.children) {
     const children = Array.isArray(tree.props.children)
       ? tree.props.children
@@ -130,6 +141,7 @@ const mockStatus: StatusResponse = {
     overlay_autohide: false,
     overlay_show_progress: false,
     eq_preset: "flat",
+    eq_custom_bands: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
   },
   audio_stream_info: null,
   sleep_timer: {
@@ -499,5 +511,120 @@ describe("SettingsTab - Smooth Audio Ducking Engine UI (Phase 06)", () => {
     const text = findText(tree);
     expect(text).toContain("Fading out...");
     expect(text).not.toContain("Remaining:");
+  });
+});
+
+describe("Equalizer & Audio Presets", () => {
+  const refreshStatus = vi.fn();
+  const showToast = vi.fn();
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("renders 7 preset pills across two horizontal Focusable rows with no flow-children='row'", () => {
+    const tree = SettingsTab({
+      status: mockStatus,
+      refreshStatus,
+      showToast,
+    });
+    const rowFocusables = findNodes(tree, (n) => n.props?.["flow-children"] === "row");
+    expect(rowFocusables.length).toBe(0);
+
+    const horizontalRows = findNodes(
+      tree,
+      (n) => (n.type === "Focusable" || n.props?.["flow-children"] === "horizontal") && n.props?.["flow-children"] === "horizontal"
+    );
+    const eqRows = horizontalRows.filter((row) => {
+      const text = findText(row);
+      return text.includes("Flat") || text.includes("Deck Speakers");
+    });
+    expect(eqRows.length).toBe(2);
+
+    const row1Pills = findNodes(eqRows[0], (n) => n.type === InteractiveRow);
+    const row2Pills = findNodes(eqRows[1], (n) => n.type === InteractiveRow);
+    expect(row1Pills.map((p) => findText(p))).toEqual([
+      "Flat",
+      "Bass Boost",
+      "Vocal Clarity",
+      "Gaming Balance",
+    ]);
+    expect(row2Pills.map((p) => findText(p))).toEqual([
+      "Deck Speakers",
+      "Late Night",
+      "Custom",
+    ]);
+  });
+
+  it("renders all 10 ISO SliderField bands (31 Hz to 16 kHz) with +/-12 dB range and 0.5 step", () => {
+    const tree = SettingsTab({
+      status: mockStatus,
+      refreshStatus,
+      showToast,
+    });
+    const sliders = findNodes(tree, (n) => n.type === SliderField || n.type === "SliderField");
+    const expectedLabels = ["31 Hz", "62 Hz", "125 Hz", "250 Hz", "500 Hz", "1 kHz", "2 kHz", "4 kHz", "8 kHz", "16 kHz"];
+    const eqSliders = sliders.filter((s) => expectedLabels.includes(s.props?.label));
+    expect(eqSliders.length).toBe(10);
+    expect(eqSliders.map((s) => s.props?.label)).toEqual(expectedLabels);
+    for (const s of eqSliders) {
+      expect(s.props.min).toBe(-12);
+      expect(s.props.max).toBe(12);
+      expect(s.props.step).toBe(0.5);
+      expect(s.props.showValue).toBe(true);
+    }
+  });
+
+  it("calls set_setting on preset click and set_eq_bands on slider adjustment", async () => {
+    mockSetSetting.mockClear();
+    mockSetEqBands.mockClear();
+    const tree = SettingsTab({
+      status: mockStatus,
+      refreshStatus,
+      showToast,
+    });
+    const pills = findNodes(tree, (n) => n.type === InteractiveRow);
+    const deckSpeakersPill = pills.find((p) => findText(p) === "Deck Speakers");
+    const lateNightPill = pills.find((p) => findText(p) === "Late Night");
+    expect(deckSpeakersPill).toBeDefined();
+    expect(lateNightPill).toBeDefined();
+
+    await deckSpeakersPill.props.onClick();
+    expect(mockSetSetting).toHaveBeenCalledWith("eq_preset", "deck_speakers");
+
+    await lateNightPill.props.onClick();
+    expect(mockSetSetting).toHaveBeenCalledWith("eq_preset", "late_night");
+
+    const sliders = findNodes(tree, (n) => n.type === SliderField || n.type === "SliderField");
+    const band31 = sliders.find((s) => s.props?.label === "31 Hz");
+    expect(band31).toBeDefined();
+    await band31.props.onChange(4.5);
+    expect(mockSetEqBands).toHaveBeenCalledTimes(1);
+    const sentBands = mockSetEqBands.mock.calls[0][0];
+    expect(sentBands).toHaveLength(10);
+    expect(sentBands[0]).toBe(4.5);
+  });
+
+  it("displays 'Bypass (0.0 dB)' for flat and 'Preamp: -6.0 dB' for bass preset", () => {
+    const flatTree = SettingsTab({
+      status: mockStatus,
+      refreshStatus,
+      showToast,
+    });
+    expect(findText(flatTree)).toContain("Bypass (0.0 dB)");
+
+    const bassStatus: StatusResponse = {
+      ...mockStatus,
+      settings: {
+        ...mockStatus.settings!,
+        eq_preset: "bass",
+      },
+    };
+    const bassTree = SettingsTab({
+      status: bassStatus,
+      refreshStatus,
+      showToast,
+    });
+    expect(findText(bassTree)).toContain("Preamp: -6.0 dB");
   });
 });
