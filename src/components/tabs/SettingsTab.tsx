@@ -1,8 +1,8 @@
 import { FC, useState, useEffect, useCallback, useRef } from "react";
-import { Focusable, SliderField, ToggleField } from "@decky/ui";
+import { DialogButton, Focusable, SliderField, ToggleField } from "@decky/ui";
 import { callable, addEventListener, removeEventListener } from "@decky/api";
 import { FaSlidersH, FaClock, FaPowerOff, FaPlug } from "react-icons/fa";
-import { AudioSinkInfo, EqualizerPreset, StatusResponse, SleepTimerStatus } from "../../types";
+import { AudioSinkInfo, EqualizerPreset, ResilienceStatusInfo, StatusResponse, SleepTimerStatus } from "../../types";
 import { InteractiveRow } from "../common/InteractiveRow";
 
 const EQ_BAND_LABELS = [
@@ -64,6 +64,8 @@ const backendSetSleepTimer = callable<
   [number | null, boolean, boolean],
   { ok: boolean; sleep_timer?: SleepTimerStatus; error?: string }
 >("set_sleep_timer");
+const backendRestoreBookmark = callable<[], { ok: boolean; error?: string }>("restore_bookmark");
+const backendDismissBookmark = callable<[], { ok: boolean }>("dismiss_bookmark");
 
 export interface SettingsTabProps {
   status: StatusResponse | null;
@@ -75,6 +77,9 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
   const [audioSinks, setAudioSinks] = useState<AudioSinkInfo[]>([]);
   const [officialClientStatus, setOfficialClientStatus] = useState<{ running: boolean; logged_in: boolean } | null>(null);
   const [localSettings, setLocalSettings] = useState<Record<string, any>>(() => status?.settings || {});
+  const [liveResilienceStatus, setLiveResilienceStatus] = useState<ResilienceStatusInfo | null>(
+    () => status?.resilience_status ?? null
+  );
   const [localEqPreset, setLocalEqPreset] = useState<EqualizerPreset>(
     () => (status?.settings?.eq_preset as EqualizerPreset) || "flat"
   );
@@ -187,6 +192,25 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
       removeEventListener("dock_audio_switched", listener);
     };
   }, [refreshStatus, loadAudioSinks]);
+
+  useEffect(() => {
+    if (status?.resilience_status !== undefined) {
+      setLiveResilienceStatus(status.resilience_status ?? null);
+    }
+  }, [status?.resilience_status]);
+
+  useEffect(() => {
+    const handler = (data: any) => {
+      if (data && typeof data === "object") {
+        setLiveResilienceStatus(data as ResilienceStatusInfo);
+      }
+      refreshStatus();
+    };
+    const listener = addEventListener<[any]>("resilience_status", handler);
+    return () => {
+      removeEventListener("resilience_status", listener);
+    };
+  }, [refreshStatus]);
 
   const updateSetting = useCallback(
     async (key: string, value: unknown) => {
@@ -816,6 +840,173 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
                 <div style={{ fontSize: 14, lineHeight: 1.5 }}>
                   Connect a USB-DAC or HDMI dock/display to route Deckify automatically, or keep Auto (USB-DAC / HDMI) selected for hotplug detection.
                 </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* Playback Resilience */}
+      {(() => {
+        const autoResume = Boolean(
+          localSettings.resilience_auto_resume ?? status?.settings?.resilience_auto_resume ?? true
+        );
+        const neverExpires = Boolean(
+          localSettings.resilience_bookmark_never_expires ??
+            status?.settings?.resilience_bookmark_never_expires ??
+            false
+        );
+        const rawExpiryHours = Number(
+          localSettings.resilience_bookmark_expiry_hours ??
+            status?.settings?.resilience_bookmark_expiry_hours ??
+            12
+        );
+        const expiryHours = Number.isFinite(rawExpiryHours)
+          ? Math.min(24, Math.max(1, Math.round(rawExpiryHours)))
+          : 12;
+        const toastEnabled = Boolean(
+          localSettings.resilience_toast_enabled ?? status?.settings?.resilience_toast_enabled ?? true
+        );
+        const promptHeldEnabled = Boolean(
+          localSettings.resilience_prompt_held_enabled ??
+            status?.settings?.resilience_prompt_held_enabled ??
+            true
+        );
+        const resilienceStatus = liveResilienceStatus ?? status?.resilience_status ?? null;
+        const isOneventLive =
+          Boolean(resilienceStatus?.onevent_healthy) && resilienceStatus?.polling_mode === "onevent";
+        const badgeLabel = isOneventLive ? "--onevent Live (20s poll)" : "Fallback Poll (3s)";
+        const badgeStyle: Record<string, any> = isOneventLive
+          ? { color: "#1db954" }
+          : { opacity: 0.7 };
+        const heldBookmark = resilienceStatus?.held_bookmark ?? null;
+        const heldReasonLabel =
+          resilienceStatus?.held_reason === "remote_active"
+            ? "Yielded to another active device"
+            : "Bookmark expired";
+
+        return (
+          <div style={{ marginBottom: 20, padding: 14, borderRadius: 10, background: "rgba(255,255,255,0.04)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 8 }}>
+              <h3 style={{ fontSize: 14, fontWeight: 700, color: "#1db954", display: "flex", alignItems: "center", gap: 8, margin: 0 }}>
+                Playback Resilience
+              </h3>
+              <span
+                style={{
+                  fontSize: 12,
+                  fontWeight: 700,
+                  minWidth: 0,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                  ...badgeStyle,
+                }}
+              >
+                {badgeLabel}
+              </span>
+            </div>
+
+            <Focusable flow-children="column" style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              <ToggleField
+                label="Auto-Resume on Wake / Wi-Fi"
+                description="Automatically restore active playback after Steam Deck sleep or Wi-Fi recovery."
+                checked={autoResume}
+                onChange={(v: boolean) => {
+                  void updateSetting("resilience_auto_resume", v);
+                  showToast(v ? "Auto-resume enabled" : "Auto-resume disabled");
+                }}
+              />
+              <ToggleField
+                label="Never Expire Bookmark"
+                description="Keep saved session bookmarks indefinitely regardless of how long the Deck slept."
+                checked={neverExpires}
+                onChange={(v: boolean) => {
+                  void updateSetting("resilience_bookmark_never_expires", v);
+                }}
+              />
+              {!neverExpires && (
+                <SliderField
+                  label="Bookmark Expiry (Hours)"
+                  min={1}
+                  max={24}
+                  step={1}
+                  showValue
+                  value={expiryHours}
+                  onChange={async (val: number) => {
+                    const clamped = Math.min(24, Math.max(1, Math.round(val)));
+                    await updateSetting("resilience_bookmark_expiry_hours", clamped);
+                  }}
+                />
+              )}
+              <ToggleField
+                label="Restore Toast Notifications"
+                description="Show a brief notification when Deckify automatically resumes a saved session."
+                checked={toastEnabled}
+                onChange={(v: boolean) => {
+                  void updateSetting("resilience_toast_enabled", v);
+                }}
+              />
+              <ToggleField
+                label="Prompt Held Bookmark in QAM"
+                description="Show a compact Resume Bookmark button in the Quick Access Menu when a bookmark is held."
+                checked={promptHeldEnabled}
+                onChange={(v: boolean) => {
+                  void updateSetting("resilience_prompt_held_enabled", v);
+                }}
+              />
+            </Focusable>
+
+            {heldBookmark && (
+              <div
+                style={{
+                  marginTop: 12,
+                  padding: 10,
+                  borderRadius: 8,
+                  background: "rgba(29, 185, 84, 0.08)",
+                  border: "1px solid rgba(29, 185, 84, 0.25)",
+                }}
+              >
+                <div style={{ fontSize: 12, fontWeight: 700, color: "#1db954", marginBottom: 4 }}>
+                  Held Session Bookmark:{" "}
+                  {heldBookmark.track_name
+                    ? `${heldBookmark.track_name}${heldBookmark.artist ? ` — ${heldBookmark.artist}` : ""}`
+                    : heldBookmark.track_uri}
+                </div>
+                <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 8 }}>
+                  {heldReasonLabel}
+                </div>
+                <Focusable flow-children="horizontal" style={{ display: "flex", gap: 8 }}>
+                  <DialogButton
+                    style={{ minWidth: "auto", padding: "6px 12px", fontSize: 12, color: "#1db954" }}
+                    onClick={async () => {
+                      const res = await backendRestoreBookmark();
+                      if (res?.ok) {
+                        setLiveResilienceStatus((prev) =>
+                          prev ? { ...prev, held_bookmark: null, held_reason: null } : prev
+                        );
+                        showToast("Bookmark restored");
+                        refreshStatus();
+                      } else {
+                        showToast(res?.error || "Failed to restore bookmark");
+                      }
+                    }}
+                  >
+                    Resume Bookmark
+                  </DialogButton>
+                  <DialogButton
+                    style={{ minWidth: "auto", padding: "6px 12px", fontSize: 12 }}
+                    onClick={async () => {
+                      await backendDismissBookmark();
+                      setLiveResilienceStatus((prev) =>
+                        prev ? { ...prev, held_bookmark: null, held_reason: null } : prev
+                      );
+                      showToast("Bookmark dismissed");
+                      refreshStatus();
+                    }}
+                  >
+                    Dismiss
+                  </DialogButton>
+                </Focusable>
               </div>
             )}
           </div>

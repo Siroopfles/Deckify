@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const mockSetSetting = vi.fn().mockResolvedValue({ ok: true });
 const mockSetEqBands = vi.fn().mockResolvedValue({ ok: true });
+const mockRestoreBookmark = vi.fn().mockResolvedValue({ ok: true });
+const mockDismissBookmark = vi.fn().mockResolvedValue({ ok: true });
 const mockAddEventListener = vi.fn(() => "listener-token");
 const mockRemoveEventListener = vi.fn();
 
@@ -13,6 +15,12 @@ vi.mock("@decky/api", () => ({
     if (name === "set_eq_bands") {
       return (...args: any[]) => mockSetEqBands(...args);
     }
+    if (name === "restore_bookmark") {
+      return (...args: any[]) => mockRestoreBookmark(...args);
+    }
+    if (name === "dismiss_bookmark") {
+      return (...args: any[]) => mockDismissBookmark(...args);
+    }
     return vi.fn().mockResolvedValue({ ok: true });
   },
   addEventListener: (...args: any[]) => (mockAddEventListener as any)(...args),
@@ -20,6 +28,10 @@ vi.mock("@decky/api", () => ({
 }));
 
 vi.mock("@decky/ui", () => ({
+  DialogButton: ({ children, ...props }: any) => ({
+    type: "DialogButton",
+    props: { children, ...props },
+  }),
   Focusable: ({ children, ...props }: any) => ({
     type: "Focusable",
     props: { children, ...props },
@@ -78,7 +90,7 @@ vi.mock("react", () => ({
 }));
 
 import { SettingsTab } from "./SettingsTab";
-import { Focusable, SliderField, ToggleField } from "@decky/ui";
+import { DialogButton, Focusable, SliderField, ToggleField } from "@decky/ui";
 import { InteractiveRow } from "../common/InteractiveRow";
 import { StatusResponse } from "../../types";
 
@@ -869,5 +881,210 @@ describe("SettingsTab Docked Audio-Switching (Phase 16)", () => {
     handler({ action: "docked", sink: "alsa_output.usb-FiiO_K7-00.analog-stereo", sink_label: "FiiO K7 USB DAC", toast_enabled: true });
     expect(refreshStatus).toHaveBeenCalledTimes(1);
     expect(showToast).not.toHaveBeenCalled();
+  });
+});
+
+describe("SettingsTab - Playback Resilience UI (Phase 17, RESIL-01 & RESIL-02)", () => {
+  const refreshStatus = vi.fn();
+  const showToast = vi.fn();
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockAudioSinksState = null;
+  });
+
+  it("renders Playback Resilience card with live status badge ('--onevent Live (20s poll)' vs 'Fallback Poll (3s)')", () => {
+    const liveTree = SettingsTab({
+      status: {
+        ...mockStatus,
+        resilience_status: {
+          onevent_healthy: true,
+          poll_interval_s: 20,
+          polling_mode: "onevent",
+          last_event_at: 100,
+          held_bookmark: null,
+          held_reason: null,
+          recovering: false,
+        },
+      },
+      refreshStatus,
+      showToast,
+    });
+    const liveText = findText(liveTree);
+    expect(liveText).toContain("Playback Resilience");
+    expect(liveText).toContain("--onevent Live (20s poll)");
+
+    const fallbackTree = SettingsTab({
+      status: {
+        ...mockStatus,
+        resilience_status: {
+          onevent_healthy: false,
+          poll_interval_s: 3,
+          polling_mode: "fallback",
+          last_event_at: null,
+          held_bookmark: null,
+          held_reason: null,
+          recovering: false,
+        },
+      },
+      refreshStatus,
+      showToast,
+    });
+    const fallbackText = findText(fallbackTree);
+    expect(fallbackText).toContain("Playback Resilience");
+    expect(fallbackText).toContain("Fallback Poll (3s)");
+  });
+
+  it("toggles all 4 resilience ToggleFields and persists resilience_* keys via set_setting", async () => {
+    const tree = SettingsTab({
+      status: {
+        ...mockStatus,
+        settings: {
+          ...mockStatus.settings!,
+          resilience_auto_resume: true,
+          resilience_bookmark_never_expires: false,
+          resilience_toast_enabled: true,
+          resilience_prompt_held_enabled: true,
+        },
+      },
+      refreshStatus,
+      showToast,
+    });
+
+    const toggles = findNodes(tree, (n) => n.type === ToggleField || n.type === "ToggleField");
+    const autoResumeToggle = toggles.find((t) => t.props?.label === "Auto-Resume on Wake / Wi-Fi");
+    const neverExpiresToggle = toggles.find((t) => t.props?.label === "Never Expire Bookmark");
+    const toastToggle = toggles.find((t) => t.props?.label === "Restore Toast Notifications");
+    const promptToggle = toggles.find((t) => t.props?.label === "Prompt Held Bookmark in QAM");
+
+    expect(autoResumeToggle?.props?.checked).toBe(true);
+    expect(neverExpiresToggle?.props?.checked).toBe(false);
+    expect(toastToggle?.props?.checked).toBe(true);
+    expect(promptToggle?.props?.checked).toBe(true);
+
+    await autoResumeToggle.props.onChange(false);
+    expect(mockSetSetting).toHaveBeenCalledWith("resilience_auto_resume", false);
+
+    await neverExpiresToggle.props.onChange(true);
+    expect(mockSetSetting).toHaveBeenCalledWith("resilience_bookmark_never_expires", true);
+
+    await toastToggle.props.onChange(false);
+    expect(mockSetSetting).toHaveBeenCalledWith("resilience_toast_enabled", false);
+
+    await promptToggle.props.onChange(false);
+    expect(mockSetSetting).toHaveBeenCalledWith("resilience_prompt_held_enabled", false);
+  });
+
+  it("renders Bookmark Expiry (Hours) SliderField (1..24, step 1) when never_expires is false and hides when true", async () => {
+    const expiringTree = SettingsTab({
+      status: {
+        ...mockStatus,
+        settings: {
+          ...mockStatus.settings!,
+          resilience_bookmark_never_expires: false,
+          resilience_bookmark_expiry_hours: 12,
+        },
+      },
+      refreshStatus,
+      showToast,
+    });
+
+    const sliders = findNodes(
+      expiringTree,
+      (n) => n.type === SliderField || n.type === "SliderField"
+    );
+    const expirySlider = sliders.find((s) => s.props?.label === "Bookmark Expiry (Hours)");
+    expect(expirySlider).toBeDefined();
+    expect(expirySlider.props).toMatchObject({
+      min: 1,
+      max: 24,
+      step: 1,
+      showValue: true,
+      value: 12,
+    });
+
+    await expirySlider.props.onChange(18);
+    expect(mockSetSetting).toHaveBeenCalledWith("resilience_bookmark_expiry_hours", 18);
+
+    // Clamps out-of-range values to 1..24
+    await expirySlider.props.onChange(99);
+    expect(mockSetSetting).toHaveBeenCalledWith("resilience_bookmark_expiry_hours", 24);
+
+    // Hidden when resilience_bookmark_never_expires is true
+    const neverTree = SettingsTab({
+      status: {
+        ...mockStatus,
+        settings: {
+          ...mockStatus.settings!,
+          resilience_bookmark_never_expires: true,
+          resilience_bookmark_expiry_hours: 12,
+        },
+      },
+      refreshStatus,
+      showToast,
+    });
+    const neverSliders = findNodes(
+      neverTree,
+      (n) => n.type === SliderField || n.type === "SliderField"
+    );
+    expect(neverSliders.find((s) => s.props?.label === "Bookmark Expiry (Hours)")).toBeUndefined();
+  });
+
+  it("renders manual Resume Bookmark and Dismiss buttons inside flow-children='horizontal' when held_bookmark is present", async () => {
+    const tree = SettingsTab({
+      status: {
+        ...mockStatus,
+        resilience_status: {
+          onevent_healthy: true,
+          poll_interval_s: 20,
+          polling_mode: "onevent",
+          last_event_at: 100,
+          held_bookmark: {
+            track_uri: "spotify:track:held999",
+            context_uri: "spotify:album:ctx999",
+            position_ms: 95000,
+            was_playing: true,
+            track_name: "Nightcall",
+            artist: "Kavinsky",
+            saved_at: 1700000000,
+          },
+          held_reason: "remote_active",
+          recovering: false,
+        },
+      },
+      refreshStatus,
+      showToast,
+    });
+
+    const text = findText(tree);
+    expect(text).toContain("Held Session Bookmark: Nightcall — Kavinsky");
+    expect(text).toContain("Yielded to another active device");
+
+    const horizontalFocusables = findNodes(
+      tree,
+      (n) => (n.type === Focusable || n.type === "Focusable") && n.props?.["flow-children"] === "horizontal"
+    );
+    const heldButtonsGroup = horizontalFocusables.find((f) => {
+      const ft = findText(f);
+      return ft.includes("Resume Bookmark") && ft.includes("Dismiss");
+    });
+    expect(heldButtonsGroup).toBeDefined();
+
+    const buttons = findNodes(
+      heldButtonsGroup,
+      (n) => n.type === DialogButton || n.type === "DialogButton"
+    );
+    const resumeBtn = buttons.find((b) => findText(b) === "Resume Bookmark");
+    const dismissBtn = buttons.find((b) => findText(b) === "Dismiss");
+    expect(resumeBtn).toBeDefined();
+    expect(dismissBtn).toBeDefined();
+
+    await resumeBtn.props.onClick();
+    expect(mockRestoreBookmark).toHaveBeenCalledTimes(1);
+    expect(showToast).toHaveBeenCalledWith("Bookmark restored");
+
+    await dismissBtn.props.onClick();
+    expect(mockDismissBookmark).toHaveBeenCalledTimes(1);
+    expect(showToast).toHaveBeenCalledWith("Bookmark dismissed");
   });
 });
