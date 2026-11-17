@@ -11,6 +11,8 @@ const mockQuickPlayPinned = vi.fn().mockResolvedValue({ ok: true });
 const mockGetLyrics = vi.fn().mockResolvedValue({ ok: true, synced_lyrics: "[00:01.00]Hello world" });
 const mockSetSetting = vi.fn().mockResolvedValue({ ok: true });
 const mockGetImage = vi.fn().mockResolvedValue({ ok: true, data_url: "data:image/jpeg;base64,MOCKCOVER" });
+const mockRestoreBookmark = vi.fn().mockResolvedValue({ ok: true });
+const mockDismissBookmark = vi.fn().mockResolvedValue({ ok: true });
 const mockToasterToast = vi.fn();
 
 let capturedPluginFactory: (() => any) | null = null;
@@ -27,6 +29,8 @@ vi.mock("@decky/api", () => ({
     if (name === "get_lyrics") return (...args: any[]) => mockGetLyrics(...args);
     if (name === "set_setting") return (...args: any[]) => mockSetSetting(...args);
     if (name === "get_image") return (...args: any[]) => mockGetImage(...args);
+    if (name === "restore_bookmark") return (...args: any[]) => mockRestoreBookmark(...args);
+    if (name === "dismiss_bookmark") return (...args: any[]) => mockDismissBookmark(...args);
     return vi.fn().mockResolvedValue({ ok: true });
   },
   addEventListener: vi.fn(() => vi.fn()),
@@ -117,9 +121,11 @@ vi.mock("react/jsx-runtime", () => ({
 
 let hookValues: any[] = [];
 let hookIdx = 0;
+let effectCleanups: Array<() => void> = [];
 function resetHooks() {
   hookValues = [];
   hookIdx = 0;
+  effectCleanups = [];
 }
 
 vi.mock("react", () => ({
@@ -142,7 +148,10 @@ vi.mock("react", () => ({
   },
   useEffect: (fn: any) => {
     if (hookIdx === 0) return;
-    fn();
+    const cleanup = fn();
+    if (typeof cleanup === "function") {
+      effectCleanups.push(cleanup);
+    }
   },
   useCallback: (fn: any) => fn,
 }));
@@ -685,6 +694,264 @@ describe("src/index.tsx DeckifyOverlayWrapper Phase 10 Gating & Modal Suppressio
     expect(toastArg.logo.props.width).toBe(48);
     expect(toastArg.logo.props.height).toBe(48);
     expect(toastArg.logo.props.style).toMatchObject({ width: 48, height: 48, objectFit: "cover" });
+
+    plugin.onDismount?.();
+  });
+});
+
+describe("Phase 17: Event-Driven librespot (--onevent) & QAM Resilience UX", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetHooks();
+    mockGetStatus.mockResolvedValue(null);
+    mockGetDevices.mockResolvedValue({ ok: true, devices: [] });
+    mockRestoreBookmark.mockResolvedValue({ ok: true });
+    (globalThis as any).window = {
+      SteamClient: {
+        GameSessions: {
+          RegisterForAppLifetimeNotifications: mockRegisterForAppLifetime,
+        },
+        Input: {},
+      },
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    };
+  });
+
+  it("usePlaybackStatus updates status immediately on librespot_event and track_metadata and cleans up listeners on unmount (RESIL-01)", async () => {
+    const { usePlaybackStatus } = await import("./hooks/usePlaybackStatus");
+    const { addEventListener, removeEventListener } = await import("@decky/api");
+
+    const RenderHook = () => {
+      hookIdx = 0;
+      return usePlaybackStatus();
+    };
+
+    const initial = RenderHook();
+    expect(initial.status).toBeNull();
+
+    const libreCall = (addEventListener as any).mock.calls.find((c: any[]) => c[0] === "librespot_event");
+    const metaCall = (addEventListener as any).mock.calls.find((c: any[]) => c[0] === "track_metadata");
+    expect(libreCall).toBeDefined();
+    expect(metaCall).toBeDefined();
+
+    // Push track_metadata -> immediate track & duration update without waiting for 1.5s poll
+    metaCall[1]({
+      track_id: "base62track12345678901",
+      name: "Instant Song",
+      artist: "Instant Artist",
+      duration_ms: 210000,
+      is_liked: true,
+    });
+
+    let current = RenderHook();
+    expect(current.status?.track?.name).toBe("Instant Song");
+    expect(current.status?.duration_ms).toBe(210000);
+    expect(current.status?.is_liked).toBe(true);
+
+    // Push librespot_event playing -> immediate is_playing, position_ms, duration_ms, volume
+    libreCall[1]({
+      event: "playing",
+      track_id: "base62track12345678901",
+      position_ms: 42000,
+      duration_ms: 215000,
+      volume: 75,
+    });
+
+    current = RenderHook();
+    expect(current.status?.is_playing).toBe(true);
+    expect(current.status?.play_state).toBe("playing");
+    expect(current.status?.position_ms).toBe(42000);
+    expect(current.status?.duration_ms).toBe(215000);
+    expect(current.status?.volume).toBe(75);
+
+    // Push librespot_event paused -> immediate pause
+    libreCall[1]({ event: "paused", position_ms: 45000 });
+    current = RenderHook();
+    expect(current.status?.is_playing).toBe(false);
+    expect(current.status?.play_state).toBe("paused");
+    expect(current.status?.position_ms).toBe(45000);
+
+    // Unmount cleanup removes both listeners
+    effectCleanups.forEach((cleanup) => cleanup());
+    expect(removeEventListener).toHaveBeenCalledWith("librespot_event", expect.anything());
+    expect(removeEventListener).toHaveBeenCalledWith("track_metadata", expect.anything());
+  });
+
+  it("QuickAccessMenu conditionally renders Resume Bookmark button only when held_bookmark is non-null and resilience_prompt_held_enabled is true (D-09)", async () => {
+    await import("./index");
+    const { addEventListener } = await import("@decky/api");
+    const plugin = capturedPluginFactory!();
+    const renderContent = () => {
+      hookIdx = 0;
+      return plugin.content.type({});
+    };
+
+    // Initial render: held_bookmark is null -> no Resume Bookmark button
+    let nodes = flattenNodes(renderContent());
+    expect(
+      nodes.find((n) => n.type === "ButtonItem" && textContent(n).includes("Resume Bookmark"))
+    ).toBeUndefined();
+
+    // Emit resilience_status with a held_bookmark
+    const resilienceCalls = (addEventListener as any).mock.calls.filter(
+      (c: any[]) => c[0] === "resilience_status"
+    );
+    expect(resilienceCalls.length).toBeGreaterThan(0);
+    const resilienceHandler = resilienceCalls[resilienceCalls.length - 1][1];
+
+    resilienceHandler({
+      onevent_healthy: true,
+      poll_interval_s: 20,
+      polling_mode: "onevent",
+      last_event_at: 100,
+      held_bookmark: {
+        track_uri: "spotify:track:held123",
+        context_uri: "spotify:playlist:ctx123",
+        position_ms: 60000,
+        was_playing: true,
+        track_name: "Held Song",
+        artist: "Held Artist",
+        saved_at: 1700000000,
+      },
+      held_reason: "remote_active",
+      recovering: false,
+    });
+
+    nodes = flattenNodes(renderContent());
+    let resumeBtn = nodes.find(
+      (n) => n.type === "ButtonItem" && textContent(n).includes("Resume Bookmark")
+    );
+    expect(resumeBtn).toBeDefined();
+    expect(resumeBtn.props.description).toContain("Held Song");
+
+    // Disable resilience_prompt_held_enabled -> button hides
+    const settingsIdx = hookValues.findIndex(
+      (v) => v && typeof v === "object" && "audio_backend" in v
+    );
+    hookValues[settingsIdx] = {
+      ...hookValues[settingsIdx],
+      resilience_prompt_held_enabled: false,
+    };
+    nodes = flattenNodes(renderContent());
+    expect(
+      nodes.find((n) => n.type === "ButtonItem" && textContent(n).includes("Resume Bookmark"))
+    ).toBeUndefined();
+
+    // Re-enable prompt and click Resume Bookmark -> invokes restore_bookmark RPC and clears banner
+    hookValues[settingsIdx] = {
+      ...hookValues[settingsIdx],
+      resilience_prompt_held_enabled: true,
+    };
+    nodes = flattenNodes(renderContent());
+    resumeBtn = nodes.find(
+      (n) => n.type === "ButtonItem" && textContent(n).includes("Resume Bookmark")
+    );
+    await resumeBtn.props.onClick();
+    expect(mockRestoreBookmark).toHaveBeenCalledTimes(1);
+
+    nodes = flattenNodes(renderContent());
+    expect(
+      nodes.find((n) => n.type === "ButtonItem" && textContent(n).includes("Resume Bookmark"))
+    ).toBeUndefined();
+
+    plugin.onDismount?.();
+  });
+
+  it("QuickAccessMenu updates state immediately on librespot_event and shows toast on session_restored only when resilience_toast_enabled is true (D-09)", async () => {
+    mockToasterToast.mockClear();
+    await import("./index");
+    const { addEventListener } = await import("@decky/api");
+    const plugin = capturedPluginFactory!();
+    const renderContent = () => {
+      hookIdx = 0;
+      return plugin.content.type({});
+    };
+
+    renderContent();
+
+    // Grab QAM listeners registered during renderContent
+    const trackMetaCalls = (addEventListener as any).mock.calls.filter(
+      (c: any[]) => c[0] === "track_metadata"
+    );
+    const libreCalls = (addEventListener as any).mock.calls.filter(
+      (c: any[]) => c[0] === "librespot_event"
+    );
+    const restoredCalls = (addEventListener as any).mock.calls.filter(
+      (c: any[]) => c[0] === "session_restored"
+    );
+    const qamTrackMetaHandler = trackMetaCalls[trackMetaCalls.length - 1][1];
+    const qamLibreHandler = libreCalls[libreCalls.length - 1][1];
+    const qamRestoredHandler = restoredCalls[restoredCalls.length - 1][1];
+
+    // Push track_metadata and librespot_event playing
+    qamTrackMetaHandler({
+      track_id: "trk-qam-1",
+      name: "QAM Track",
+      artist: "QAM Artist",
+      duration_ms: 180000,
+    });
+    qamLibreHandler({ event: "playing", position_ms: 15000, duration_ms: 180000, volume: 80 });
+
+    let nodes = flattenNodes(renderContent());
+    const trackField = nodes.find((n) => n.type === "Field" && n.props?.label === "QAM Track");
+    expect(trackField).toBeDefined();
+    expect(textContent(trackField)).toContain("Playing");
+
+    // Push librespot_event paused -> immediately shows Paused
+    qamLibreHandler({ event: "paused", position_ms: 20000 });
+    nodes = flattenNodes(renderContent());
+    const pausedField = nodes.find((n) => n.type === "Field" && n.props?.label === "QAM Track");
+    expect(textContent(pausedField)).toContain("Paused");
+
+    // session_restored toast when enabled
+    qamRestoredHandler({
+      source: "dbus",
+      track_name: "Wake Song",
+      artist: "Wake Artist",
+      position_ms: 30000,
+      toast_enabled: true,
+    });
+    expect(mockToasterToast).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "Deckify",
+        body: "Resumed Wake Song — Wake Artist",
+      })
+    );
+
+    // Suppress toast when resilience_toast_enabled is false in settings
+    mockToasterToast.mockClear();
+    const settingsIdx = hookValues.findIndex(
+      (v) => v && typeof v === "object" && "audio_backend" in v
+    );
+    hookValues[settingsIdx] = {
+      ...hookValues[settingsIdx],
+      resilience_toast_enabled: false,
+    };
+    renderContent();
+    qamRestoredHandler({
+      source: "wifi",
+      track_name: "Wake Song",
+      artist: "Wake Artist",
+      position_ms: 30000,
+      toast_enabled: true,
+    });
+    expect(mockToasterToast).not.toHaveBeenCalled();
+
+    // Suppress toast when payload toast_enabled is false
+    hookValues[settingsIdx] = {
+      ...hookValues[settingsIdx],
+      resilience_toast_enabled: true,
+    };
+    renderContent();
+    qamRestoredHandler({
+      source: "wifi",
+      track_name: "Wake Song",
+      artist: "Wake Artist",
+      position_ms: 30000,
+      toast_enabled: false,
+    });
+    expect(mockToasterToast).not.toHaveBeenCalled();
 
     plugin.onDismount?.();
   });

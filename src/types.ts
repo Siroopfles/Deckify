@@ -165,6 +165,26 @@ export interface DockStatusInfo {
   manual_override: boolean;
 }
 
+export interface HeldBookmarkInfo {
+  track_uri: string;
+  context_uri?: string;
+  position_ms: number;
+  was_playing: boolean;
+  track_name?: string;
+  artist?: string;
+  saved_at: number;
+}
+
+export interface ResilienceStatusInfo {
+  onevent_healthy: boolean;
+  poll_interval_s: number;
+  polling_mode: "onevent" | "fallback";
+  last_event_at: number | null;
+  held_bookmark: HeldBookmarkInfo | null;
+  held_reason: "expired" | "remote_active" | null;
+  recovering: boolean;
+}
+
 export type PinnedItemType = "playlist" | "album" | "liked_songs";
 
 export interface PinnedPlaylistItem {
@@ -228,6 +248,11 @@ export interface EngineSettings {
   dock_respect_bluetooth?: boolean;
   dock_pause_on_undock?: boolean;
   dock_toast_enabled?: boolean;
+  resilience_auto_resume?: boolean;
+  resilience_bookmark_expiry_hours?: number;
+  resilience_bookmark_never_expires?: boolean;
+  resilience_toast_enabled?: boolean;
+  resilience_prompt_held_enabled?: boolean;
 }
 
 export type DuckingMode = "proportional" | "fixed";
@@ -278,6 +303,7 @@ export interface StatusResponse {
   settings?: EngineSettings;
   sleep_timer?: SleepTimerStatus;
   dock_status?: DockStatusInfo;
+  resilience_status?: ResilienceStatusInfo;
 }
 
 export interface GameAudioProfile {
