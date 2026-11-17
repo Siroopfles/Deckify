@@ -149,6 +149,21 @@ export interface AudioSinkInfo {
   is_default: boolean;
 }
 
+export type DockStatusState =
+  | "disabled"
+  | "monitoring"
+  | "docked"
+  | "bluetooth_held"
+  | "manual_override";
+
+export interface DockStatusInfo {
+  status: DockStatusState;
+  active_sink: string | null;
+  active_sink_label: string;
+  pre_dock_sink: string | null;
+  manual_override: boolean;
+}
+
 export type PinnedItemType = "playlist" | "album" | "liked_songs";
 
 export interface PinnedPlaylistItem {
@@ -207,6 +222,11 @@ export interface EngineSettings {
   pinned_playlists?: PinnedPlaylistItem[];
   sleep_timer_fade_enabled?: boolean;
   sleep_timer_fade_duration?: number;
+  dock_auto_switch_enabled?: boolean;
+  dock_target_sink?: string;
+  dock_respect_bluetooth?: boolean;
+  dock_pause_on_undock?: boolean;
+  dock_toast_enabled?: boolean;
 }
 
 export type DuckingMode = "proportional" | "fixed";
@@ -256,6 +276,7 @@ export interface StatusResponse {
   engine_settings?: EngineSettings;
   settings?: EngineSettings;
   sleep_timer?: SleepTimerStatus;
+  dock_status?: DockStatusInfo;
 }
 
 export interface GameAudioProfile {

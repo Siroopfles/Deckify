@@ -206,6 +206,8 @@ const Content: FC = () => {
     gapless: true,
     autoplay: true,
   });
+  const dockToastEnabledRef = useRef<boolean | undefined>(settings.dock_toast_enabled);
+  dockToastEnabledRef.current = settings.dock_toast_enabled;
 
   const clock = usePlaybackClock({
     serverPositionMs,
@@ -298,11 +300,35 @@ const Content: FC = () => {
         });
       } catch {}
     });
+    const unsubDock = addEventListener<[any]>("dock_audio_switched", (data: any) => {
+      try {
+        if (!data || data.toast_enabled === false || dockToastEnabledRef.current === false) {
+          return;
+        }
+        const sinkLabel = data.sink_label || data.sink || "Audio Output";
+        let body = "";
+        if (data.action === "docked") {
+          body = `Docked audio -> ${sinkLabel}`;
+        } else if (data.action === "undocked") {
+          body = `Undocked audio -> ${sinkLabel}`;
+        } else if (data.action === "error") {
+          body = "Dock audio switch failed — kept current audio output. Check PipeWire sinks in Settings.";
+        }
+        if (body) {
+          toaster.toast({
+            title: "Deckify",
+            body,
+            duration: 3500,
+          });
+        }
+      } catch {}
+    });
 
     return () => {
       activeGameListeners.delete(setActiveGameAppId);
       removeEventListener("ducking_state_changed", unsubDucking);
       removeEventListener("soundtrack_prompt_switch", unsubPrompt);
+      removeEventListener("dock_audio_switched", unsubDock);
     };
   }, []);
 
