@@ -1,10 +1,14 @@
 import asyncio
 import json
 import os
+import sys
 import tempfile
+import time
 import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
+
+sys.path.insert(0, os.path.dirname(__file__))
 
 with patch.dict(
     "sys.modules",
@@ -223,3 +227,275 @@ class TestLibrespotEventServer(unittest.IsolatedAsyncioTestCase):
         server.mark_unhealthy()
         self.assertTrue(self.plugin._poll_wake_event.is_set())
         self.assertEqual(server.get_poll_interval(self.plugin), 3.0)
+
+
+class TestSessionBookmarkManager(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.bookmark_path = os.path.join(self.tmpdir.name, "session_bookmark.json")
+        self.plugin = SimpleNamespace(
+            _settings={
+                "audio_backend": "librespot",
+                "device_name": "Deckify",
+                "resilience_auto_resume": True,
+                "resilience_bookmark_expiry_hours": 12,
+                "resilience_bookmark_never_expires": False,
+                "resilience_toast_enabled": True,
+                "resilience_prompt_held_enabled": True,
+            },
+            _access_token="valid-token",
+            _refresh_token="valid-refresh",
+            _poll_play_state="playing",
+            _poll_track_id="4uLU6hMCjMI75M1A2tKUQC",
+            _poll_progress_ms=64000,
+            _poll_duration_ms=210000,
+            _context_uri="spotify:playlist:37i9dQZF1DXcBWIGoYBM5M",
+            _track_meta={
+                "name": "Never Gonna Give You Up",
+                "artist": "Rick Astley",
+                "uri": "spotify:track:4uLU6hMCjMI75M1A2tKUQC",
+            },
+            _last_event={"event": "playing"},
+            _active_device={"id": "local-1", "name": "Deckify", "type": "Computer"},
+            _process=MagicMock(poll=MagicMock(return_value=None)),
+            _is_librespot_running=MagicMock(return_value=True),
+            _ensure_token=AsyncMock(return_value="valid-token"),
+            _kill_librespot=AsyncMock(),
+            start_librespot=AsyncMock(return_value={"ok": True}),
+            _poll_playback=AsyncMock(return_value=True),
+            get_devices=AsyncMock(return_value={"devices": [{"id": "local-1", "name": "Deckify"}]}),
+            _fetch_current_player=AsyncMock(return_value=None),
+            play_tracks=AsyncMock(return_value={"ok": True}),
+        )
+        self.plugin._event_server = resilience.LibrespotEventServer(self.plugin)
+
+    def tearDown(self):
+        self.tmpdir.cleanup()
+
+    def test_atomic_bookmark_persistence_and_corrupt_json_fallback(self):
+        mgr = resilience.SessionBookmarkManager(self.plugin, bookmark_file=self.bookmark_path)
+        snap = mgr.snapshot_from_state(force=True)
+        self.assertIsNotNone(snap)
+        self.assertEqual(snap["track_uri"], "spotify:track:4uLU6hMCjMI75M1A2tKUQC")
+        self.assertEqual(snap["context_uri"], "spotify:playlist:37i9dQZF1DXcBWIGoYBM5M")
+        self.assertEqual(snap["position_ms"], 64000)
+        self.assertTrue(snap["was_playing"])
+        self.assertTrue(os.path.isfile(self.bookmark_path))
+
+        # Reload into fresh manager instance
+        mgr2 = resilience.SessionBookmarkManager(self.plugin, bookmark_file=self.bookmark_path)
+        loaded = mgr2.load_bookmark()
+        self.assertIsNotNone(loaded)
+        self.assertEqual(loaded["track_uri"], "spotify:track:4uLU6hMCjMI75M1A2tKUQC")
+        self.assertEqual(loaded["position_ms"], 64000)
+
+        # Corrupt JSON on disk falls back safely to None without raising
+        with open(self.bookmark_path, "w", encoding="utf-8") as f:
+            f.write("{truncated: [corrupt")
+        mgr3 = resilience.SessionBookmarkManager(self.plugin, bookmark_file=self.bookmark_path)
+        self.assertIsNone(mgr3.load_bookmark())
+
+    async def test_d01_was_playing_false_does_not_auto_play_on_wake(self):
+        mgr = resilience.SessionBookmarkManager(self.plugin, bookmark_file=self.bookmark_path)
+        mgr.snapshot_from_state(was_playing=False, position_ms=30000, force=True)
+
+        with patch.object(resilience.decky, "emit", new_callable=AsyncMock):
+            res = await mgr.handle_wake_recovery(source="dbus")
+
+        self.assertTrue(res["ok"])
+        self.assertFalse(res["restored"])
+        self.assertEqual(res["reason"], "was_paused")
+        self.plugin.play_tracks.assert_not_awaited()
+
+    async def test_d02_wifi_grace_window_4s_buffer_aware_detection(self):
+        mgr = resilience.SessionBookmarkManager(
+            self.plugin,
+            bookmark_file=self.bookmark_path,
+            wifi_grace_s=4.0,
+        )
+        mgr.snapshot_from_state(was_playing=True, position_ms=42000, force=True)
+
+        with patch.object(resilience.decky, "emit", new_callable=AsyncMock), \
+             patch("time.monotonic") as mock_mono:
+            # 1. Transient Wi-Fi blip (< 4.0s) while librespot buffer continues playing
+            mock_mono.return_value = 100.0
+            await mgr.on_poll_network_result(False)
+            self.assertEqual(mgr._wifi_drop_started_at, 100.0)
+
+            mock_mono.return_value = 102.5  # 2.5s < 4.0s grace window
+            res_blip = await mgr.on_poll_network_result(True)
+            self.assertTrue(res_blip["grace_window_recovered"])
+            self.assertIsNone(mgr._wifi_drop_started_at)
+            self.plugin._kill_librespot.assert_not_awaited()
+            self.plugin.play_tracks.assert_not_awaited()
+
+            # 2. Sustained Wi-Fi drop (>= 4.0s) triggers full recovery and bookmark restore
+            mock_mono.return_value = 200.0
+            await mgr.on_poll_network_result(False)
+            mock_mono.return_value = 204.5  # 4.5s >= 4.0s grace window
+            await mgr.on_poll_network_result(False)
+            self.assertTrue(mgr._network_lost_session)
+
+            mock_mono.return_value = 205.0
+            res_recover = await mgr.on_poll_network_result(True)
+            self.assertTrue(res_recover["restored"])
+            self.plugin._kill_librespot.assert_awaited_once()
+            self.plugin.start_librespot.assert_awaited_once()
+            self.plugin.play_tracks.assert_awaited_once_with(
+                context_uri="spotify:playlist:37i9dQZF1DXcBWIGoYBM5M",
+                offset_uri="spotify:track:4uLU6hMCjMI75M1A2tKUQC",
+                position_ms=42000,
+            )
+
+    async def test_d06_remote_active_device_yields_and_holds_bookmark(self):
+        mgr = resilience.SessionBookmarkManager(self.plugin, bookmark_file=self.bookmark_path)
+        mgr.snapshot_from_state(was_playing=True, position_ms=55000, force=True)
+
+        # Remote device is actively playing on /v1/me/player
+        self.plugin._fetch_current_player = AsyncMock(
+            return_value={
+                "is_playing": True,
+                "device": {"id": "phone-1", "name": "Pixel 9 Pro", "type": "Smartphone"},
+            }
+        )
+
+        with patch.object(resilience.decky, "emit", new_callable=AsyncMock):
+            res = await mgr.handle_wake_recovery(source="dbus")
+
+        self.assertTrue(res["ok"])
+        self.assertFalse(res["restored"])
+        self.assertTrue(res["held"])
+        self.assertEqual(res["held_reason"], "remote_active")
+        self.assertEqual(mgr.get_status_dict()["held_reason"], "remote_active")
+        self.assertIsNotNone(mgr.get_status_dict()["held_bookmark"])
+        self.plugin.play_tracks.assert_not_awaited()
+
+    async def test_d07_expiry_never_expires_and_manual_restore_dismiss(self):
+        mgr = resilience.SessionBookmarkManager(
+            self.plugin,
+            bookmark_file=self.bookmark_path,
+            cooldown_s=0.0,
+        )
+        # Saved 15 hours ago (> 12h default expiry)
+        expired_ts = time.time() - (15 * 3600)
+        mgr.snapshot_from_state(was_playing=True, position_ms=88000, saved_at=expired_ts, force=True)
+
+        with patch.object(resilience.decky, "emit", new_callable=AsyncMock):
+            # 1. Expired bookmark is held with held_reason="expired"
+            res_exp = await mgr.handle_wake_recovery(source="dbus")
+            self.assertFalse(res_exp["restored"])
+            self.assertTrue(res_exp["held"])
+            self.assertEqual(res_exp["held_reason"], "expired")
+            self.plugin.play_tracks.assert_not_awaited()
+
+            # 2. Manual restore_held_bookmark succeeds regardless of expiry
+            res_manual = await mgr.restore_held_bookmark()
+            self.assertTrue(res_manual["ok"])
+            self.assertTrue(res_manual["restored"])
+            self.assertIsNone(mgr._held_bookmark)
+            self.assertIsNone(mgr._held_reason)
+            self.plugin.play_tracks.assert_awaited_once_with(
+                context_uri="spotify:playlist:37i9dQZF1DXcBWIGoYBM5M",
+                offset_uri="spotify:track:4uLU6hMCjMI75M1A2tKUQC",
+                position_ms=88000,
+            )
+
+            # 3. With resilience_bookmark_never_expires=True, 15h-old bookmark auto-resumes
+            self.plugin.play_tracks.reset_mock()
+            self.plugin._settings["resilience_bookmark_never_expires"] = True
+            mgr.snapshot_from_state(was_playing=True, position_ms=91000, saved_at=expired_ts, force=True)
+            mgr._last_recovery_ts = 0.0
+            res_never = await mgr.handle_wake_recovery(source="dbus")
+            self.assertTrue(res_never["restored"])
+            self.plugin.play_tracks.assert_awaited_once()
+
+            # 4. dismiss_held_bookmark clears held state
+            mgr._held_bookmark = {"track_uri": "spotify:track:4uLU6hMCjMI75M1A2tKUQC"}
+            mgr._held_reason = "expired"
+            await mgr.dismiss_held_bookmark()
+            self.assertIsNone(mgr._held_bookmark)
+            self.assertIsNone(mgr._held_reason)
+
+    async def test_unified_recovery_lock_and_cooldown_prevent_dual_restart(self):
+        mgr = resilience.SessionBookmarkManager(
+            self.plugin,
+            bookmark_file=self.bookmark_path,
+            cooldown_s=10.0,
+        )
+        mgr.snapshot_from_state(was_playing=True, position_ms=15000, force=True)
+
+        async def slow_kill():
+            await asyncio.sleep(0.05)
+
+        self.plugin._kill_librespot.side_effect = slow_kill
+
+        with patch.object(resilience.decky, "emit", new_callable=AsyncMock):
+            # Fire dbus (_on_deck_resume) and watchdog (_monitor_process) concurrently
+            r1, r2 = await asyncio.gather(
+                mgr.handle_wake_recovery(source="dbus"),
+                mgr.handle_wake_recovery(source="watchdog"),
+            )
+
+        # Exactly one recovery executed; the second was skipped by the 10s cooldown
+        restored_count = sum(1 for r in (r1, r2) if r.get("restored"))
+        skipped_count = sum(1 for r in (r1, r2) if r.get("skipped") == "cooldown")
+        self.assertEqual(restored_count, 1)
+        self.assertEqual(skipped_count, 1)
+        self.plugin._kill_librespot.assert_awaited_once()
+        self.plugin.start_librespot.assert_awaited_once()
+        self.plugin.play_tracks.assert_awaited_once()
+
+    async def test_plugin_resilience_rpcs_and_status_integration(self):
+        from test_token_refresh import main
+
+        plugin = main.Plugin()
+        plugin._settings = dict(main.DEFAULT_SETTINGS)
+        plugin._bookmark_manager = resilience.SessionBookmarkManager(plugin, bookmark_file=self.bookmark_path)
+        plugin._event_server = resilience.LibrespotEventServer(plugin)
+        plugin._event_server._server = MagicMock()
+        plugin._event_server._running = True
+        plugin._process = MagicMock(poll=MagicMock(return_value=None))
+
+        status = await plugin.get_status()
+        self.assertIn("resilience_status", status)
+        self.assertEqual(status["resilience_status"]["polling_mode"], "onevent")
+        self.assertEqual(status["resilience_status"]["poll_interval_s"], 20.0)
+        self.assertTrue(status["settings"]["resilience_auto_resume"])
+        self.assertEqual(status["settings"]["resilience_bookmark_expiry_hours"], 12)
+
+        with patch.object(main, "_save_settings"):
+            res_set = await plugin.set_setting("resilience_bookmark_expiry_hours", 8)
+            self.assertTrue(res_set["ok"])
+            self.assertEqual(plugin._settings["resilience_bookmark_expiry_hours"], 8)
+
+            res_bad = await plugin.set_setting("resilience_bookmark_expiry_hours", "invalid")
+            self.assertFalse(res_bad["ok"])
+
+        plugin._bookmark_manager._held_bookmark = {
+            "track_uri": "spotify:track:4uLU6hMCjMI75M1A2tKUQC",
+            "context_uri": "spotify:playlist:37i9dQZF1DXcBWIGoYBM5M",
+            "position_ms": 12000,
+            "was_playing": True,
+        }
+        plugin._bookmark_manager._held_reason = "remote_active"
+
+        r_status = await plugin.get_resilience_status()
+        self.assertEqual(r_status["held_reason"], "remote_active")
+
+        with patch.object(resilience.rpc_playback, "play_tracks", new_callable=AsyncMock) as m_play, \
+             patch.object(plugin, "get_devices", new_callable=AsyncMock) as m_devs, \
+             patch.object(resilience.decky, "emit", new_callable=AsyncMock):
+            m_play.return_value = {"ok": True}
+            m_devs.return_value = {"devices": [{"id": "d1", "name": "Deckify"}]}
+            r_restore = await plugin.restore_bookmark()
+            self.assertTrue(r_restore["ok"])
+            self.assertTrue(r_restore["restored"])
+            m_play.assert_awaited_once()
+
+        plugin._bookmark_manager._held_bookmark = {"track_uri": "spotify:track:4uLU6hMCjMI75M1A2tKUQC"}
+        plugin._bookmark_manager._held_reason = "expired"
+        with patch.object(resilience.decky, "emit", new_callable=AsyncMock):
+            r_dismiss = await plugin.dismiss_bookmark()
+            self.assertTrue(r_dismiss["ok"])
+            self.assertIsNone(plugin._bookmark_manager._held_bookmark)
+

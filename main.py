@@ -118,6 +118,7 @@ class Plugin:
     _voice_detector: volume.VoiceActivityDetector | None = None
     _soundtrack_manager: soundtrack.SoundtrackManager | None = None
     _event_server: resilience.LibrespotEventServer | None = None
+    _bookmark_manager: resilience.SessionBookmarkManager | None = None
     _poll_wake_event: asyncio.Event | None = None
 
     @property
@@ -131,6 +132,7 @@ class Plugin:
         self._voice_detector = volume.VoiceActivityDetector(self, self._volume_fader)
         self._soundtrack_manager = soundtrack.SoundtrackManager(self)
         self._event_server = resilience.LibrespotEventServer(self)
+        self._bookmark_manager = resilience.SessionBookmarkManager(self)
         self._poll_wake_event = None
 
     # ── Lifecycle ──────────────────────────────────────────────
@@ -159,6 +161,8 @@ class Plugin:
         self._equalizer_manager = equalizer.EqualizerManager(self)
         self._dock_switcher = dock.DockAudioSwitcher(self)
         self._dock_switcher.start()
+        self._bookmark_manager = resilience.SessionBookmarkManager(self)
+        self._bookmark_manager.load_bookmark()
         self._event_server = resilience.LibrespotEventServer(self)
         await self._event_server.start()
         if self._access_token:
@@ -204,12 +208,15 @@ class Plugin:
 
     async def _on_deck_sleep(self):
         decky.logger.info("Deck entering sleep")
+        if getattr(self, "_bookmark_manager", None):
+            self._bookmark_manager.flush_snapshot()
 
     async def _on_deck_resume(self):
         decky.logger.info("Deck resumed from suspend - recovering token and audio state")
         try:
-            await self._ensure_token()
-            await self._poll_playback()
+            if not getattr(self, "_bookmark_manager", None):
+                self._bookmark_manager = resilience.SessionBookmarkManager(self)
+            await self._bookmark_manager.handle_wake_recovery(source="dbus")
             await self._refresh_audio_stream_info()
             await decky.emit("deck_resumed")
         except Exception as e:
@@ -553,6 +560,9 @@ class Plugin:
             "dock_auto_switch_enabled", "dock_target_sink",
             "dock_respect_bluetooth", "dock_pause_on_undock",
             "dock_toast_enabled",
+            "resilience_auto_resume", "resilience_bookmark_expiry_hours",
+            "resilience_bookmark_never_expires", "resilience_toast_enabled",
+            "resilience_prompt_held_enabled",
         )
         return {
             "authenticated": bool(self._access_token),
@@ -586,6 +596,19 @@ class Plugin:
                     "active_sink_label": "",
                     "pre_dock_sink": None,
                     "manual_override": False,
+                }
+            ),
+            "resilience_status": (
+                self._bookmark_manager.get_status_dict(self)
+                if getattr(self, "_bookmark_manager", None)
+                else {
+                    "onevent_healthy": False,
+                    "poll_interval_s": 3.0,
+                    "polling_mode": "fallback",
+                    "last_event_at": 0.0,
+                    "held_bookmark": None,
+                    "held_reason": None,
+                    "recovering": False,
                 }
             ),
         }
@@ -640,8 +663,15 @@ class Plugin:
             value = bool(value)
             if not value and hasattr(self, "_volume_fader") and self._volume_fader:
                 asyncio.create_task(self._volume_fader.set_ducking(False, reason="game"))
-        elif key in ("normalisation", "gapless", "autoplay", "bit_perfect_clock", "overlay_enabled", "toast_enabled", "toast_sound_enabled", "gamepad_chords_enabled", "overlay_autohide", "overlay_show_progress", "overlay_lyrics_enabled", "voice_ducking_enabled", "sleep_timer_fade_enabled", "dock_auto_switch_enabled", "dock_respect_bluetooth", "dock_pause_on_undock", "dock_toast_enabled"):
+        elif key in ("normalisation", "gapless", "autoplay", "bit_perfect_clock", "overlay_enabled", "toast_enabled", "toast_sound_enabled", "gamepad_chords_enabled", "overlay_autohide", "overlay_show_progress", "overlay_lyrics_enabled", "voice_ducking_enabled", "sleep_timer_fade_enabled", "dock_auto_switch_enabled", "dock_respect_bluetooth", "dock_pause_on_undock", "dock_toast_enabled", "resilience_auto_resume", "resilience_bookmark_never_expires", "resilience_toast_enabled", "resilience_prompt_held_enabled"):
             value = bool(value)
+        elif key == "resilience_bookmark_expiry_hours":
+            if isinstance(value, bool):
+                return {"ok": False, "error": "resilience_bookmark_expiry_hours must be an integer between 1 and 24"}
+            try:
+                value = max(1, min(24, int(value)))
+            except (TypeError, ValueError):
+                return {"ok": False, "error": "resilience_bookmark_expiry_hours must be an integer between 1 and 24"}
         elif key == "dock_target_sink":
             if not isinstance(value, str) or any(ord(char) < 32 or ord(char) == 127 for char in value):
                 return {"ok": False, "error": "Invalid dock_target_sink"}
@@ -741,6 +771,8 @@ class Plugin:
             await self._dock_switcher.on_settings_changed(key, value)
 
         if backend_changed:
+            if getattr(self, "_poll_wake_event", None):
+                self._poll_wake_event.set()
             # Cleanly stop the old backend and start the new one
             if value == "spotify_client":
                 await self.start_spotify_client()
@@ -982,6 +1014,21 @@ class Plugin:
 
     async def set_audio_sink(self, sink_name: str) -> dict:
         return await volume.set_audio_sink(sink_name, plugin=self)
+
+    async def get_resilience_status(self) -> dict:
+        if not getattr(self, "_bookmark_manager", None):
+            self._bookmark_manager = resilience.SessionBookmarkManager(self)
+        return self._bookmark_manager.get_status_dict(self)
+
+    async def restore_bookmark(self) -> dict:
+        if not getattr(self, "_bookmark_manager", None):
+            self._bookmark_manager = resilience.SessionBookmarkManager(self)
+        return await self._bookmark_manager.restore_held_bookmark()
+
+    async def dismiss_bookmark(self) -> dict:
+        if not getattr(self, "_bookmark_manager", None):
+            self._bookmark_manager = resilience.SessionBookmarkManager(self)
+        return await self._bookmark_manager.dismiss_held_bookmark()
 
     async def get_liked_tracks(self, offset: int = 0, fetch_all: bool = True) -> dict:
         return await rpc_library.get_liked_tracks(self, offset, fetch_all)
@@ -1481,7 +1528,12 @@ class Plugin:
             return True  # API reachable, not a network issue
         except Exception as e:
             decky.logger.warning("Poll playback failed: %s", e)
+            if getattr(self, "_bookmark_manager", None):
+                await self._bookmark_manager.on_poll_network_result(False)
             return False
+
+        if getattr(self, "_bookmark_manager", None):
+            await self._bookmark_manager.on_poll_network_result(True)
 
         # 204 No Content → no active playback
         if data is None:
@@ -1577,6 +1629,16 @@ class Plugin:
             await decky.emit("librespot_event", event)
         self._poll_play_state = new_state
 
+        if getattr(self, "_bookmark_manager", None):
+            self._bookmark_manager.snapshot_from_state(
+                track_uri=item.get("uri") or (f"spotify:track:{track_id}" if track_id else ""),
+                context_uri=self._context_uri,
+                position_ms=self._poll_progress_ms,
+                was_playing=bool(is_playing),
+                track_name=(self._track_meta or {}).get("name") or item.get("name", ""),
+                artist=(self._track_meta or {}).get("artist", ""),
+            )
+
         device = data.get("device", {})
         if device.get("id"):
             new_device = {
@@ -1633,12 +1695,9 @@ class Plugin:
                     decky.logger.info(
                         "System wake detected (gap=%.0fs), restarting %s", elapsed, backend,
                     )
-                    if backend == "spotify_client":
-                        await self._kill_spotify_client()
-                        await self.start_spotify_client()
-                    else:
-                        await self._kill_librespot()
-                        await self.start_librespot()
+                    if not getattr(self, "_bookmark_manager", None):
+                        self._bookmark_manager = resilience.SessionBookmarkManager(self)
+                    await self._bookmark_manager.handle_wake_recovery(source="watchdog")
                     self._crash_timestamps.clear()
                     self._stable_start = time.time()
                     last_tick = time.time()
