@@ -1,7 +1,7 @@
 import { FC, useState, useEffect, useCallback, useRef } from "react";
 import { Focusable, SliderField, ToggleField } from "@decky/ui";
 import { callable, addEventListener, removeEventListener } from "@decky/api";
-import { FaSlidersH, FaClock, FaPowerOff } from "react-icons/fa";
+import { FaSlidersH, FaClock, FaPowerOff, FaPlug } from "react-icons/fa";
 import { AudioSinkInfo, EqualizerPreset, StatusResponse, SleepTimerStatus } from "../../types";
 import { InteractiveRow } from "../common/InteractiveRow";
 
@@ -176,6 +176,17 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
       removeEventListener("settings_changed", listener);
     };
   }, []);
+
+  useEffect(() => {
+    const handler = () => {
+      refreshStatus();
+      loadAudioSinks();
+    };
+    const listener = addEventListener<[any]>("dock_audio_switched", handler);
+    return () => {
+      removeEventListener("dock_audio_switched", listener);
+    };
+  }, [refreshStatus, loadAudioSinks]);
 
   const updateSetting = useCallback(
     async (key: string, value: unknown) => {
@@ -630,6 +641,7 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
                   await backendSetAudioSink(s.name);
                   showToast(`Output set to ${s.description || s.name}`);
                   loadAudioSinks();
+                  refreshStatus();
                 }}
                 active={s.is_default}
                 style={{ justifyContent: "space-between" }}
@@ -641,6 +653,164 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
           </Focusable>
         </div>
       )}
+
+      {/* Docked Audio-Switching */}
+      {(() => {
+        const dockAutoSwitchEnabled = Boolean(localSettings.dock_auto_switch_enabled ?? false);
+        const dockRespectBluetooth = localSettings.dock_respect_bluetooth ?? true;
+        const dockPauseOnUndock = Boolean(localSettings.dock_pause_on_undock ?? false);
+        const dockToastEnabled = localSettings.dock_toast_enabled ?? true;
+        const dockTargetSink = (localSettings.dock_target_sink as string) || "auto";
+        const dockStatus = status?.dock_status;
+        const hasExternalDockSink = audioSinks.some(
+          (s) =>
+            s.name.startsWith("alsa_output.usb-") ||
+            s.name.includes(".usb-") ||
+            (s.name.startsWith("alsa_output.pci-") && s.name.toLowerCase().includes("hdmi"))
+        );
+
+        let badgeLabel = "Monitoring";
+        let badgeStyle: Record<string, any> = { opacity: 0.7 };
+        if (!dockAutoSwitchEnabled) {
+          badgeLabel = "Disabled";
+          badgeStyle = { opacity: 0.6 };
+        } else if (dockStatus?.status === "docked") {
+          badgeLabel = `Docked: ${dockStatus.active_sink_label || dockStatus.active_sink || "External"}`;
+          badgeStyle = { color: "#1db954" };
+        } else if (dockStatus?.status === "bluetooth_held") {
+          badgeLabel = "Bluetooth Held";
+          badgeStyle = { opacity: 0.8 };
+        } else if (dockStatus?.status === "manual_override") {
+          badgeLabel = "Manual Override";
+          badgeStyle = { opacity: 0.8 };
+        }
+
+        return (
+          <div style={{ marginBottom: 20, padding: 14, borderRadius: 10, background: "rgba(255,255,255,0.04)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 8 }}>
+              <h3 style={{ fontSize: 14, fontWeight: 700, color: "#1db954", display: "flex", alignItems: "center", gap: 8, margin: 0 }}>
+                <FaPlug /> Docked Audio-Switching
+              </h3>
+              <span
+                style={{
+                  fontSize: 12,
+                  fontWeight: 700,
+                  minWidth: 0,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                  ...badgeStyle,
+                }}
+              >
+                {badgeLabel}
+              </span>
+            </div>
+
+            <Focusable flow-children="column" style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 16 }}>
+              <ToggleField
+                label="Auto-Switch on Dock"
+                description="Automatically route Deckify to a USB-DAC or HDMI sink on startup and hotplug (with Bit-Perfect Clock)."
+                checked={dockAutoSwitchEnabled}
+                onChange={(v: boolean) => {
+                  updateSetting("dock_auto_switch_enabled", v);
+                  showToast(v ? "Docked audio-switching enabled" : "Docked audio-switching disabled");
+                }}
+              />
+              <ToggleField
+                label="Respect Bluetooth Headphones"
+                description="Keep audio on active Bluetooth headphones when docking; switches to dock if Bluetooth disconnects."
+                checked={dockRespectBluetooth}
+                onChange={(v: boolean) => updateSetting("dock_respect_bluetooth", v)}
+              />
+              <ToggleField
+                label="Pause on Undock"
+                description="Pause Spotify playback automatically when the designated dock or DAC is disconnected."
+                checked={dockPauseOnUndock}
+                onChange={(v: boolean) => updateSetting("dock_pause_on_undock", v)}
+              />
+              <ToggleField
+                label="Dock Switch Toasts"
+                description="Show a brief notification when Deckify switches audio sinks on dock or undock."
+                checked={dockToastEnabled}
+                onChange={(v: boolean) => updateSetting("dock_toast_enabled", v)}
+              />
+            </Focusable>
+
+            <div style={{ fontSize: 12, fontWeight: 700, opacity: 0.8, marginBottom: 8 }}>
+              Target Dock / DAC Sink
+            </div>
+            <Focusable flow-children="column" style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              <InteractiveRow
+                onClick={() => {
+                  updateSetting("dock_target_sink", "auto");
+                  showToast("Dock target: Auto (USB-DAC / HDMI)");
+                }}
+                active={dockTargetSink === "auto"}
+                style={{ justifyContent: "space-between", gap: 8 }}
+              >
+                <span
+                  style={{
+                    fontSize: 12,
+                    fontWeight: 700,
+                    minWidth: 0,
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  Auto (USB-DAC / HDMI)
+                </span>
+                <span style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                  <span style={{ fontSize: 12, opacity: 0.6 }}>USB-DAC &gt; HDMI</span>
+                  {dockTargetSink === "auto" && (
+                    <span style={{ fontSize: 12, color: "#1db954", fontWeight: 700 }}>Active</span>
+                  )}
+                </span>
+              </InteractiveRow>
+              {audioSinks.map((s) => (
+                <InteractiveRow
+                  key={s.name}
+                  onClick={() => {
+                    updateSetting("dock_target_sink", s.name);
+                    showToast(`Dock target: ${s.description || s.name}`);
+                  }}
+                  active={dockTargetSink === s.name}
+                  style={{ justifyContent: "space-between", gap: 8 }}
+                >
+                  <span
+                    style={{
+                      fontSize: 12,
+                      fontWeight: 700,
+                      minWidth: 0,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {s.description || s.name}
+                  </span>
+                  {dockTargetSink === s.name && (
+                    <span style={{ fontSize: 12, color: "#1db954", fontWeight: 700, flexShrink: 0 }}>
+                      Active
+                    </span>
+                  )}
+                </InteractiveRow>
+              ))}
+            </Focusable>
+
+            {!hasExternalDockSink && (
+              <div style={{ marginTop: 8, opacity: 0.7 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 4 }}>
+                  No External Dock / DAC Sinks Detected
+                </div>
+                <div style={{ fontSize: 14, lineHeight: 1.5 }}>
+                  Connect a USB-DAC or HDMI dock/display to route Deckify automatically, or keep Auto (USB-DAC / HDMI) selected for hotplug detection.
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Backend Sleep Timer */}
       <div style={{ marginBottom: 20, padding: 14, borderRadius: 10, background: "rgba(255,255,255,0.04)" }}>
