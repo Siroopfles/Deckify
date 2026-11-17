@@ -143,6 +143,123 @@ class DockAudioSwitcher:
         self._pre_dock_sink: str | None = None
         self._manual_override: bool = False
         self._eval_lock = asyncio.Lock()
+        self._running: bool = False
+        self._monitor_task: asyncio.Task | None = None
+        self._debounce_task: asyncio.Task | None = None
+        self._proc: asyncio.subprocess.Process | None = None
+
+    def start(self) -> None:
+        """Start the background `pactl subscribe` hotplug monitor."""
+        if self._running:
+            return
+        self._running = True
+        self._monitor_task = asyncio.create_task(self._monitor_loop())
+
+    async def stop(self) -> None:
+        """Stop the hotplug monitor and cancel any pending debounce timer."""
+        self._running = False
+        if self._debounce_task:
+            self._debounce_task.cancel()
+            try:
+                await self._debounce_task
+            except asyncio.CancelledError:
+                pass
+            self._debounce_task = None
+        if self._proc:
+            try:
+                self._proc.terminate()
+                await self._proc.wait()
+            except Exception:
+                pass
+            self._proc = None
+        if self._monitor_task:
+            self._monitor_task.cancel()
+            try:
+                await self._monitor_task
+            except asyncio.CancelledError:
+                pass
+            self._monitor_task = None
+
+    def _schedule_debounced_evaluate(self) -> None:
+        """Coalesce rapid PipeWire hotplug events before evaluating sinks."""
+        if self._debounce_task and not self._debounce_task.done():
+            self._debounce_task.cancel()
+
+        async def _debounced():
+            try:
+                await asyncio.sleep(DOCK_HOTPLUG_DEBOUNCE_S)
+                await self.evaluate_now()
+            except asyncio.CancelledError:
+                pass
+            except Exception as err:
+                decky.logger.warning("Dock debounced evaluation error: %s", err)
+
+        self._debounce_task = asyncio.create_task(_debounced())
+
+    async def _monitor_loop(self) -> None:
+        """Supervise `pactl subscribe` for sink/server hotplug events."""
+        if not shutil.which("pactl"):
+            decky.logger.debug("pactl not found on host; dock audio monitor inactive")
+            return
+
+        while self._running:
+            try:
+                cmd, env = _build_deck_command(["pactl", "subscribe"])
+                env.pop("LD_LIBRARY_PATH", None)
+                self._proc = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    env=env,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.DEVNULL,
+                )
+                if not self._proc.stdout:
+                    break
+
+                while self._running:
+                    line = await self._proc.stdout.readline()
+                    if not line:
+                        break
+                    text = line.decode("utf-8", errors="ignore").lower()
+                    if " on sink " in text or " on server " in text:
+                        self._schedule_debounced_evaluate()
+
+                if self._proc:
+                    await self._proc.wait()
+                    self._proc = None
+            except asyncio.CancelledError:
+                break
+            except Exception as err:
+                decky.logger.debug("Dock monitor error: %s, retrying in 5s", err)
+
+            if self._running:
+                await asyncio.sleep(5)
+
+    def on_manual_sink_selected(self, sink_name: str) -> None:
+        """Mark a per-dock-session manual override when the user selects another sink while docked."""
+        if (self._docked_sink is not None or self._dock_session_sink is not None) and sink_name != self._dock_session_sink:
+            self._manual_override = True
+            self._docked_sink = None
+            self._docked_sink_label = ""
+            self._status = "manual_override"
+
+    async def on_settings_changed(self, key: str, value) -> None:
+        """React to dock_* or bit_perfect_clock setting changes."""
+        if key == "dock_auto_switch_enabled" and not value:
+            async with self._eval_lock:
+                if self._docked_sink is not None:
+                    sinks, default_sink = await _exec(get_detailed_sinks, timeout=4)
+                    await self._restore_pre_dock(sinks, default_sink, skip_pause=True)
+                else:
+                    self._dock_session_sink = None
+                    self._pre_dock_sink = None
+                    self._manual_override = False
+                self._status = "disabled"
+            return
+
+        if key in ("dock_auto_switch_enabled", "dock_target_sink", "dock_respect_bluetooth", "bit_perfect_clock"):
+            if key in ("dock_auto_switch_enabled", "dock_target_sink"):
+                self._manual_override = False
+            await self.evaluate_now()
 
     def get_status_dict(self) -> dict:
         """Return current dock audio switcher status for frontend display."""
@@ -171,8 +288,19 @@ class DockAudioSwitcher:
                 return s.get("description") or sink_name
         return sink_name
 
-    async def _restore_pre_dock(self, sinks: list[dict], default_sink: str) -> None:
-        """Restore pre-dock hardware sink, reset PipeWire clock, and emit undocked event."""
+    def _is_bluetooth_active(self, default_sink: str) -> bool:
+        """Return True if Bluetooth audio is currently the active output."""
+        if default_sink and default_sink.startswith("bluez_output."):
+            return True
+        eq_mgr = getattr(self._plugin, "_equalizer_manager", None)
+        if eq_mgr is not None and getattr(eq_mgr, "is_active", False):
+            hw = str(getattr(eq_mgr, "_target_hardware_sink", "") or "")
+            if hw.startswith("bluez_output."):
+                return True
+        return False
+
+    async def _restore_pre_dock(self, sinks: list[dict], default_sink: str, skip_pause: bool = False) -> None:
+        """Restore pre-dock hardware sink, reset PipeWire clock, optionally pause, and emit undocked event."""
         sink_names = {s.get("name") for s in sinks}
         if self._pre_dock_sink and self._pre_dock_sink in sink_names and classify_sink(self._pre_dock_sink) != "eq_virtual":
             restored_sink = self._pre_dock_sink
@@ -185,7 +313,19 @@ class DockAudioSwitcher:
         await volume.set_audio_sink(restored_sink, plugin=self._plugin, is_auto_dock=True)
         await volume.configure_pipewire_clock(False)
 
-        toast_enabled = bool(self._plugin._settings.get("dock_toast_enabled", True))
+        settings = getattr(self._plugin, "_settings", {}) or {}
+        if (
+            not skip_pause
+            and bool(settings.get("dock_pause_on_undock", False))
+            and getattr(self._plugin, "_poll_play_state", None) == "playing"
+            and hasattr(self._plugin, "control_playback")
+        ):
+            try:
+                await self._plugin.control_playback("pause")
+            except Exception as err:
+                decky.logger.warning("Failed to pause playback on undock: %s", err)
+
+        toast_enabled = bool(settings.get("dock_toast_enabled", True))
         await decky.emit(
             "dock_audio_switched",
             {
@@ -219,7 +359,31 @@ class DockAudioSwitcher:
             if target is not None:
                 target_name = target["name"]
                 target_label = target.get("description") or target_name
+
+                # Respect per-dock-session manual override until the dock sink disappears
+                if self._manual_override and self._dock_session_sink == target_name:
+                    self._status = "manual_override"
+                    return
+                if self._manual_override and self._dock_session_sink != target_name:
+                    self._manual_override = False
+
+                # Respect active Bluetooth headset when configured
+                if bool(settings.get("dock_respect_bluetooth", True)) and self._is_bluetooth_active(default_sink):
+                    self._dock_session_sink = target_name
+                    self._status = "bluetooth_held"
+                    return
+
                 if self._docked_sink == target_name:
+                    # Detect external SteamOS move when EQ manager tracks hardware sink
+                    eq_mgr = getattr(self._plugin, "_equalizer_manager", None)
+                    if eq_mgr is not None and getattr(eq_mgr, "is_active", False):
+                        hw = getattr(eq_mgr, "_target_hardware_sink", None)
+                        if hw and hw != self._docked_sink:
+                            self._manual_override = True
+                            self._docked_sink = None
+                            self._docked_sink_label = ""
+                            self._status = "manual_override"
+                            return
                     self._status = "docked"
                     return
 
