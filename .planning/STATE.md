@@ -5,11 +5,11 @@ milestone_name: Audio DSP, Docked Flow & System Resilience (Active)
 current_phase: 17
 current_phase_name: Event-Driven librespot & Suspend/Wi-Fi Resilience
 status: planning
-stopped_at: Phase 15 complete, ready to plan Phase 17
-last_updated: "2026-11-17T18:05:54.008Z"
+stopped_at: Phase 17 context gathered
+last_updated: "2026-11-17T18:54:38.379Z"
 last_activity: 2026-11-17
 last_activity_desc: Phase 15 complete, transitioned to Phase 17
-state_head: c0793ab149fe57855be03b32ab694285e9602cbf
+state_head: 07d0c6f3634e7010be4342e28bba90e237daa59f
 progress:
   total_phases: 6
   completed_phases: 4
@@ -163,9 +163,9 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-17T16:21:50.037Z
-Stopped at: Phase 15 complete, ready to plan Phase 17
-Resume file: None
+Last session: 2026-11-17T18:54:36.994Z
+Stopped at: Phase 17 context gathered
+Resume file: .planning/phases/17-event-driven-librespot-suspend-wi-fi-resilience/17-CONTEXT.md
 
 ## Operator Next Steps
 
