@@ -38,6 +38,7 @@ vi.mock("react-icons/fa", () => ({
   FaSlidersH: () => ({ type: "FaSlidersH" }),
   FaClock: () => ({ type: "FaClock" }),
   FaPowerOff: () => ({ type: "FaPowerOff" }),
+  FaPlug: () => ({ type: "FaPlug" }),
 }));
 
 vi.mock("react/jsx-dev-runtime", () => ({
@@ -60,8 +61,16 @@ vi.mock("react/jsx-runtime", () => ({
   }),
 }));
 
+let mockAudioSinksState: any[] | null = null;
+
 vi.mock("react", () => ({
-  useState: (init: any) => [typeof init === "function" ? init() : init, vi.fn()],
+  useState: (init: any) => {
+    const val = typeof init === "function" ? init() : init;
+    if (Array.isArray(val) && val.length === 0 && mockAudioSinksState !== null) {
+      return [mockAudioSinksState, vi.fn()];
+    }
+    return [val, vi.fn()];
+  },
   useEffect: (fn: any) => fn(),
   useCallback: (fn: any) => fn,
   useRef: (init: any) => ({ current: init }),
@@ -69,7 +78,7 @@ vi.mock("react", () => ({
 }));
 
 import { SettingsTab } from "./SettingsTab";
-import { SliderField, ToggleField } from "@decky/ui";
+import { Focusable, SliderField, ToggleField } from "@decky/ui";
 import { InteractiveRow } from "../common/InteractiveRow";
 import { StatusResponse } from "../../types";
 
@@ -630,5 +639,235 @@ describe("Equalizer & Audio Presets", () => {
       showToast,
     });
     expect(findText(bassTree)).toContain("Preamp: -6.0 dB");
+  });
+});
+
+describe("SettingsTab Docked Audio-Switching (Phase 16)", () => {
+  const refreshStatus = vi.fn();
+  const showToast = vi.fn();
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockAudioSinksState = null;
+  });
+
+  it("renders Docked Audio-Switching card with Disabled badge and live dock_status badges", () => {
+    const disabledTree = SettingsTab({
+      status: {
+        ...mockStatus,
+        settings: { ...mockStatus.settings!, dock_auto_switch_enabled: false },
+        dock_status: {
+          status: "disabled",
+          active_sink: null,
+          active_sink_label: "",
+          pre_dock_sink: null,
+          manual_override: false,
+        },
+      },
+      refreshStatus,
+      showToast,
+    });
+    expect(findText(disabledTree)).toContain("Docked Audio-Switching");
+    expect(findText(disabledTree)).toContain("Disabled");
+
+    const dockedTree = SettingsTab({
+      status: {
+        ...mockStatus,
+        settings: { ...mockStatus.settings!, dock_auto_switch_enabled: true },
+        dock_status: {
+          status: "docked",
+          active_sink: "alsa_output.usb-FiiO_K7-00.analog-stereo",
+          active_sink_label: "FiiO K7 USB DAC",
+          pre_dock_sink: "alsa_output.pci-0000_04_00.6.analog-stereo",
+          manual_override: false,
+        },
+      },
+      refreshStatus,
+      showToast,
+    });
+    expect(findText(dockedTree)).toContain("Docked: FiiO K7 USB DAC");
+
+    const btTree = SettingsTab({
+      status: {
+        ...mockStatus,
+        settings: { ...mockStatus.settings!, dock_auto_switch_enabled: true },
+        dock_status: {
+          status: "bluetooth_held",
+          active_sink: null,
+          active_sink_label: "",
+          pre_dock_sink: null,
+          manual_override: false,
+        },
+      },
+      refreshStatus,
+      showToast,
+    });
+    expect(findText(btTree)).toContain("Bluetooth Held");
+
+    const overrideTree = SettingsTab({
+      status: {
+        ...mockStatus,
+        settings: { ...mockStatus.settings!, dock_auto_switch_enabled: true },
+        dock_status: {
+          status: "manual_override",
+          active_sink: null,
+          active_sink_label: "",
+          pre_dock_sink: null,
+          manual_override: true,
+        },
+      },
+      refreshStatus,
+      showToast,
+    });
+    expect(findText(overrideTree)).toContain("Manual Override");
+
+    const monitoringTree = SettingsTab({
+      status: {
+        ...mockStatus,
+        settings: { ...mockStatus.settings!, dock_auto_switch_enabled: true },
+        dock_status: {
+          status: "monitoring",
+          active_sink: null,
+          active_sink_label: "",
+          pre_dock_sink: null,
+          manual_override: false,
+        },
+      },
+      refreshStatus,
+      showToast,
+    });
+    expect(findText(monitoringTree)).toContain("Monitoring");
+  });
+
+  it("renders all 4 ToggleFields inside Focusable flow-children='column' and toggles Auto-Switch on Dock", async () => {
+    const tree = SettingsTab({
+      status: {
+        ...mockStatus,
+        settings: {
+          ...mockStatus.settings!,
+          dock_auto_switch_enabled: false,
+          dock_respect_bluetooth: true,
+          dock_pause_on_undock: false,
+          dock_toast_enabled: true,
+        },
+      },
+      refreshStatus,
+      showToast,
+    });
+
+    const columnFocusables = findNodes(
+      tree,
+      (n) => (n.type === Focusable || n.type === "Focusable") && n.props?.["flow-children"] === "column"
+    );
+    const toggleFocusable = columnFocusables.find((f) => {
+      const t = findNodes(f, (n) => n.type === ToggleField || n.type === "ToggleField");
+      return t.some((x) => x.props?.label === "Auto-Switch on Dock");
+    });
+    expect(toggleFocusable).toBeDefined();
+
+    const toggles = findNodes(toggleFocusable, (n) => n.type === ToggleField || n.type === "ToggleField");
+    expect(toggles.map((t) => t.props?.label)).toEqual([
+      "Auto-Switch on Dock",
+      "Respect Bluetooth Headphones",
+      "Pause on Undock",
+      "Dock Switch Toasts",
+    ]);
+
+    const autoSwitchToggle = toggles.find((t) => t.props?.label === "Auto-Switch on Dock");
+    await autoSwitchToggle.props.onChange(true);
+    expect(mockSetSetting).toHaveBeenCalledWith("dock_auto_switch_enabled", true);
+  });
+
+  it("renders Auto (USB-DAC / HDMI) first in Target Dock / DAC Sink selector and selects detected sink", async () => {
+    mockAudioSinksState = [
+      {
+        name: "alsa_output.pci-0000_04_00.6.analog-stereo",
+        description: "Steam Deck Speakers",
+        is_default: true,
+      },
+      {
+        name: "alsa_output.usb-FiiO_K7-00.analog-stereo",
+        description: "FiiO K7 USB DAC",
+        is_default: false,
+      },
+    ];
+
+    const tree = SettingsTab({
+      status: {
+        ...mockStatus,
+        settings: {
+          ...mockStatus.settings!,
+          dock_auto_switch_enabled: true,
+          dock_target_sink: "auto",
+        },
+      },
+      refreshStatus,
+      showToast,
+    });
+
+    const columnFocusables = findNodes(
+      tree,
+      (n) => (n.type === Focusable || n.type === "Focusable") && n.props?.["flow-children"] === "column"
+    );
+    const targetFocusable = columnFocusables.find((f) => {
+      const rows = findNodes(f, (n) => n.type === InteractiveRow);
+      return rows.some((r) => findText(r).includes("Auto (USB-DAC / HDMI)"));
+    });
+    expect(targetFocusable).toBeDefined();
+
+    const rows = findNodes(targetFocusable, (n) => n.type === InteractiveRow);
+    expect(findText(rows[0])).toContain("Auto (USB-DAC / HDMI)");
+    const dacRow = rows.find((r) => findText(r).includes("FiiO K7 USB DAC"));
+    expect(dacRow).toBeDefined();
+
+    await dacRow.props.onClick();
+    expect(mockSetSetting).toHaveBeenCalledWith(
+      "dock_target_sink",
+      "alsa_output.usb-FiiO_K7-00.analog-stereo"
+    );
+  });
+
+  it("renders empty-state guidance when no USB-DAC or HDMI sinks are detected", () => {
+    mockAudioSinksState = [
+      {
+        name: "alsa_output.pci-0000_04_00.6.analog-stereo",
+        description: "Steam Deck Speakers",
+        is_default: true,
+      },
+    ];
+
+    const tree = SettingsTab({
+      status: mockStatus,
+      refreshStatus,
+      showToast,
+    });
+
+    const text = findText(tree);
+    expect(text).toContain("Auto (USB-DAC / HDMI)");
+    expect(text).toContain("No External Dock / DAC Sinks Detected");
+    expect(text).toContain(
+      "Connect a USB-DAC or HDMI dock/display to route Deckify automatically, or keep Auto (USB-DAC / HDMI) selected for hotplug detection."
+    );
+  });
+
+  it("registers dock_audio_switched listener to refresh status and sinks without firing a duplicate toast", () => {
+    SettingsTab({
+      status: mockStatus,
+      refreshStatus,
+      showToast,
+    });
+
+    const dockListenerCall = (mockAddEventListener.mock.calls as any[][]).find(
+      (c) => c[0] === "dock_audio_switched"
+    );
+    expect(dockListenerCall).toBeDefined();
+
+    const handler = dockListenerCall![1];
+    refreshStatus.mockClear();
+    showToast.mockClear();
+
+    handler({ action: "docked", sink: "alsa_output.usb-FiiO_K7-00.analog-stereo", sink_label: "FiiO K7 USB DAC", toast_enabled: true });
+    expect(refreshStatus).toHaveBeenCalledTimes(1);
+    expect(showToast).not.toHaveBeenCalled();
   });
 });
