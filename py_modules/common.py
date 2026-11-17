@@ -42,6 +42,9 @@ LIBRESPOT_BIN = os.path.join(decky.DECKY_PLUGIN_DIR, "bin", "librespot")
 CACHE_DIR = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, "cache")
 LIBRESPOT_PID_FILE = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, "librespot.pid")
 SPOTIFY_CLIENT_PID_FILE = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, "spotify_client.pid")
+ONEVENT_SOCK_FILE = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, "onevent.sock")
+ONEVENT_EMITTER_SCRIPT = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, "librespot-event.sh")
+SESSION_BOOKMARK_FILE = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, "session_bookmark.json")
 SSL_CERT = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, "cert.pem")
 SSL_KEY = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, "key.pem")
 
@@ -120,6 +123,11 @@ DEFAULT_SETTINGS = {
     "dock_respect_bluetooth": True,
     "dock_pause_on_undock": False,
     "dock_toast_enabled": True,
+    "resilience_auto_resume": True,
+    "resilience_bookmark_expiry_hours": 12,
+    "resilience_bookmark_never_expires": False,
+    "resilience_toast_enabled": True,
+    "resilience_prompt_held_enabled": True,
 }
 
 # PulseAudio socket for processes
@@ -296,10 +304,29 @@ def _load_settings(settings_file: str | None = None) -> dict:
             merged["sleep_timer_fade_duration"] = max(5, min(120, int(merged.get("sleep_timer_fade_duration", 30))))
         except (TypeError, ValueError):
             merged["sleep_timer_fade_duration"] = 30
+        for _rbool, _rdef in (
+            ("resilience_auto_resume", True),
+            ("resilience_bookmark_never_expires", False),
+            ("resilience_toast_enabled", True),
+            ("resilience_prompt_held_enabled", True),
+        ):
+            if not isinstance(merged.get(_rbool), bool):
+                merged[_rbool] = bool(merged.get(_rbool, _rdef))
+        raw_expiry = merged.get("resilience_bookmark_expiry_hours", 12)
+        if isinstance(raw_expiry, bool):
+            merged["resilience_bookmark_expiry_hours"] = 12
+        else:
+            try:
+                merged["resilience_bookmark_expiry_hours"] = max(1, min(24, int(raw_expiry)))
+            except (TypeError, ValueError):
+                merged["resilience_bookmark_expiry_hours"] = 12
         merged["pinned_playlists"] = _sanitize_pinned_playlists(merged.get("pinned_playlists"))
         return merged
     except Exception:
         return dict(default_settings)
+
+
+_load_settings_impl = _load_settings
 
 
 _MAIN_MODULE = None

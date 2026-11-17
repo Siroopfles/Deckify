@@ -4,6 +4,9 @@ from py_modules.common import (
     CACHE_DIR,
     LIBRESPOT_PID_FILE,
     SPOTIFY_CLIENT_PID_FILE,
+    ONEVENT_SOCK_FILE,
+    ONEVENT_EMITTER_SCRIPT,
+    SESSION_BOOKMARK_FILE,
     SSL_CERT,
     SSL_KEY,
     VALID_AUDIO_BACKENDS,
@@ -77,6 +80,7 @@ from py_modules import system
 from py_modules import equalizer
 from py_modules import rpc_playback
 from py_modules import rpc_library
+from py_modules import resilience
 
 __all__ = [
     "SETTINGS_FILE",
@@ -84,6 +88,9 @@ __all__ = [
     "CACHE_DIR",
     "LIBRESPOT_PID_FILE",
     "SPOTIFY_CLIENT_PID_FILE",
+    "ONEVENT_SOCK_FILE",
+    "ONEVENT_EMITTER_SCRIPT",
+    "SESSION_BOOKMARK_FILE",
     "SSL_CERT",
     "SSL_KEY",
     "VALID_AUDIO_BACKENDS",

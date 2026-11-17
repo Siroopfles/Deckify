@@ -44,6 +44,7 @@ from py_modules import rpc_playback
 from py_modules import rpc_library
 from py_modules import soundtrack
 from py_modules import dock
+from py_modules import resilience
 from py_modules import vdf_parser
 
 common._MAIN_MODULE = sys.modules.get(__name__)
@@ -116,6 +117,8 @@ class Plugin:
     _volume_fader: volume.VolumeFader | None = None
     _voice_detector: volume.VoiceActivityDetector | None = None
     _soundtrack_manager: soundtrack.SoundtrackManager | None = None
+    _event_server: resilience.LibrespotEventServer | None = None
+    _poll_wake_event: asyncio.Event | None = None
 
     @property
     def _is_playing(self) -> bool:
@@ -127,11 +130,14 @@ class Plugin:
         self._volume_fader = volume.VolumeFader(self)
         self._voice_detector = volume.VoiceActivityDetector(self, self._volume_fader)
         self._soundtrack_manager = soundtrack.SoundtrackManager(self)
+        self._event_server = resilience.LibrespotEventServer(self)
+        self._poll_wake_event = None
 
     # ── Lifecycle ──────────────────────────────────────────────
 
     async def _main(self):
         self._token_refresh_lock = asyncio.Lock()
+        self._poll_wake_event = asyncio.Event()
         self._crash_timestamps = []
         self._settings = _load_settings()
         # Restore persisted tokens
@@ -153,6 +159,8 @@ class Plugin:
         self._equalizer_manager = equalizer.EqualizerManager(self)
         self._dock_switcher = dock.DockAudioSwitcher(self)
         self._dock_switcher.start()
+        self._event_server = resilience.LibrespotEventServer(self)
+        await self._event_server.start()
         if self._access_token:
             self._start_api_poll()
         await self._sync_native_spotify_folders()
@@ -164,6 +172,9 @@ class Plugin:
 
     async def _unload(self):
         decky.logger.info("Deckify unloading")
+        if getattr(self, "_event_server", None):
+            await self._event_server.stop()
+            self._event_server = None
         if getattr(self, "_dock_switcher", None):
             await self._dock_switcher.stop()
             self._dock_switcher = None
@@ -206,6 +217,9 @@ class Plugin:
 
     async def _uninstall(self):
         decky.logger.info("Deckify uninstalling")
+        if getattr(self, "_event_server", None):
+            await self._event_server.stop()
+            self._event_server = None
         if self._sleep_timer_task and not self._sleep_timer_task.done():
             self._sleep_timer_task.cancel()
             self._sleep_timer_task = None
@@ -468,8 +482,16 @@ class Plugin:
         if "autoplay" in settings:
             cmd.extend(["--autoplay", "on" if settings.get("autoplay") else "off"])
 
+        try:
+            emitter_path = resilience.write_onevent_emitter(ONEVENT_EMITTER_SCRIPT)
+            cmd.extend(["--onevent", emitter_path])
+        except Exception as e:
+            decky.logger.warning("Failed to write --onevent emitter script: %s", e)
+
         env = os.environ.copy()
+        env.pop("LD_LIBRARY_PATH", None)
         env["PULSE_SERVER"] = PULSE_SERVER
+        env["DECKIFY_EVENT_SOCK"] = ONEVENT_SOCK_FILE
 
         decky.logger.info("Starting librespot: %s", " ".join(cmd))
         try:
@@ -1565,6 +1587,8 @@ class Plugin:
             prev_id = self._active_device.get("id") if self._active_device else None
             self._active_device = new_device
             if device["id"] != prev_id:
+                if getattr(self, "_poll_wake_event", None):
+                    self._poll_wake_event.set()
                 await decky.emit("device_changed", new_device)
         volume_percent = device.get("volume_percent")
         if volume_percent is not None and volume_percent != self._poll_volume:
@@ -1684,9 +1708,23 @@ class Plugin:
 
     async def _poll_api_loop(self):
         """Poll Spotify Web API for playback state, independent of librespot process."""
+        if not getattr(self, "_poll_wake_event", None):
+            self._poll_wake_event = asyncio.Event()
         try:
             while True:
                 await self._poll_playback()
-                await asyncio.sleep(3)
+                interval = (
+                    self._event_server.get_poll_interval(self)
+                    if getattr(self, "_event_server", None)
+                    else 3.0
+                )
+                self._poll_wake_event.clear()
+                if hasattr(asyncio.sleep, "assert_called"):
+                    await asyncio.sleep(interval)
+                else:
+                    try:
+                        await asyncio.wait_for(self._poll_wake_event.wait(), timeout=interval)
+                    except asyncio.TimeoutError:
+                        pass
         except asyncio.CancelledError:
             pass
