@@ -105,12 +105,12 @@ Plans:
   2. Connecting the designated dock/DAC sink automatically moves only Deckify's stream (`effect_output.deckify_eq` when EQ is active, or `librespot` when bypassed) to the target sink after hotplug debounce, without hijacking game audio or overriding active Bluetooth headphones if configured.
   3. Designated USB-DAC/HDMI sinks receive `bit_perfect_clock` (`clock.allowed-rates`) configuration when docked.
   4. Undocking cleanly restores normal sink routing and resets `clock.allowed-rates` to `[ 48000 ]` so internal speakers and Bluetooth audio do not crackle.
-**Plans:** 2 plans
+**Plans:** 1/2 plans executed
 **UI hint**: yes
 
 Plans:
 **Wave 1**
-- [ ] 16-01-PLAN.md — Backend `DockAudioSwitcher` (`pactl subscribe` + 1.8s debounce, `USB-DAC > HDMI`, Bluetooth/manual override, EQ/clock coordination, `main.py` integration)
+- [x] 16-01-PLAN.md — Backend `DockAudioSwitcher` (`pactl subscribe` + 1.8s debounce, `USB-DAC > HDMI`, Bluetooth/manual override, EQ/clock coordination, `main.py` integration)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 - [ ] 16-02-PLAN.md — Frontend `DockStatusInfo` types, `SettingsTab.tsx` Docked Audio-Switching card, `src/index.tsx` toast listener, and `SettingsTab.test.tsx`
@@ -142,7 +142,7 @@ Plans:
 | 13. Like Button 403 Fix & Sink-Input Guardrails | v0.6 | 2/2 | Complete    | 2026-11-16 |
 | 14. Gentle Sleep Timer Fade-Out | v0.6 | 0/TBD | Not started | - |
 | 15. Real PipeWire Biquad Equalizer | v0.6 | 0/TBD | Not started | - |
-| 16. Automatic Docked Audio-Switching | v0.6 | 0/TBD | Not started | - |
+| 16. Automatic Docked Audio-Switching | v0.6 | 1/2 | In Progress | - |
 | 17. Event-Driven librespot & Suspend/Wi-Fi Resilience | v0.6 | 0/TBD | Not started | - |
 | 18. MPRIS2 D-Bus Bridge | v0.6 | 0/TBD | Not started | - |
 

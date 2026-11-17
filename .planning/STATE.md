@@ -5,16 +5,16 @@ milestone_name: Audio DSP, Docked Flow & System Resilience (Active)
 current_phase: 16
 current_phase_name: Automatic Docked Audio-Switching
 status: executing
-stopped_at: Phase 16 UI-SPEC approved
-last_updated: "2026-11-16T20:55:20.206Z"
-last_activity: 2026-11-16
-last_activity_desc: Phase 13 complete, transitioned to Phase 14
-state_head: 3b3f01d6f3d5e1f6559d231634b00e0d20b73887
+stopped_at: Completed 16-01-PLAN.md
+last_updated: "2026-11-17T16:16:40.578Z"
+last_activity: 2026-11-17
+last_activity_desc: Phase 16 execution started
+state_head: 31a3fd906d27a6809d3f3f665874171909e94fb1
 progress:
   total_phases: 6
   completed_phases: 1
   total_plans: 8
-  completed_plans: 6
+  completed_plans: 7
   percent: 17
 ---
 
@@ -25,14 +25,14 @@ progress:
 See: [.planning/PROJECT.md](file:///C:/Users/djdje/Deckify/.planning/PROJECT.md) (updated 2026-11-16)
 
 **Core value:** Rock-solid Spotify playback and responsive, reliable controller navigation on Steam Deck without UI lag, broken images, or desynchronized playback states.
-**Current focus:** Phase 13 — Like Button 403 Fix & Sink-Input Guardrails
+**Current focus:** Phase 16 — Automatic Docked Audio-Switching
 
 ## Current Position
 
-Phase: 16 (Automatic Docked Audio-Switching) — READY TO EXECUTE
-Plan: Not started
+Phase: 16 (Automatic Docked Audio-Switching) — EXECUTING
+Plan: 2 of 2
 Status: Ready to execute
-Last activity: 2026-11-16 — Phase 13 complete, transitioned to Phase 14
+Last activity: 2026-11-17 — Phase 16 execution started
 
 
 ## Performance Metrics
@@ -88,6 +88,7 @@ Last activity: 2026-11-16 — Phase 13 complete, transitioned to Phase 14
 | Phase 12 P03 | 9min | 3 tasks | 14 files |
 | Phase 13 P01 | 3min | 2 tasks | 6 files |
 | Phase 13 P02 | 3min | 2 tasks | 4 files |
+| Phase 16 P01 | 7 min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -127,6 +128,7 @@ Recent decisions affecting current work:
 - [Phase 12]: Wake stopped librespot inside play_tracks 404 handler after _auto_transfer_and_play fails, preserving single-call behavior when external devices are active
 - [Phase 12]: Used existing fetchWithQueueAndCache/imgMemoryCache (get_image RPC) for track_metadata toast cover proxying
 - [Phase 13]: D-05/D-06: Centralized sink-input resolution in resolve_spotify_sink_input_ids with steamwebhelper/Chromium deny-list, allowlist fallback, and 0-match debug no-op in _set_pactl_sink_input
+- [Phase 16]: Imported py_modules.volume at module level in dock.py while keeping volume.get_audio_sinks lazy-import of dock to avoid circular imports and preserve sys.modules test patching
 
 ### Pending Todos
 
@@ -155,9 +157,9 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-16T20:44:37.855Z
-Stopped at: Phase 16 UI-SPEC approved
-Resume file: .planning/phases/16-automatic-docked-audio-switching/16-UI-SPEC.md
+Last session: 2026-11-17T16:16:26.295Z
+Stopped at: Completed 16-01-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 
