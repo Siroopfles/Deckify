@@ -956,7 +956,7 @@ class Plugin:
         return await rpc_library.remove_track_from_playlist(self, playlist_id, track_uri)
 
     async def get_audio_sinks(self) -> dict:
-        return await volume.get_audio_sinks()
+        return await volume.get_audio_sinks(plugin=self)
 
     async def set_audio_sink(self, sink_name: str) -> dict:
         return await volume.set_audio_sink(sink_name, plugin=self)

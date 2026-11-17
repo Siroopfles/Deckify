@@ -137,7 +137,7 @@ async def refresh_audio_stream_info(plugin) -> None:
         pass
 
 
-async def get_audio_sinks() -> dict:
+async def get_audio_sinks(plugin=None) -> dict:
     """List available audio output sinks via pactl."""
     try:
         from py_modules import dock
@@ -146,6 +146,12 @@ async def get_audio_sinks() -> dict:
         sinks = res[0] if isinstance(res, tuple) else res
         if not isinstance(sinks, list):
             sinks = []
+
+        active_sink = getattr(plugin, "_active_audio_sink", None) if plugin is not None else None
+        if not active_sink and plugin is not None:
+            eq_mgr = getattr(plugin, "_equalizer_manager", None)
+            active_sink = getattr(eq_mgr, "_target_hardware_sink", None) if eq_mgr is not None else None
+
         return {
             "ok": True,
             "sinks": [
@@ -153,6 +159,7 @@ async def get_audio_sinks() -> dict:
                     "name": s["name"],
                     "description": s.get("description", s["name"]),
                     "is_default": bool(s.get("is_default", False)),
+                    "is_active": (s["name"] == active_sink) if active_sink else bool(s.get("is_default", False)),
                 }
                 for s in sinks
                 if isinstance(s, dict) and s.get("name")
@@ -180,10 +187,12 @@ async def set_audio_sink(sink_name: str, plugin=None, is_auto_dock: bool = False
             ok = await _exec(_set_pactl_sink_input, target, timeout=4)
             res = {"ok": ok}
 
-        if not is_auto_dock and plugin is not None and isinstance(res, dict) and res.get("ok"):
-            dock_switcher = getattr(plugin, "_dock_switcher", None)
-            if dock_switcher is not None and hasattr(dock_switcher, "on_manual_sink_selected"):
-                dock_switcher.on_manual_sink_selected(target)
+        if plugin is not None and isinstance(res, dict) and res.get("ok"):
+            plugin._active_audio_sink = target
+            if not is_auto_dock:
+                dock_switcher = getattr(plugin, "_dock_switcher", None)
+                if dock_switcher is not None and hasattr(dock_switcher, "on_manual_sink_selected"):
+                    dock_switcher.on_manual_sink_selected(target)
 
         return res
     except Exception as e:

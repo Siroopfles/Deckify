@@ -634,22 +634,32 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
             Audio Output Sink (PipeWire)
           </h3>
           <Focusable flow-children="column" style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            {audioSinks.map((s) => (
-              <InteractiveRow
-                key={s.name}
-                onClick={async () => {
-                  await backendSetAudioSink(s.name);
-                  showToast(`Output set to ${s.description || s.name}`);
-                  loadAudioSinks();
-                  refreshStatus();
-                }}
-                active={s.is_default}
-                style={{ justifyContent: "space-between" }}
-              >
-                <span style={{ fontSize: 12, fontWeight: 600 }}>{s.description || s.name}</span>
-                {s.is_default && <span style={{ fontSize: 11, color: "#1db954", fontWeight: 700 }}>Default</span>}
-              </InteractiveRow>
-            ))}
+            {audioSinks.map((s) => {
+              const isActive = s.is_active ?? s.is_default;
+              return (
+                <InteractiveRow
+                  key={s.name}
+                  onClick={async () => {
+                    const res = await backendSetAudioSink(s.name);
+                    if (res?.ok !== false) {
+                      showToast(`Output set to ${s.description || s.name}`);
+                    } else {
+                      showToast(res?.error || "Failed to switch audio output");
+                    }
+                    await loadAudioSinks();
+                    await refreshStatus();
+                  }}
+                  active={isActive}
+                  style={{ justifyContent: "space-between" }}
+                >
+                  <span style={{ fontSize: 12, fontWeight: 600 }}>{s.description || s.name}</span>
+                  <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    {s.is_default && <span style={{ fontSize: 11, opacity: 0.6, fontWeight: 600 }}>Default</span>}
+                    {isActive && <span style={{ fontSize: 11, color: "#1db954", fontWeight: 700 }}>Active</span>}
+                  </span>
+                </InteractiveRow>
+              );
+            })}
           </Focusable>
         </div>
       )}
