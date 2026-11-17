@@ -40,7 +40,7 @@
 ### 🚧 v0.6: Audio DSP, Docked Flow & System Resilience (Active)
 
 - [x] **Phase 13: Like Button 403 Fix & Sink-Input Guardrails** - Migrate track liking to `/v1/me/library` with CDP fallback and isolate sink-input routing strictly to Deckify streams. (completed 2026-11-16)
-- [ ] **Phase 14: Gentle Sleep Timer Fade-Out** - Smoothly ramp playback volume to 0% over a configurable fade-out window before pausing and restoring baseline volume.
+- [x] **Phase 14: Gentle Sleep Timer Fade-Out** - Smoothly ramp playback volume to 0% over a configurable fade-out window before pausing and restoring baseline volume. (completed 2026-11-17)
 - [ ] **Phase 15: Real PipeWire Biquad Equalizer** - Isolated `pipewire -c` `filter-chain` DSP equalizer with presets and live 5-band custom sliders.
 - [x] **Phase 16: Automatic Docked Audio-Switching** - Automatic USB-DAC/HDMI sink hotplug switching for Deckify streams with `bit_perfect_clock` management. (completed 2026-11-17)
 - [ ] **Phase 17: Event-Driven librespot & Suspend/Wi-Fi Resilience** - Local `--onevent` Unix socket push updates, relaxed fallback polling, and unified suspend/Wi-Fi bookmark recovery.
@@ -140,7 +140,7 @@ Plans:
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
 | 13. Like Button 403 Fix & Sink-Input Guardrails | v0.6 | 2/2 | Complete    | 2026-11-16 |
-| 14. Gentle Sleep Timer Fade-Out | v0.6 | 0/TBD | Not started | - |
+| 14. Gentle Sleep Timer Fade-Out | v0.6 | 2/2 | Complete    | 2026-11-17 |
 | 15. Real PipeWire Biquad Equalizer | v0.6 | 0/TBD | Not started | - |
 | 16. Automatic Docked Audio-Switching | v0.6 | 2/2 | Complete    | 2026-11-17 |
 | 17. Event-Driven librespot & Suspend/Wi-Fi Resilience | v0.6 | 0/TBD | Not started | - |

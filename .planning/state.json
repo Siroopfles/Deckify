@@ -11,7 +11,7 @@
     {
       "number": "14",
       "name": "Gentle Sleep Timer Fade-Out",
-      "status": "pending"
+      "status": "complete"
     },
     {
       "number": "15",
@@ -37,7 +37,7 @@
   "next": {
     "command": "/gsd-progress --next",
     "label": "Advance to the next step (verify)",
-    "reason": "Phase 2 of 6 · 33% · ready to verify"
+    "reason": "Phase 3 of 6 · 50% · ready to verify"
   },
-  "updated_at": "2026-11-17T16:25:45.427Z"
+  "updated_at": "2026-11-17T17:26:15.247Z"
 }
