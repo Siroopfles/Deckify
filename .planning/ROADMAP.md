@@ -43,7 +43,7 @@
 - [x] **Phase 14: Gentle Sleep Timer Fade-Out** - Smoothly ramp playback volume to 0% over a configurable fade-out window before pausing and restoring baseline volume. (completed 2026-11-17)
 - [x] **Phase 15: Real PipeWire Biquad Equalizer** - Isolated `pipewire -c` `filter-chain` DSP equalizer with presets and live 5-band custom sliders. (completed 2026-11-17)
 - [x] **Phase 16: Automatic Docked Audio-Switching** - Automatic USB-DAC/HDMI sink hotplug switching for Deckify streams with `bit_perfect_clock` management. (completed 2026-11-17)
-- [ ] **Phase 17: Event-Driven librespot & Suspend/Wi-Fi Resilience** - Local `--onevent` Unix socket push updates, relaxed fallback polling, and unified suspend/Wi-Fi bookmark recovery.
+- [x] **Phase 17: Event-Driven librespot & Suspend/Wi-Fi Resilience** - Local `--onevent` Unix socket push updates, relaxed fallback polling, and unified suspend/Wi-Fi bookmark recovery. (completed 2026-11-17)
 - [ ] **Phase 18: MPRIS2 D-Bus Bridge** - Register `org.mpris.MediaPlayer2.deckify` on the `deck` user D-Bus for Bluetooth headset AVRCP playback and metadata.
 
 ## Phase Details
@@ -123,7 +123,7 @@ Plans:
   1. Track changes, play/pause transitions, and seeks in `librespot` update the QAM, Expanded Modal, and HUD overlay immediately via local Unix socket `--onevent` push without audible stutter during rapid skipping.
   2. When `--onevent` is healthy, background Web API polling relaxes from tight 3s intervals to low-frequency fallback polling, reducing HTTP 429 rate-limit pressure.
   3. On Steam Deck suspend (`PrepareForSleep`) or Wi-Fi disconnect/reconnect, Deckify snapshots the active playback bookmark (`track_uri`, `context_uri`, `position_ms`) and restores playback cleanly once network and OAuth tokens recover, without dual-restart races.
-**Plans:** 2/2 plans executed
+**Plans:** 2/2 plans complete
 
 Plans:
 **Wave 1**
@@ -150,7 +150,7 @@ Plans:
 | 14. Gentle Sleep Timer Fade-Out | v0.6 | 2/2 | Complete    | 2026-11-17 |
 | 15. Real PipeWire Biquad Equalizer | v0.6 | 2/2 | Complete    | 2026-11-17 |
 | 16. Automatic Docked Audio-Switching | v0.6 | 2/2 | Complete    | 2026-11-17 |
-| 17. Event-Driven librespot & Suspend/Wi-Fi Resilience | v0.6 | 2/2 | In Progress | - |
+| 17. Event-Driven librespot & Suspend/Wi-Fi Resilience | v0.6 | 2/2 | Complete    | 2026-11-17 |
 | 18. MPRIS2 D-Bus Bridge | v0.6 | 0/TBD | Not started | - |
 
 ---
