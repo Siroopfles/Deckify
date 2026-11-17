@@ -24,8 +24,8 @@
 - [x] **DOCK-02**: Docked switching enables `bit_perfect_clock` on designated DAC/HDMI sinks and cleanly restores normal routing and clock settings when undocked.
 
 ### Event-Driven Playback & Resilience
-- [ ] **RESIL-01**: `librespot` emits playback events (`--onevent`) over a local non-blocking Unix socket to update UI state immediately and relax Web API background polling to reduce HTTP 429 rate-limit pressure.
-- [ ] **RESIL-02**: On system suspend (`PrepareForSleep`) or Wi-Fi disconnect/reconnect, Deckify snapshots the active playback bookmark (`track_uri`, `context_uri`, `position_ms`) under a unified wake lock and restores the session cleanly once network and tokens recover.
+- [x] **RESIL-01**: `librespot` emits playback events (`--onevent`) over a local non-blocking Unix socket to update UI state immediately and relax Web API background polling to reduce HTTP 429 rate-limit pressure.
+- [x] **RESIL-02**: On system suspend (`PrepareForSleep`) or Wi-Fi disconnect/reconnect, Deckify snapshots the active playback bookmark (`track_uri`, `context_uri`, `position_ms`) under a unified wake lock and restores the session cleanly once network and tokens recover.
 
 ### MPRIS2 Bluetooth Controls
 - [ ] **MPRIS-01**: Deckify registers `org.mpris.MediaPlayer2.deckify` on the `deck` (UID 1000) user D-Bus so Bluetooth headsets/earbuds (via BlueZ `mpris-proxy`) can control Play/Pause/Next/Previous and read current track metadata locally.
@@ -62,8 +62,8 @@
 | EQ-02 | Phase 15 | Complete |
 | DOCK-01 | Phase 16 | Complete |
 | DOCK-02 | Phase 16 | Complete |
-| RESIL-01 | Phase 17 | Pending |
-| RESIL-02 | Phase 17 | Pending |
+| RESIL-01 | Phase 17 | Complete |
+| RESIL-02 | Phase 17 | Complete |
 | MPRIS-01 | Phase 18 | Pending |
 
 **Coverage:**
