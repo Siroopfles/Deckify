@@ -4,17 +4,17 @@ milestone: v0.6
 milestone_name: Audio DSP, Docked Flow & System Resilience (Active)
 current_phase: 17
 current_phase_name: Event-Driven librespot & Suspend/Wi-Fi Resilience
-status: executing
-stopped_at: Completed 17-01-PLAN.md
-last_updated: "2026-11-17T19:34:25.940Z"
+status: verifying
+stopped_at: Completed 17-02-PLAN.md
+last_updated: "2026-11-17T19:51:01.602Z"
 last_activity: 2026-11-17
 last_activity_desc: Phase 17 execution started
-state_head: 24914697124239bfb19e4fd112e16c2546234708
+state_head: a47b0720f900bbfd977b61460dc6e88858da8af2
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 10
-  completed_plans: 9
+  completed_plans: 10
   percent: 67
 ---
 
@@ -31,7 +31,7 @@ See: [.planning/PROJECT.md](file:///C:/Users/djdje/Deckify/.planning/PROJECT.md)
 
 Phase: 17 (Event-Driven librespot & Suspend/Wi-Fi Resilience) — EXECUTING
 Plan: 2 of 2
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-11-17 — Phase 17 execution started
 
 
@@ -94,6 +94,7 @@ Last activity: 2026-11-17 — Phase 17 execution started
 | Phase 16 P01 | 7 min | 3 tasks | 5 files |
 | Phase 16 P02 | 4 min | 2 tasks | 4 files |
 | Phase 17 P01 | 21min | 2 tasks | 5 files |
+| Phase 17 P02 | 14min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -138,6 +139,7 @@ Recent decisions affecting current work:
 - [Phase 16]: Rendered the Docked Audio-Switching card unconditionally adjacent to Audio Output Sink (PipeWire) so users can configure hotplug monitoring before connecting a dock or DAC.
 - [Phase 17]: Generated a <5ms POSIX /bin/sh --onevent emitter in DECKY_PLUGIN_RUNTIME_DIR writing KEY=VALUE pairs in background to AF_UNIX socket with 400ms debounced Web API enrichment and 20s/3s adaptive polling
 - [Phase 17]: Serialized SuspendResumeMonitor._on_deck_resume, _monitor_process SUSPEND_THRESHOLD, and 4s buffer-aware Wi-Fi drop recovery behind a single asyncio.Lock and 10s cooldown in SessionBookmarkManager
+- [Phase 17]: Wired immediate librespot_event and track_metadata push updates into usePlaybackStatus and QuickAccessMenu with conditional held-bookmark restore CTA and SettingsTab Playback Resilience card
 
 ### Pending Todos
 
@@ -166,8 +168,8 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-17T19:34:23.829Z
-Stopped at: Completed 17-01-PLAN.md
+Last session: 2026-11-17T19:50:58.606Z
+Stopped at: Completed 17-02-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
