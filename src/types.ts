@@ -147,6 +147,7 @@ export interface AudioSinkInfo {
   name: string;
   description: string;
   is_default: boolean;
+  is_active?: boolean;
 }
 
 export type DockStatusState =

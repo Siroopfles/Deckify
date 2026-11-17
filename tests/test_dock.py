@@ -87,6 +87,7 @@ class TestDockTracerSlice(unittest.IsolatedAsyncioTestCase):
                 "name": "alsa_output.usb-FiiO_K7-00.analog-stereo",
                 "description": "FiiO K7 USB DAC",
                 "is_default": False,
+                "is_active": False,
             },
         )
         self.assertNotIn("deckify_eq_sink", [s["name"] for s in res["sinks"]])
