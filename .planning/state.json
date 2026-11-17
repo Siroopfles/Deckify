@@ -16,7 +16,7 @@
     {
       "number": "15",
       "name": "Real PipeWire Biquad Equalizer",
-      "status": "pending"
+      "status": "complete"
     },
     {
       "number": "16",
@@ -36,8 +36,8 @@
   ],
   "next": {
     "command": "/gsd-progress --next",
-    "label": "Advance to the next step (verify)",
-    "reason": "Phase 3 of 6 · 50% · ready to verify"
+    "label": "Advance to the next step (plan phase 17)",
+    "reason": "Phase 5 of 6 — needs a plan"
   },
-  "updated_at": "2026-11-17T17:26:15.247Z"
+  "updated_at": "2026-11-17T17:58:06.662Z"
 }

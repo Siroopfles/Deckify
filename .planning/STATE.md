@@ -2,20 +2,20 @@
 gsd_state_version: "1.0"
 milestone: v0.6
 milestone_name: Audio DSP, Docked Flow & System Resilience (Active)
-current_phase: 15
-current_phase_name: Real PipeWire Biquad Equalizer
-status: verifying
-stopped_at: Phase 14 complete, ready to verify Phase 15
-last_updated: "2026-11-17T17:26:15.114Z"
+current_phase: 17
+current_phase_name: Event-Driven librespot & Suspend/Wi-Fi Resilience
+status: planning
+stopped_at: Phase 15 complete, ready to plan Phase 17
+last_updated: "2026-11-17T17:58:06.500Z"
 last_activity: 2026-11-17
-last_activity_desc: Phase 14 complete, transitioned to Phase 15
-state_head: a07f6d7c73f717b371f5766666c4dd554ffe5a6c
+last_activity_desc: Phase 15 complete, transitioned to Phase 17
+state_head: 7740f8319fabc79d440f4ab031eeae13ddb9058f
 progress:
   total_phases: 6
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 8
   completed_plans: 8
-  percent: 50
+  percent: 67
 ---
 
 # Project State
@@ -29,16 +29,16 @@ See: [.planning/PROJECT.md](file:///C:/Users/djdje/Deckify/.planning/PROJECT.md)
 
 ## Current Position
 
-Phase: 15 — Real PipeWire Biquad Equalizer
-Plan: 2
-Status: Phase complete — ready for verification
-Last activity: 2026-11-17 — Phase 14 complete, transitioned to Phase 15
+Phase: 17 — Event-Driven librespot & Suspend/Wi-Fi Resilience
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-11-17 — Phase 15 complete, transitioned to Phase 17
 
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 35 (7 in v0.4, 22 in v0.5)
+- Total plans completed: 37 (7 in v0.4, 22 in v0.5)
 - Average duration: ~14.7 min
 - Total execution time: ~2.2 hours
 
@@ -58,6 +58,7 @@ Last activity: 2026-11-17 — Phase 14 complete, transitioned to Phase 15
 | 13 | 2 | - | - |
 | 16 | 2 | - | - |
 | 14 | 2 | - | - |
+| 15 | 2 | - | - |
 
 **Recent Trend:**
 - Last 5 plans: 18m, 14m, 16m, 14m, 12m
@@ -163,7 +164,7 @@ Items acknowledged and deferred at milestone close, most recent first:
 ## Session Continuity
 
 Last session: 2026-11-17T16:21:50.037Z
-Stopped at: Phase 14 complete, ready to verify Phase 15
+Stopped at: Phase 15 complete, ready to plan Phase 17
 Resume file: None
 
 ## Operator Next Steps
