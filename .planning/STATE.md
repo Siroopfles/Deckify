@@ -2,20 +2,20 @@
 gsd_state_version: "1.0"
 milestone: v0.6
 milestone_name: Audio DSP, Docked Flow & System Resilience (Active)
-current_phase: 16
-current_phase_name: Automatic Docked Audio-Switching
+current_phase: 14
+current_phase_name: Gentle Sleep Timer Fade-Out
 status: verifying
-stopped_at: Completed 16-02-PLAN.md
-last_updated: "2026-11-17T16:21:51.636Z"
+stopped_at: Phase 16 complete, ready to verify Phase 14
+last_updated: "2026-11-17T16:25:45.342Z"
 last_activity: 2026-11-17
-last_activity_desc: Phase 16 execution started
-state_head: 9a2d61e7951bb5edf56908969458a3b52ec47667
+last_activity_desc: Phase 16 complete, transitioned to Phase 14
+state_head: 3ffb957e38752ed56bf626c59d70922b0550f0c5
 progress:
   total_phases: 6
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 8
   completed_plans: 8
-  percent: 17
+  percent: 33
 ---
 
 # Project State
@@ -29,16 +29,16 @@ See: [.planning/PROJECT.md](file:///C:/Users/djdje/Deckify/.planning/PROJECT.md)
 
 ## Current Position
 
-Phase: 16 (Automatic Docked Audio-Switching) — EXECUTING
-Plan: 2 of 2
+Phase: 14 — Gentle Sleep Timer Fade-Out
+Plan: 2
 Status: Phase complete — ready for verification
-Last activity: 2026-11-17 — Phase 16 execution started
+Last activity: 2026-11-17 — Phase 16 complete, transitioned to Phase 14
 
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 31 (7 in v0.4, 22 in v0.5)
+- Total plans completed: 33 (7 in v0.4, 22 in v0.5)
 - Average duration: ~14.7 min
 - Total execution time: ~2.2 hours
 
@@ -56,6 +56,7 @@ Last activity: 2026-11-17 — Phase 16 execution started
 | 11.1 | 1 | - | - |
 | 12 | 3 | - | - |
 | 13 | 2 | - | - |
+| 16 | 2 | - | - |
 
 **Recent Trend:**
 - Last 5 plans: 18m, 14m, 16m, 14m, 12m
@@ -161,7 +162,7 @@ Items acknowledged and deferred at milestone close, most recent first:
 ## Session Continuity
 
 Last session: 2026-11-17T16:21:50.037Z
-Stopped at: Completed 16-02-PLAN.md
+Stopped at: Phase 16 complete, ready to verify Phase 14
 Resume file: None
 
 ## Operator Next Steps

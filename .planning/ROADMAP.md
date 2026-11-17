@@ -42,7 +42,7 @@
 - [x] **Phase 13: Like Button 403 Fix & Sink-Input Guardrails** - Migrate track liking to `/v1/me/library` with CDP fallback and isolate sink-input routing strictly to Deckify streams. (completed 2026-11-16)
 - [ ] **Phase 14: Gentle Sleep Timer Fade-Out** - Smoothly ramp playback volume to 0% over a configurable fade-out window before pausing and restoring baseline volume.
 - [ ] **Phase 15: Real PipeWire Biquad Equalizer** - Isolated `pipewire -c` `filter-chain` DSP equalizer with presets and live 5-band custom sliders.
-- [ ] **Phase 16: Automatic Docked Audio-Switching** - Automatic USB-DAC/HDMI sink hotplug switching for Deckify streams with `bit_perfect_clock` management.
+- [x] **Phase 16: Automatic Docked Audio-Switching** - Automatic USB-DAC/HDMI sink hotplug switching for Deckify streams with `bit_perfect_clock` management. (completed 2026-11-17)
 - [ ] **Phase 17: Event-Driven librespot & Suspend/Wi-Fi Resilience** - Local `--onevent` Unix socket push updates, relaxed fallback polling, and unified suspend/Wi-Fi bookmark recovery.
 - [ ] **Phase 18: MPRIS2 D-Bus Bridge** - Register `org.mpris.MediaPlayer2.deckify` on the `deck` user D-Bus for Bluetooth headset AVRCP playback and metadata.
 
@@ -105,7 +105,7 @@ Plans:
   2. Connecting the designated dock/DAC sink automatically moves only Deckify's stream (`effect_output.deckify_eq` when EQ is active, or `librespot` when bypassed) to the target sink after hotplug debounce, without hijacking game audio or overriding active Bluetooth headphones if configured.
   3. Designated USB-DAC/HDMI sinks receive `bit_perfect_clock` (`clock.allowed-rates`) configuration when docked.
   4. Undocking cleanly restores normal sink routing and resets `clock.allowed-rates` to `[ 48000 ]` so internal speakers and Bluetooth audio do not crackle.
-**Plans:** 2/2 plans executed
+**Plans:** 2/2 plans complete
 **UI hint**: yes
 
 Plans:
@@ -142,7 +142,7 @@ Plans:
 | 13. Like Button 403 Fix & Sink-Input Guardrails | v0.6 | 2/2 | Complete    | 2026-11-16 |
 | 14. Gentle Sleep Timer Fade-Out | v0.6 | 0/TBD | Not started | - |
 | 15. Real PipeWire Biquad Equalizer | v0.6 | 0/TBD | Not started | - |
-| 16. Automatic Docked Audio-Switching | v0.6 | 2/2 | In Progress | - |
+| 16. Automatic Docked Audio-Switching | v0.6 | 2/2 | Complete    | 2026-11-17 |
 | 17. Event-Driven librespot & Suspend/Wi-Fi Resilience | v0.6 | 0/TBD | Not started | - |
 | 18. MPRIS2 D-Bus Bridge | v0.6 | 0/TBD | Not started | - |
 
