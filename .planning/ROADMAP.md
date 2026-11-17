@@ -123,11 +123,11 @@ Plans:
   1. Track changes, play/pause transitions, and seeks in `librespot` update the QAM, Expanded Modal, and HUD overlay immediately via local Unix socket `--onevent` push without audible stutter during rapid skipping.
   2. When `--onevent` is healthy, background Web API polling relaxes from tight 3s intervals to low-frequency fallback polling, reducing HTTP 429 rate-limit pressure.
   3. On Steam Deck suspend (`PrepareForSleep`) or Wi-Fi disconnect/reconnect, Deckify snapshots the active playback bookmark (`track_uri`, `context_uri`, `position_ms`) and restores playback cleanly once network and OAuth tokens recover, without dual-restart races.
-**Plans:** 2 plans
+**Plans:** 1/2 plans executed
 
 Plans:
 **Wave 1**
-- [ ] 17-01-PLAN.md — Backend `LibrespotEventServer` (`--onevent` AF_UNIX push, Base16→Base62, 400ms debounce, 20s/3s adaptive polling) & `SessionBookmarkManager` (unified wake lock, 4s Wi-Fi grace window, remote-device yield, configurable expiry)
+- [x] 17-01-PLAN.md — Backend `LibrespotEventServer` (`--onevent` AF_UNIX push, Base16→Base62, 400ms debounce, 20s/3s adaptive polling) & `SessionBookmarkManager` (unified wake lock, 4s Wi-Fi grace window, remote-device yield, configurable expiry)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 - [ ] 17-02-PLAN.md — Frontend `librespot_event` immediate sync (`usePlaybackStatus`, `QuickAccessMenu`), conditional held-bookmark CTA, and `SettingsTab.tsx` "Playback Resilience" card
@@ -150,7 +150,7 @@ Plans:
 | 14. Gentle Sleep Timer Fade-Out | v0.6 | 2/2 | Complete    | 2026-11-17 |
 | 15. Real PipeWire Biquad Equalizer | v0.6 | 2/2 | Complete    | 2026-11-17 |
 | 16. Automatic Docked Audio-Switching | v0.6 | 2/2 | Complete    | 2026-11-17 |
-| 17. Event-Driven librespot & Suspend/Wi-Fi Resilience | v0.6 | 0/TBD | Not started | - |
+| 17. Event-Driven librespot & Suspend/Wi-Fi Resilience | v0.6 | 1/2 | In Progress | - |
 | 18. MPRIS2 D-Bus Bridge | v0.6 | 0/TBD | Not started | - |
 
 ---
