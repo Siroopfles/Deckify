@@ -140,13 +140,29 @@ async def refresh_audio_stream_info(plugin) -> None:
 async def get_audio_sinks() -> dict:
     """List available audio output sinks via pactl."""
     try:
-        sinks = await _exec(_get_pactl_sinks, timeout=3)
-        return {"ok": True, "sinks": sinks}
+        from py_modules import dock
+
+        res = await _exec(dock.get_detailed_sinks, timeout=3)
+        sinks = res[0] if isinstance(res, tuple) else res
+        if not isinstance(sinks, list):
+            sinks = []
+        return {
+            "ok": True,
+            "sinks": [
+                {
+                    "name": s["name"],
+                    "description": s.get("description", s["name"]),
+                    "is_default": bool(s.get("is_default", False)),
+                }
+                for s in sinks
+                if isinstance(s, dict) and s.get("name")
+            ],
+        }
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
 
-async def set_audio_sink(sink_name: str, plugin=None) -> dict:
+async def set_audio_sink(sink_name: str, plugin=None, is_auto_dock: bool = False) -> dict:
     """Switch active sink input to specified sink name (EQ-isolated when EQ is active)."""
     if not sink_name or not isinstance(sink_name, str) or not sink_name.strip() or sink_name.strip().startswith("-"):
         return {"ok": False, "error": "Invalid sink_name"}
@@ -155,10 +171,21 @@ async def set_audio_sink(sink_name: str, plugin=None) -> dict:
         eq_mgr = getattr(plugin, "_equalizer_manager", None) if plugin is not None else None
         if eq_mgr is not None:
             if eq_mgr.is_active:
-                return await eq_mgr.on_sink_changed(target)
-            eq_mgr._target_hardware_sink = target
-        ok = await _exec(_set_pactl_sink_input, target, timeout=4)
-        return {"ok": ok}
+                res = await eq_mgr.on_sink_changed(target)
+            else:
+                eq_mgr._target_hardware_sink = target
+                ok = await _exec(_set_pactl_sink_input, target, timeout=4)
+                res = {"ok": ok}
+        else:
+            ok = await _exec(_set_pactl_sink_input, target, timeout=4)
+            res = {"ok": ok}
+
+        if not is_auto_dock and plugin is not None and isinstance(res, dict) and res.get("ok"):
+            dock_switcher = getattr(plugin, "_dock_switcher", None)
+            if dock_switcher is not None and hasattr(dock_switcher, "on_manual_sink_selected"):
+                dock_switcher.on_manual_sink_selected(target)
+
+        return res
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
