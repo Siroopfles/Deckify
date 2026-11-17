@@ -41,7 +41,7 @@
 
 - [x] **Phase 13: Like Button 403 Fix & Sink-Input Guardrails** - Migrate track liking to `/v1/me/library` with CDP fallback and isolate sink-input routing strictly to Deckify streams. (completed 2026-11-16)
 - [x] **Phase 14: Gentle Sleep Timer Fade-Out** - Smoothly ramp playback volume to 0% over a configurable fade-out window before pausing and restoring baseline volume. (completed 2026-11-17)
-- [ ] **Phase 15: Real PipeWire Biquad Equalizer** - Isolated `pipewire -c` `filter-chain` DSP equalizer with presets and live 5-band custom sliders.
+- [x] **Phase 15: Real PipeWire Biquad Equalizer** - Isolated `pipewire -c` `filter-chain` DSP equalizer with presets and live 5-band custom sliders. (completed 2026-11-17)
 - [x] **Phase 16: Automatic Docked Audio-Switching** - Automatic USB-DAC/HDMI sink hotplug switching for Deckify streams with `bit_perfect_clock` management. (completed 2026-11-17)
 - [ ] **Phase 17: Event-Driven librespot & Suspend/Wi-Fi Resilience** - Local `--onevent` Unix socket push updates, relaxed fallback polling, and unified suspend/Wi-Fi bookmark recovery.
 - [ ] **Phase 18: MPRIS2 D-Bus Bridge** - Register `org.mpris.MediaPlayer2.deckify` on the `deck` user D-Bus for Bluetooth headset AVRCP playback and metadata.
@@ -86,15 +86,15 @@ Plans:
   2. Enabling, switching, or disabling the equalizer never restarts system `pipewire` or interrupts active game audio or Steam UI sounds.
   3. User can select `Custom` and adjust 5-band frequency sliders (60Hz, 230Hz, 910Hz, 3.6kHz, 14kHz) in `SettingsTab` with live `pw-cli` updates and no audible crackle or subprocess spam.
   4. Selected EQ preset and custom band gains persist across plugin restarts and SteamOS reboots.
-**Plans:** 2 plans
+**Plans:** 2/2 plans complete
 **UI hint**: yes
 
 Plans:
 **Wave 1**
-- [ ] 15-01-PLAN.md — Backend `EqualizerManager` (`pipewire -c` 10-band biquad `filter-chain`, `pw-cli` ~75ms coalescing, `flat` bypass, sink isolation, and `main.py` RPCs)
+- [x] 15-01-PLAN.md — Backend `EqualizerManager` (`pipewire -c` 10-band biquad `filter-chain`, `pw-cli` ~75ms coalescing, `flat` bypass, sink isolation, and `main.py` RPCs)
 
 **Wave 2** *(blocked on Wave 1 completion)*
-- [ ] 15-02-PLAN.md — Frontend 7-preset & 10-band ISO `SliderField` equalizer UI in `SettingsTab.tsx`, `src/types.ts`, and `SettingsTab.test.tsx`
+- [x] 15-02-PLAN.md — Frontend 7-preset & 10-band ISO `SliderField` equalizer UI in `SettingsTab.tsx`, `src/types.ts`, and `SettingsTab.test.tsx`
 
 ### Phase 16: Automatic Docked Audio-Switching
 **Goal**: Connecting a designated external USB-DAC or HDMI sink automatically routes Deckify's audio stream with bit-perfect clock support and restores normal routing on undock.
@@ -141,7 +141,7 @@ Plans:
 |-------|-----------|----------------|--------|-----------|
 | 13. Like Button 403 Fix & Sink-Input Guardrails | v0.6 | 2/2 | Complete    | 2026-11-16 |
 | 14. Gentle Sleep Timer Fade-Out | v0.6 | 2/2 | Complete    | 2026-11-17 |
-| 15. Real PipeWire Biquad Equalizer | v0.6 | 0/TBD | Not started | - |
+| 15. Real PipeWire Biquad Equalizer | v0.6 | 2/2 | Complete    | 2026-11-17 |
 | 16. Automatic Docked Audio-Switching | v0.6 | 2/2 | Complete    | 2026-11-17 |
 | 17. Event-Driven librespot & Suspend/Wi-Fi Resilience | v0.6 | 0/TBD | Not started | - |
 | 18. MPRIS2 D-Bus Bridge | v0.6 | 0/TBD | Not started | - |
