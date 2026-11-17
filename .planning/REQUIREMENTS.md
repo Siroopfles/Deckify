@@ -13,7 +13,7 @@
 - [x] **LIB-02**: Audio sink-input routing (`_set_pactl_sink_input` / `resolve_spotify_sink_input_ids`) strictly targets only Deckify/Spotify streams (`librespot`, `com.spotify.client`, `deckify_eq_out`) and never moves or mutes `steamwebhelper`, `Chromium`, or game audio streams.
 
 ### Sleep Timer
-- [ ] **SLEEP-01**: When the sleep timer expires, Deckify smoothly fades playback volume down to 0% over a configurable fade-out window (default 30s) using `VolumeFader` with a `"sleep"` priority lock before pausing playback and restoring baseline volume after audio drain.
+- [x] **SLEEP-01**: When the sleep timer expires, Deckify smoothly fades playback volume down to 0% over a configurable fade-out window (default 30s) using `VolumeFader` with a `"sleep"` priority lock before pausing playback and restoring baseline volume after audio drain.
 
 ### PipeWire Equalizer
 - [ ] **EQ-01**: User can apply real-time PipeWire `filter-chain` biquad DSP equalization (`flat` bypass, `bass`, `vocal`, `gaming` presets) isolated to the Deckify audio stream without restarting system `pipewire` or affecting game audio.
@@ -57,7 +57,7 @@
 |-------------|-------|--------|
 | LIB-01 | Phase 13 | Complete |
 | LIB-02 | Phase 13 | Complete |
-| SLEEP-01 | Phase 14 | Pending |
+| SLEEP-01 | Phase 14 | Complete |
 | EQ-01 | Phase 15 | Pending |
 | EQ-02 | Phase 15 | Pending |
 | DOCK-01 | Phase 16 | Complete |

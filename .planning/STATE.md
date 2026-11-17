@@ -2,20 +2,20 @@
 gsd_state_version: "1.0"
 milestone: v0.6
 milestone_name: Audio DSP, Docked Flow & System Resilience (Active)
-current_phase: 14
-current_phase_name: Gentle Sleep Timer Fade-Out
+current_phase: 15
+current_phase_name: Real PipeWire Biquad Equalizer
 status: verifying
-stopped_at: Phase 16 complete, ready to verify Phase 14
-last_updated: "2026-11-17T16:25:45.342Z"
+stopped_at: Phase 14 complete, ready to verify Phase 15
+last_updated: "2026-11-17T17:26:15.114Z"
 last_activity: 2026-11-17
-last_activity_desc: Phase 16 complete, transitioned to Phase 14
-state_head: 3ffb957e38752ed56bf626c59d70922b0550f0c5
+last_activity_desc: Phase 14 complete, transitioned to Phase 15
+state_head: a07f6d7c73f717b371f5766666c4dd554ffe5a6c
 progress:
   total_phases: 6
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 8
   completed_plans: 8
-  percent: 33
+  percent: 50
 ---
 
 # Project State
@@ -29,16 +29,16 @@ See: [.planning/PROJECT.md](file:///C:/Users/djdje/Deckify/.planning/PROJECT.md)
 
 ## Current Position
 
-Phase: 14 — Gentle Sleep Timer Fade-Out
+Phase: 15 — Real PipeWire Biquad Equalizer
 Plan: 2
 Status: Phase complete — ready for verification
-Last activity: 2026-11-17 — Phase 16 complete, transitioned to Phase 14
+Last activity: 2026-11-17 — Phase 14 complete, transitioned to Phase 15
 
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 33 (7 in v0.4, 22 in v0.5)
+- Total plans completed: 35 (7 in v0.4, 22 in v0.5)
 - Average duration: ~14.7 min
 - Total execution time: ~2.2 hours
 
@@ -57,6 +57,7 @@ Last activity: 2026-11-17 — Phase 16 complete, transitioned to Phase 14
 | 12 | 3 | - | - |
 | 13 | 2 | - | - |
 | 16 | 2 | - | - |
+| 14 | 2 | - | - |
 
 **Recent Trend:**
 - Last 5 plans: 18m, 14m, 16m, 14m, 12m
@@ -162,7 +163,7 @@ Items acknowledged and deferred at milestone close, most recent first:
 ## Session Continuity
 
 Last session: 2026-11-17T16:21:50.037Z
-Stopped at: Phase 16 complete, ready to verify Phase 14
+Stopped at: Phase 14 complete, ready to verify Phase 15
 Resume file: None
 
 ## Operator Next Steps
