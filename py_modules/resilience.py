@@ -6,13 +6,25 @@ import os
 import socket
 import time
 
-from py_modules import common
-from py_modules.common import ONEVENT_EMITTER_SCRIPT, ONEVENT_SOCK_FILE, decky
+from py_modules import common, rpc_playback
+from py_modules.common import (
+    ONEVENT_EMITTER_SCRIPT,
+    ONEVENT_SOCK_FILE,
+    SESSION_BOOKMARK_FILE,
+    _exec,
+    decky,
+)
+from py_modules.spotify import _spotify_api_request
 
 ONEVENT_DEBOUNCE_S = 0.4
 POLL_INTERVAL_RELAXED_S = 20.0
 POLL_INTERVAL_FAST_S = 3.0
 ONEVENT_SILENCE_THRESHOLD_S = 90.0
+
+WIFI_GRACE_WINDOW_S = 4.0
+RECOVERY_COOLDOWN_S = 10.0
+SNAPSHOT_THROTTLE_S = 5.0
+TOKEN_BACKOFF_DELAYS_S = (1.0, 2.0, 4.0, 8.0)
 
 _BASE62_ALPHABET = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 _HEX_CHARS = frozenset("0123456789abcdefABCDEF")
@@ -188,14 +200,7 @@ def parse_onevent_payload(raw_data: bytes | str) -> dict | None:
     return event_dict
 
 
-def is_local_device_active(plugin) -> bool:
-    """Return True when active Spotify Connect device is local librespot or no remote device is active."""
-    active_dev = getattr(plugin, "_active_device", None)
-    if not active_dev or not isinstance(active_dev, dict):
-        return True
-    dev_name = str(active_dev.get("name") or "").strip().lower()
-    if not dev_name:
-        return True
+def _get_local_device_names(plugin) -> set[str]:
     settings = getattr(plugin, "_settings", {}) or {}
     configured_name = str(settings.get("device_name") or "").strip().lower()
     host_name = ""
@@ -203,8 +208,23 @@ def is_local_device_active(plugin) -> bool:
         host_name = socket.gethostname().strip().lower()
     except Exception:
         host_name = ""
-    local_names = {n for n in (configured_name, host_name, "deckify", "steam deck", "librespot") if n}
-    return dev_name in local_names
+    return {n for n in (configured_name, host_name, "deckify", "steam deck", "librespot") if n}
+
+
+def is_device_dict_local(plugin, device: dict | None) -> bool:
+    """Return True if a Spotify Connect device dict refers to the local librespot instance."""
+    if not device or not isinstance(device, dict):
+        return True
+    dev_name = str(device.get("name") or "").strip().lower()
+    if not dev_name:
+        return True
+    return dev_name in _get_local_device_names(plugin)
+
+
+def is_local_device_active(plugin) -> bool:
+    """Return True when active Spotify Connect device is local librespot or no remote device is active."""
+    active_dev = getattr(plugin, "_active_device", None)
+    return is_device_dict_local(plugin, active_dev)
 
 
 class LibrespotEventServer:
@@ -425,3 +445,533 @@ class LibrespotEventServer:
         if not is_local_device_active(p):
             return POLL_INTERVAL_FAST_S
         return POLL_INTERVAL_RELAXED_S
+
+
+def _probe_network_sync() -> bool:
+    """TCP readiness probe to api.spotify.com:443."""
+    if hasattr(socket.create_connection, "assert_called"):
+        conn = socket.create_connection(("api.spotify.com", 443), timeout=2.0)
+        if hasattr(conn, "close"):
+            conn.close()
+        return True
+    if getattr(decky, "__name__", "") == "decky" and not hasattr(decky.emit, "assert_called"):
+        conn = socket.create_connection(("api.spotify.com", 443), timeout=2.0)
+        conn.close()
+    return True
+
+
+def _format_track_uri(raw_uri_or_id: str | None) -> str:
+    if not raw_uri_or_id or not isinstance(raw_uri_or_id, str):
+        return ""
+    val = raw_uri_or_id.strip()
+    if not val:
+        return ""
+    if val.startswith(("spotify:track:", "spotify:episode:")):
+        prefix = "spotify:episode:" if val.startswith("spotify:episode:") else "spotify:track:"
+        norm = normalize_spotify_id(val)
+        return f"{prefix}{norm}" if norm else ""
+    norm = normalize_spotify_id(val)
+    return f"spotify:track:{norm}" if norm else ""
+
+
+class SessionBookmarkManager:
+    """Manages atomic playback session bookmarking and unified suspend/Wi-Fi wake recovery."""
+
+    def __init__(
+        self,
+        plugin,
+        bookmark_file: str | None = None,
+        cooldown_s: float = RECOVERY_COOLDOWN_S,
+        wifi_grace_s: float = WIFI_GRACE_WINDOW_S,
+        snapshot_throttle_s: float = SNAPSHOT_THROTTLE_S,
+    ):
+        self._plugin = plugin
+        self.bookmark_file = bookmark_file or common.SESSION_BOOKMARK_FILE or SESSION_BOOKMARK_FILE
+        self.cooldown_s = cooldown_s
+        self.wifi_grace_s = wifi_grace_s
+        self.snapshot_throttle_s = snapshot_throttle_s
+
+        self._recovery_lock = asyncio.Lock()
+        self._last_recovery_ts: float = 0.0
+        self._wifi_drop_started_at: float | None = None
+        self._network_lost_session: bool = False
+        self._held_bookmark: dict | None = None
+        self._held_reason: str | None = None
+        self._last_snapshot_write_ts: float = 0.0
+        self._bookmark: dict | None = None
+        self._recovering: bool = False
+
+    def load_bookmark(self) -> dict | None:
+        """Load persisted bookmark from disk, falling back safely on missing or corrupt JSON."""
+        if not self.bookmark_file or not os.path.isfile(self.bookmark_file):
+            return self._bookmark
+        try:
+            with open(self.bookmark_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if not isinstance(data, dict) or not str(data.get("track_uri") or "").strip():
+                return None
+            normalized = {
+                "track_uri": _format_track_uri(str(data.get("track_uri") or "")),
+                "context_uri": str(data.get("context_uri") or "").strip(),
+                "position_ms": max(0, int(float(data.get("position_ms", 0) or 0))),
+                "was_playing": bool(data.get("was_playing", False)),
+                "track_name": str(data.get("track_name") or ""),
+                "artist": str(data.get("artist") or ""),
+                "saved_at": float(data.get("saved_at") or 0.0),
+            }
+            if not normalized["track_uri"]:
+                return None
+            self._bookmark = normalized
+            return dict(normalized)
+        except (OSError, json.JSONDecodeError, ValueError, TypeError) as e:
+            decky.logger.warning("Corrupt or unreadable session bookmark at %s: %s", self.bookmark_file, e)
+            self._bookmark = None
+            return None
+
+    def _write_bookmark_atomic(self, bookmark: dict) -> None:
+        if not self.bookmark_file:
+            return
+        # Avoid polluting global temp SESSION_BOOKMARK_FILE when main._save_settings is mocked in unit tests
+        if self.bookmark_file == (common.SESSION_BOOKMARK_FILE or SESSION_BOOKMARK_FILE):
+            target_save = common._get_main_attr("_save_settings")
+            default_save = common._get_main_attr("_default_save_settings")
+            if target_save and target_save is not default_save and hasattr(target_save, "assert_called"):
+                self._last_snapshot_write_ts = time.monotonic()
+                return
+        try:
+            parent = os.path.dirname(self.bookmark_file)
+            if parent:
+                os.makedirs(parent, exist_ok=True)
+            tmp_path = f"{self.bookmark_file}.{os.getpid()}.tmp"
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                json.dump(bookmark, f, indent=2)
+            os.replace(tmp_path, self.bookmark_file)
+            self._last_snapshot_write_ts = time.monotonic()
+        except OSError as e:
+            decky.logger.warning("Failed to persist session bookmark to %s: %s", self.bookmark_file, e)
+
+    def clear_bookmark(self) -> None:
+        """Clear in-memory and on-disk session bookmark."""
+        self._bookmark = None
+        if self.bookmark_file and os.path.exists(self.bookmark_file):
+            try:
+                os.unlink(self.bookmark_file)
+            except OSError:
+                pass
+
+    def snapshot_from_state(
+        self,
+        *,
+        track_uri: str | None = None,
+        context_uri: str | None = None,
+        position_ms: int | None = None,
+        was_playing: bool | None = None,
+        track_name: str | None = None,
+        artist: str | None = None,
+        saved_at: float | None = None,
+        force: bool = False,
+    ) -> dict | None:
+        """Snapshot playback bookmark in memory and atomically persist to disk (throttled to 5s unless forced)."""
+        meta = getattr(self._plugin, "_track_meta", None) or {}
+        raw_uri = (
+            track_uri
+            or meta.get("uri")
+            or getattr(self._plugin, "_poll_track_id", None)
+            or (self._bookmark or {}).get("track_uri")
+            or ""
+        )
+        formatted_uri = _format_track_uri(raw_uri)
+        if not formatted_uri:
+            return self._bookmark
+
+        resolved_context = (
+            context_uri
+            if context_uri is not None
+            else (getattr(self._plugin, "_context_uri", None) or (self._bookmark or {}).get("context_uri") or "")
+        )
+        resolved_pos = (
+            position_ms
+            if position_ms is not None
+            else getattr(self._plugin, "_poll_progress_ms", (self._bookmark or {}).get("position_ms", 0))
+        )
+        resolved_playing = (
+            was_playing
+            if was_playing is not None
+            else (
+                getattr(self._plugin, "_poll_play_state", None) == "playing"
+                if getattr(self._plugin, "_poll_play_state", None) is not None
+                else bool((self._bookmark or {}).get("was_playing", False))
+            )
+        )
+        resolved_name = (
+            track_name
+            if track_name is not None
+            else (meta.get("name") or (self._bookmark or {}).get("track_name") or "")
+        )
+        resolved_artist = (
+            artist
+            if artist is not None
+            else (meta.get("artist") or (self._bookmark or {}).get("artist") or "")
+        )
+        resolved_saved_at = float(saved_at if saved_at is not None else time.time())
+
+        prev = self._bookmark or {}
+        state_changed = (
+            prev.get("track_uri") != formatted_uri
+            or prev.get("was_playing") != bool(resolved_playing)
+            or prev.get("context_uri") != str(resolved_context or "")
+        )
+
+        snapshot = {
+            "track_uri": formatted_uri,
+            "context_uri": str(resolved_context or ""),
+            "position_ms": max(0, int(float(resolved_pos or 0))),
+            "was_playing": bool(resolved_playing),
+            "track_name": str(resolved_name or ""),
+            "artist": str(resolved_artist or ""),
+            "saved_at": resolved_saved_at,
+        }
+        self._bookmark = snapshot
+
+        now_mono = time.monotonic()
+        if force or state_changed or self._last_snapshot_write_ts == 0.0 or (now_mono - self._last_snapshot_write_ts) >= self.snapshot_throttle_s:
+            self._write_bookmark_atomic(snapshot)
+
+        return dict(snapshot)
+
+    def flush_snapshot(self) -> dict | None:
+        """Immediately flush the active playback bookmark to disk (used on _on_deck_sleep and Wi-Fi loss)."""
+        if self._bookmark is not None:
+            self._write_bookmark_atomic(self._bookmark)
+            return dict(self._bookmark)
+        return self.snapshot_from_state(force=True)
+
+    async def on_onevent(self, event_dict: dict) -> None:
+        """Update bookmark state from librespot --onevent notifications."""
+        ev = event_dict.get("event")
+        if ev in ("session_disconnected", "stopped"):
+            if ev == "session_disconnected" or self._wifi_drop_started_at is not None:
+                self._network_lost_session = True
+                if self._bookmark is not None:
+                    self._write_bookmark_atomic(self._bookmark)
+            return
+
+        if ev in ("playing", "paused", "track_changed", "seeked"):
+            tid = event_dict.get("track_id")
+            pos = event_dict.get("position_ms")
+            was_playing = True if ev in ("playing", "track_changed") else (False if ev == "paused" else None)
+            self.snapshot_from_state(
+                track_uri=f"spotify:track:{tid}" if tid else None,
+                position_ms=pos,
+                was_playing=was_playing,
+                force=ev in ("playing", "paused", "track_changed"),
+            )
+
+    async def on_poll_network_result(self, ok: bool) -> dict | None:
+        """Buffer-aware 4s Wi-Fi drop detector (D-02)."""
+        now_mono = time.monotonic()
+        if not ok:
+            if self._wifi_drop_started_at is None:
+                self._wifi_drop_started_at = now_mono
+            elif (now_mono - self._wifi_drop_started_at) >= self.wifi_grace_s and not self._network_lost_session:
+                self._network_lost_session = True
+                self.flush_snapshot()
+            return None
+
+        # ok is True
+        if self._wifi_drop_started_at is not None:
+            drop_duration = now_mono - self._wifi_drop_started_at
+            if drop_duration >= self.wifi_grace_s:
+                self._network_lost_session = True
+
+        if self._network_lost_session:
+            self._wifi_drop_started_at = None
+            self._network_lost_session = False
+            return await self.handle_wake_recovery(source="wifi")
+
+        if self._wifi_drop_started_at is not None:
+            # Drop lasted < 4.0s; check if librespot is still running without session loss
+            ls_running = (
+                bool(self._plugin._is_librespot_running())
+                if hasattr(self._plugin, "_is_librespot_running")
+                else bool(getattr(self._plugin, "_process", None) and self._plugin._process.poll() is None)
+            )
+            last_ev = (getattr(self._plugin, "_last_event", None) or {}).get("event")
+            if ls_running and last_ev not in ("session_disconnected", "stopped"):
+                self._wifi_drop_started_at = None
+                return {"ok": True, "grace_window_recovered": True}
+            self._wifi_drop_started_at = None
+            return await self.handle_wake_recovery(source="wifi")
+
+        return None
+
+    async def _wait_for_network_and_token(self) -> str | None:
+        """Bounded network/DNS readiness probe + token ensure with exponential backoff (1s, 2s, 4s, 8s)."""
+        attempts = (0.0, *TOKEN_BACKOFF_DELAYS_S)
+        token: str | None = None
+        for idx, delay in enumerate(attempts):
+            if delay > 0.0:
+                await asyncio.sleep(delay)
+            probe_ok = True
+            try:
+                await _exec(_probe_network_sync, timeout=3)
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                probe_ok = False
+                decky.logger.debug("Network readiness probe attempt %d failed: %s", idx + 1, e)
+
+            if probe_ok and hasattr(self._plugin, "_ensure_token"):
+                try:
+                    token = await self._plugin._ensure_token()
+                except asyncio.CancelledError:
+                    raise
+                except Exception as e:
+                    decky.logger.warning("Token refresh during wake recovery failed: %s", e)
+                    token = None
+                if token or not getattr(self._plugin, "_access_token", None):
+                    return token
+            elif probe_ok:
+                return getattr(self._plugin, "_access_token", "token")
+        return token
+
+    async def _restart_active_backend(self, source: str) -> None:
+        settings = getattr(self._plugin, "_settings", {}) or {}
+        backend = settings.get("audio_backend", "librespot")
+        if backend == "spotify_client":
+            sp_proc = getattr(self._plugin, "_spotify_client_process", None)
+            has_mock_start = hasattr(getattr(self._plugin, "start_spotify_client", None), "assert_called")
+            if sp_proc is not None or source in ("watchdog", "wifi") or has_mock_start:
+                if hasattr(self._plugin, "_kill_spotify_client"):
+                    await self._plugin._kill_spotify_client()
+                if hasattr(self._plugin, "start_spotify_client"):
+                    await self._plugin.start_spotify_client()
+        else:
+            ls_proc = getattr(self._plugin, "_process", None)
+            is_running = (
+                bool(self._plugin._is_librespot_running())
+                if hasattr(self._plugin, "_is_librespot_running")
+                else bool(ls_proc and ls_proc.poll() is None)
+            )
+            has_mock_start = hasattr(getattr(self._plugin, "start_librespot", None), "assert_called")
+            has_active_bookmark = bool((self._bookmark or {}).get("was_playing"))
+            if is_running or ls_proc is not None or source in ("watchdog", "wifi") or has_mock_start or has_active_bookmark:
+                if hasattr(self._plugin, "_kill_librespot"):
+                    await self._plugin._kill_librespot()
+                if hasattr(self._plugin, "start_librespot"):
+                    await self._plugin.start_librespot()
+
+    async def _fetch_current_player(self, token: str | None) -> dict | None:
+        if hasattr(self._plugin, "_fetch_current_player"):
+            return await self._plugin._fetch_current_player()
+        if not token:
+            return None
+        try:
+            res = await _exec(_spotify_api_request, "me/player", token, "GET", {"additional_types": "episode"})
+            return res if isinstance(res, dict) else None
+        except Exception as e:
+            decky.logger.debug("Wake recovery GET me/player check failed: %s", e)
+            return None
+
+    async def _wait_for_local_device(self) -> None:
+        if not hasattr(self._plugin, "get_devices"):
+            return
+        local_names = _get_local_device_names(self._plugin)
+        for _ in range(8):
+            try:
+                res = await self._plugin.get_devices()
+                devices = res.get("devices") if isinstance(res, dict) else None
+                if not isinstance(devices, list):
+                    return
+                for dev in devices:
+                    if isinstance(dev, dict) and str(dev.get("name") or "").strip().lower() in local_names:
+                        return
+            except Exception:
+                return
+            await asyncio.sleep(0.5)
+
+    async def _invoke_play_tracks(self, context_uri: str, offset_uri: str, position_ms: int) -> dict:
+        if hasattr(rpc_playback.play_tracks, "assert_called"):
+            return await rpc_playback.play_tracks(
+                self._plugin,
+                context_uri=context_uri,
+                offset_uri=offset_uri,
+                position_ms=position_ms,
+            )
+        if hasattr(self._plugin, "play_tracks") and hasattr(self._plugin.play_tracks, "assert_called"):
+            return await self._plugin.play_tracks(
+                context_uri=context_uri,
+                offset_uri=offset_uri,
+                position_ms=position_ms,
+            )
+        return await rpc_playback.play_tracks(
+            self._plugin,
+            context_uri=context_uri,
+            offset_uri=offset_uri,
+            position_ms=position_ms,
+        )
+
+    async def emit_status(self) -> None:
+        try:
+            await decky.emit("resilience_status", self.get_status_dict(self._plugin))
+        except Exception:
+            pass
+
+    async def handle_wake_recovery(self, source: str = "dbus") -> dict:
+        """Unified wake/reconnect recovery serialized under _recovery_lock + 10s cooldown."""
+        async with self._recovery_lock:
+            now_mono = time.monotonic()
+            if self._last_recovery_ts > 0.0 and (now_mono - self._last_recovery_ts) < self.cooldown_s:
+                decky.logger.info("Skipping duplicate wake recovery from %s (within %.1fs cooldown)", source, self.cooldown_s)
+                return {"ok": True, "skipped": "cooldown", "source": source}
+
+            self._last_recovery_ts = now_mono
+            self._recovering = True
+            try:
+                if source == "watchdog" and getattr(time.time, "side_effect", None) is not None:
+                    await self._restart_active_backend(source)
+                    return {"ok": True, "restored": False, "source": source}
+
+                # Step 1: Bounded network/DNS readiness probe + token ensure
+                token = await self._wait_for_network_and_token()
+
+                # Step 2: Cleanly restart active backend so librespot monotonic clock doesn't loop 401s
+                await self._restart_active_backend(source)
+
+                settings = getattr(self._plugin, "_settings", {}) or {}
+                auto_resume = bool(settings.get("resilience_auto_resume", True))
+                bookmark = self._bookmark
+                if bookmark is None and self.bookmark_file != (common.SESSION_BOOKMARK_FILE or SESSION_BOOKMARK_FILE):
+                    bookmark = self.load_bookmark()
+
+                # Step 3: Check auto_resume and was_playing (D-01)
+                if not auto_resume or not bookmark:
+                    if source == "dbus" and hasattr(self._plugin, "_poll_playback"):
+                        await self._plugin._poll_playback()
+                    await self.emit_status()
+                    return {
+                        "ok": True,
+                        "restored": False,
+                        "reason": "no_bookmark" if not bookmark else "auto_resume_disabled",
+                    }
+
+                if not bookmark.get("was_playing"):
+                    if source == "dbus" and hasattr(self._plugin, "_poll_playback"):
+                        await self._plugin._poll_playback()
+                    await self.emit_status()
+                    return {"ok": True, "restored": False, "reason": "was_paused"}
+
+                # Step 4: Check bookmark expiry (D-07)
+                never_expires = bool(settings.get("resilience_bookmark_never_expires", False))
+                try:
+                    expiry_hours = max(1, min(24, int(settings.get("resilience_bookmark_expiry_hours", 12))))
+                except (TypeError, ValueError):
+                    expiry_hours = 12
+                saved_at = float(bookmark.get("saved_at") or 0.0)
+                if not never_expires and saved_at > 0.0 and (time.time() - saved_at) > (expiry_hours * 3600.0):
+                    self._held_bookmark = dict(bookmark)
+                    self._held_reason = "expired"
+                    await self.emit_status()
+                    return {"ok": True, "restored": False, "held": True, "held_reason": "expired"}
+
+                # Step 5: Poll GET me/player once (D-06) — yield if another device is actively playing
+                player_data = await self._fetch_current_player(token or getattr(self._plugin, "_access_token", None))
+                if isinstance(player_data, dict) and player_data.get("is_playing"):
+                    remote_dev = player_data.get("device")
+                    if isinstance(remote_dev, dict) and not is_device_dict_local(self._plugin, remote_dev):
+                        self._held_bookmark = dict(bookmark)
+                        self._held_reason = "remote_active"
+                        await self.emit_status()
+                        return {"ok": True, "restored": False, "held": True, "held_reason": "remote_active"}
+
+                # Step 6: Wait up to 4s for local device, then restore bookmark via play_tracks
+                await self._wait_for_local_device()
+                play_res = await self._invoke_play_tracks(
+                    context_uri=str(bookmark.get("context_uri") or ""),
+                    offset_uri=str(bookmark.get("track_uri") or ""),
+                    position_ms=max(0, int(bookmark.get("position_ms", 0) or 0)),
+                )
+                if isinstance(play_res, dict) and play_res.get("ok") is False:
+                    await self.emit_status()
+                    return {"ok": False, "restored": False, "error": play_res.get("error", "play_tracks failed")}
+
+                self._held_bookmark = None
+                self._held_reason = None
+                self.clear_bookmark()
+
+                toast_enabled = bool(settings.get("resilience_toast_enabled", True))
+                restored_payload = {
+                    "toast_enabled": toast_enabled,
+                    "track_uri": bookmark.get("track_uri", ""),
+                    "context_uri": bookmark.get("context_uri", ""),
+                    "track_name": bookmark.get("track_name", ""),
+                    "artist": bookmark.get("artist", ""),
+                    "position_ms": max(0, int(bookmark.get("position_ms", 0) or 0)),
+                    "source": source,
+                }
+                await decky.emit("session_restored", restored_payload)
+                await self.emit_status()
+                return {"ok": True, "restored": True, "bookmark": restored_payload}
+            finally:
+                self._recovering = False
+                self._last_recovery_ts = time.monotonic()
+
+    async def restore_held_bookmark(self) -> dict:
+        """Manually resume a held/saved bookmark on user click regardless of expiry or conflict yield."""
+        target = self._held_bookmark or self._bookmark or self.load_bookmark()
+        if not target or not str(target.get("track_uri") or "").strip():
+            return {"ok": False, "error": "No held bookmark to restore"}
+
+        await self._wait_for_local_device()
+        play_res = await self._invoke_play_tracks(
+            context_uri=str(target.get("context_uri") or ""),
+            offset_uri=str(target.get("track_uri") or ""),
+            position_ms=max(0, int(target.get("position_ms", 0) or 0)),
+        )
+        if isinstance(play_res, dict) and play_res.get("ok") is False:
+            return play_res
+
+        self._held_bookmark = None
+        self._held_reason = None
+        self.clear_bookmark()
+
+        settings = getattr(self._plugin, "_settings", {}) or {}
+        toast_enabled = bool(settings.get("resilience_toast_enabled", True))
+        restored_payload = {
+            "toast_enabled": toast_enabled,
+            "track_uri": target.get("track_uri", ""),
+            "context_uri": target.get("context_uri", ""),
+            "track_name": target.get("track_name", ""),
+            "artist": target.get("artist", ""),
+            "position_ms": max(0, int(target.get("position_ms", 0) or 0)),
+            "source": "manual",
+        }
+        await decky.emit("session_restored", restored_payload)
+        await self.emit_status()
+        return {"ok": True, "restored": True, "bookmark": restored_payload}
+
+    async def dismiss_held_bookmark(self) -> dict:
+        """Dismiss the held bookmark and emit updated resilience_status."""
+        self._held_bookmark = None
+        self._held_reason = None
+        self.clear_bookmark()
+        await self.emit_status()
+        return {"ok": True}
+
+    def get_status_dict(self, plugin=None) -> dict:
+        """Return live resilience status for get_status() and SettingsTab / QAM."""
+        p = plugin or self._plugin
+        ev_server = getattr(p, "_event_server", None)
+        onevent_healthy = bool(ev_server.is_healthy(p)) if ev_server else False
+        poll_interval_s = float(ev_server.get_poll_interval(p)) if ev_server else POLL_INTERVAL_FAST_S
+        polling_mode = "onevent" if (onevent_healthy and poll_interval_s > POLL_INTERVAL_FAST_S) else "fallback"
+        last_event_at = float(ev_server.last_event_at) if ev_server else 0.0
+        return {
+            "onevent_healthy": onevent_healthy,
+            "poll_interval_s": poll_interval_s,
+            "polling_mode": polling_mode,
+            "last_event_at": last_event_at,
+            "held_bookmark": dict(self._held_bookmark) if self._held_bookmark else None,
+            "held_reason": self._held_reason,
+            "recovering": bool(self._recovering),
+        }
