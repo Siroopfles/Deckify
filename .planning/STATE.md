@@ -4,17 +4,17 @@ milestone: v0.6
 milestone_name: Audio DSP, Docked Flow & System Resilience (Active)
 current_phase: 17
 current_phase_name: Event-Driven librespot & Suspend/Wi-Fi Resilience
-status: planning
-stopped_at: Phase 17 context gathered
-last_updated: "2026-11-17T18:54:38.379Z"
+status: executing
+stopped_at: Completed 17-01-PLAN.md
+last_updated: "2026-11-17T19:34:25.940Z"
 last_activity: 2026-11-17
-last_activity_desc: Phase 15 complete, transitioned to Phase 17
-state_head: 07d0c6f3634e7010be4342e28bba90e237daa59f
+last_activity_desc: Phase 17 execution started
+state_head: 24914697124239bfb19e4fd112e16c2546234708
 progress:
   total_phases: 6
   completed_phases: 4
-  total_plans: 8
-  completed_plans: 8
+  total_plans: 10
+  completed_plans: 9
   percent: 67
 ---
 
@@ -25,14 +25,14 @@ progress:
 See: [.planning/PROJECT.md](file:///C:/Users/djdje/Deckify/.planning/PROJECT.md) (updated 2026-11-16)
 
 **Core value:** Rock-solid Spotify playback and responsive, reliable controller navigation on Steam Deck without UI lag, broken images, or desynchronized playback states.
-**Current focus:** Phase 16 — Automatic Docked Audio-Switching
+**Current focus:** Phase 17 — Event-Driven librespot & Suspend/Wi-Fi Resilience
 
 ## Current Position
 
-Phase: 17 — Event-Driven librespot & Suspend/Wi-Fi Resilience
-Plan: Not started
-Status: Ready to plan
-Last activity: 2026-11-17 — Phase 15 complete, transitioned to Phase 17
+Phase: 17 (Event-Driven librespot & Suspend/Wi-Fi Resilience) — EXECUTING
+Plan: 2 of 2
+Status: Ready to execute
+Last activity: 2026-11-17 — Phase 17 execution started
 
 
 ## Performance Metrics
@@ -93,6 +93,7 @@ Last activity: 2026-11-17 — Phase 15 complete, transitioned to Phase 17
 | Phase 13 P02 | 3min | 2 tasks | 4 files |
 | Phase 16 P01 | 7 min | 3 tasks | 5 files |
 | Phase 16 P02 | 4 min | 2 tasks | 4 files |
+| Phase 17 P01 | 21min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -135,6 +136,8 @@ Recent decisions affecting current work:
 - [Phase 16]: Imported py_modules.volume at module level in dock.py while keeping volume.get_audio_sinks lazy-import of dock to avoid circular imports and preserve sys.modules test patching
 - [Phase 16]: Checked both event payload toast_enabled and dockToastEnabledRef.current in src/index.tsx so dock_audio_switched toasts respect user preference immediately.
 - [Phase 16]: Rendered the Docked Audio-Switching card unconditionally adjacent to Audio Output Sink (PipeWire) so users can configure hotplug monitoring before connecting a dock or DAC.
+- [Phase 17]: Generated a <5ms POSIX /bin/sh --onevent emitter in DECKY_PLUGIN_RUNTIME_DIR writing KEY=VALUE pairs in background to AF_UNIX socket with 400ms debounced Web API enrichment and 20s/3s adaptive polling
+- [Phase 17]: Serialized SuspendResumeMonitor._on_deck_resume, _monitor_process SUSPEND_THRESHOLD, and 4s buffer-aware Wi-Fi drop recovery behind a single asyncio.Lock and 10s cooldown in SessionBookmarkManager
 
 ### Pending Todos
 
@@ -163,9 +166,9 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-17T18:54:36.994Z
-Stopped at: Phase 17 context gathered
-Resume file: .planning/phases/17-event-driven-librespot-suspend-wi-fi-resilience/17-CONTEXT.md
+Last session: 2026-11-17T19:34:23.829Z
+Stopped at: Completed 17-01-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 
