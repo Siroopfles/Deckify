@@ -5,7 +5,7 @@ source:
   - 15-01-SUMMARY.md
   - 15-02-SUMMARY.md
 started: "2026-11-16T20:37:00+01:00"
-updated: 2026-11-16T21:00:27.288Z
+updated: 2026-11-17T18:54:20+01:00
 ---
 
 ## Current Test
@@ -24,8 +24,7 @@ result: pass
 
 ### 3. Stream Isolation & Output Sink Switching
 expected: Terwijl een game of Steam UI-geluiden actief zijn en een EQ-preset aanstaat, wissel je van audio output sink in Settings (bijv. Speakers ↔ Headphones/HDMI) en schakel je EQ aan/uit (`Flat`). Game-audio en Steam UI klikgeluiden blijven onaangetast en vallen niet weg.
-result: skipped
-reason: "Er is nog geen audio output sink setting zichtbaar in SettingsTab (wordt toegevoegd in Phase 16)"
+result: pass
 
 ### 4. GamepadUI D-Pad Spatial Navigation & Compact QAM
 expected: Navigeer met de D-pad door de 2 rijen preset pills (rij 1: 4 pills, rij 2: 3 pills) en naar beneden door de 10 sliders zonder focus-traps of sprongen. Controleer ook de Quick Access Menu (QAM): daar staan geen EQ-controls of preset-badges.
@@ -38,10 +37,10 @@ result: pass
 ## Summary
 
 total: 5
-passed: 4
+passed: 5
 issues: 0
 pending: 0
-skipped: 1
+skipped: 0
 blocked: 0
 
 ## Gaps
