@@ -51,6 +51,7 @@ import type {
   AudioStreamInfo,
   EngineSettings,
   PinnedPlaylistItem,
+  ResilienceStatusInfo,
   SpotifyDevice,
   StatusResponse,
   SyncedLine,
@@ -77,6 +78,9 @@ const backendHandleAppLifetimeEvent = callable<[number, boolean], { ok: boolean;
 const backendBindCurrentMusicToGame = callable<[number, string?], { ok: boolean; error?: string }>("bind_current_music_to_game");
 const backendQuickPlayPinned = callable<[string, string], { ok: boolean; error?: string }>("quick_play_pinned");
 const backendGetLyrics = callable<[string, string, number, number?], { ok: boolean; synced_lyrics?: string; plain_lyrics?: string; source?: string; error?: string }>("get_lyrics");
+const backendRestoreBookmark = callable<[], { ok: boolean; error?: string }>("restore_bookmark");
+const backendDismissBookmark = callable<[], { ok: boolean }>("dismiss_bookmark");
+void backendDismissBookmark;
 
 let currentRunningAppId: number | null = null;
 const activeGameListeners = new Set<(appId: number | null) => void>();
@@ -208,6 +212,9 @@ const Content: FC = () => {
   });
   const dockToastEnabledRef = useRef<boolean | undefined>(settings.dock_toast_enabled);
   dockToastEnabledRef.current = settings.dock_toast_enabled;
+  const [resilienceStatus, setResilienceStatus] = useState<ResilienceStatusInfo | null>(null);
+  const resilienceToastEnabledRef = useRef<boolean | undefined>(settings.resilience_toast_enabled);
+  resilienceToastEnabledRef.current = settings.resilience_toast_enabled;
 
   const clock = usePlaybackClock({
     serverPositionMs,
@@ -240,6 +247,9 @@ const Content: FC = () => {
       setIsLiked(Boolean(status.is_liked));
       setContextUri(status.context_uri ?? null);
       setAudioStreamInfo(status.audio_stream_info || null);
+      if (status.resilience_status !== undefined) {
+        setResilienceStatus(status.resilience_status ?? null);
+      }
       if (status.active_device?.id) setActiveDeviceId(status.active_device.id);
 
       const auth = await backendGetAuthStatus().catch(() => null);
@@ -324,13 +334,82 @@ const Content: FC = () => {
       } catch {}
     });
 
+    const unsubLibre = addEventListener<[any]>("librespot_event", (ev: any) => {
+      if (!ev || typeof ev !== "object") return;
+      if (ev.event === "playing" || ev.event === "started") {
+        setIsPlaying(true);
+      } else if (ev.event === "paused" || ev.event === "stopped" || ev.event === "session_disconnected") {
+        setIsPlaying(false);
+      }
+      if (typeof ev.position_ms === "number") {
+        setServerPositionMs(ev.position_ms);
+      }
+      if (typeof ev.duration_ms === "number") {
+        setDurationMs(ev.duration_ms);
+      }
+      if (typeof ev.volume === "number") {
+        setVolume(ev.volume);
+      }
+    });
+
+    const unsubTrackMeta = addEventListener<[any]>("track_metadata", (meta: any) => {
+      if (!meta || typeof meta !== "object") return;
+      setTrackMeta(meta);
+      if (typeof meta.duration_ms === "number" && meta.duration_ms > 0) {
+        setDurationMs(meta.duration_ms);
+      }
+      if (typeof meta.is_liked === "boolean") {
+        setIsLiked(meta.is_liked);
+      }
+    });
+
+    const unsubResilience = addEventListener<[any]>("resilience_status", (data: any) => {
+      if (data && typeof data === "object") {
+        setResilienceStatus(data as ResilienceStatusInfo);
+      }
+    });
+
+    const unsubRestored = addEventListener<[any]>("session_restored", (data: any) => {
+      try {
+        if (!data || data.toast_enabled === false || resilienceToastEnabledRef.current === false) {
+          return;
+        }
+        const trackLabel = data.track_name
+          ? `${data.track_name}${data.artist ? ` — ${data.artist}` : ""}`
+          : "previous session";
+        toaster.toast({
+          title: "Deckify",
+          body: `Resumed ${trackLabel}`,
+          duration: 3000,
+        });
+      } catch {}
+    });
+
     return () => {
       activeGameListeners.delete(setActiveGameAppId);
       removeEventListener("ducking_state_changed", unsubDucking);
       removeEventListener("soundtrack_prompt_switch", unsubPrompt);
       removeEventListener("dock_audio_switched", unsubDock);
+      removeEventListener("librespot_event", unsubLibre);
+      removeEventListener("track_metadata", unsubTrackMeta);
+      removeEventListener("resilience_status", unsubResilience);
+      removeEventListener("session_restored", unsubRestored);
     };
   }, []);
+
+  const handleRestoreBookmark = async () => {
+    try {
+      const res = await backendRestoreBookmark();
+      if (res?.ok) {
+        setResilienceStatus((prev) => (prev ? { ...prev, held_bookmark: null, held_reason: null } : prev));
+        await refreshStatus();
+      } else if (res?.error) {
+        toaster.toast({ title: "Deckify", body: res.error, duration: 3000 });
+      }
+    } catch {
+      toaster.toast({ title: "Deckify", body: "Failed to restore bookmark", duration: 3000 });
+    }
+  };
 
   const handleQuickBind = async () => {
     if (!activeGameAppId) return;
@@ -636,6 +715,24 @@ const Content: FC = () => {
                 <ButtonItem onClick={handleStartLogin}>Show Login QR Code</ButtonItem>
               )}
             </div>
+          </PanelSectionRow>
+        )}
+
+        {/* Conditional Held Bookmark Prompt (D-09: compact when no bookmark is held) */}
+        {resilienceStatus?.held_bookmark && settings.resilience_prompt_held_enabled !== false && (
+          <PanelSectionRow>
+            <ButtonItem
+              description={
+                resilienceStatus.held_bookmark.track_name
+                  ? `${resilienceStatus.held_bookmark.track_name}${resilienceStatus.held_bookmark.artist ? ` — ${resilienceStatus.held_bookmark.artist}` : ""}`
+                  : resilienceStatus.held_reason === "remote_active"
+                  ? "Yielded to active remote device"
+                  : "Saved playback bookmark"
+              }
+              onClick={handleRestoreBookmark}
+            >
+              Resume Bookmark
+            </ButtonItem>
           </PanelSectionRow>
         )}
 
