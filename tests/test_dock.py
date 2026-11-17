@@ -470,3 +470,87 @@ class TestDockSwitcherBehavior(unittest.IsolatedAsyncioTestCase):
 
         switcher.evaluate_now.assert_awaited_once()
         await switcher.stop()
+
+
+from test_token_refresh import main
+
+
+class TestMainDockIntegration(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        self.plugin = main.Plugin()
+        self.plugin._token_refresh_lock = asyncio.Lock()
+        self.plugin._settings = dict(common.DEFAULT_SETTINGS)
+        self.plugin._dock_switcher = MagicMock()
+        self.plugin._dock_switcher.get_status_dict = MagicMock(
+            return_value={
+                "status": "idle",
+                "active_sink": None,
+                "active_sink_label": "",
+                "pre_dock_sink": None,
+                "manual_override": False,
+            }
+        )
+        self.plugin._dock_switcher.on_settings_changed = AsyncMock()
+        self.plugin._dock_switcher.stop = AsyncMock()
+
+    async def test_get_status_exposes_dock_status_and_public_keys(self):
+        with (
+            patch.object(self.plugin, "_is_librespot_running", return_value=False),
+            patch.object(self.plugin, "_is_spotify_client_running", return_value=False),
+        ):
+            status = await self.plugin.get_status()
+
+        self.assertIn("dock_status", status)
+        self.assertEqual(status["dock_status"]["status"], "idle")
+        for key in (
+            "dock_auto_switch_enabled",
+            "dock_target_sink",
+            "dock_respect_bluetooth",
+            "dock_pause_on_undock",
+            "dock_toast_enabled",
+        ):
+            self.assertIn(key, status["settings"])
+
+    async def test_set_setting_validates_dock_target_sink_and_booleans(self):
+        with (
+            patch.object(main, "_save_settings"),
+            patch.object(main.decky, "emit", new_callable=AsyncMock),
+        ):
+            bad_dash = await self.plugin.set_setting("dock_target_sink", "-bad-flag")
+            self.assertFalse(bad_dash["ok"])
+
+            bad_ctrl = await self.plugin.set_setting("dock_target_sink", "sink\nname")
+            self.assertFalse(bad_ctrl["ok"])
+
+            bad_type = await self.plugin.set_setting("dock_target_sink", 123)
+            self.assertFalse(bad_type["ok"])
+
+            empty_res = await self.plugin.set_setting("dock_target_sink", "   ")
+            self.assertTrue(empty_res["ok"])
+            self.assertEqual(self.plugin._settings["dock_target_sink"], "auto")
+            self.plugin._dock_switcher.on_settings_changed.assert_awaited_with("dock_target_sink", "auto")
+
+            bool_res = await self.plugin.set_setting("dock_auto_switch_enabled", 1)
+            self.assertTrue(bool_res["ok"])
+            self.assertIs(self.plugin._settings["dock_auto_switch_enabled"], True)
+            self.plugin._dock_switcher.on_settings_changed.assert_awaited_with("dock_auto_switch_enabled", True)
+
+    async def test_unload_stops_dock_switcher(self):
+        self.plugin._sleep_timer_task = None
+        self.plugin._suspend_monitor = None
+        self.plugin._voice_detector = None
+        self.plugin._volume_fader = None
+        self.plugin._soundtrack_manager = None
+        self.plugin._equalizer_manager = None
+        with (
+            patch.object(self.plugin, "_stop_monitor", new=AsyncMock()),
+            patch.object(self.plugin, "_kill_librespot", new=AsyncMock()),
+            patch.object(self.plugin, "_kill_spotify_client", new=AsyncMock()),
+            patch.object(self.plugin, "_stop_oauth_server", new=AsyncMock()),
+            patch.object(self.plugin, "_stop_api_poll", new=AsyncMock()),
+        ):
+            dock_mock = self.plugin._dock_switcher
+            await self.plugin._unload()
+
+        dock_mock.stop.assert_awaited_once()
+        self.assertIsNone(self.plugin._dock_switcher)

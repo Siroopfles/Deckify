@@ -43,6 +43,7 @@ from py_modules import equalizer
 from py_modules import rpc_playback
 from py_modules import rpc_library
 from py_modules import soundtrack
+from py_modules import dock
 from py_modules import vdf_parser
 
 common._MAIN_MODULE = sys.modules.get(__name__)
@@ -150,6 +151,8 @@ class Plugin:
         self._voice_detector.start()
         self._soundtrack_manager = soundtrack.SoundtrackManager(self)
         self._equalizer_manager = equalizer.EqualizerManager(self)
+        self._dock_switcher = dock.DockAudioSwitcher(self)
+        self._dock_switcher.start()
         if self._access_token:
             self._start_api_poll()
         await self._sync_native_spotify_folders()
@@ -157,9 +160,13 @@ class Plugin:
         initial_eq = self._settings.get("eq_preset", "flat")
         if initial_eq != "flat":
             await self._equalizer_manager.apply_preset(initial_eq)
+        await self._dock_switcher.evaluate_now()
 
     async def _unload(self):
         decky.logger.info("Deckify unloading")
+        if getattr(self, "_dock_switcher", None):
+            await self._dock_switcher.stop()
+            self._dock_switcher = None
         if getattr(self, "_soundtrack_manager", None):
             self._soundtrack_manager.cancel_all()
         if getattr(self, "_equalizer_manager", None):
@@ -521,6 +528,9 @@ class Plugin:
             "ducking_proportional_pct", "voice_ducking_enabled", "voice_ducking_volume",
             "voice_ducking_hold_delay", "pinned_playlists",
             "sleep_timer_fade_enabled", "sleep_timer_fade_duration",
+            "dock_auto_switch_enabled", "dock_target_sink",
+            "dock_respect_bluetooth", "dock_pause_on_undock",
+            "dock_toast_enabled",
         )
         return {
             "authenticated": bool(self._access_token),
@@ -545,6 +555,17 @@ class Plugin:
             "context_uri": self._context_uri,
             "audio_stream_info": self._audio_stream_info,
             "sleep_timer": self.get_sleep_timer_status(),
+            "dock_status": (
+                self._dock_switcher.get_status_dict()
+                if getattr(self, "_dock_switcher", None)
+                else {
+                    "status": "disabled",
+                    "active_sink": None,
+                    "active_sink_label": "",
+                    "pre_dock_sink": None,
+                    "manual_override": False,
+                }
+            ),
         }
 
     async def get_settings(self) -> dict:
@@ -597,8 +618,15 @@ class Plugin:
             value = bool(value)
             if not value and hasattr(self, "_volume_fader") and self._volume_fader:
                 asyncio.create_task(self._volume_fader.set_ducking(False, reason="game"))
-        elif key in ("normalisation", "gapless", "autoplay", "bit_perfect_clock", "overlay_enabled", "toast_enabled", "toast_sound_enabled", "gamepad_chords_enabled", "overlay_autohide", "overlay_show_progress", "overlay_lyrics_enabled", "voice_ducking_enabled", "sleep_timer_fade_enabled"):
+        elif key in ("normalisation", "gapless", "autoplay", "bit_perfect_clock", "overlay_enabled", "toast_enabled", "toast_sound_enabled", "gamepad_chords_enabled", "overlay_autohide", "overlay_show_progress", "overlay_lyrics_enabled", "voice_ducking_enabled", "sleep_timer_fade_enabled", "dock_auto_switch_enabled", "dock_respect_bluetooth", "dock_pause_on_undock", "dock_toast_enabled"):
             value = bool(value)
+        elif key == "dock_target_sink":
+            if not isinstance(value, str) or any(ord(char) < 32 or ord(char) == 127 for char in value):
+                return {"ok": False, "error": "Invalid dock_target_sink"}
+            cleaned = value.strip()
+            if cleaned.startswith("-"):
+                return {"ok": False, "error": "Invalid dock_target_sink"}
+            value = cleaned or "auto"
         elif key == "sleep_timer_fade_duration":
             try:
                 value = max(5, min(120, int(value)))
@@ -676,6 +704,19 @@ class Plugin:
         self._settings[key] = value
         _save_settings(self._settings)
         decky.logger.info("Setting updated: %s = %s", key, value)
+
+        if (
+            key in (
+                "dock_auto_switch_enabled",
+                "dock_target_sink",
+                "dock_respect_bluetooth",
+                "dock_pause_on_undock",
+                "dock_toast_enabled",
+                "bit_perfect_clock",
+            )
+            and getattr(self, "_dock_switcher", None)
+        ):
+            await self._dock_switcher.on_settings_changed(key, value)
 
         if backend_changed:
             # Cleanly stop the old backend and start the new one
