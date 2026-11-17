@@ -20,8 +20,8 @@
 - [ ] **EQ-02**: User can fine-tune a custom 5-band EQ curve via `SliderField` controls in `SettingsTab` with live `pw-cli set-param` updates and persistence across restarts.
 
 ### Docked Audio Switching
-- [ ] **DOCK-01**: User can enable and configure automatic docked audio-switching in `SettingsTab` so connecting a designated external USB-DAC or HDMI sink routes only Deckify's audio stream (`effect_output.deckify_eq` or `librespot`) to that sink after hotplug debounce.
-- [ ] **DOCK-02**: Docked switching enables `bit_perfect_clock` on designated DAC/HDMI sinks and cleanly restores normal routing and clock settings when undocked.
+- [x] **DOCK-01**: User can enable and configure automatic docked audio-switching in `SettingsTab` so connecting a designated external USB-DAC or HDMI sink routes only Deckify's audio stream (`effect_output.deckify_eq` or `librespot`) to that sink after hotplug debounce.
+- [x] **DOCK-02**: Docked switching enables `bit_perfect_clock` on designated DAC/HDMI sinks and cleanly restores normal routing and clock settings when undocked.
 
 ### Event-Driven Playback & Resilience
 - [ ] **RESIL-01**: `librespot` emits playback events (`--onevent`) over a local non-blocking Unix socket to update UI state immediately and relax Web API background polling to reduce HTTP 429 rate-limit pressure.
@@ -60,8 +60,8 @@
 | SLEEP-01 | Phase 14 | Pending |
 | EQ-01 | Phase 15 | Pending |
 | EQ-02 | Phase 15 | Pending |
-| DOCK-01 | Phase 16 | Pending |
-| DOCK-02 | Phase 16 | Pending |
+| DOCK-01 | Phase 16 | Complete |
+| DOCK-02 | Phase 16 | Complete |
 | RESIL-01 | Phase 17 | Pending |
 | RESIL-02 | Phase 17 | Pending |
 | MPRIS-01 | Phase 18 | Pending |

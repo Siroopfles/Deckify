@@ -4,17 +4,17 @@ milestone: v0.6
 milestone_name: Audio DSP, Docked Flow & System Resilience (Active)
 current_phase: 16
 current_phase_name: Automatic Docked Audio-Switching
-status: executing
-stopped_at: Completed 16-01-PLAN.md
-last_updated: "2026-11-17T16:16:40.578Z"
+status: verifying
+stopped_at: Completed 16-02-PLAN.md
+last_updated: "2026-11-17T16:21:51.636Z"
 last_activity: 2026-11-17
 last_activity_desc: Phase 16 execution started
-state_head: 31a3fd906d27a6809d3f3f665874171909e94fb1
+state_head: 9a2d61e7951bb5edf56908969458a3b52ec47667
 progress:
   total_phases: 6
   completed_phases: 1
   total_plans: 8
-  completed_plans: 7
+  completed_plans: 8
   percent: 17
 ---
 
@@ -31,7 +31,7 @@ See: [.planning/PROJECT.md](file:///C:/Users/djdje/Deckify/.planning/PROJECT.md)
 
 Phase: 16 (Automatic Docked Audio-Switching) — EXECUTING
 Plan: 2 of 2
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-11-17 — Phase 16 execution started
 
 
@@ -89,6 +89,7 @@ Last activity: 2026-11-17 — Phase 16 execution started
 | Phase 13 P01 | 3min | 2 tasks | 6 files |
 | Phase 13 P02 | 3min | 2 tasks | 4 files |
 | Phase 16 P01 | 7 min | 3 tasks | 5 files |
+| Phase 16 P02 | 4 min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -129,6 +130,8 @@ Recent decisions affecting current work:
 - [Phase 12]: Used existing fetchWithQueueAndCache/imgMemoryCache (get_image RPC) for track_metadata toast cover proxying
 - [Phase 13]: D-05/D-06: Centralized sink-input resolution in resolve_spotify_sink_input_ids with steamwebhelper/Chromium deny-list, allowlist fallback, and 0-match debug no-op in _set_pactl_sink_input
 - [Phase 16]: Imported py_modules.volume at module level in dock.py while keeping volume.get_audio_sinks lazy-import of dock to avoid circular imports and preserve sys.modules test patching
+- [Phase 16]: Checked both event payload toast_enabled and dockToastEnabledRef.current in src/index.tsx so dock_audio_switched toasts respect user preference immediately.
+- [Phase 16]: Rendered the Docked Audio-Switching card unconditionally adjacent to Audio Output Sink (PipeWire) so users can configure hotplug monitoring before connecting a dock or DAC.
 
 ### Pending Todos
 
@@ -157,8 +160,8 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-17T16:16:26.295Z
-Stopped at: Completed 16-01-PLAN.md
+Last session: 2026-11-17T16:21:50.037Z
+Stopped at: Completed 16-02-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
