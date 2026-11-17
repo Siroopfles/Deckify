@@ -115,6 +115,11 @@ DEFAULT_SETTINGS = {
     "pinned_playlists": [],
     "sleep_timer_fade_enabled": True,
     "sleep_timer_fade_duration": 30,
+    "dock_auto_switch_enabled": False,
+    "dock_target_sink": "auto",
+    "dock_respect_bluetooth": True,
+    "dock_pause_on_undock": False,
+    "dock_toast_enabled": True,
 }
 
 # PulseAudio socket for processes
