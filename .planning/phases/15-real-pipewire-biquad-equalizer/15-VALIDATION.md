@@ -1,9 +1,9 @@
 ---
 phase: "15"
 slug: "real-pipewire-biquad-equalizer"
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
+status: complete
+nyquist_compliant: true
+wave_0_complete: true
 created: "2026-11-16"
 ---
 
@@ -17,10 +17,10 @@ created: "2026-11-16"
 
 | Property | Value |
 |----------|-------|
-| **Framework** | Vitest 5.1.0 (`pnpm test`) + Python `unittest` (`py -m unittest discover -s tests -p "test_*.py"`) |
+| **Framework** | Vitest 5.1.0 (`pnpm test`) + Python `unittest` (`py -3 -m unittest discover -s tests -p "test_*.py"`) |
 | **Config file** | `package.json` (`test`, `test:python`, `typecheck`, `lint`) |
-| **Quick run command** | `pnpm test -- --run src/components/tabs/SettingsTab.test.tsx` and `py -m unittest discover -s tests -p "test_equalizer.py"` |
-| **Full suite command** | `pnpm test -- --run && pnpm typecheck && pnpm lint && py -m unittest discover -s tests -p "test_*.py"` |
+| **Quick run command** | `pnpm test -- --run src/components/tabs/SettingsTab.test.tsx` and `py -3 -m unittest discover -s tests -p "test_equalizer.py"` |
+| **Full suite command** | `pnpm test -- --run && pnpm typecheck && pnpm lint && py -3 -m unittest discover -s tests -p "test_*.py"` |
 | **Estimated runtime** | ~10 seconds |
 
 ---
@@ -38,9 +38,11 @@ created: "2026-11-16"
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 15-01-01 | 01 | 1 | EQ-01 | T-15-01 | Validate `eq_preset` allowlist, drop privileges via `_build_deck_command()` | unit | `py -m unittest discover -s tests -p "test_equalizer.py"` | ❌ W0 | ⬜ pending |
-| 15-01-02 | 01 | 1 | EQ-02 | T-15-02 | Clamp 10 band gains to `[-12.0, 12.0]`, positive `node_id` int, non-flag `sink_name` | unit | `py -m unittest discover -s tests -p "test_equalizer.py"` | ❌ W0 | ⬜ pending |
-| 15-02-01 | 02 | 2 | EQ-01, EQ-02 | — | 7 preset pills in horizontal rows + 10-band ISO `SliderField` forking to `"custom"` | unit | `pnpm test -- --run src/components/tabs/SettingsTab.test.tsx` | ✅ | ⬜ pending |
+| 15-01-01 | 01 | 1 | EQ-01 | T-15-01 | Validate `eq_preset` allowlist, drop privileges via `_build_deck_command()` | unit | `py -3 -m unittest discover -s tests -p "test_equalizer.py"` | ✅ | ✅ green |
+| 15-01-02 | 01 | 1 | EQ-02 | T-15-02 | Stream-isolated sink-input routing and EQ-aware `set_audio_sink` in `engine.py` and `volume.py` | unit | `py -3 -m unittest discover -s tests -p "test_equalizer.py"` | ✅ | ✅ green |
+| 15-01-03 | 01 | 1 | EQ-01, EQ-02 | T-15-02 | Clamp 10 band gains to `[-12.0, 12.0]`, wire `EqualizerManager` lifecycle and `set_eq_bands` RPC in `main.py` | unit | `py -3 -m unittest discover -s tests -p "test_equalizer.py"` | ✅ | ✅ green |
+| 15-02-01 | 02 | 2 | EQ-01, EQ-02 | — | 7 preset pills in horizontal rows + 10-band ISO `SliderField` forking to `"custom"` | unit | `pnpm test -- --run src/components/tabs/SettingsTab.test.tsx` | ✅ | ✅ green |
+| 15-02-02 | 02 | 2 | EQ-01, EQ-02 | — | Vitest unit tests for 7 EQ presets, 2 horizontal rows, and 10-band auto-fork in `SettingsTab.test.tsx` | unit | `pnpm test -- --run src/components/tabs/SettingsTab.test.tsx` | ✅ | ✅ green |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -48,7 +50,7 @@ created: "2026-11-16"
 
 ## Wave 0 Requirements
 
-- [ ] `tests/test_equalizer.py` — covers `EqualizerManager` (presets, preamp math, conf generation, `pw-dump` parsing, 75ms throttling, `flat` bypass, `set_audio_sink` isolation, crash fallback)
+- [x] `tests/test_equalizer.py` — covers `EqualizerManager` (presets, preamp math, conf generation, `pw-dump` parsing, 75ms throttling, `flat` bypass, `set_audio_sink` isolation, crash fallback)
 
 ---
 
@@ -63,11 +65,11 @@ created: "2026-11-16"
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references
-- [ ] No watch-mode flags
-- [ ] Feedback latency < 15s
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify
+- [x] Wave 0 covers all MISSING references
+- [x] No watch-mode flags
+- [x] Feedback latency < 15s
+- [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending
+**Approval:** complete
