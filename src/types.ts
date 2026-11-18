@@ -185,6 +185,18 @@ export interface ResilienceStatusInfo {
   recovering: boolean;
 }
 
+export type MprisBadgeState = "active" | "proxy_unavailable" | "disabled";
+
+export interface MprisStatusInfo {
+  enabled: boolean;
+  bus_registered: boolean;
+  proxy_running: boolean;
+  proxy_managed: boolean;
+  proxy_available: boolean;
+  status: MprisBadgeState;
+  bus_name: string;
+}
+
 export type PinnedItemType = "playlist" | "album" | "liked_songs";
 
 export interface PinnedPlaylistItem {
@@ -253,6 +265,8 @@ export interface EngineSettings {
   resilience_bookmark_never_expires?: boolean;
   resilience_toast_enabled?: boolean;
   resilience_prompt_held_enabled?: boolean;
+  mpris_enabled?: boolean;
+  mpris_auto_proxy?: boolean;
 }
 
 export type DuckingMode = "proportional" | "fixed";
@@ -304,6 +318,7 @@ export interface StatusResponse {
   sleep_timer?: SleepTimerStatus;
   dock_status?: DockStatusInfo;
   resilience_status?: ResilienceStatusInfo;
+  mpris_status?: MprisStatusInfo;
 }
 
 export interface GameAudioProfile {
