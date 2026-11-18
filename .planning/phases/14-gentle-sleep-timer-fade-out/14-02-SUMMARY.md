@@ -34,6 +34,7 @@ key-files:
     - src/components/tabs/SettingsTab.test.tsx
 decisions:
   - Kept Quick Access Menu (src/index.tsx) compact without sleep timer fade controls per D-03.
+requirements-completed: [SLEEP-01]
 metrics:
   duration: ~3m
   completed_date: "2026-11-16"

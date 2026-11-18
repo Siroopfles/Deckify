@@ -32,6 +32,7 @@ key-files:
 decisions:
   - Extracted _compute_target_sink_volume() on VolumeFader so set_ducking() and release_sleep_lock() share one target-volume calculation.
   - Added did_fade guard in sleep_timer_worker so only timed fades perform the 1.2s PipeWire drain and release_sleep_lock(0.0, wait=True) before shutdown_system().
+requirements-completed: [SLEEP-01]
 metrics:
   duration: ~3m
   completed_date: "2026-11-16"
