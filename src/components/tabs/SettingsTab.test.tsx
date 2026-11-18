@@ -1089,3 +1089,167 @@ describe("SettingsTab - Playback Resilience UI (Phase 17, RESIL-01 & RESIL-02)",
     expect(showToast).toHaveBeenCalledWith("Bookmark dismissed");
   });
 });
+
+describe("SettingsTab - Bluetooth & Media Controls (MPRIS2) UI (Phase 18)", () => {
+  const refreshStatus = vi.fn();
+  const showToast = vi.fn();
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockAudioSinksState = null;
+  });
+
+  it("renders Bluetooth & Media Controls (MPRIS2) card with 'Active (Bluetooth Ready)' badge in #1db954 when enabled, bus registered, and proxy running", () => {
+    const tree = SettingsTab({
+      status: {
+        ...mockStatus,
+        settings: {
+          ...mockStatus.settings!,
+          mpris_enabled: true,
+          mpris_auto_proxy: true,
+        },
+        mpris_status: {
+          enabled: true,
+          bus_registered: true,
+          proxy_running: true,
+          proxy_managed: true,
+          proxy_available: true,
+          status: "active",
+          bus_name: "org.mpris.MediaPlayer2.deckify",
+        },
+      },
+      refreshStatus,
+      showToast,
+    });
+
+    const text = findText(tree);
+    expect(text).toContain("Bluetooth & Media Controls (MPRIS2)");
+    expect(text).toContain("Active (Bluetooth Ready)");
+
+    const spans = findNodes(tree, (n) => n.type === "span");
+    const badgeSpan = spans.find((s) => findText(s) === "Active (Bluetooth Ready)");
+    expect(badgeSpan).toBeDefined();
+    expect(badgeSpan.props.style.color).toBe("#1db954");
+  });
+
+  it("displays 'D-Bus Active (mpris-proxy unavailable)' when proxy_running is false and 'Disabled' when mpris_enabled is false", () => {
+    const unavailableTree = SettingsTab({
+      status: {
+        ...mockStatus,
+        settings: {
+          ...mockStatus.settings!,
+          mpris_enabled: true,
+          mpris_auto_proxy: true,
+        },
+        mpris_status: {
+          enabled: true,
+          bus_registered: true,
+          proxy_running: false,
+          proxy_managed: false,
+          proxy_available: false,
+          status: "proxy_unavailable",
+          bus_name: "org.mpris.MediaPlayer2.deckify",
+        },
+      },
+      refreshStatus,
+      showToast,
+    });
+    expect(findText(unavailableTree)).toContain("D-Bus Active (mpris-proxy unavailable)");
+
+    const disabledTree = SettingsTab({
+      status: {
+        ...mockStatus,
+        settings: {
+          ...mockStatus.settings!,
+          mpris_enabled: false,
+          mpris_auto_proxy: true,
+        },
+        mpris_status: {
+          enabled: false,
+          bus_registered: false,
+          proxy_running: false,
+          proxy_managed: false,
+          proxy_available: true,
+          status: "disabled",
+          bus_name: "org.mpris.MediaPlayer2.deckify",
+        },
+      },
+      refreshStatus,
+      showToast,
+    });
+    expect(findText(disabledTree)).toContain("Disabled");
+  });
+
+  it("toggles Enable MPRIS2 Media Controls and Auto-Start BlueZ mpris-proxy and persists via set_setting", async () => {
+    const tree = SettingsTab({
+      status: {
+        ...mockStatus,
+        settings: {
+          ...mockStatus.settings!,
+          mpris_enabled: true,
+          mpris_auto_proxy: true,
+        },
+        mpris_status: {
+          enabled: true,
+          bus_registered: true,
+          proxy_running: true,
+          proxy_managed: true,
+          proxy_available: true,
+          status: "active",
+          bus_name: "org.mpris.MediaPlayer2.deckify",
+        },
+      },
+      refreshStatus,
+      showToast,
+    });
+
+    const toggles = findNodes(
+      tree,
+      (n) => n.type === ToggleField || n.type === "ToggleField"
+    );
+    const mprisToggle = toggles.find((t) => t.props?.label === "Enable MPRIS2 Media Controls");
+    const proxyToggle = toggles.find((t) => t.props?.label === "Auto-Start BlueZ mpris-proxy");
+
+    expect(mprisToggle).toBeDefined();
+    expect(proxyToggle).toBeDefined();
+
+    await mprisToggle.props.onChange(false);
+    expect(mockSetSetting).toHaveBeenCalledWith("mpris_enabled", false);
+    expect(showToast).toHaveBeenCalledWith("MPRIS2 media controls disabled");
+
+    await proxyToggle.props.onChange(false);
+    expect(mockSetSetting).toHaveBeenCalledWith("mpris_auto_proxy", false);
+    expect(showToast).toHaveBeenCalledWith("Auto mpris-proxy disabled");
+  });
+
+  it("hides Auto-Start BlueZ mpris-proxy ToggleField when mpris_enabled is false", () => {
+    const tree = SettingsTab({
+      status: {
+        ...mockStatus,
+        settings: {
+          ...mockStatus.settings!,
+          mpris_enabled: false,
+          mpris_auto_proxy: true,
+        },
+        mpris_status: {
+          enabled: false,
+          bus_registered: false,
+          proxy_running: false,
+          proxy_managed: false,
+          proxy_available: true,
+          status: "disabled",
+          bus_name: "org.mpris.MediaPlayer2.deckify",
+        },
+      },
+      refreshStatus,
+      showToast,
+    });
+
+    const toggles = findNodes(
+      tree,
+      (n) => n.type === ToggleField || n.type === "ToggleField"
+    );
+    expect(toggles.find((t) => t.props?.label === "Enable MPRIS2 Media Controls")).toBeDefined();
+    expect(toggles.find((t) => t.props?.label === "Auto-Start BlueZ mpris-proxy")).toBeUndefined();
+  });
+});
