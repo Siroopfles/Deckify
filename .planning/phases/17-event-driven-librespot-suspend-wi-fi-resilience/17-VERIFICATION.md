@@ -1,6 +1,6 @@
 ---
 phase: 17-event-driven-librespot-suspend-wi-fi-resilience
-verified: 2026-11-17T19:57:00Z
+verified: 2026-11-18T18:58:00Z
 status: passed
 score: 12/12 must-haves verified
 covered_files:
@@ -19,17 +19,23 @@ covered_files:
   - "src/index.tsx"
   - "src/types.ts"
   - "tests/test_resilience.py"
-covered_digest: "v4:sha256:709b1cf4f1a49178adefbae89975e7f600e347e3a9d1a0cfd69c1ae6d4aada65"
+covered_digest: "v4:sha256:7e43262d587e98b666064fa6a556292917c09ef62b41fc49f60b76b58166fb80"
 behavior_unverified: 0
 overrides_applied: 0
+re_verification:
+  previous_status: passed
+  previous_score: 12/12
+  gaps_closed: []
+  gaps_remaining: []
+  regressions: []
 ---
 
 # Phase 17: Event-Driven librespot & Suspend/Wi-Fi Resilience Verification Report
 
 **Phase Goal:** Playback state updates instantaneously via local `librespot --onevent` events and recovers seamlessly from Steam Deck sleep/wake and Wi-Fi drops.
-**Verified:** 2026-11-17T19:57:00Z
+**Verified:** 2026-11-18T18:58:00Z
 **Status:** passed
-**Re-verification:** No — initial verification
+**Re-verification:** Yes — refreshed stale verification after downstream edits to shared files
 
 ## Goal Achievement
 
@@ -37,56 +43,60 @@ overrides_applied: 0
 
 | # | Truth | Status | Evidence |
 |---|-------|--------|----------|
-| 1 | `librespot --onevent` emits `KEY=VALUE` lines over a non-blocking Unix domain socket via a `<5ms` POSIX `sh` script (zero Python startup inside `--onevent`) | ✓ VERIFIED | `py_modules/resilience.py:47-65,89-99` (`_EMITTER_SCRIPT_CONTENT` uses `#!/bin/sh` with background `&` pipes to `socat`/`nc`/`curl --unix-socket`; zero Python invocation). Exercised by `test_write_onevent_emitter_creates_posix_sh_without_python`. |
-| 2 | `LibrespotEventServer` converts 32-char Base16 hex `TRACK_ID`s to 22-char Base62 Spotify IDs with `.rjust(22, '0')` zero-padding, and is idempotent on already-22-char Base62 IDs (`RESIL-01` precision & idempotency) | ✓ VERIFIED | `py_modules/resilience.py:68-86` (`normalize_spotify_id` strips `spotify:track:`/`spotify:episode:` prefixes, converts 32-char hex via `divmod(num, 62)` + `.rjust(22, "0")`, returns Base62 idempotently). Exercised by `test_normalize_spotify_id_hex_to_base62_and_zero_padding` & `test_normalize_spotify_id_strips_uri_prefixes_and_handles_empty`. |
-| 3 | `LibrespotEventServer` updates `_poll_play_state`, `_poll_progress_ms`, `_poll_duration_ms`, and `_last_event` synchronously before awaiting `decky.emit('librespot_event', ...)` and debounces Web API enrichment (`_poll_playback`) by 400ms, cancelling any prior pending debounce task during rapid skipping (`RESIL-01` concurrency, D-05) | ✓ VERIFIED | `py_modules/resilience.py:336-403` updates plugin attributes synchronously before `await decky.emit("librespot_event", event_dict)` (line 367) and schedules `ONEVENT_DEBOUNCE_S = 0.4` enrichment cancelling prior `_debounce_task`. Exercised by `test_synchronous_state_update_before_decky_emit` and `test_debounced_enrichment_cancels_prior_tasks_on_rapid_skip`. |
-| 4 | `POSITION_MS`, `DURATION_MS`, and `VOLUME` from `--onevent` are validated and clamped to non-negative integers (`0..100` for volume), and `resilience_bookmark_expiry_hours` is clamped to `[1, 24]` in `_load_settings_impl` (`RESIL-01` boundary, D-07) | ✓ VERIFIED | `py_modules/resilience.py:101-130,186-198` (`_clamp_non_negative_int`, `_clamp_volume_int` scaling `0..65535` to `0..100`) and `py_modules/common.py:307-325` (`max(1, min(24, int(raw_expiry)))` with fallback `12`). Exercised by `test_default_settings_and_load_settings_clamping` and `test_parse_key_value_json_and_http_post_payloads`. |
-| 5 | `_poll_api_loop` adapts between 20s when `audio_backend=='librespot'`, `librespot` is running, `--onevent` is healthy, and local `librespot` is active (D-03), and 3s immediately via `_poll_wake_event` when remote device is active, `audio_backend=='spotify_client'`, or `--onevent` is unhealthy/silent (D-04) | ✓ VERIFIED | `py_modules/resilience.py:404-448` (`is_healthy`, `get_poll_interval`, `mark_unhealthy` setting `_poll_wake_event`) and `main.py:1651-1653,1768-1789` (`_poll_api_loop` waiting on `_poll_wake_event` with adaptive timeout). Exercised by `test_adaptive_polling_20s_vs_3s`. |
-| 6 | `SessionBookmarkManager` snapshots `(track_uri, context_uri, position_ms, was_playing, saved_at)` atomically via temp file + `os.replace()` and falls back safely on corrupt JSON | ✓ VERIFIED | `py_modules/resilience.py:504-552,562-648` (`_write_bookmark_atomic` writes `.tmp` and calls `os.replace(tmp_path, self.bookmark_file)`; `load_bookmark` catches `(OSError, json.JSONDecodeError, ValueError, TypeError)`). Exercised by `test_atomic_bookmark_persistence_and_corrupt_json_fallback`. |
-| 7 | Unified `_recovery_lock` (`asyncio.Lock`) + 10s cooldown serializes `SuspendResumeMonitor._on_deck_resume`, `_monitor_process` (`SUSPEND_THRESHOLD`), and Wi-Fi recovery so concurrent wake triggers never dual-restart `librespot` (`RESIL-02` concurrency) | ✓ VERIFIED | `py_modules/resilience.py:494-495,820-828` (`async with self._recovery_lock:` + `RECOVERY_COOLDOWN_S = 10.0`), wired from `main.py:219` (`source="dbus"`), `main.py:1700` (`source="watchdog"`), and `py_modules/resilience.py:690,704` (`source="wifi"`). Exercised by `test_unified_recovery_lock_and_cooldown_prevent_dual_restart`. |
-| 8 | Wi-Fi drop detection applies a 4s buffer-aware grace window (D-02) and only restarts/restores if connectivity stays down past 4s or `librespot` loses its session; auto-resume only plays when `was_playing` is True (D-01), checks `/v1/me/player` to yield if another device is actively playing (D-06), and holds expired or yielded bookmarks for manual restore (D-07) | ✓ VERIFIED | `py_modules/resilience.py:670-706` (`on_poll_network_result` with `WIFI_GRACE_WINDOW_S = 4.0`) and `py_modules/resilience.py:847-959` (D-01 `was_playing`, D-07 expiry check, D-06 `_fetch_current_player` remote active check, `restore_held_bookmark`, `dismiss_held_bookmark`). Exercised by `test_d01_...`, `test_d02_...`, `test_d06_...`, and `test_d07_...`. |
-| 9 | `usePlaybackStatus` subscribes to `librespot_event` and `track_metadata` via `addEventListener`/`removeEventListener` and updates status immediately (`<50ms`) on `track_changed`, `playing`, `paused`, `stopped`, and `seeked` without waiting for the 1.5s `get_status` poll (`RESIL-01`, D-05) | ✓ VERIFIED | `src/hooks/usePlaybackStatus.ts:57-144` subscribes to `"librespot_event"` and `"track_metadata"`, performs functional `setStatus((prev) => ...)` updates immediately, and unsubscribes on unmount. Exercised by `src/index.test.tsx:721-779`. |
-| 10 | `QuickAccessMenu` subscribes to `librespot_event`, `track_metadata`, `resilience_status`, and `session_restored`, updating mini-player playback state immediately and showing a brief Decky toast on `session_restored` only when `resilience_toast_enabled` is true (D-09) | ✓ VERIFIED | `src/index.tsx:337-397` registers all 4 listeners, updates QAM state immediately, gates `toaster.toast` on `data.toast_enabled !== false && resilienceToastEnabledRef.current !== false`, and cleans up on unmount. Exercised by `src/index.test.tsx:861-957`. |
-| 11 | `QuickAccessMenu` renders a compact conditional `'Resume Bookmark'` action ONLY when `resilienceStatus.held_bookmark` is non-null and `resilience_prompt_held_enabled` is true, keeping QAM compact when no bookmark is held (D-09) | ✓ VERIFIED | `src/index.tsx:722-737` conditionally renders the `Resume Bookmark` `ButtonItem` only when `resilienceStatus?.held_bookmark && settings.resilience_prompt_held_enabled !== false`. Exercised by `src/index.test.tsx:781-859`. |
-| 12 | `SettingsTab` renders the `'Playback Resilience'` card with: Auto-Resume toggle, Bookmark Expiry `SliderField` (1h-24h, step 1h) + Never Expires toggle, Restore Toast toggle, Held-Bookmark Prompt toggle, live `--onevent`/polling health status badge, and manual Resume/Dismiss buttons when a bookmark is held (D-07, D-08) | ✓ VERIFIED | `src/components/tabs/SettingsTab.tsx:850-1014` renders the card, live `--onevent Live (20s poll)` / `Fallback Poll (3s)` badge, 4 `ToggleField`s, conditional `1..24` `SliderField`, and `flow-children="horizontal"` `Resume Bookmark` / `Dismiss` buttons. Exercised by 4 tests in `src/components/tabs/SettingsTab.test.tsx:887-1090`. |
+| 1 | `librespot --onevent` emits `KEY=VALUE` lines over a non-blocking Unix domain socket via a `<5ms` POSIX `sh` script (zero Python startup inside `--onevent`) | ✓ VERIFIED | `py_modules/resilience.py` (`_EMITTER_SCRIPT_CONTENT` uses `#!/bin/sh` with background `&` pipes to `socat`/`nc`/`curl --unix-socket`; zero Python invocation). Exercised by `test_write_onevent_emitter_creates_posix_sh_without_python`. |
+| 2 | `LibrespotEventServer` converts 32-char Base16 hex `TRACK_ID`s to 22-char Base62 Spotify IDs with `.rjust(22, '0')` zero-padding, and is idempotent on already-22-char Base62 IDs (`RESIL-01` precision & idempotency) | ✓ VERIFIED | `py_modules/resilience.py` (`normalize_spotify_id` strips `spotify:track:`/`spotify:episode:` prefixes, converts 32-char hex via `divmod(num, 62)` + `.rjust(22, "0")`, returns Base62 idempotently). Exercised by `test_normalize_spotify_id_hex_to_base62_and_zero_padding` & `test_normalize_spotify_id_strips_uri_prefixes_and_handles_empty`. |
+| 3 | `LibrespotEventServer` updates `_poll_play_state`, `_poll_progress_ms`, `_poll_duration_ms`, and `_last_event` synchronously before awaiting `decky.emit('librespot_event', ...)` and debounces Web API enrichment (`_poll_playback`) by 400ms, cancelling any prior pending debounce task during rapid skipping (`RESIL-01` concurrency, D-05) | ✓ VERIFIED | `py_modules/resilience.py` updates plugin attributes synchronously before `await decky.emit("librespot_event", event_dict)` and schedules `ONEVENT_DEBOUNCE_S = 0.4` enrichment cancelling prior `_debounce_task`. Exercised by `test_synchronous_state_update_before_decky_emit` and `test_debounced_enrichment_cancels_prior_tasks_on_rapid_skip`. |
+| 4 | `POSITION_MS`, `DURATION_MS`, and `VOLUME` from `--onevent` are validated and clamped to non-negative integers (`0..100` for volume), and `resilience_bookmark_expiry_hours` is clamped to `[1, 24]` in `_load_settings_impl` (`RESIL-01` boundary, D-07) | ✓ VERIFIED | `py_modules/resilience.py` (`_clamp_non_negative_int`, `_clamp_volume_int` scaling `0..65535` to `0..100`) and `py_modules/common.py:319-326` (`max(1, min(24, int(raw_expiry)))` with fallback `12`). Exercised by `test_default_settings_and_load_settings_clamping` and `test_parse_key_value_json_and_http_post_payloads`. |
+| 5 | `_poll_api_loop` adapts between 20s when `audio_backend=='librespot'`, `librespot` is running, `--onevent` is healthy, and local `librespot` is active (D-03), and 3s immediately via `_poll_wake_event` when remote device is active, `audio_backend=='spotify_client'`, or `--onevent` is unhealthy/silent (D-04) | ✓ VERIFIED | `py_modules/resilience.py` (`is_healthy`, `get_poll_interval`, `mark_unhealthy` setting `_poll_wake_event`) and `main.py` (`_poll_api_loop` waiting on `_poll_wake_event` with adaptive timeout). Exercised by `test_adaptive_polling_20s_vs_3s`. |
+| 6 | `SessionBookmarkManager` snapshots `(track_uri, context_uri, position_ms, was_playing, saved_at)` atomically via temp file + `os.replace()` and falls back safely on corrupt JSON | ✓ VERIFIED | `py_modules/resilience.py` (`_write_bookmark_atomic` writes `.tmp` and calls `os.replace(tmp_path, self.bookmark_file)`; `load_bookmark` catches `(OSError, json.JSONDecodeError, ValueError, TypeError)`). Exercised by `test_atomic_bookmark_persistence_and_corrupt_json_fallback`. |
+| 7 | Unified `_recovery_lock` (`asyncio.Lock`) + 10s cooldown serializes `SuspendResumeMonitor._on_deck_resume`, `_monitor_process` (`SUSPEND_THRESHOLD`), and Wi-Fi recovery so concurrent wake triggers never dual-restart `librespot` (`RESIL-02` concurrency) | ✓ VERIFIED | `py_modules/resilience.py:828` (`async with self._recovery_lock:` + `RECOVERY_COOLDOWN_S = 10.0`), wired from `main.py:227` (`source="dbus"`), `main.py:1738` (`source="watchdog"`), and `py_modules/resilience.py:698,712` (`source="wifi"`). Exercised by `test_unified_recovery_lock_and_cooldown_prevent_dual_restart`. |
+| 8 | Wi-Fi drop detection applies a 4s buffer-aware grace window (D-02) and only restarts/restores if connectivity stays down past 4s or `librespot` loses its session; auto-resume only plays when `was_playing` is True (D-01), checks `/v1/me/player` to yield if another device is actively playing (D-06), and holds expired or yielded bookmarks for manual restore (D-07) | ✓ VERIFIED | `py_modules/resilience.py` (`on_poll_network_result` with `WIFI_GRACE_WINDOW_S = 4.0`, `was_playing` check, expiry check, `_fetch_current_player` remote active check, `restore_held_bookmark`, `dismiss_held_bookmark`). Exercised by `test_d01_...`, `test_d02_...`, `test_d06_...`, and `test_d07_...`. |
+| 9 | `usePlaybackStatus` subscribes to `librespot_event` and `track_metadata` via `addEventListener`/`removeEventListener` and updates status immediately (`<50ms`) on `track_changed`, `playing`, `paused`, `stopped`, and `seeked` without waiting for the 1.5s `get_status` poll (`RESIL-01`, D-05) | ✓ VERIFIED | `src/hooks/usePlaybackStatus.ts` (154 lines) subscribes to `"librespot_event"` and `"track_metadata"`, performs functional `setStatus((prev) => ...)` updates immediately, and unsubscribes on unmount. Exercised by `src/index.test.tsx`. |
+| 10 | `QuickAccessMenu` subscribes to `librespot_event`, `track_metadata`, `resilience_status`, and `session_restored`, updating mini-player playback state immediately and showing a brief Decky toast on `session_restored` only when `resilience_toast_enabled` is true (D-09) | ✓ VERIFIED | `src/index.tsx` registers all 4 listeners, updates QAM state immediately, gates `toaster.toast` on `data.toast_enabled !== false && resilienceToastEnabledRef.current !== false`, and cleans up on unmount. Exercised by `src/index.test.tsx`. |
+| 11 | `QuickAccessMenu` renders a compact conditional `'Resume Bookmark'` action ONLY when `resilienceStatus.held_bookmark` is non-null and `resilience_prompt_held_enabled` is true, keeping QAM compact when no bookmark is held (D-09) | ✓ VERIFIED | `src/index.tsx` conditionally renders the `Resume Bookmark` `ButtonItem` only when `resilienceStatus?.held_bookmark && settings.resilience_prompt_held_enabled !== false`. Exercised by `src/index.test.tsx`. |
+| 12 | `SettingsTab` renders the `'Playback Resilience'` card with: Auto-Resume toggle, Bookmark Expiry `SliderField` (1h-24h, step 1h) + Never Expires toggle, Restore Toast toggle, Held-Bookmark Prompt toggle, live `--onevent`/polling health status badge, and manual Resume/Dismiss buttons when a bookmark is held (D-07, D-08) | ✓ VERIFIED | `src/components/tabs/SettingsTab.tsx:871-1014` renders the `'Playback Resilience'` card, live `--onevent Live (20s poll)` / `Fallback Poll (3s)` badge, 4 `ToggleField`s, conditional `1..24` `SliderField`, and `flow-children="horizontal"` `Resume Bookmark` / `Dismiss` buttons. Exercised by `src/components/tabs/SettingsTab.test.tsx`. |
 
 **Score:** 12/12 truths verified (0 present, behavior-unverified)
+
+### Advisory (New Scope, Unevidenced)
+
+None.
 
 ### Prohibitions Verified
 
 | # | Prohibition | Plan | Status | Evidence |
 |---|-------------|------|--------|----------|
-| 1 | Never spawn Python (`#!/usr/bin/env python3`) inside `librespot --onevent` | 17-01 | ✓ VERIFIED | `py_modules/resilience.py:47-65` writes pure POSIX `#!/bin/sh`; `test_write_onevent_emitter_creates_posix_sh_without_python` asserts `"python" not in content.lower()`. |
-| 2 | Never inherit `LD_LIBRARY_PATH` in spawned `librespot` or host subprocesses | 17-01 | ✓ VERIFIED | `py_modules/common.py:38` and `main.py:499` explicitly strip `LD_LIBRARY_PATH` (`env.pop("LD_LIBRARY_PATH", None)`). |
-| 3 | Never dual-restart `librespot` from both `_on_deck_resume` and `_monitor_process` on the same wake event | 17-01 | ✓ VERIFIED | Serialized by `SessionBookmarkManager._recovery_lock` + 10s cooldown (`py_modules/resilience.py:822-828`); proven by `test_unified_recovery_lock_and_cooldown_prevent_dual_restart`. |
-| 4 | Never hijack playback when another Spotify Connect device is already actively playing on `/v1/me/player` | 17-01 | ✓ VERIFIED | `py_modules/resilience.py:878-885` yields and holds bookmark with `held_reason="remote_active"`; proven by `test_d06_remote_active_device_yields_and_holds_bookmark`. |
-| 5 | Never render a permanent held-bookmark card in QAM when no bookmark is held | 17-02 | ✓ VERIFIED | `src/index.tsx:722` gates rendering on `resilienceStatus?.held_bookmark && settings.resilience_prompt_held_enabled !== false`; proven by `src/index.test.tsx:790-795`. |
-| 6 | Never leak `addEventListener` subscriptions on component unmount | 17-02 | ✓ VERIFIED | `src/hooks/usePlaybackStatus.ts:136-144`, `src/index.tsx:388-397`, and `src/components/tabs/SettingsTab.tsx:210-212` remove all registered listeners on unmount. |
+| 1 | Never spawn Python (`#!/usr/bin/env python3`) inside `librespot --onevent` | 17-01 | ✓ VERIFIED | `py_modules/resilience.py` writes pure POSIX `#!/bin/sh`; `test_write_onevent_emitter_creates_posix_sh_without_python` asserts `"python" not in content.lower()`. |
+| 2 | Never inherit `LD_LIBRARY_PATH` in spawned `librespot` or host subprocesses | 17-01 | ✓ VERIFIED | `py_modules/common.py` and `main.py` explicitly strip `LD_LIBRARY_PATH` (`env.pop("LD_LIBRARY_PATH", None)`). |
+| 3 | Never dual-restart `librespot` from both `_on_deck_resume` and `_monitor_process` on the same wake event | 17-01 | ✓ VERIFIED | Serialized by `SessionBookmarkManager._recovery_lock` + 10s cooldown (`py_modules/resilience.py:828`); proven by `test_unified_recovery_lock_and_cooldown_prevent_dual_restart`. |
+| 4 | Never hijack playback when another Spotify Connect device is already actively playing on `/v1/me/player` | 17-01 | ✓ VERIFIED | `py_modules/resilience.py` yields and holds bookmark with `held_reason="remote_active"`; proven by `test_d06_remote_active_device_yields_and_holds_bookmark`. |
+| 5 | Never render a permanent held-bookmark card in QAM when no bookmark is held | 17-02 | ✓ VERIFIED | `src/index.tsx` gates rendering on `resilienceStatus?.held_bookmark && settings.resilience_prompt_held_enabled !== false`; proven by `src/index.test.tsx`. |
+| 6 | Never leak `addEventListener` subscriptions on component unmount | 17-02 | ✓ VERIFIED | `src/hooks/usePlaybackStatus.ts`, `src/index.tsx`, and `src/components/tabs/SettingsTab.tsx` remove all registered listeners on unmount. |
 
 ### Required Artifacts
 
 | Artifact | Expected | Status | Details |
 |----------|----------|--------|---------|
-| `py_modules/resilience.py` | `LibrespotEventServer`, `SessionBookmarkManager`, `normalize_spotify_id`, `write_onevent_emitter` | ✓ VERIFIED | 977 lines; exports all 4 symbols, full AF_UNIX event server, 400ms debounce, adaptive polling, and unified session bookmark recovery. |
-| `py_modules/common.py` | `ONEVENT_SOCK_FILE`, `ONEVENT_EMITTER_SCRIPT`, `SESSION_BOOKMARK_FILE`, resilience `DEFAULT_SETTINGS` & clamping | ✓ VERIFIED | Defines runtime paths (lines 45-47), 5 `resilience_*` default settings (lines 126-130), and `[1, 24]` clamping in `_load_settings` (lines 307-325). |
-| `main.py` | Resilience managers lifecycle, `--onevent` wiring, adaptive `_poll_api_loop`, unified wake recovery, RPCs | ✓ VERIFIED | Starts/stops `LibrespotEventServer`, passes `--onevent` + `DECKIFY_EVENT_SOCK` to `librespot`, delegates `_on_deck_sleep`/`_on_deck_resume`/`_monitor_process` to `SessionBookmarkManager`, and exposes `get_resilience_status`, `restore_bookmark`, `dismiss_bookmark`. |
+| `py_modules/resilience.py` | `LibrespotEventServer`, `SessionBookmarkManager`, `normalize_spotify_id`, `write_onevent_emitter` | ✓ VERIFIED | 985 lines; exports all 4 symbols, full AF_UNIX event server, 400ms debounce, adaptive polling, and unified session bookmark recovery. |
+| `py_modules/common.py` | `ONEVENT_SOCK_FILE`, `ONEVENT_EMITTER_SCRIPT`, `SESSION_BOOKMARK_FILE`, resilience `DEFAULT_SETTINGS` & clamping | ✓ VERIFIED | 408 lines; defines runtime paths (line 45+), 5 `resilience_*` default settings (line 127+), and `[1, 24]` clamping in `_load_settings_impl` (lines 319-326). |
+| `main.py` | Resilience managers lifecycle, `--onevent` wiring, adaptive `_poll_api_loop`, unified wake recovery, RPCs | ✓ VERIFIED | 1827 lines; starts/stops `LibrespotEventServer`, passes `--onevent` + `DECKIFY_EVENT_SOCK` (`line 512`), delegates `_on_deck_sleep`/`_on_deck_resume` (`line 227`)/`_monitor_process` (`line 1738`) to `SessionBookmarkManager`, and exposes `get_resilience_status` (`line 1046`), `restore_bookmark` (`line 1051`), `dismiss_bookmark`. |
 | `tests/test_resilience.py` | Unit tests for `RESIL-01` and `RESIL-02` backend logic (`min_lines: 180`) | ✓ VERIFIED | 501 lines; 15 unit & integration tests covering all `RESIL-01` and `RESIL-02` behaviors. |
-| `src/types.ts` | `HeldBookmarkInfo`, `ResilienceStatusInfo`, `EngineSettings` resilience keys, `StatusResponse.resilience_status` | ✓ VERIFIED | Lines 168-186, 251-255, and `StatusResponse.resilience_status` defined and exported. |
-| `src/hooks/usePlaybackStatus.ts` | Immediate `librespot_event` and `track_metadata` push sync for Expanded Modal | ✓ VERIFIED | Subscribes to `librespot_event` and `track_metadata` with functional state updates and unmount cleanup (lines 57-144). |
-| `src/index.tsx` | QAM instant event sync, `session_restored` toast, conditional `Resume Bookmark` button | ✓ VERIFIED | Wires `restore_bookmark`/`dismiss_bookmark` callables, QAM event listeners, toast gating, and conditional `Resume Bookmark` `ButtonItem`. |
-| `src/components/tabs/SettingsTab.tsx` | `Playback Resilience` card with toggles, 1h-24h expiry `SliderField`, status badge, and manual restore | ✓ VERIFIED | Lines 850-1014 render the complete `Playback Resilience` card with live status badge, 4 toggles, clamped 1h-24h `SliderField`, and held-bookmark actions. |
+| `src/types.ts` | `HeldBookmarkInfo`, `ResilienceStatusInfo`, `EngineSettings` resilience keys, `StatusResponse.resilience_status` | ✓ VERIFIED | 390 lines; exports `HeldBookmarkInfo`, `ResilienceStatusInfo`, `EngineSettings` (`resilience_bookmark_expiry_hours` at line 264), and `StatusResponse.resilience_status`. |
+| `src/hooks/usePlaybackStatus.ts` | Immediate `librespot_event` and `track_metadata` push sync for Expanded Modal | ✓ VERIFIED | 154 lines; subscribes to `librespot_event` and `track_metadata` with functional state updates and unmount cleanup. |
+| `src/index.tsx` | QAM instant event sync, `session_restored` toast, conditional `Resume Bookmark` button | ✓ VERIFIED | 1315 lines; wires `restore_bookmark` (`line 81`)/`dismiss_bookmark` callables, QAM event listeners, toast gating, and conditional `Resume Bookmark` `ButtonItem`. |
+| `src/components/tabs/SettingsTab.tsx` | `Playback Resilience` card with toggles, 1h-24h expiry `SliderField`, status badge, and manual restore | ✓ VERIFIED | 1644 lines; lines 871-1014 render the complete `Playback Resilience` card with live status badge, 4 toggles, clamped 1h-24h `SliderField`, and held-bookmark actions. |
 
 ### Key Link Verification
 
 | From | To | Via | Status | Details |
 |------|----|-----|--------|---------|
-| `main.py:start_librespot` | `py_modules/resilience.py:write_onevent_emitter` | `--onevent` emitter script + `DECKIFY_EVENT_SOCK` env var | ✓ WIRED | `main.py:493-501` calls `resilience.write_onevent_emitter(ONEVENT_EMITTER_SCRIPT)`, extends `cmd` with `["--onevent", emitter_path]`, and sets `env["DECKIFY_EVENT_SOCK"] = ONEVENT_SOCK_FILE`. |
-| `py_modules/resilience.py:LibrespotEventServer` | `main.py:_poll_playback` | 400ms debounced enrichment task | ✓ WIRED | `py_modules/resilience.py:390-398` cancels prior `_debounce_task`, sleeps `0.4s`, and awaits `self._plugin._poll_playback()`. |
-| `main.py:_on_deck_resume` & `main.py:_monitor_process` | `py_modules/resilience.py:SessionBookmarkManager.handle_wake_recovery` | unified `_recovery_lock` + cooldown | ✓ WIRED | `main.py:219` (`source="dbus"`) and `main.py:1700` (`source="watchdog"`) both delegate to `self._bookmark_manager.handle_wake_recovery(...)`. |
-| `py_modules/resilience.py:SessionBookmarkManager` | `py_modules/rpc_playback.py:play_tracks` | bookmark restoration with `context_uri`, `offset_uri`, `position_ms` | ✓ WIRED | `py_modules/resilience.py:793-812,889-893,926-930` calls `rpc_playback.play_tracks` with `context_uri`, `offset_uri`, and `position_ms`. |
-| `src/hooks/usePlaybackStatus.ts` | `py_modules/resilience.py:LibrespotEventServer` | `addEventListener('librespot_event')` and `addEventListener('track_metadata')` | ✓ WIRED | `src/hooks/usePlaybackStatus.ts:67-135` subscribes to both backend events and updates hook state immediately. |
-| `src/index.tsx:QuickAccessMenu` | `main.py:restore_bookmark` | `callable('restore_bookmark')` on conditional QAM `Resume Bookmark` button | ✓ WIRED | `src/index.tsx:88-89,400-412,722-737` invokes `backendRestoreBookmark()` on click and refreshes status. |
-| `src/components/tabs/SettingsTab.tsx` | `main.py:set_setting` & `restore_bookmark` | `updateSetting('resilience_*')` and `callable('restore_bookmark')` | ✓ WIRED | `src/components/tabs/SettingsTab.tsx:28-29,910-1009` persists all 5 `resilience_*` settings and invokes `backendRestoreBookmark()` / `backendDismissBookmark()`. |
+| `main.py:start_librespot` | `py_modules/resilience.py:write_onevent_emitter` | `--onevent` emitter script + `DECKIFY_EVENT_SOCK` env var | ✓ WIRED | `main.py:512` sets `env["DECKIFY_EVENT_SOCK"] = ONEVENT_SOCK_FILE` alongside `--onevent` emitter script. |
+| `py_modules/resilience.py:LibrespotEventServer` | `main.py:_poll_playback` | 400ms debounced enrichment task | ✓ WIRED | `py_modules/resilience.py` cancels prior `_debounce_task`, sleeps `0.4s`, and awaits `self._plugin._poll_playback()`. |
+| `main.py:_on_deck_resume` & `main.py:_monitor_process` | `py_modules/resilience.py:SessionBookmarkManager.handle_wake_recovery` | unified `_recovery_lock` + cooldown | ✓ WIRED | `main.py:227` (`source="dbus"`) and `main.py:1738` (`source="watchdog"`) both delegate to `self._bookmark_manager.handle_wake_recovery(...)`. |
+| `py_modules/resilience.py:SessionBookmarkManager` | `py_modules/rpc_playback.py:play_tracks` | bookmark restoration with `context_uri`, `offset_uri`, `position_ms` | ✓ WIRED | `py_modules/resilience.py` calls `rpc_playback.play_tracks` with `context_uri`, `offset_uri`, and `position_ms`. |
+| `src/hooks/usePlaybackStatus.ts` | `py_modules/resilience.py:LibrespotEventServer` | `addEventListener('librespot_event')` and `addEventListener('track_metadata')` | ✓ WIRED | `src/hooks/usePlaybackStatus.ts` subscribes to both backend events and updates hook state immediately. |
+| `src/index.tsx:QuickAccessMenu` | `main.py:restore_bookmark` | `callable('restore_bookmark')` on conditional QAM `Resume Bookmark` button | ✓ WIRED | `src/index.tsx:81` invokes `backendRestoreBookmark()` on click and refreshes status. |
+| `src/components/tabs/SettingsTab.tsx` | `main.py:set_setting` & `restore_bookmark` | `updateSetting('resilience_*')` and `callable('restore_bookmark')` | ✓ WIRED | `src/components/tabs/SettingsTab.tsx:67,959` persists all 5 `resilience_*` settings and invokes `backendRestoreBookmark()` / `backendDismissBookmark()`. |
 
 ### Data-Flow Trace (Level 4)
 
@@ -100,8 +110,8 @@ overrides_applied: 0
 
 | Behavior | Command | Result | Status |
 |----------|---------|--------|--------|
-| Backend `RESIL-01` & `RESIL-02` unit and integration suite (15 tests) | `py -3 -m unittest tests/test_resilience.py -v` | `Ran 15 tests in 0.949s - OK` | ✓ PASS |
-| Frontend `usePlaybackStatus`, `QuickAccessMenu`, and `SettingsTab` resilience suites (43 tests across 2 files) | `pnpm test -- --run src/index.test.tsx src/components/tabs/SettingsTab.test.tsx` | `2 passed (43 tests) in 735ms` | ✓ PASS |
+| Backend `RESIL-01` & `RESIL-02` unit and integration suite (15 tests) | `py -3 -m unittest tests/test_resilience.py -v` | `Ran 15 tests in 1.177s - OK` | ✓ PASS |
+| Frontend `usePlaybackStatus`, `QuickAccessMenu`, and `SettingsTab` resilience suites (47 tests across 2 files) | `pnpm test -- --run src/index.test.tsx src/components/tabs/SettingsTab.test.tsx` | `2 passed (47 tests) in 839ms` | ✓ PASS |
 
 ### Probe Execution
 
@@ -120,7 +130,7 @@ No shell probes (`scripts/*/tests/probe-*.sh`) declared or applicable for this p
 
 | File | Line | Pattern | Severity | Impact |
 |------|------|---------|----------|--------|
-| — | — | None found | — | Zero `TBD`/`FIXME`/`XXX`/`TODO`/`HACK` or stub implementations across all 11 modified files. |
+| — | — | None found | — | Zero `TBD`/`FIXME`/`XXX`/`TODO`/`HACK` or stub implementations across all modified files. |
 
 ### Human Verification Required
 
@@ -128,9 +138,9 @@ None — all observable truths and state transitions are deterministically verif
 
 ### Gaps Summary
 
-No gaps found. All 12 must-have truths, 6 prohibitions, 8 required artifacts, 7 key links, and both phase requirements (`RESIL-01`, `RESIL-02`) are verified in the codebase with passing automated behavioral tests.
+No gaps found. All 12 must-have truths, 6 prohibitions, 8 required artifacts, 7 key links, and both phase requirements (`RESIL-01`, `RESIL-02`) remain verified in the codebase with passing automated behavioral tests and refreshed fingerprint.
 
 ---
 
-_Verified: 2026-11-17T19:57:00Z_
+_Verified: 2026-11-18T18:58:00Z_
 _Verifier: the agent (gsd-verifier)_
