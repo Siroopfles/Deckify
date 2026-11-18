@@ -128,6 +128,8 @@ DEFAULT_SETTINGS = {
     "resilience_bookmark_never_expires": False,
     "resilience_toast_enabled": True,
     "resilience_prompt_held_enabled": True,
+    "mpris_enabled": True,
+    "mpris_auto_proxy": True,
 }
 
 # PulseAudio socket for processes
@@ -309,6 +311,8 @@ def _load_settings(settings_file: str | None = None) -> dict:
             ("resilience_bookmark_never_expires", False),
             ("resilience_toast_enabled", True),
             ("resilience_prompt_held_enabled", True),
+            ("mpris_enabled", True),
+            ("mpris_auto_proxy", True),
         ):
             if not isinstance(merged.get(_rbool), bool):
                 merged[_rbool] = bool(merged.get(_rbool, _rdef))
