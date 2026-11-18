@@ -178,14 +178,14 @@ See [.planning/IDEAS.md](.planning/IDEAS.md) for the full **Deckify Master Featu
 **Goal:** Close out v0.6 tech debt: preserve `bit_perfect_clock` on undock when lossless + `bit_perfect_clock` is enabled, add `requirements-completed: [SLEEP-01]` to Phase 14 summaries, and promote Phases 14–18 `VALIDATION.md` contracts to `nyquist_compliant: true`.
 **Requirements**: DOCK-02, SLEEP-01, EQ-01, EQ-02, DOCK-01, RESIL-01, RESIL-02, MPRIS-01
 **Depends on:** Phase 18
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans executed
 
 Plans:
 **Wave 1**
 - [x] 18.1-01-PLAN.md — Preserve `bit_perfect_clock` on undock in `DockAudioSwitcher._restore_pre_dock()`, add `tests/test_dock.py` coverage, and add `requirements-completed: [SLEEP-01]` to Phase 14 summaries
 
 **Wave 2** *(blocked on Wave 1 completion)*
-- [ ] 18.1-02-PLAN.md — Audit and promote `14`–`18-VALIDATION.md` to `status: complete` / `nyquist_compliant: true` backed by observed full-suite test runs
+- [x] 18.1-02-PLAN.md — Audit and promote `14`–`18-VALIDATION.md` to `status: complete` / `nyquist_compliant: true` backed by observed full-suite test runs
 
 ### Phase 999.1: Follow-up — Phase 09 deferred UAT follow-up: Test 2 (BACKLOG)
 
