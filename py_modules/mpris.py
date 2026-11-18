@@ -1,9 +1,13 @@
 import asyncio
+import json
 import os
 import re
+import shutil
 import struct
+import subprocess
 import sys
 import time
+import urllib.parse
 from typing import Any, Callable
 
 # Ensure plugin root is on sys.path when invoked as `--worker` subprocess
@@ -12,7 +16,13 @@ if _PLUGIN_ROOT not in sys.path:
     sys.path.insert(0, _PLUGIN_ROOT)
 
 from py_modules import images, resilience  # noqa: E402
-from py_modules.common import decky  # noqa: E402
+from py_modules.common import (  # noqa: E402
+    DBUS_SESSION_BUS_ADDRESS,
+    DECK_USER,
+    _build_deck_command,
+    _exec,
+    decky,
+)
 
 MPRIS_BUS_NAME = "org.mpris.MediaPlayer2.deckify"
 MPRIS_OBJECT_PATH = "/org/mpris/MediaPlayer2"
@@ -1006,3 +1016,512 @@ class MprisDbusSession:
             self.writer.close()
         except Exception:
             pass
+
+
+_VALID_SPOTIFY_URI_TYPES = ("track", "album", "playlist", "artist", "episode", "show")
+
+
+def _parse_spotify_open_uri(raw_uri: str) -> str | None:
+    """Validate and normalize an OpenUri string to a canonical spotify:<type>:<id> URI."""
+    if not raw_uri or not isinstance(raw_uri, str):
+        return None
+    uri = raw_uri.strip()
+    if uri.startswith("https://open.spotify.com/"):
+        parsed = urllib.parse.urlsplit(uri)
+        parts = [p for p in parsed.path.split("/") if p]
+        if len(parts) >= 2 and parts[0] in _VALID_SPOTIFY_URI_TYPES:
+            item_id = parts[1].strip()
+            if re.fullmatch(r"[A-Za-z0-9]+", item_id):
+                return f"spotify:{parts[0]}:{item_id}"
+        return None
+    if uri.startswith("spotify:"):
+        parts = uri.split(":")
+        if len(parts) == 3 and parts[1] in _VALID_SPOTIFY_URI_TYPES:
+            item_id = parts[2].strip()
+            if re.fullmatch(r"[A-Za-z0-9]+", item_id):
+                return uri
+    return None
+
+
+def _parse_unix_bus_socket(address: str) -> str | None:
+    """Extract unix:path=/run/user/1000/bus socket path from DBUS_SESSION_BUS_ADDRESS."""
+    if not address or "unix:path=" not in address:
+        return None
+    for part in address.split(";"):
+        if part.startswith("unix:path="):
+            return part.split("unix:path=", 1)[1].split(",", 1)[0].strip()
+    return None
+
+
+class MprisBridge:
+    """High-level MPRIS2 bridge coordinating D-Bus session, mpris-proxy, and Plugin playback."""
+
+    def __init__(self, plugin: Any) -> None:
+        self._plugin = plugin
+        self._running: bool = False
+        self._bus_registered: bool = False
+        self._proxy_running: bool = False
+        self._proxy_managed: bool = False
+        self._proxy_available: bool = False
+        self._worker_proc: asyncio.subprocess.Process | None = None
+        self._worker_reader_task: asyncio.Task | None = None
+        self._proxy_proc: subprocess.Popen | None = None
+        self._session: MprisDbusSession | None = None
+        self._last_emitted_snapshot: dict[str, tuple[str, Any]] | None = None
+        self._last_emitted_metadata: dict[str, tuple[str, Any]] = {"mpris:trackid": ("o", NO_TRACK_PATH)}
+        self._pos_ms: int = 0
+        self._pos_anchor_mono: float = time.monotonic()
+
+    def get_status_dict(self) -> dict[str, Any]:
+        enabled = bool(getattr(self._plugin, "_settings", {}).get("mpris_enabled", True))
+        if not enabled:
+            status_badge = "disabled"
+        elif self._bus_registered and self._proxy_running:
+            status_badge = "active"
+        else:
+            status_badge = "proxy_unavailable"
+        return {
+            "enabled": enabled,
+            "bus_registered": self._bus_registered,
+            "proxy_running": self._proxy_running,
+            "proxy_managed": self._proxy_managed,
+            "proxy_available": self._proxy_available,
+            "status": status_badge,
+            "bus_name": MPRIS_BUS_NAME,
+        }
+
+    async def _emit_status(self) -> None:
+        try:
+            await decky.emit("mpris_status", self.get_status_dict())
+        except Exception as e:
+            decky.logger.debug("MprisBridge._emit_status error: %s", e)
+
+    def get_current_position_ms(self) -> int:
+        if getattr(self._plugin, "_poll_play_state", None) == "playing":
+            elapsed_ms = max(0, int((time.monotonic() - self._pos_anchor_mono) * 1000))
+            return self._pos_ms + elapsed_ms
+        return self._pos_ms
+
+    async def start(self) -> None:
+        if not getattr(self._plugin, "_settings", {}).get("mpris_enabled", True):
+            self._running = False
+            self._bus_registered = False
+            self._proxy_running = False
+            self._proxy_managed = False
+            await self._emit_status()
+            return
+
+        if self._running:
+            await self._emit_status()
+            return
+
+        self._running = True
+        self._last_emitted_snapshot = None
+
+        if hasattr(os, "geteuid") and os.geteuid() == 0:
+            await self._start_worker()
+        else:
+            await self._start_inprocess_session()
+
+        await self._ensure_mpris_proxy()
+        await self.sync_from_plugin()
+        await self._emit_status()
+
+    async def _start_worker(self) -> None:
+        try:
+            cmd, env = _build_deck_command(["python3", os.path.abspath(__file__), "--worker"])
+            env.pop("LD_LIBRARY_PATH", None)
+            self._worker_proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
+                env=env,
+            )
+            if self._worker_proc.stdout is not None:
+                try:
+                    raw_line = await asyncio.wait_for(self._worker_proc.stdout.readline(), timeout=5.0)
+                    if raw_line:
+                        info = json.loads(raw_line.decode("utf-8").strip())
+                        self._bus_registered = bool(info.get("ok"))
+                except Exception as e:
+                    decky.logger.warning("MPRIS worker handshake failed: %s", e)
+                    self._bus_registered = False
+                self._worker_reader_task = asyncio.create_task(self._read_worker_loop())
+        except Exception as e:
+            decky.logger.warning("Failed to spawn MPRIS UID 1000 worker: %s", e)
+            self._bus_registered = False
+
+    async def _read_worker_loop(self) -> None:
+        assert self._worker_proc is not None and self._worker_proc.stdout is not None
+        try:
+            while True:
+                line = await self._worker_proc.stdout.readline()
+                if not line:
+                    break
+                try:
+                    msg = json.loads(line.decode("utf-8").strip())
+                except Exception:
+                    continue
+                if msg.get("type") in ("method", "set_property"):
+                    await self.handle_dbus_command(msg)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            decky.logger.debug("MPRIS worker reader exited: %s", e)
+        finally:
+            self._bus_registered = False
+
+    async def _start_inprocess_session(self) -> None:
+        sock_path = _parse_unix_bus_socket(
+            os.environ.get("DBUS_SESSION_BUS_ADDRESS", DBUS_SESSION_BUS_ADDRESS)
+        )
+        if not sock_path or not os.path.exists(sock_path) or not hasattr(asyncio, "open_unix_connection"):
+            self._bus_registered = False
+            return
+        try:
+            reader, writer = await asyncio.open_unix_connection(sock_path)
+            session = MprisDbusSession(reader, writer, on_command=self.handle_dbus_command)
+            await session.register()
+            self._session = session
+            self._bus_registered = session.bus_registered
+        except Exception as e:
+            decky.logger.warning("In-process MPRIS D-Bus session failed: %s", e)
+            self._bus_registered = False
+
+    async def stop(self) -> None:
+        self._running = False
+        self._bus_registered = False
+        if self._worker_reader_task and not self._worker_reader_task.done():
+            self._worker_reader_task.cancel()
+            try:
+                await self._worker_reader_task
+            except (asyncio.CancelledError, Exception):
+                pass
+            self._worker_reader_task = None
+        if self._worker_proc is not None:
+            try:
+                if self._worker_proc.stdin:
+                    self._worker_proc.stdin.close()
+                self._worker_proc.terminate()
+                await asyncio.wait_for(self._worker_proc.wait(), timeout=2.0)
+            except Exception:
+                try:
+                    self._worker_proc.kill()
+                except Exception:
+                    pass
+            self._worker_proc = None
+        if self._session is not None:
+            await self._session.close()
+            self._session = None
+        await self._stop_mpris_proxy()
+        await self._emit_status()
+
+    async def _ensure_mpris_proxy(self) -> None:
+        mpris_proxy_bin = shutil.which("mpris-proxy") or (
+            "/usr/bin/mpris-proxy" if os.path.isfile("/usr/bin/mpris-proxy") else None
+        )
+        self._proxy_available = bool(mpris_proxy_bin)
+        try:
+            pgrep_cmd, pgrep_env = _build_deck_command(["pgrep", "-u", DECK_USER, "-x", "mpris-proxy"])
+            pgrep_env.pop("LD_LIBRARY_PATH", None)
+            res = await _exec(
+                lambda: subprocess.run(pgrep_cmd, capture_output=True, text=True, env=pgrep_env),
+                timeout=3,
+            )
+            if res is not None and res.returncode == 0:
+                self._proxy_running = True
+                self._proxy_managed = False
+                return
+        except Exception:
+            pass
+
+        auto_proxy = bool(getattr(self._plugin, "_settings", {}).get("mpris_auto_proxy", True))
+        if auto_proxy and mpris_proxy_bin:
+            try:
+                cmd, env = _build_deck_command([mpris_proxy_bin])
+                env.pop("LD_LIBRARY_PATH", None)
+                proc = subprocess.Popen(
+                    cmd, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                )
+                self._proxy_proc = proc
+                self._proxy_running = True
+                self._proxy_managed = True
+                return
+            except Exception as e:
+                decky.logger.warning("Failed to spawn mpris-proxy: %s", e)
+
+        self._proxy_running = False
+        self._proxy_managed = False
+
+    async def _stop_mpris_proxy(self) -> None:
+        if self._proxy_proc is not None:
+            try:
+                self._proxy_proc.terminate()
+                self._proxy_proc.wait(timeout=2.0)
+            except Exception:
+                try:
+                    self._proxy_proc.kill()
+                except Exception:
+                    pass
+            self._proxy_proc = None
+        self._proxy_running = False
+        self._proxy_managed = False
+
+    async def on_settings_changed(self, key: str, value: Any) -> None:
+        if key == "mpris_enabled":
+            if bool(value):
+                await self.start()
+            else:
+                await self.stop()
+        elif key == "mpris_auto_proxy":
+            if getattr(self._plugin, "_settings", {}).get("mpris_enabled", True):
+                if bool(value):
+                    await self._ensure_mpris_proxy()
+                else:
+                    await self._stop_mpris_proxy()
+            await self._emit_status()
+
+    async def handle_dbus_command(self, cmd: dict[str, Any]) -> None:
+        ctype = cmd.get("type")
+        if ctype == "method":
+            method = cmd.get("method")
+            if method == "Play":
+                await self._plugin.control_playback("play")
+            elif method == "Pause":
+                await self._plugin.control_playback("pause")
+            elif method == "PlayPause":
+                await self._plugin.control_playback("play_pause")
+            elif method == "Stop":
+                await self._plugin.control_playback("pause")
+            elif method == "Next":
+                await self._plugin.control_playback("next")
+            elif method == "Previous":
+                await self._plugin.control_playback("previous")
+            elif method == "Seek":
+                offset_us = int(cmd.get("offset_us", 0))
+                current_ms = self.get_current_position_ms()
+                target_ms = max(0, current_ms + int(offset_us // 1000))
+                duration_ms = int(getattr(self._plugin, "_poll_duration_ms", 0) or 0)
+                if duration_ms > 0 and target_ms > duration_ms:
+                    await self._plugin.control_playback("next")
+                else:
+                    await self._plugin.seek_playback(target_ms)
+                    await self.notify_seeked(target_ms)
+            elif method == "SetPosition":
+                track_id_path = str(cmd.get("track_id", ""))
+                pos_us = int(cmd.get("position_us", 0))
+                cur_tid = getattr(self._plugin, "_poll_track_id", None) or (
+                    getattr(self._plugin, "_track_meta", None) or {}
+                ).get("track_id")
+                expected_path = format_mpris_track_id(cur_tid)
+                duration_ms = int(getattr(self._plugin, "_poll_duration_ms", 0) or 0)
+                if track_id_path == expected_path and 0 <= pos_us <= max(0, duration_ms * 1000):
+                    pos_ms = int(pos_us // 1000)
+                    await self._plugin.seek_playback(pos_ms)
+                    await self.notify_seeked(pos_ms)
+            elif method == "OpenUri":
+                spotify_uri = _parse_spotify_open_uri(str(cmd.get("uri", "")))
+                if not spotify_uri:
+                    return
+                if spotify_uri.startswith(("spotify:track:", "spotify:episode:")):
+                    await self._plugin.play_tracks(uris=[spotify_uri])
+                else:
+                    await self._plugin.play_tracks(context_uri=spotify_uri)
+        elif ctype == "set_property":
+            prop = cmd.get("property")
+            val = cmd.get("value")
+            if prop == "Volume":
+                clamped = max(0.0, min(1.0, float(val)))
+                target_pct = max(0, min(100, int(round(clamped * 100))))
+                fader = getattr(self._plugin, "_volume_fader", None)
+                if fader is not None and getattr(fader, "_sleep_locked", False):
+                    return
+                self._plugin._poll_volume = target_pct
+                await self._plugin.set_volume(target_pct)
+                if fader is not None and fader.is_ducked:
+                    target_sink_vol = fader._compute_target_sink_volume()
+                    await fader.fade_to(target_sink_vol, 0.15)
+            elif prop == "Shuffle":
+                shuf = bool(val)
+                self._plugin._shuffle_state = shuf
+                await self._plugin.set_shuffle(shuf)
+                await self.sync_from_plugin()
+            elif prop == "LoopStatus":
+                loop_s = str(val)
+                if loop_s in ("None", "Track", "Playlist"):
+                    mapped = {"None": "off", "Track": "track", "Playlist": "context"}[loop_s]
+                    self._plugin._repeat_state = mapped
+                    await self._plugin.set_repeat(mapped)
+                    await self.sync_from_plugin()
+
+    async def on_onevent(self, event_dict: dict[str, Any]) -> None:
+        if "position_ms" in event_dict:
+            self._pos_ms = max(0, int(event_dict["position_ms"] or 0))
+            self._pos_anchor_mono = time.monotonic()
+        elif event_dict.get("event") in ("playing", "paused"):
+            self._pos_ms = max(0, int(getattr(self._plugin, "_poll_progress_ms", 0) or 0))
+            self._pos_anchor_mono = time.monotonic()
+        if event_dict.get("event") == "seeked" and "position_ms" in event_dict:
+            await self.notify_seeked(int(event_dict["position_ms"] or 0))
+        await self.sync_from_plugin()
+
+    async def notify_seeked(self, position_ms: int) -> None:
+        pos_ms = max(0, int(position_ms))
+        self._pos_ms = pos_ms
+        self._pos_anchor_mono = time.monotonic()
+        pos_us = pos_ms * 1000
+        if self._session is not None:
+            await self._session.emit_seeked(pos_us)
+        elif self._worker_proc is not None and self._worker_proc.stdin is not None:
+            try:
+                payload = json.dumps({"type": "seeked", "position_us": pos_us}) + "\n"
+                self._worker_proc.stdin.write(payload.encode("utf-8"))
+                await self._worker_proc.stdin.drain()
+            except Exception:
+                pass
+
+    async def sync_from_plugin(self) -> None:
+        play_state = getattr(self._plugin, "_poll_play_state", None)
+        if play_state == "playing":
+            playback_status = "Playing"
+        elif play_state == "paused":
+            playback_status = "Paused"
+        else:
+            playback_status = "Stopped"
+
+        repeat_state = getattr(self._plugin, "_repeat_state", "off")
+        loop_status = {"off": "None", "track": "Track", "context": "Playlist"}.get(repeat_state, "None")
+        shuffle = bool(getattr(self._plugin, "_shuffle_state", False))
+        raw_vol = getattr(self._plugin, "_poll_volume", None)
+        vol_pct = 100.0 if raw_vol is None else float(raw_vol)
+        volume = max(0.0, min(1.0, vol_pct / 100.0))
+
+        self._pos_ms = max(0, int(getattr(self._plugin, "_poll_progress_ms", 0) or 0))
+        self._pos_anchor_mono = time.monotonic()
+
+        track_meta = getattr(self._plugin, "_track_meta", None)
+        poll_tid = resilience.normalize_spotify_id(getattr(self._plugin, "_poll_track_id", None))
+        meta_tid = resilience.normalize_spotify_id(
+            (track_meta or {}).get("track_id") or (track_meta or {}).get("id")
+        )
+        last_ev = getattr(self._plugin, "_last_event", None) or {}
+        last_ev_tid = resilience.normalize_spotify_id(last_ev.get("track_id"))
+
+        if playback_status == "Stopped":
+            metadata: dict[str, tuple[str, Any]] = {"mpris:trackid": ("o", NO_TRACK_PATH)}
+        elif (
+            track_meta
+            and meta_tid
+            and (not last_ev_tid or meta_tid == last_ev_tid)
+            and (not poll_tid or meta_tid == poll_tid)
+        ):
+            metadata = build_mpris_metadata(track_meta, getattr(self._plugin, "_poll_duration_ms", 0) or 0)
+        else:
+            metadata = dict(self._last_emitted_metadata)
+
+        self._last_emitted_metadata = metadata
+
+        snapshot: dict[str, tuple[str, Any]] = {
+            "PlaybackStatus": ("s", playback_status),
+            "LoopStatus": ("s", loop_status),
+            "Shuffle": ("b", shuffle),
+            "Volume": ("d", volume),
+            "Metadata": ("a{sv}", metadata),
+        }
+
+        if self._last_emitted_snapshot is None:
+            changed = dict(snapshot)
+        else:
+            changed = {k: v for k, v in snapshot.items() if self._last_emitted_snapshot.get(k) != v}
+        self._last_emitted_snapshot = dict(snapshot)
+
+        if self._session is not None:
+            self._session._playback_status = playback_status
+            self._session._loop_status = loop_status
+            self._session._shuffle = shuffle
+            self._session._volume = volume
+            self._session._metadata = metadata
+            self._session.update_position_anchor(self._pos_ms * 1000)
+            if changed:
+                await self._session.emit_properties_changed(changed)
+        elif self._worker_proc is not None and self._worker_proc.stdin is not None:
+            if changed:
+                try:
+                    payload = json.dumps(
+                        {
+                            "type": "state",
+                            "snapshot": snapshot,
+                            "changed": changed,
+                            "position_us": self._pos_ms * 1000,
+                        }
+                    ) + "\n"
+                    self._worker_proc.stdin.write(payload.encode("utf-8"))
+                    await self._worker_proc.stdin.drain()
+                except Exception:
+                    pass
+
+
+async def _run_worker_main() -> None:
+    """UID 1000 D-Bus worker loop exchanging JSON lines over stdin/stdout."""
+    addr = os.environ.get("DBUS_SESSION_BUS_ADDRESS", DBUS_SESSION_BUS_ADDRESS)
+    sock_path = _parse_unix_bus_socket(addr) or "/run/user/1000/bus"
+
+    async def _on_cmd(cmd: dict[str, Any]) -> None:
+        sys.stdout.write(json.dumps(cmd) + "\n")
+        sys.stdout.flush()
+
+    try:
+        reader, writer = await asyncio.open_unix_connection(sock_path)
+        session = MprisDbusSession(reader, writer, on_command=_on_cmd)
+        await session.register()
+        sys.stdout.write(json.dumps({"type": "registered", "ok": True}) + "\n")
+        sys.stdout.flush()
+    except Exception as e:
+        sys.stdout.write(json.dumps({"type": "registered", "ok": False, "error": str(e)}) + "\n")
+        sys.stdout.flush()
+        return
+
+    loop = asyncio.get_running_loop()
+    try:
+        while True:
+            line = await loop.run_in_executor(None, sys.stdin.readline)
+            if not line:
+                break
+            try:
+                msg = json.loads(line.strip())
+            except Exception:
+                continue
+            mtype = msg.get("type")
+            if mtype == "seeked":
+                await session.emit_seeked(int(msg.get("position_us", 0)))
+            elif mtype == "state":
+                snap = msg.get("snapshot") or {}
+                if "PlaybackStatus" in snap:
+                    session._playback_status = str(snap["PlaybackStatus"][1])
+                if "LoopStatus" in snap:
+                    session._loop_status = str(snap["LoopStatus"][1])
+                if "Shuffle" in snap:
+                    session._shuffle = bool(snap["Shuffle"][1])
+                if "Volume" in snap:
+                    session._volume = float(snap["Volume"][1])
+                if "Metadata" in snap:
+                    raw_meta = snap["Metadata"][1]
+                    session._metadata = {k: (v[0], v[1]) for k, v in raw_meta.items()}
+                session.update_position_anchor(int(msg.get("position_us", 0)))
+                raw_changed = msg.get("changed") or {}
+                if raw_changed:
+                    changed_props = {
+                        k: (
+                            v[0],
+                            {mk: (mv[0], mv[1]) for mk, mv in v[1].items()} if v[0] == "a{sv}" else v[1],
+                        )
+                        for k, v in raw_changed.items()
+                    }
+                    await session.emit_properties_changed(changed_props)
+    finally:
+        await session.close()
+
+
+if __name__ == "__main__" and "--worker" in sys.argv:
+    asyncio.run(_run_worker_main())

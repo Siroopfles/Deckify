@@ -310,5 +310,225 @@ class TestMprisDbusSessionProtocol(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(sig2["args"][0], 42_000_000)
 
 
+class TestMprisBridgeIntegration(unittest.IsolatedAsyncioTestCase):
+    def _make_fake_plugin(self):
+        plugin = SimpleNamespace(
+            _settings=dict(common.DEFAULT_SETTINGS),
+            _poll_play_state="playing",
+            _poll_track_id="4uLU6hMCjMI75M1A2tKUQC",
+            _poll_progress_ms=10000,
+            _poll_duration_ms=200000,
+            _poll_volume=80,
+            _shuffle_state=False,
+            _repeat_state="off",
+            _last_event=None,
+            _track_meta={
+                "track_id": "4uLU6hMCjMI75M1A2tKUQC",
+                "name": "Never Gonna Give You Up",
+                "artist": "Rick Astley",
+                "album": "Whenever You Need Somebody",
+                "duration_ms": 200000,
+                "artwork_url": "https://i.scdn.co/image/rick",
+            },
+            _volume_fader=None,
+            control_playback=AsyncMock(return_value={"ok": True}),
+            seek_playback=AsyncMock(return_value={"ok": True}),
+            play_tracks=AsyncMock(return_value={"ok": True}),
+            set_volume=AsyncMock(return_value={"ok": True}),
+            set_shuffle=AsyncMock(return_value={"ok": True}),
+            set_repeat=AsyncMock(return_value={"ok": True}),
+        )
+        return plugin
+
+    async def test_command_routing_and_open_uri_validation(self):
+        plugin = self._make_fake_plugin()
+        bridge = mpris.MprisBridge(plugin)
+        bridge._session = MagicMock()
+        bridge._session.emit_seeked = AsyncMock()
+        bridge._session.emit_properties_changed = AsyncMock()
+        bridge._session.update_position_anchor = MagicMock()
+
+        await bridge.handle_dbus_command({"type": "method", "method": "Play"})
+        await bridge.handle_dbus_command({"type": "method", "method": "Pause"})
+        await bridge.handle_dbus_command({"type": "method", "method": "PlayPause"})
+        await bridge.handle_dbus_command({"type": "method", "method": "Stop"})
+        await bridge.handle_dbus_command({"type": "method", "method": "Next"})
+        await bridge.handle_dbus_command({"type": "method", "method": "Previous"})
+        self.assertEqual(
+            [c.args[0] for c in plugin.control_playback.await_args_list],
+            ["play", "pause", "play_pause", "pause", "next", "previous"],
+        )
+
+        # Seek within track -> seek_playback + Seeked
+        bridge._pos_ms = 20000
+        bridge._pos_anchor_mono = time.monotonic()
+        await bridge.handle_dbus_command({"type": "method", "method": "Seek", "offset_us": 5_000_000})
+        plugin.seek_playback.assert_awaited()
+        bridge._session.emit_seeked.assert_awaited()
+
+        # Seek past duration -> Next
+        bridge._pos_ms = 199000
+        bridge._pos_anchor_mono = time.monotonic()
+        await bridge.handle_dbus_command({"type": "method", "method": "Seek", "offset_us": 5_000_000})
+        self.assertEqual(plugin.control_playback.await_args_list[-1].args[0], "next")
+
+        # SetPosition valid vs mismatched track_id
+        plugin.seek_playback.reset_mock()
+        await bridge.handle_dbus_command(
+            {
+                "type": "method",
+                "method": "SetPosition",
+                "track_id": "/org/mpris/MediaPlayer2/Track/WRONG",
+                "position_us": 30_000_000,
+            }
+        )
+        plugin.seek_playback.assert_not_awaited()
+        await bridge.handle_dbus_command(
+            {
+                "type": "method",
+                "method": "SetPosition",
+                "track_id": "/org/mpris/MediaPlayer2/Track/4uLU6hMCjMI75M1A2tKUQC",
+                "position_us": 30_000_000,
+            }
+        )
+        plugin.seek_playback.assert_awaited_once_with(30000)
+
+        # OpenUri validation: reject file://, accept spotify: and https://open.spotify.com/
+        await bridge.handle_dbus_command({"type": "method", "method": "OpenUri", "uri": "file:///etc/passwd"})
+        plugin.play_tracks.assert_not_awaited()
+        await bridge.handle_dbus_command(
+            {"type": "method", "method": "OpenUri", "uri": "spotify:track:4uLU6hMCjMI75M1A2tKUQC"}
+        )
+        plugin.play_tracks.assert_awaited_with(uris=["spotify:track:4uLU6hMCjMI75M1A2tKUQC"])
+        await bridge.handle_dbus_command(
+            {
+                "type": "method",
+                "method": "OpenUri",
+                "uri": "https://open.spotify.com/album/1ATL5GLyefJaxhQzSPVrLX?si=xyz",
+            }
+        )
+        plugin.play_tracks.assert_awaited_with(context_uri="spotify:album:1ATL5GLyefJaxhQzSPVrLX")
+
+    async def test_volume_fader_safe_coordination_and_mode_writes(self):
+        plugin = self._make_fake_plugin()
+        fader = MagicMock()
+        fader._sleep_locked = True
+        fader.is_ducked = True
+        fader._duck_reasons = {"game"}
+        fader._compute_target_sink_volume = MagicMock(return_value=50.0)
+        fader.fade_to = AsyncMock()
+        plugin._volume_fader = fader
+
+        bridge = mpris.MprisBridge(plugin)
+        bridge._session = MagicMock()
+        bridge._session.emit_properties_changed = AsyncMock()
+        bridge._session.update_position_anchor = MagicMock()
+
+        # _sleep_locked=True -> Volume write is ignored
+        await bridge.handle_dbus_command({"type": "set_property", "property": "Volume", "value": 0.4})
+        plugin.set_volume.assert_not_awaited()
+        fader.fade_to.assert_not_awaited()
+
+        # _sleep_locked=False & is_ducked=True -> updates volume & recalculates ducked sink target without clearing _duck_reasons
+        fader._sleep_locked = False
+        await bridge.handle_dbus_command({"type": "set_property", "property": "Volume", "value": 0.5})
+        plugin.set_volume.assert_awaited_once_with(50)
+        self.assertEqual(plugin._poll_volume, 50)
+        fader._compute_target_sink_volume.assert_called_once()
+        fader.fade_to.assert_awaited_once_with(50.0, 0.15)
+        self.assertEqual(fader._duck_reasons, {"game"})
+
+        # Shuffle and LoopStatus writes
+        await bridge.handle_dbus_command({"type": "set_property", "property": "Shuffle", "value": True})
+        plugin.set_shuffle.assert_awaited_once_with(True)
+        await bridge.handle_dbus_command({"type": "set_property", "property": "LoopStatus", "value": "Track"})
+        plugin.set_repeat.assert_awaited_once_with("track")
+
+    async def test_diff_gated_properties_changed_and_pitfall3_guard(self):
+        plugin = self._make_fake_plugin()
+        bridge = mpris.MprisBridge(plugin)
+        bridge._session = MagicMock()
+        bridge._session.emit_properties_changed = AsyncMock()
+        bridge._session.update_position_anchor = MagicMock()
+
+        with patch.object(images, "get_cached_image_file_uri", return_value="https://i.scdn.co/image/rick"):
+            await bridge.sync_from_plugin()
+            self.assertEqual(bridge._session.emit_properties_changed.await_count, 1)
+
+            # Routine poll ticks with advancing progress_ms must emit ZERO PropertiesChanged signals
+            plugin._poll_progress_ms = 13000
+            await bridge.sync_from_plugin()
+            plugin._poll_progress_ms = 16000
+            await bridge.sync_from_plugin()
+            self.assertEqual(bridge._session.emit_properties_changed.await_count, 1)
+
+            # PlaybackStatus change emits only PlaybackStatus
+            plugin._poll_play_state = "paused"
+            await bridge.sync_from_plugin()
+            self.assertEqual(bridge._session.emit_properties_changed.await_count, 2)
+            last_changed = bridge._session.emit_properties_changed.await_args_list[-1].args[0]
+            self.assertEqual(last_changed, {"PlaybackStatus": ("s", "Paused")})
+
+            # Pitfall 3: new track_id event before _track_meta is enriched keeps old metadata
+            plugin._last_event = {"event": "track_changed", "track_id": "NEWTRACK12345678901234"}
+            plugin._poll_play_state = "playing"
+            await bridge.sync_from_plugin()
+            last_changed2 = bridge._session.emit_properties_changed.await_args_list[-1].args[0]
+            self.assertNotIn("Metadata", last_changed2)
+
+    async def test_mpris_proxy_supervision_external_vs_managed(self):
+        plugin = self._make_fake_plugin()
+        bridge = mpris.MprisBridge(plugin)
+
+        # Case 1: pgrep finds existing mpris-proxy -> do NOT spawn
+        with patch.object(mpris.shutil, "which", return_value="/usr/bin/mpris-proxy"), \
+             patch.object(mpris, "_exec", AsyncMock(return_value=SimpleNamespace(returncode=0))), \
+             patch.object(mpris.subprocess, "Popen") as mock_popen:
+            await bridge._ensure_mpris_proxy()
+            mock_popen.assert_not_called()
+            self.assertTrue(bridge._proxy_running)
+            self.assertFalse(bridge._proxy_managed)
+            await bridge._stop_mpris_proxy()  # Must not kill external proxy
+
+        # Case 2: pgrep returns 1 -> spawn via _build_deck_command with LD_LIBRARY_PATH stripped
+        fake_proc = MagicMock()
+        with patch.object(mpris.shutil, "which", return_value="/usr/bin/mpris-proxy"), \
+             patch.object(mpris, "_exec", AsyncMock(return_value=SimpleNamespace(returncode=1))), \
+             patch.dict(os.environ, {"LD_LIBRARY_PATH": "/tmp/pyinstaller"}), \
+             patch.object(mpris.subprocess, "Popen", return_value=fake_proc) as mock_popen:
+            await bridge._ensure_mpris_proxy()
+            mock_popen.assert_called_once()
+            spawn_env = mock_popen.call_args.kwargs["env"]
+            self.assertNotIn("LD_LIBRARY_PATH", spawn_env)
+            self.assertTrue(bridge._proxy_running)
+            self.assertTrue(bridge._proxy_managed)
+
+            await bridge._stop_mpris_proxy()
+            fake_proc.terminate.assert_called_once()
+            self.assertFalse(bridge._proxy_running)
+
+    async def test_main_plugin_mpris_integration(self):
+        import main
+
+        p = main.Plugin()
+        p._settings = dict(common.DEFAULT_SETTINGS)
+        status = await p.get_status()
+        self.assertIn("mpris_status", status)
+        self.assertIn("mpris_enabled", status["settings"])
+        self.assertIn("mpris_auto_proxy", status["settings"])
+
+        mstatus = await p.get_mpris_status()
+        self.assertEqual(mstatus["bus_name"], mpris.MPRIS_BUS_NAME)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sfile = os.path.join(tmpdir, "settings.json")
+            with patch.object(main, "_save_settings") as mock_save, \
+                 patch.object(p._mpris_bridge, "on_settings_changed", AsyncMock()) as mock_chg:
+                res = await p.set_setting("mpris_enabled", False)
+                self.assertTrue(res["ok"])
+                mock_save.assert_called_once()
+                mock_chg.assert_awaited_once_with("mpris_enabled", False)
+
+
 if __name__ == "__main__":
     unittest.main()

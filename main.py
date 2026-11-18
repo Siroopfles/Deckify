@@ -45,6 +45,7 @@ from py_modules import rpc_library
 from py_modules import soundtrack
 from py_modules import dock
 from py_modules import resilience
+from py_modules import mpris
 from py_modules import vdf_parser
 
 common._MAIN_MODULE = sys.modules.get(__name__)
@@ -119,6 +120,7 @@ class Plugin:
     _soundtrack_manager: soundtrack.SoundtrackManager | None = None
     _event_server: resilience.LibrespotEventServer | None = None
     _bookmark_manager: resilience.SessionBookmarkManager | None = None
+    _mpris_bridge: mpris.MprisBridge | None = None
     _poll_wake_event: asyncio.Event | None = None
 
     @property
@@ -133,6 +135,7 @@ class Plugin:
         self._soundtrack_manager = soundtrack.SoundtrackManager(self)
         self._event_server = resilience.LibrespotEventServer(self)
         self._bookmark_manager = resilience.SessionBookmarkManager(self)
+        self._mpris_bridge = mpris.MprisBridge(self)
         self._poll_wake_event = None
 
     # ── Lifecycle ──────────────────────────────────────────────
@@ -165,6 +168,8 @@ class Plugin:
         self._bookmark_manager.load_bookmark()
         self._event_server = resilience.LibrespotEventServer(self)
         await self._event_server.start()
+        self._mpris_bridge = mpris.MprisBridge(self)
+        await self._mpris_bridge.start()
         if self._access_token:
             self._start_api_poll()
         await self._sync_native_spotify_folders()
@@ -176,6 +181,9 @@ class Plugin:
 
     async def _unload(self):
         decky.logger.info("Deckify unloading")
+        if getattr(self, "_mpris_bridge", None):
+            await self._mpris_bridge.stop()
+            self._mpris_bridge = None
         if getattr(self, "_event_server", None):
             await self._event_server.stop()
             self._event_server = None
@@ -224,6 +232,9 @@ class Plugin:
 
     async def _uninstall(self):
         decky.logger.info("Deckify uninstalling")
+        if getattr(self, "_mpris_bridge", None):
+            await self._mpris_bridge.stop()
+            self._mpris_bridge = None
         if getattr(self, "_event_server", None):
             await self._event_server.stop()
             self._event_server = None
@@ -563,6 +574,7 @@ class Plugin:
             "resilience_auto_resume", "resilience_bookmark_expiry_hours",
             "resilience_bookmark_never_expires", "resilience_toast_enabled",
             "resilience_prompt_held_enabled",
+            "mpris_enabled", "mpris_auto_proxy",
         )
         return {
             "authenticated": bool(self._access_token),
@@ -609,6 +621,19 @@ class Plugin:
                     "held_bookmark": None,
                     "held_reason": None,
                     "recovering": False,
+                }
+            ),
+            "mpris_status": (
+                self._mpris_bridge.get_status_dict()
+                if getattr(self, "_mpris_bridge", None)
+                else {
+                    "enabled": bool(self._settings.get("mpris_enabled", True)),
+                    "bus_registered": False,
+                    "proxy_running": False,
+                    "proxy_managed": False,
+                    "proxy_available": False,
+                    "status": "disabled" if not self._settings.get("mpris_enabled", True) else "proxy_unavailable",
+                    "bus_name": mpris.MPRIS_BUS_NAME,
                 }
             ),
         }
@@ -663,7 +688,7 @@ class Plugin:
             value = bool(value)
             if not value and hasattr(self, "_volume_fader") and self._volume_fader:
                 asyncio.create_task(self._volume_fader.set_ducking(False, reason="game"))
-        elif key in ("normalisation", "gapless", "autoplay", "bit_perfect_clock", "overlay_enabled", "toast_enabled", "toast_sound_enabled", "gamepad_chords_enabled", "overlay_autohide", "overlay_show_progress", "overlay_lyrics_enabled", "voice_ducking_enabled", "sleep_timer_fade_enabled", "dock_auto_switch_enabled", "dock_respect_bluetooth", "dock_pause_on_undock", "dock_toast_enabled", "resilience_auto_resume", "resilience_bookmark_never_expires", "resilience_toast_enabled", "resilience_prompt_held_enabled"):
+        elif key in ("normalisation", "gapless", "autoplay", "bit_perfect_clock", "overlay_enabled", "toast_enabled", "toast_sound_enabled", "gamepad_chords_enabled", "overlay_autohide", "overlay_show_progress", "overlay_lyrics_enabled", "voice_ducking_enabled", "sleep_timer_fade_enabled", "dock_auto_switch_enabled", "dock_respect_bluetooth", "dock_pause_on_undock", "dock_toast_enabled", "resilience_auto_resume", "resilience_bookmark_never_expires", "resilience_toast_enabled", "resilience_prompt_held_enabled", "mpris_enabled", "mpris_auto_proxy"):
             value = bool(value)
         elif key == "resilience_bookmark_expiry_hours":
             if isinstance(value, bool):
@@ -769,6 +794,9 @@ class Plugin:
             and getattr(self, "_dock_switcher", None)
         ):
             await self._dock_switcher.on_settings_changed(key, value)
+
+        if key in ("mpris_enabled", "mpris_auto_proxy") and getattr(self, "_mpris_bridge", None):
+            await self._mpris_bridge.on_settings_changed(key, value)
 
         if backend_changed:
             if getattr(self, "_poll_wake_event", None):
@@ -1029,6 +1057,11 @@ class Plugin:
         if not getattr(self, "_bookmark_manager", None):
             self._bookmark_manager = resilience.SessionBookmarkManager(self)
         return await self._bookmark_manager.dismiss_held_bookmark()
+
+    async def get_mpris_status(self) -> dict:
+        if not getattr(self, "_mpris_bridge", None):
+            self._mpris_bridge = mpris.MprisBridge(self)
+        return self._mpris_bridge.get_status_dict()
 
     async def get_liked_tracks(self, offset: int = 0, fetch_all: bool = True) -> dict:
         return await rpc_library.get_liked_tracks(self, offset, fetch_all)
@@ -1543,6 +1576,8 @@ class Plugin:
                 event = {"event": "stopped"}
                 self._last_event = event
                 await decky.emit("librespot_event", event)
+                if getattr(self, "_mpris_bridge", None):
+                    await self._mpris_bridge.sync_from_plugin()
             return True
 
         item = data.get("item")
@@ -1658,6 +1693,9 @@ class Plugin:
             event = {"event": "volume_set", "volume": volume_percent}
             self._last_event = event
             await decky.emit("librespot_event", event)
+
+        if getattr(self, "_mpris_bridge", None):
+            await self._mpris_bridge.sync_from_plugin()
 
         return True
 

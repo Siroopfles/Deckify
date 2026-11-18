@@ -66,6 +66,9 @@ async def control_playback(plugin, action: str, device_id: str = "") -> dict:
             plugin._poll_play_state = "playing"
         elif action == "pause":
             plugin._poll_play_state = "paused"
+        mpris_bridge = getattr(plugin, "_mpris_bridge", None)
+        if mpris_bridge is not None and hasattr(mpris_bridge, "sync_from_plugin"):
+            await mpris_bridge.sync_from_plugin()
         return {"ok": True}
     except urllib.error.HTTPError as e:
         if e.code == 404 and action == "play":
@@ -91,6 +94,9 @@ async def seek_playback(plugin, position_ms: int, device_id: str = "") -> dict:
         await _exec(_spotify_api_request, "me/player/seek", token, "PUT", params)
         if plugin._last_event:
             plugin._last_event["position_ms"] = position_ms
+        mpris_bridge = getattr(plugin, "_mpris_bridge", None)
+        if mpris_bridge is not None and hasattr(mpris_bridge, "notify_seeked"):
+            await mpris_bridge.notify_seeked(position_ms)
         return {"ok": True, "position_ms": position_ms}
     except urllib.error.HTTPError as e:
         if e.code == 404:
@@ -117,6 +123,9 @@ async def set_shuffle(plugin, state: bool, device_id: str = "") -> dict:
             "shuffle_state": plugin._shuffle_state,
             "repeat_state": plugin._repeat_state,
         })
+        mpris_bridge = getattr(plugin, "_mpris_bridge", None)
+        if mpris_bridge is not None and hasattr(mpris_bridge, "sync_from_plugin"):
+            await mpris_bridge.sync_from_plugin()
         return {"ok": True, "shuffle_state": plugin._shuffle_state}
     except urllib.error.HTTPError as e:
         if e.code == 404:
@@ -144,6 +153,9 @@ async def set_repeat(plugin, state: str, device_id: str = "") -> dict:
             "shuffle_state": plugin._shuffle_state,
             "repeat_state": plugin._repeat_state,
         })
+        mpris_bridge = getattr(plugin, "_mpris_bridge", None)
+        if mpris_bridge is not None and hasattr(mpris_bridge, "sync_from_plugin"):
+            await mpris_bridge.sync_from_plugin()
         return {"ok": True, "repeat_state": plugin._repeat_state}
     except urllib.error.HTTPError as e:
         if e.code == 404:
