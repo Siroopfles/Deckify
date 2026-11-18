@@ -48,7 +48,7 @@
 
 ### 10-Foot Docked TV Split-View, Spectrum Visualizer & Listening Analytics / Scrobbling
 
-- [ ] **TV-01**: User can toggle a **10-Foot Docked TV Split-View Mode** (`TvSplitView.tsx` — large cover art + dynamic glow on the left, 10-foot dual-line karaoke lyrics + Up Next queue preview + optional Jam QR badge on the right) manually or have it auto-activate when `DockAudioSwitcher` detects an external HDMI/USB-DAC dock.
+- [ ] **TV-01**: User can toggle a **10-Foot Docked TV Split-View Mode** (`TvSplitView.tsx` — large cover art + dynamic glow on the left, 10-foot dual-line karaoke lyrics + queue preview + optional Jam QR badge on the right) manually or have it auto-activate when `DockAudioSwitcher` detects an external HDMI/USB-DAC dock.
 - [ ] **TV-02**: When `TvSplitView` is open and actively playing, an optional 16-band real-time PipeWire audio spectrum visualizer (`parec --monitor-stream` tapped strictly to Deckify's audio stream at 15 Hz, zero game/voice bleed) animates smoothly via GPU-composited CSS `scaleY` transforms and terminates within `<100ms` on modal close, pause, or Eco-Mode activation.
 - [ ] **STATS-01**: User can browse a dedicated *"Deck Wrapped" / Listening Stats* view (`StatsTab.tsx`) displaying total listening time, top tracks/artists on Steam Deck, and **Top Game + Soundtrack Pairings** tracked via monotonic wall-clock playback duration (`accumulated_play_ms`) correlated with `active_game_app_id`.
 - [ ] **STATS-02**: User can enable built-in **Last.fm** and/or **ListenBrainz** scrobbling (following the standard 50% / 4-minute or 240s actual-play-time rule with an offline persistent retry queue) and export or import a secret-redacted 1-click JSON backup of all Deckify settings, game soundtrack profiles, custom EQ presets, and pinned playlists.
@@ -78,36 +78,36 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| GAME-01 | TBD | Pending |
-| TOAST-01 | TBD | Pending |
-| CHORD-01 | TBD | Pending |
-| THEME-01 | TBD | Pending |
-| ECO-01 | TBD | Pending |
-| CONNECT-01 | TBD | Pending |
-| LYRICS-01 | TBD | Pending |
-| LYRICS-02 | TBD | Pending |
-| POD-01 | TBD | Pending |
-| POD-02 | TBD | Pending |
-| RADIO-01 | TBD | Pending |
-| RADIO-02 | TBD | Pending |
-| SEARCH-01 | TBD | Pending |
-| SEARCH-02 | TBD | Pending |
-| QUEUE-03 | TBD | Pending |
-| PL-01 | TBD | Pending |
-| DISC-04 | TBD | Pending |
-| CDP-01 | TBD | Pending |
-| CDP-02 | TBD | Pending |
-| JAM-01 | TBD | Pending |
-| TV-01 | TBD | Pending |
-| TV-02 | TBD | Pending |
-| STATS-01 | TBD | Pending |
-| STATS-02 | TBD | Pending |
+| GAME-01 | Phase 19 | Pending |
+| TOAST-01 | Phase 20 | Pending |
+| CHORD-01 | Phase 20 | Pending |
+| THEME-01 | Phase 21 | Pending |
+| ECO-01 | Phase 21 | Pending |
+| CONNECT-01 | Phase 22 | Pending |
+| RADIO-02 | Phase 22 | Pending |
+| LYRICS-01 | Phase 23 | Pending |
+| LYRICS-02 | Phase 23 | Pending |
+| POD-01 | Phase 24 | Pending |
+| POD-02 | Phase 24 | Pending |
+| RADIO-01 | Phase 25 | Pending |
+| SEARCH-01 | Phase 25 | Pending |
+| SEARCH-02 | Phase 25 | Pending |
+| DISC-04 | Phase 26 | Pending |
+| QUEUE-03 | Phase 27 | Pending |
+| PL-01 | Phase 27 | Pending |
+| CDP-01 | Phase 28 | Pending |
+| CDP-02 | Phase 28 | Pending |
+| JAM-01 | Phase 28 | Pending |
+| TV-01 | Phase 29 | Pending |
+| TV-02 | Phase 29 | Pending |
+| STATS-01 | Phase 30 | Pending |
+| STATS-02 | Phase 30 | Pending |
 
 **Coverage:**
 - v0.7 requirements: 24 total
-- Mapped to phases: 0 (pending roadmapper)
-- Unmapped: 24
+- Mapped to phases: 24 (Phases 19–30)
+- Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-11-18*
-*Last updated: 2026-11-18 after initial v0.7 definition*
+*Last updated: 2026-11-18 after v0.7 roadmap revision (Phases 19–30)*

@@ -2,11 +2,11 @@
 gsd_state_version: "1.0"
 milestone: v0.7
 milestone_name: Studio, Living Room TV, Offline Travel & Ultimate Immersion
-status: planning
-last_updated: "2026-11-18T19:33:46.386Z"
+status: ready_to_plan
+last_updated: "2026-11-18T19:57:00.000Z"
 last_activity: 2026-11-18
 progress:
-  total_phases: 0
+  total_phases: 12
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -17,23 +17,23 @@ progress:
 
 ## Project Reference
 
-See: [.planning/PROJECT.md](file:///C:/Users/djdje/Deckify/.planning/PROJECT.md) (updated 2026-11-16)
+See: [.planning/PROJECT.md](file:///C:/Users/djdje/Deckify/.planning/PROJECT.md) (updated 2026-11-18)
 
 **Core value:** Rock-solid Spotify playback and responsive, reliable controller navigation on Steam Deck without UI lag, broken images, or desynchronized playback states.
-**Current focus:** Phase 18.1 — Address tech debt: v0.6 undock clock & audit metadata (INSERTED)
+**Current focus:** Phase 19 — Per-Game EQ & Volume Profiles
 
 ## Current Position
 
-Phase: Not started (defining requirements)
-Plan: —
-Status: Defining requirements
-Last activity: 2026-11-18 — Milestone v0.7 started
+Phase: 19 of 30 (Per-Game EQ & Volume Profiles)
+Plan: 0 of TBD in current phase
+Status: Ready to plan
+Last activity: 2026-11-18 — Milestone v0.7 roadmap revised into 12 focused phases (Phases 19–30)
 
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 43 (7 in v0.4, 22 in v0.5)
+- Total plans completed: 43 (7 in v0.4, 22 in v0.5, 14 in v0.6)
 - Average duration: ~14.7 min
 - Total execution time: ~2.2 hours
 
@@ -145,6 +145,7 @@ Recent decisions affecting current work:
 - [Phase 18]: Implemented pure-Python stdlib D-Bus wire-protocol codec and UID 1000 --worker MPRIS2 bridge with Pitfall 3 Metadata enrichment guard and managed mpris-proxy supervision
 - [Phase 18]: Added Bluetooth & Media Controls (MPRIS2) card in SettingsTab.tsx with live mpris_status badge, mpris_enabled toggle, and conditional mpris_auto_proxy toggle
 - [Phase 18.1]: Normalized Per-Task Verification Map commands in 14-18-VALIDATION.md to py -3 -m unittest and pnpm test -- --run so contracts match exact observed runs
+- [v0.7 Roadmap]: Structured 24 requirements across 12 focused sequential phases (Phases 19–30) with zero new npm/pip dependencies, unified CDP bridge (`py_modules/cdp_bridge.py`) with `librespot` fallbacks, and strictly modal-scoped 15 Hz `parec` audio spectrum visualization.
 
 ### Pending Todos
 
@@ -160,6 +161,7 @@ None yet.
 - Phase 12 added: Resolve open todos & polish
 - Phases 13–18 added: v0.6 Audio DSP, Docked Flow & System Resilience
 - Phase 18.1 inserted after Phase 18: Address tech debt: v0.6 undock clock & audit metadata (URGENT)
+- Phases 19–30 added: v0.7 Studio, Living Room TV, Offline Travel & Ultimate Immersion (12 focused phases)
 
 ## Deferred Items
 
@@ -168,17 +170,16 @@ Items acknowledged and deferred at milestone close, most recent first:
 | Category | Item | Status | Deferred At | Milestone |
 |----------|------|--------|-------------|-----------|
 | Audio DSP | EQ-01: Parametric 10-band PipeWire DSP biquad equalizer filter chain | Active in v0.6 (Phase 15) | 2026-11-12 | v0.5 |
-| Native Client | CDP-01: Spotify CDP offline downloads | Deferred | 2026-11-12 | v0.5 |
-| Queue API | QUEUE-03: Interactive queue reordering/clearing via CDP | Deferred | 2026-11-12 | v0.5 |
+| Native Client | CDP-01: Spotify CDP offline downloads | Active in v0.7 (Phase 28) | 2026-11-12 | v0.5 |
+| Queue API | QUEUE-03: Interactive queue reordering/clearing via CDP | Active in v0.7 (Phase 27) | 2026-11-12 | v0.5 |
 | Audio Hardware | DOCK-01: Auto audio sink switching to external USB-DAC/HDMI dock | Active in v0.6 (Phase 16) | 2026-11-12 | v0.5 |
 
 ## Session Continuity
 
-Last session: 2026-11-18T18:27:54.317Z
-Stopped at: Phase 18.1 complete — all phases complete
+Last session: 2026-11-18T19:57:00.000Z
+Stopped at: Milestone v0.7 roadmap revised (Phases 19–30) — ready to plan Phase 19
 Resume file: None
 
 ## Operator Next Steps
 
-
-- Start the next milestone with /gsd-new-milestone
+- Run `/gsd-plan-phase 19` (or `/gsd-discuss-phase 19`) to begin Phase 19
