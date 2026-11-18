@@ -45,6 +45,7 @@
 - [x] **Phase 16: Automatic Docked Audio-Switching** - Automatic USB-DAC/HDMI sink hotplug switching for Deckify streams with `bit_perfect_clock` management. (completed 2026-11-17)
 - [x] **Phase 17: Event-Driven librespot & Suspend/Wi-Fi Resilience** - Local `--onevent` Unix socket push updates, relaxed fallback polling, and unified suspend/Wi-Fi bookmark recovery. (completed 2026-11-17)
 - [x] **Phase 18: MPRIS2 D-Bus Bridge** - Register `org.mpris.MediaPlayer2.deckify` on the `deck` user D-Bus for Bluetooth headset AVRCP playback and metadata. (completed 2026-11-18)
+- [ ] **Phase 18.1: Address tech debt: v0.6 undock clock & audit metadata**
 
 ## Phase Details
 
@@ -171,6 +172,20 @@ See [.planning/IDEAS.md](.planning/IDEAS.md) for the full **Deckify Master Featu
 3. **Chrome DevTools Protocol (CDP), Library & Lyrics (CDP-01, QUEUE-03):** Offline downloads via `OfflineAPI`, interactive queue reordering and clearing via CDP `PlayerAPI`, real Spotify synced LRC data via CDP, bilingual/karaoke NetEase lyrics, Spotify Canvas video-loops, custom playlist folders UI, in-playlist filter/sort, podcast drilldown.
 4. **UI, Visuals & TV / Steam Machine Experience:** Split-view TV / Steam Machine 10-foot mode (Now Playing + Lyrics side-by-side), Spotify Jam QR-code, live audio ambient glow/spectrum visualizer, dynamic cover color theming, virtualized lists for 1000+ items, multi-language internationalization (i18n).
 5. **System, Power-Management, Smarthome & Diagnostics:** Event-driven librespot (`--onevent`), Pocket Mode (screen off / audio on), battery eco-switch, suspend bookmark restore, Wi-Fi reconnect watchdog, MPRIS2 D-Bus bridge for bluetooth headsets, local webhook/MQTT smart home events, 1-click Flatpak installer, multi-account switcher, cache storage dashboard, live diagnostics log viewer in UI.
+
+### Phase 18.1: Address tech debt: v0.6 undock clock & audit metadata (INSERTED)
+
+**Goal:** Close out v0.6 tech debt: preserve `bit_perfect_clock` on undock when lossless + `bit_perfect_clock` is enabled, add `requirements-completed: [SLEEP-01]` to Phase 14 summaries, and promote Phases 14–18 `VALIDATION.md` contracts to `nyquist_compliant: true`.
+**Requirements**: DOCK-02, SLEEP-01, EQ-01, EQ-02, DOCK-01, RESIL-01, RESIL-02, MPRIS-01
+**Depends on:** Phase 18
+**Plans:** 2 plans
+
+Plans:
+**Wave 1**
+- [ ] 18.1-01-PLAN.md — Preserve `bit_perfect_clock` on undock in `DockAudioSwitcher._restore_pre_dock()`, add `tests/test_dock.py` coverage, and add `requirements-completed: [SLEEP-01]` to Phase 14 summaries
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [ ] 18.1-02-PLAN.md — Audit and promote `14`–`18-VALIDATION.md` to `status: complete` / `nyquist_compliant: true` backed by observed full-suite test runs
 
 ### Phase 999.1: Follow-up — Phase 09 deferred UAT follow-up: Test 2 (BACKLOG)
 
