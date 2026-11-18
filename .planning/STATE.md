@@ -4,17 +4,17 @@ milestone: v0.6
 milestone_name: Audio DSP, Docked Flow & System Resilience (Active)
 current_phase: 18
 current_phase_name: MPRIS2 D-Bus Bridge
-status: executing
-stopped_at: Completed 18-01-PLAN.md
-last_updated: "2026-11-18T16:30:53.447Z"
+status: verifying
+stopped_at: Completed 18-02-PLAN.md
+last_updated: "2026-11-18T16:35:36.136Z"
 last_activity: 2026-11-18
 last_activity_desc: Phase 18 execution started
-state_head: 4317f80d927ae36728bd683d74dc49fe7cb9b2ca
+state_head: daa2a4c65f30fd84ec74b16aff91af2062c8b8e7
 progress:
   total_phases: 6
   completed_phases: 5
   total_plans: 12
-  completed_plans: 11
+  completed_plans: 12
   percent: 83
 ---
 
@@ -31,7 +31,7 @@ See: [.planning/PROJECT.md](file:///C:/Users/djdje/Deckify/.planning/PROJECT.md)
 
 Phase: 18 (MPRIS2 D-Bus Bridge) — EXECUTING
 Plan: 2 of 2
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-11-18 — Phase 18 execution started
 
 
@@ -97,6 +97,7 @@ Last activity: 2026-11-18 — Phase 18 execution started
 | Phase 17 P01 | 21min | 2 tasks | 5 files |
 | Phase 17 P02 | 14min | 2 tasks | 6 files |
 | Phase 18 P01 | 7min | 2 tasks | 8 files |
+| Phase 18 P02 | 3min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -143,6 +144,7 @@ Recent decisions affecting current work:
 - [Phase 17]: Serialized SuspendResumeMonitor._on_deck_resume, _monitor_process SUSPEND_THRESHOLD, and 4s buffer-aware Wi-Fi drop recovery behind a single asyncio.Lock and 10s cooldown in SessionBookmarkManager
 - [Phase 17]: Wired immediate librespot_event and track_metadata push updates into usePlaybackStatus and QuickAccessMenu with conditional held-bookmark restore CTA and SettingsTab Playback Resilience card
 - [Phase 18]: Implemented pure-Python stdlib D-Bus wire-protocol codec and UID 1000 --worker MPRIS2 bridge with Pitfall 3 Metadata enrichment guard and managed mpris-proxy supervision
+- [Phase 18]: Added Bluetooth & Media Controls (MPRIS2) card in SettingsTab.tsx with live mpris_status badge, mpris_enabled toggle, and conditional mpris_auto_proxy toggle
 
 ### Pending Todos
 
@@ -171,8 +173,8 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-18T16:30:50.848Z
-Stopped at: Completed 18-01-PLAN.md
+Last session: 2026-11-18T16:35:33.412Z
+Stopped at: Completed 18-02-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
