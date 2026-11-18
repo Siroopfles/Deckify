@@ -1,10 +1,15 @@
 ---
 gsd_state_version: "1.0"
 milestone: v0.7
-milestone_name: Studio, Living Room TV, Offline Travel & Ultimate Immersion
+milestone_name: Studio, Living Room TV, Offline Travel & Ultimate Immersion (In Progress)
+current_phase: 19
+current_phase_name: Per-Game EQ & Volume Profiles
 status: ready_to_plan
-last_updated: "2026-11-18T19:57:00.000Z"
+stopped_at: Phase 19 context gathered
+last_updated: "2026-11-18T20:25:48.985Z"
 last_activity: 2026-11-18
+last_activity_desc: Milestone v0.7 roadmap revised into 12 focused phases (Phases 19–30)
+state_head: 00265037b0bd1b914e71a6c96596f50b64a217b4
 progress:
   total_phases: 12
   completed_phases: 0
@@ -176,9 +181,9 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-18T19:57:00.000Z
-Stopped at: Milestone v0.7 roadmap revised (Phases 19–30) — ready to plan Phase 19
-Resume file: None
+Last session: 2026-11-18T20:25:48.908Z
+Stopped at: Phase 19 context gathered
+Resume file: .planning/phases/19-per-game-eq-volume-profiles/19-CONTEXT.md
 
 ## Operator Next Steps
 
