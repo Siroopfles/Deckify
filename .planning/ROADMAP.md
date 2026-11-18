@@ -140,12 +140,12 @@ Plans:
   1. Deckify registers `org.mpris.MediaPlayer2.deckify` on the `deck` (UID 1000) user session D-Bus without requiring C-extension D-Bus bindings.
   2. Pressing Play, Pause, Play/Pause, Next, or Previous on connected Bluetooth headsets/earbuds (via BlueZ `mpris-proxy`) controls Deckify playback reliably.
   3. Connected Bluetooth devices and D-Bus media controllers reflect current track title, artist, album, and playback status updates.
-**Plans:** 2 plans
+**Plans:** 1/2 plans executed
 **UI hint**: yes
 
 Plans:
 **Wave 1**
-- [ ] 18-01-PLAN.md — Backend `MprisBridge` (pure-Python UID 1000 D-Bus wire protocol, full `Player` interface, `VolumeFader` guard, local `file://` artUrl, event-only `PropertiesChanged`, and BlueZ `mpris-proxy` supervision)
+- [x] 18-01-PLAN.md — Backend `MprisBridge` (pure-Python UID 1000 D-Bus wire protocol, full `Player` interface, `VolumeFader` guard, local `file://` artUrl, event-only `PropertiesChanged`, and BlueZ `mpris-proxy` supervision)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 - [ ] 18-02-PLAN.md — Frontend `MprisStatusInfo` types, `SettingsTab.tsx` `"Bluetooth & Media Controls (MPRIS2)"` card, and `SettingsTab.test.tsx`
@@ -159,7 +159,7 @@ Plans:
 | 15. Real PipeWire Biquad Equalizer | v0.6 | 2/2 | Complete    | 2026-11-17 |
 | 16. Automatic Docked Audio-Switching | v0.6 | 2/2 | Complete    | 2026-11-17 |
 | 17. Event-Driven librespot & Suspend/Wi-Fi Resilience | v0.6 | 2/2 | Complete    | 2026-11-17 |
-| 18. MPRIS2 D-Bus Bridge | v0.6 | 0/2 | Planned     | - |
+| 18. MPRIS2 D-Bus Bridge | v0.6 | 1/2 | In Progress | - |
 
 ---
 
