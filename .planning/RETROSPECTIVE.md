@@ -42,6 +42,44 @@
 
 ---
 
+## Milestone: v0.6 — Audio DSP, Docked Flow & System Resilience
+
+**Shipped:** 2026-11-18
+**Phases:** 7 (Phases 13–18.1) | **Plans:** 14 | **Tasks:** 26
+
+### What Was Built
+- **Spotify Library 403 Fix & Sink-Input Guardrails (Phase 13):** Migrated `toggle_like_track` and `check_tracks_liked` to `/v1/me/library` and 40-URI `/v1/me/library/contains` with CDP `LibraryAPI` 403 fallback, and centralized `resolve_spotify_sink_input_ids()` with `steamwebhelper`/`Chromium` deny-list + allowlist routing.
+- **Gentle Sleep Timer Fade-Out (Phase 14):** Priority-locked `"sleep"` fade-out in `VolumeFader` with configurable 5–120s ramp-down, 1.2s PipeWire drain, baseline restoration, and deterministic mid-fade cancellation.
+- **Real PipeWire Biquad Equalizer (Phase 15):** Isolated `pipewire -c` 10-band ISO `filter-chain` DSP (`EqualizerManager`) with 7 presets, `flat` true bypass, `~75ms` `pw-cli` coalescing, automatic negative preamp headroom, and `SettingsTab` 10-band sliders.
+- **Automatic Docked Audio-Switching (Phases 16, 18.1):** `DockAudioSwitcher` (`pactl subscribe` + 1.8s debounce, USB-DAC > HDMI priority, Bluetooth/manual-override precedence, `bit_perfect_clock` management with lossless handheld preservation on undock).
+- **Event-Driven `librespot` & Suspend/Wi-Fi Resilience (Phase 17):** `<5ms` `--onevent` `AF_UNIX` push server, 400ms debounced Web API enrichment, 20s/3s adaptive polling, and unified wake-lock `SessionBookmarkManager` with 4s Wi-Fi grace window.
+- **MPRIS2 D-Bus Bridge (Phase 18):** Pure-Python stdlib D-Bus wire-protocol `MprisBridge` (`org.mpris.MediaPlayer2.deckify`) under UID 1000 with BlueZ `mpris-proxy` supervision and Bluetooth headset AVRCP controls/metadata.
+
+### What Worked
+- **Stream-isolated PipeWire child process:** Running `pipewire -c` as an isolated child process for the 10-band biquad EQ avoided restarting system PipeWire and kept game/Steam UI audio uninterrupted.
+- **Pure-Python D-Bus & POSIX shell `--onevent`:** Zero C-extension dependencies avoided Decky Loader `LD_LIBRARY_PATH` conflicts, and the `<5ms` POSIX `sh` emitter prevented blocking `librespot`'s audio loop.
+- **Post-milestone tech-debt phase (18.1) & re-verification:** Catching the undock `bit_perfect_clock` reset, `SLEEP-01` frontmatter omission, and Nyquist validation drafts before close kept the final milestone closeout 100% verified.
+
+### What Was Inefficient
+- **Shared-file staleness across sequential phases:** Later phases modifying shared files (`main.py`, `py_modules/common.py`, `SettingsTab.tsx`) caused earlier phases' `VERIFICATION.md` fingerprints to go stale, requiring a dedicated re-verification pass at milestone close.
+- **Inserted phase placement in ROADMAP.md:** Appended/inserted Phase 18.1 landed under `## Backlog & Future Milestones`, requiring manual cleanup during roadmap reorganization.
+
+### Patterns Established
+- **Centralized PipeWire sink-input resolution:** All stream moves and volume faders route through `resolve_spotify_sink_input_ids` with explicit `steamwebhelper`/`Chromium` deny-listing.
+- **Single-lock wake recovery:** Consolidate suspend (`PrepareForSleep`), process monitor, and Wi-Fi drop recovery behind one `asyncio.Lock` and cooldown to prevent dual-restart races.
+- **Event-driven UI sync:** Push `librespot_event`, `dock_audio_switched`, and `mpris_status` updates to the frontend while relaxing background Web API polling.
+
+### Key Lessons
+1. Always guard undock/restore paths against user-configured handheld preferences (e.g., preserving `bit_perfect_clock` when `audio_quality == "lossless"`).
+2. Re-verify or batch-refresh `VERIFICATION.md` fingerprints after shared-file edits in multi-phase milestones so `init.manager` reports clean readiness at closeout.
+3. Never use C-extension bindings (`dbus-python`, `PyGObject`) in Decky Loader plugins; pure-Python stdlib protocols under UID 1000 are portable and conflict-free.
+
+### Cost Observations
+- Timeline: 3 days (2026-11-16 → 2026-11-18), 128 files changed (+24,046 / -1,380 lines since `v0.5`)
+- Notable: Zero regressions at closeout with 547 Python `unittest` tests and 175 Vitest tests passing.
+
+---
+
 ## Cross-Milestone Trends
 
 ### Process Evolution
@@ -50,6 +88,7 @@
 |-----------|--------|-------|------------|
 | v0.4 | 5 | 7 | Modularized monoliths & stabilized core playback/HUD |
 | v0.5 | 8 | 22 | Added automated milestone audit, Nyquist validation, and dedicated tech-debt/todo closure phases (11.1, 12) |
+| v0.6 | 7 | 14 | Stream-isolated PipeWire DSP/docking, pure-Python D-Bus MPRIS2, `--onevent` push resilience, and 100% Nyquist compliance |
 
 ### Cumulative Quality
 
@@ -57,6 +96,7 @@
 |-----------|--------------|--------------|--------------|
 | v0.4 | 55 | 325 | — |
 | v0.5 | 152 (16 files) | 458 | 13,995 TS + 5,776 Python |
+| v0.6 | 175 (16 files) | 547 | 17,581 TS + 11,028 Python |
 
 ### Top Lessons (Verified Across Milestones)
 
