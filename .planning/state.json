@@ -31,13 +31,13 @@
     {
       "number": "18",
       "name": "MPRIS2 D-Bus Bridge",
-      "status": "in_progress"
+      "status": "complete"
     }
   ],
   "next": {
-    "command": "/gsd-progress --next",
-    "label": "Advance to the next step",
-    "reason": "Phase 6 of 6 · 83% · executing"
+    "command": "/gsd-new-milestone",
+    "label": "Start a new milestone",
+    "reason": "All phases complete — start a new milestone"
   },
-  "updated_at": "2026-11-18T06:15:01.733Z"
+  "updated_at": "2026-11-18T18:28:41.533Z"
 }
