@@ -1,9 +1,9 @@
 ---
 phase: "14"
 slug: "gentle-sleep-timer-fade-out"
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
+status: complete
+nyquist_compliant: true
+wave_0_complete: true
 created: "2026-11-16"
 ---
 
@@ -38,10 +38,10 @@ created: "2026-11-16"
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 14-01-01 | 01 | 1 | SLEEP-01 | T-14-01 | `VolumeFader` `"sleep"` priority lock blocks `set_ducking` fades while tracking `_duck_reasons` | unit | `py -3 -m unittest discover -s tests -p "test_volume.py"` | ✅ | ⬜ pending |
-| 14-01-02 | 01 | 1 | SLEEP-01 | T-14-02 | `sleep_timer_worker` fades at `T - fade_duration`, pauses at 0%, drains, restores baseline before `shutdown_system` | unit | `py -3 -m unittest discover -s tests -p "test_features.py"` | ✅ | ⬜ pending |
-| 14-02-01 | 02 | 2 | SLEEP-01 | T-14-03 | `sleep_timer_fade_enabled` coerced to bool and `sleep_timer_fade_duration` clamped `5–120` | unit | `py -3 -m unittest discover -s tests -p "test_features.py"` | ✅ | ⬜ pending |
-| 14-02-02 | 02 | 2 | SLEEP-01 | — | `SettingsTab` renders Fade Out toggle + slider (`5–120`, step `5`) and `"Fading out..."` status | unit | `pnpm test -- --run src/components/tabs/SettingsTab.test.tsx` | ✅ | ⬜ pending |
+| 14-01-01 | 01 | 1 | SLEEP-01 | T-14-01 | `VolumeFader` `"sleep"` priority lock blocks `set_ducking` fades while tracking `_duck_reasons` | unit | `py -3 -m unittest discover -s tests -p "test_volume.py"` | ✅ | ✅ green |
+| 14-01-02 | 01 | 1 | SLEEP-01 | T-14-02 | `sleep_timer_worker` fades at `T - fade_duration`, pauses at 0%, drains, restores baseline before `shutdown_system` | unit | `py -3 -m unittest discover -s tests -p "test_features.py"` | ✅ | ✅ green |
+| 14-02-01 | 02 | 2 | SLEEP-01 | T-14-03 | `sleep_timer_fade_enabled` coerced to bool and `sleep_timer_fade_duration` clamped `5–120` | unit | `py -3 -m unittest discover -s tests -p "test_features.py"` | ✅ | ✅ green |
+| 14-02-02 | 02 | 2 | SLEEP-01 | — | `SettingsTab` renders Fade Out toggle + slider (`5–120`, step `5`) and `"Fading out..."` status | unit | `pnpm test -- --run src/components/tabs/SettingsTab.test.tsx` | ✅ | ✅ green |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -63,11 +63,11 @@ Existing infrastructure covers all phase requirements.
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references
-- [ ] No watch-mode flags
-- [ ] Feedback latency < 20s
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify
+- [x] Wave 0 covers all MISSING references
+- [x] No watch-mode flags
+- [x] Feedback latency < 20s
+- [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending
+**Approval:** complete

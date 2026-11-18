@@ -1,9 +1,9 @@
 ---
 phase: "16"
 slug: "automatic-docked-audio-switching"
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
+status: complete
+nyquist_compliant: true
+wave_0_complete: true
 created: "2026-11-16"
 ---
 
@@ -19,8 +19,8 @@ created: "2026-11-16"
 |----------|-------|
 | **Framework** | `unittest` (Python 3.14.0 on Windows / `python3` on Linux/CI) & `vitest` 5.1.0 |
 | **Config file** | `package.json` (`test`, `test:python`) |
-| **Quick run command** | `py -m unittest discover -s tests -p test_dock.py -v` / `npx vitest run src/components/tabs/SettingsTab.test.tsx` |
-| **Full suite command** | `npx vitest run && py -m unittest discover -s tests -p "test_*.py"` |
+| **Quick run command** | `py -3 -m unittest discover -s tests -p "test_dock.py" -v` / `pnpm test -- --run src/components/tabs/SettingsTab.test.tsx` |
+| **Full suite command** | `pnpm test -- --run && py -3 -m unittest discover -s tests -p "test_*.py"` |
 | **Estimated runtime** | ~15 seconds |
 
 ---
@@ -38,9 +38,11 @@ created: "2026-11-16"
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 16-01-01 | 01 | 1 | DOCK-01, DOCK-02 | T-16-01, T-16-02 | Subprocess commands drop UID to `DECK_UID` (1000) via `_build_deck_command` and validate `sink_name` / `dock_target_sink` without shell interpolation | unit | `py -m unittest discover -s tests -p test_dock.py -v` | ❌ W0 | ⬜ pending |
-| 16-01-02 | 01 | 1 | DOCK-01, DOCK-02 | T-16-03 | Backend RPCs validate settings and emit `dock_audio_switched` safely | unit | `py -m unittest discover -s tests -p test_dock.py -v` | ❌ W0 | ⬜ pending |
-| 16-02-01 | 02 | 2 | DOCK-01 | — | SettingsTab Docked Audio-Switching card renders controls, horizontal `flow-children="horizontal"` rows, and toast listener | unit | `npx vitest run src/components/tabs/SettingsTab.test.tsx` | ✅ | ⬜ pending |
+| 16-01-01 | 01 | 1 | DOCK-01, DOCK-02 | T-16-01, T-16-02 | Subprocess commands drop UID to `DECK_UID` (1000) via `_build_deck_command` and validate `sink_name` / `dock_target_sink` without shell interpolation | unit | `py -3 -m unittest discover -s tests -p "test_dock.py" -v` | ✅ | ✅ green |
+| 16-01-02 | 01 | 1 | DOCK-01, DOCK-02 | T-16-01, T-16-02 | `DockAudioSwitcher` hotplug supervision, Bluetooth/manual override precedence, EQ isolation, pause-on-undock, and lossless `bit_perfect_clock` preservation | unit | `py -3 -m unittest discover -s tests -p "test_dock.py" -v` | ✅ | ✅ green |
+| 16-01-03 | 01 | 1 | DOCK-01, DOCK-02 | T-16-03 | Backend RPCs (`_main`, `_unload`, `get_status`, `set_setting`, `set_audio_sink`) validate settings and emit `dock_audio_switched` safely | unit | `py -3 -m unittest discover -s tests -p "test_dock.py" -v` | ✅ | ✅ green |
+| 16-02-01 | 02 | 2 | DOCK-01 | — | `DockStatusInfo` types in `src/types.ts` and global `dock_audio_switched` toast listener in `src/index.tsx` | unit | `pnpm test -- --run src/components/tabs/SettingsTab.test.tsx` | ✅ | ✅ green |
+| 16-02-02 | 02 | 2 | DOCK-01 | — | `SettingsTab` Docked Audio-Switching card renders controls, horizontal `flow-children="horizontal"` rows, and unit tests | unit | `pnpm test -- --run src/components/tabs/SettingsTab.test.tsx` | ✅ | ✅ green |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -48,7 +50,7 @@ created: "2026-11-16"
 
 ## Wave 0 Requirements
 
-- [ ] `tests/test_dock.py` — unit tests for `DockAudioSwitcher`, sink enrichment (`get_audio_sinks`), `bit_perfect_clock` unlock/reset, Bluetooth precedence, manual override, and `main.py` RPC/settings integration
+- [x] `tests/test_dock.py` — unit tests for `DockAudioSwitcher`, sink enrichment (`get_audio_sinks`), `bit_perfect_clock` unlock/reset, Bluetooth precedence, manual override, and `main.py` RPC/settings integration
 
 ---
 
@@ -62,11 +64,11 @@ created: "2026-11-16"
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references
-- [ ] No watch-mode flags
-- [ ] Feedback latency < 15s
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify
+- [x] Wave 0 covers all MISSING references
+- [x] No watch-mode flags
+- [x] Feedback latency < 15s
+- [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending
+**Approval:** complete
