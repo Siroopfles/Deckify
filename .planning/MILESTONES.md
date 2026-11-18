@@ -1,5 +1,27 @@
 # Milestones
 
+## v0.6 Audio DSP, Docked Flow & System Resilience (Shipped: 2026-11-18)
+
+**Phases completed:** 7 phases, 14 plans, 26 tasks
+
+**Key accomplishments:**
+- Migrated `toggle_like_track` and `check_tracks_liked` from deprecated `/v1/me/tracks` endpoints to `/v1/me/library` and `/v1/me/library/contains` (40-URI batching), with Official Spotify Client CDP `LibraryAPI` 403 fallbacks for `toggle_like_track` and `get_liked_tracks`.
+- Centralized PipeWire/PulseAudio sink-input resolution into `resolve_spotify_sink_input_ids()` in `py_modules/engine.py` with strict `steamwebhelper`/`Chromium` deny-list + Spotify/Deckify allowlist filtering, and wired both `_set_pactl_sink_input()` and `VolumeFader.resolve_sink_input_id()` to use it.
+- Implemented `"sleep"` priority locking in `VolumeFader` and orchestrated early fade-out, pause, 1.2s PipeWire drain, baseline restoration, and deterministic mid-fade cancellation in `sleep_timer_worker`.
+- Persisted, sanitized, and exposed `sleep_timer_fade_enabled` and `sleep_timer_fade_duration` (`5–120s`, default `30s`) in the backend, and added the Gentle Fade Out toggle, duration slider, and live `"Fading out..."` status indicator to `SettingsTab`.
+- Real-time 10-band ISO PipeWire `filter-chain` biquad equalizer backend (`EqualizerManager`) with automatic negative preamp headroom, `flat` true bypass, `~75ms` `pw-cli` coalescing, `500ms` settings debounce, and stream-isolated sink routing.
+- 7-preset (`Flat`..`Custom`) and always-visible 10-band ISO (`31 Hz`–`16 kHz`, `±12 dB`, `0.5 dB` step) graphic equalizer UI in `SettingsTab.tsx` with GamepadUI `flow-children="horizontal"` pill rows, `Bypass`/`Preamp` headroom indicator, and immediate preset-to-custom auto-fork.
+- Backend `DockAudioSwitcher` PipeWire hotplug monitor with 1.8s debounce, USB-DAC > HDMI priority, Bluetooth & manual-override precedence, EQ-isolated routing, and `bit_perfect_clock` restoration
+- TypeScript `DockStatusInfo` contracts, global `dock_audio_switched` Decky toast listener in `src/index.tsx`, and `"Docked Audio-Switching"` configuration card in `SettingsTab.tsx` with 5 Vitest unit tests
+- Event-driven `librespot --onevent` AF_UNIX socket server with `<5ms` POSIX `sh` emitter, Base16→Base62 ID normalization, 400ms debounced Web API enrichment, adaptive 20s/3s polling, and unified suspend/Wi-Fi session bookmark resilience.
+- Instantaneous `librespot --onevent` push state synchronization in `usePlaybackStatus` and `QuickAccessMenu`, conditional QAM held-bookmark restore CTA, and a full "Playback Resilience" configuration card in `SettingsTab.tsx`.
+- Pure-Python MPRIS2 D-Bus bridge (`org.mpris.MediaPlayer2.deckify`) with local `file://` cover art resolution, `VolumeFader`-safe property writes, diff-gated `PropertiesChanged` / `Seeked` signals, and UID 1000 `mpris-proxy` supervision
+- Bluetooth & Media Controls (MPRIS2) settings card in `SettingsTab.tsx` with live `mpris_status` badge, `mpris_enabled` / conditional `mpris_auto_proxy` toggles, TypeScript interfaces, and Vitest unit tests
+- Guarded `DockAudioSwitcher._restore_pre_dock()` to preserve `bit_perfect_clock` on undock when `audio_quality == "lossless"` and `bit_perfect_clock` is enabled, added 4 unit tests, and closed the `SLEEP-01` frontmatter gap in Phase 14 summaries.
+- Promoted `14-VALIDATION.md` through `18-VALIDATION.md` from `draft` to `complete` (`nyquist_compliant: true`, `wave_0_complete: true`) backed by observed passes across all 547 Python unit tests, 175 Vitest tests, TypeScript typecheck, and ESLint.
+
+---
+
 ## v0.5 In-Game Flow & Music Discovery (Shipped: 2026-11-15)
 
 **Phases completed:** 8 phases, 22 plans, 51 tasks
