@@ -472,6 +472,89 @@ class TestDockSwitcherBehavior(unittest.IsolatedAsyncioTestCase):
         switcher.evaluate_now.assert_awaited_once()
         await switcher.stop()
 
+    async def test_9_undock_preserves_clock_when_lossless_and_bit_perfect_enabled(self):
+        s = self._sinks()
+        plugin = self._make_plugin(audio_quality="lossless", bit_perfect_clock=True)
+        switcher = dock.DockAudioSwitcher(plugin)
+        switcher._docked_sink = s["usb"]["name"]
+        switcher._dock_session_sink = s["usb"]["name"]
+        switcher._pre_dock_sink = s["internal"]["name"]
+        switcher._status = "docked"
+
+        with (
+            patch.object(dock, "_exec", new=AsyncMock(return_value=([s["internal"]], s["internal"]["name"]))),
+            patch.object(volume, "set_audio_sink", new=AsyncMock(return_value={"ok": True})) as m_set,
+            patch.object(volume, "configure_pipewire_clock", new=AsyncMock()) as m_clock,
+            patch.object(dock.decky, "emit", new=AsyncMock()),
+        ):
+            await switcher.evaluate_now()
+
+        m_set.assert_awaited_once_with(s["internal"]["name"], plugin=plugin, is_auto_dock=True)
+        m_clock.assert_not_awaited()
+        self.assertEqual(switcher.get_status_dict()["status"], "idle")
+
+    async def test_10_undock_resets_clock_when_lossless_and_bit_perfect_disabled(self):
+        s = self._sinks()
+        plugin = self._make_plugin(audio_quality="lossless", bit_perfect_clock=False)
+        switcher = dock.DockAudioSwitcher(plugin)
+        switcher._docked_sink = s["usb"]["name"]
+        switcher._dock_session_sink = s["usb"]["name"]
+        switcher._pre_dock_sink = s["internal"]["name"]
+        switcher._status = "docked"
+
+        with (
+            patch.object(dock, "_exec", new=AsyncMock(return_value=([s["internal"]], s["internal"]["name"]))),
+            patch.object(volume, "set_audio_sink", new=AsyncMock(return_value={"ok": True})) as m_set,
+            patch.object(volume, "configure_pipewire_clock", new=AsyncMock()) as m_clock,
+            patch.object(dock.decky, "emit", new=AsyncMock()),
+        ):
+            await switcher.evaluate_now()
+
+        m_set.assert_awaited_once_with(s["internal"]["name"], plugin=plugin, is_auto_dock=True)
+        m_clock.assert_awaited_once_with(False)
+
+    async def test_11_undock_resets_clock_when_not_lossless(self):
+        s = self._sinks()
+        plugin = self._make_plugin(audio_quality="very_high", bit_perfect_clock=True)
+        switcher = dock.DockAudioSwitcher(plugin)
+        switcher._docked_sink = s["usb"]["name"]
+        switcher._dock_session_sink = s["usb"]["name"]
+        switcher._pre_dock_sink = s["internal"]["name"]
+        switcher._status = "docked"
+
+        with (
+            patch.object(dock, "_exec", new=AsyncMock(return_value=([s["internal"]], s["internal"]["name"]))),
+            patch.object(volume, "set_audio_sink", new=AsyncMock(return_value={"ok": True})) as m_set,
+            patch.object(volume, "configure_pipewire_clock", new=AsyncMock()) as m_clock,
+            patch.object(dock.decky, "emit", new=AsyncMock()),
+        ):
+            await switcher.evaluate_now()
+
+        m_set.assert_awaited_once_with(s["internal"]["name"], plugin=plugin, is_auto_dock=True)
+        m_clock.assert_awaited_once_with(False)
+
+    async def test_12_disable_while_docked_preserves_clock_when_lossless_and_bit_perfect_enabled(self):
+        s = self._sinks()
+        plugin = self._make_plugin(audio_quality="lossless", bit_perfect_clock=True)
+        switcher = dock.DockAudioSwitcher(plugin)
+        switcher._docked_sink = s["usb"]["name"]
+        switcher._dock_session_sink = s["usb"]["name"]
+        switcher._pre_dock_sink = s["internal"]["name"]
+        switcher._status = "docked"
+
+        plugin._settings["dock_auto_switch_enabled"] = False
+        with (
+            patch.object(dock, "_exec", new=AsyncMock(return_value=([s["internal"], s["usb"]], s["internal"]["name"]))),
+            patch.object(volume, "set_audio_sink", new=AsyncMock(return_value={"ok": True})) as m_set,
+            patch.object(volume, "configure_pipewire_clock", new=AsyncMock()) as m_clock,
+            patch.object(dock.decky, "emit", new=AsyncMock()),
+        ):
+            await switcher.on_settings_changed("dock_auto_switch_enabled", False)
+
+        m_set.assert_awaited_once_with(s["internal"]["name"], plugin=plugin, is_auto_dock=True)
+        m_clock.assert_not_awaited()
+        self.assertEqual(switcher.get_status_dict()["status"], "disabled")
+
 
 from test_token_refresh import main
 
