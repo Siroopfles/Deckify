@@ -5,6 +5,7 @@
 - ✅ **v0.4: Stability, Polish & Refactoring** — Phases 1-5 (shipped 2026-11-12) — [Full Archive](.planning/milestones/v0.4-ROADMAP.md)
 - ✅ **v0.5: In-Game Flow & Music Discovery** — Phases 6-12 (shipped 2026-11-15) — [Full Archive](.planning/milestones/v0.5-ROADMAP.md)
 - ✅ **v0.6: Audio DSP, Docked Flow & System Resilience** — Phases 13-18.1 (shipped 2026-11-18) — [Full Archive](.planning/milestones/v0.6-ROADMAP.md)
+- 🚧 **v0.7: Studio, Living Room TV, Offline Travel & Ultimate Immersion** — Phases 19-30 (in progress)
 
 ## Phases
 
@@ -52,16 +53,187 @@
 
 </details>
 
+### v0.7 Studio, Living Room TV, Offline Travel & Ultimate Immersion (In Progress)
+
+- [ ] **Phase 19: Per-Game EQ & Volume Profiles** - Bind per-game 10-band PipeWire EQ presets and target volume/ducking overrides in `SoundtracksTab` with automatic launch activation and crash-resilient baseline restoration.
+- [ ] **Phase 20: 100% Silent HUD Toasts & Extended In-Game Quick-Chords** - Route silent 3.5s track-change notifications directly through `DeckifyOverlay` (`pointerEvents: "none"`) and trigger configurable in-game quick-chords (`Like ♥`, `Cycle Pinned Playlists`, `Toggle Lyrics HUD`).
+- [ ] **Phase 21: Dynamic Album-Art Accent Themes & Handheld Battery Eco-Mode** - Extract WCAG-clamped (`L >= 55%`) cover-art accent colors across modal and HUD, and automatically suspend background visualizers and idle paused engines during battery gameplay.
+- [ ] **Phase 22: Spotify Connect Hub 2.0 & Native Crossfade** - Upgrade `DevicesTab` with 1-click auto-waking *"Pull Playback to Steam Deck"*, device icons, engine badges, and remote volume control alongside configurable `0–12s` native crossfade.
+- [ ] **Phase 23: Lyrics 2.0 — Offline .lrc Cache, Per-Track Sync Nudge & CJK Romanization** - Cache `.lrc` lyrics locally for instant/offline loads, persist per-track `-0.5s`/`+0.5s` sync offset nudges synced live with `DeckifyOverlay`, and render dual-line Romaji/Pinyin/Korean romanization.
+- [ ] **Phase 24: Podcast & Audiobook Power Suite** - Expose `0.75x`–`2.0x` episode playback speed (auto-resetting to `1.0x` on music), `-15s`/`+15s` smart-skip transport & trigger controls, episode resume progress bars, and *Unplayed*/*In Progress* filters.
+- [ ] **Phase 25: Universal Artist/Album Drill-Down, Instant Radio & Search 2.0** - Navigate to full Artist/Album views from any track with `B`-button backstack restoration, launch 3-tier Song/Artist Radio, and browse Search 2.0 with history pills, gaming/mood tiles, and podcast filters.
+- [ ] **Phase 26: Unified CDP Platform Bridge & Deep Discovery 2.0** - Build the unified `py_modules/cdp_bridge.py` `Platform.Registry` evaluator and unlock personalized Spotify algorithmic mixes (*Daylist*, *Discover Weekly*, *Release Radar*, *Daily Mixes*) in `DiscoveryTab` across both engines.
+- [ ] **Phase 27: Interactive Queue Studio & Controller Playlist Management** - Reorder, remove, and clear upcoming tracks via controller Grab/Move Mode in `QueueTab` (with CDP `PlayerAPI` + `librespot` URI-slice fallback) and perform full controller playlist CRUD in `PlaylistsTab`.
+- [ ] **Phase 28: CDP Offline Downloads, Wi-Fi Travel Mode & Living Room Spotify Jam** - Download playlists, albums, and episodes via CDP `OfflineAPI` with a 3.0 GB free-space disk guardrail, auto-activate Offline Travel Mode on Wi-Fi disconnect, and share living-room Spotify Jam QR codes.
+- [ ] **Phase 29: 10-Foot Docked TV Split-View Mode & PipeWire Spectrum Visualizer** - Auto-activate a 10-foot Docked TV Split-View on HDMI/USB-DAC dock connection paired with an isolated 16-band real-time PipeWire audio spectrum visualizer (`parec --monitor-stream` at 15 Hz).
+- [ ] **Phase 30: "Deck Wrapped" Listening Stats, Last.fm / ListenBrainz Scrobbling & Profile Backup** - Browse local "Deck Wrapped" listening analytics (including *Top Game + Soundtrack Pairings*), scrobble to Last.fm and ListenBrainz with an offline retry queue, and export/import 1-click JSON profile backups.
+
+## Phase Details
+
+### Phase 19: Per-Game EQ & Volume Profiles
+**Goal**: Users can assign a custom 10-band PipeWire EQ preset and target volume/ducking level to individual games in `SoundtracksTab` that activate automatically on game launch and cleanly restore the global audio baseline on game exit or crash recovery.
+**Depends on**: Phase 18.1
+**Requirements**: GAME-01
+**Success Criteria** (what must be TRUE):
+  1. User can select and bind a per-game 10-band EQ preset and target volume/ducking level to any Steam or Non-Steam game profile in `SoundtracksTab`.
+  2. Launching a game with an assigned audio profile automatically applies the ephemeral EQ and volume/ducking override without overwriting the user's persistent global `eq_preset` or baseline volume on disk.
+  3. Exiting the game (or restarting the plugin after an unexpected crash/reboot via `active_game_override_snapshot`) restores the user's global EQ preset and volume baseline while respecting any active Sleep Timer fade-out priority lock (`_sleep_locked`).
+**Plans**: TBD
+**UI hint**: yes
+
+### Phase 20: 100% Silent HUD Toasts & Extended In-Game Quick-Chords
+**Goal**: Users receive 100% silent in-game track-change notifications that bypass Steam's noisy UI toaster chime and can trigger configurable in-game controller quick-chords with instant visual HUD feedback.
+**Depends on**: Phase 19
+**Requirements**: TOAST-01, CHORD-01
+**Success Criteria** (what must be TRUE):
+  1. When `toast_sound_enabled` is `false`, track-change notifications render as a 100% silent 3.5-second banner inside `DeckifyOverlay` (`pointerEvents: "none"`), completely bypassing Steam's `toaster.toast` audio chime even when the persistent HUD overlay is hidden.
+  2. User can trigger configurable in-game controller quick-chords to Like/Unlike (`♥`) the current track, cycle through the 4 Pinned Playlists, or toggle the Lyrics HUD, receiving instant silent visual confirmation inside `DeckifyOverlay`.
+  3. Controller chord detection enforces a 4-second `guideHeld` expiry guard and blocks reserved Valve system chords (`STEAM + X/R1/L1`) so chords never misfire or collide with SteamOS system shortcuts.
+**Plans**: TBD
+**UI hint**: yes
+
+### Phase 21: Dynamic Album-Art Accent Themes & Handheld Battery Eco-Mode
+**Goal**: Users can style Deckify with WCAG-accessible dynamic album-art accent colors across the modal and HUD, and conserve handheld battery life during active gameplay via an automated Eco-Mode power governor.
+**Depends on**: Phase 20
+**Requirements**: THEME-01, ECO-01
+**Success Criteria** (what must be TRUE):
+  1. User can switch between *Classic Spotify Green*, *Dynamic Album Glow* (dominant cover-art accent extracted from proxied artwork and WCAG luminance-clamped to `L >= 55%` for readable controller focus halos), and *SteamOS Deck Blue* across the Expanded Modal and in-game HUD.
+  2. When Handheld Battery Eco-Mode is enabled and the Steam Deck is running on battery during active gameplay, background spectrum visualizers and non-essential animations are automatically suspended.
+  3. When playback remains paused on battery beyond the user's configured Eco-Mode inactivity timeout (`5–30 min`), the background playback engine automatically enters idle sleep and wakes transparently on the next play command (with Eco-Mode sleep automatically bypassed when AC-powered or docked).
+**Plans**: TBD
+**UI hint**: yes
+
+### Phase 22: Spotify Connect Hub 2.0 & Native Crossfade
+**Goal**: Users can inspect active playback engines and device types, pull playback from any external device to the Steam Deck with a single auto-waking action, control remote Connect volume, and configure native track crossfade.
+**Depends on**: Phase 21
+**Requirements**: CONNECT-01, RADIO-02
+**Success Criteria** (what must be TRUE):
+  1. User can open `DevicesTab` to view distinct device type icons (Steam Deck, Desktop, Smartphone, Speaker/TV) and active engine badges (`librespot` vs `Spotify Client`).
+  2. User can select the 1-click *"Pull Playback to Steam Deck"* action in `DevicesTab` to automatically wake a sleeping local Deckify engine and transfer active playback from an external Spotify Connect device, or adjust remote Connect device volume via a debounced slider.
+  3. User can configure native track Crossfade (`0–12s`) in `SettingsTab`, synchronizing the transition duration across Official Spotify Client CDP preferences, `librespot` / `spotifyd` engine config, and local playback transitions.
+**Plans**: TBD
+**UI hint**: yes
+
+### Phase 23: Lyrics 2.0 — Offline .lrc Cache, Per-Track Sync Nudge & CJK Romanization
+**Goal**: Users enjoy instant offline-cached `.lrc` lyrics, persistent per-track sync timing adjustments that update the in-game HUD live, and zero-dependency phonetic romanization for Japanese, Korean, and Chinese lyrics.
+**Depends on**: Phase 22
+**Requirements**: LYRICS-01, LYRICS-02
+**Success Criteria** (what must be TRUE):
+  1. Synced and plain lyrics are automatically cached as human-readable `.lrc` files in `~/.cache/deckify/lyrics/` for `0ms` repeat loads and offline playback support.
+  2. User can nudge lyric synchronization in `-0.5s` / `+0.5s` increments in `LyricsTab`, persisting the offset per `track_id` and immediately updating active lyric line scheduling in both `LyricsTab` and `DeckifyOverlay` without mutating cached `.lrc` timestamps.
+  3. User can toggle phonetic romanization in `LyricsTab` (and `TvSplitView`) to display dual-line Romaji (Japanese), Revised Romanization (Korean), or Pinyin (Chinese) beneath CJK lyrics using upstream phonetic data and a zero-dependency pure-Python transliterator.
+**Plans**: TBD
+**UI hint**: yes
+
+### Phase 24: Podcast & Audiobook Power Suite
+**Goal**: Users listening to podcast episodes and audiobooks have dedicated playback speed controls, `-15s`/`+15s` smart-skip transport and trigger actions, visual episode resume progress bars, and *Unplayed*/*In Progress* filtering.
+**Depends on**: Phase 23
+**Requirements**: POD-01, POD-02
+**Success Criteria** (what must be TRUE):
+  1. When a podcast episode or audiobook is playing, `NowPlayingTab` and the Quick Access Menu expose `0.75x`–`2.0x` playback speed controls that automatically reset to `1.0x` whenever a standard music track starts playing.
+  2. While playing a podcast episode or audiobook, `NowPlayingTab` and L2/R2 controller triggers adapt to perform dedicated `-15s` / `+15s` smart-skip seeks with accurate monotonic clock progression.
+  3. User can inspect per-episode resume progress bars and *"Played"* badges (`resume_point`) in `PodcastsTab` and filter show episodes by *All*, *Unplayed*, or *In Progress*.
+**Plans**: TBD
+**UI hint**: yes
+
+### Phase 25: Universal Artist/Album Drill-Down, Instant Radio & Search 2.0
+**Goal**: Users can drill down to full Artist or Album detail pages from any track view with predictable `B`-button backstack navigation, launch resilient 3-tier Song/Artist Radio, and browse Search 2.0 via history pills, gaming/mood genre tiles, and podcast filters.
+**Depends on**: Phase 24
+**Requirements**: RADIO-01, SEARCH-01, SEARCH-02
+**Success Criteria** (what must be TRUE):
+  1. User can select *"Start Song Radio"*, *"Go to Artist"*, or *"Go to Album"* from any track across `TrackActionModal`, `NowPlayingTab`, `QueueTab`, and `SearchTab`, using a breadcrumb backstack (`navigationHistoryRef`) that restores the exact originating tab and scroll focus when pressing `B`.
+  2. Selecting *"Start Song Radio"* or *"Start Artist Radio"* generates and starts a continuous radio queue on both `spotify_client` and `librespot` via the 3-tier radio waterfall (CDP station → Web API recommendations → Top-Tracks/Search synthesis fallback).
+  3. When the search query in `SearchTab` is empty, user can launch searches from recent search history pills (with individual and clear-all options) or select from 12 controller-friendly Gaming & Mood browse tiles without opening the virtual keyboard.
+  4. User can filter and browse search results specifically by `Podcasts` (`show`) and `Episodes` (`episode`) in `SearchTab` alongside Tracks, Artists, Albums, and Playlists.
+**Plans**: TBD
+**UI hint**: yes
+
+### Phase 26: Unified CDP Platform Bridge & Deep Discovery 2.0
+**Goal**: Users can browse and play personalized Spotify algorithmic mixes (*Daylist*, *Discover Weekly*, *Release Radar*, *Daily Mixes*) in `DiscoveryTab` across both `spotify_client` and `librespot` via a unified Chrome DevTools Protocol (`Platform.Registry`) bridge.
+**Depends on**: Phase 25
+**Requirements**: DISC-04
+**Success Criteria** (what must be TRUE):
+  1. Backend `py_modules/cdp_bridge.py` dynamically resolves and caches the Official Spotify Client's internal React Fiber `Platform.Registry` on `window.__deckifyRegistry` over port `9229` with a 4.0-second timeout and clean error fallback.
+  2. `DiscoveryTab` populates the *Made For You* section with the user's personalized algorithmic mixes (*Daylist*, *Discover Weekly*, *Release Radar*, *Daily Mix 1–6*) via the CDP Pathfinder/Rootlist bridge, bypassing Spotify Web API Development Mode `HTTP 403/404` blocks.
+  3. Resolved algorithmic mix metadata and track URI lists are cached locally on disk so users can browse and play those mixes even after switching their active playback engine to `librespot`.
+**Plans**: TBD
+**UI hint**: yes
+
+### Phase 27: Interactive Queue Studio & Controller Playlist Management
+**Goal**: Users can interactively reorder, remove, and clear upcoming tracks in `QueueTab` using controller Grab/Move Mode and perform full controller-driven playlist creation, renaming, deletion, and track curation in `PlaylistsTab`.
+**Depends on**: Phase 26
+**Requirements**: QUEUE-03, PL-01
+**Success Criteria** (what must be TRUE):
+  1. User can press `A` / *"Move in Queue"* on any upcoming track in `QueueTab` to enter controller Grab/Move Mode, move the track up or down with `D-Pad Up/Down` while focus remains locked via stable `_rowKey` IDs, and press `A` to commit the new order in a single batched update.
+  2. User can remove individual upcoming tracks or clear the upcoming queue in `QueueTab`, executing natively via CDP `PlayerAPI` when `spotify_client` is active and automatically falling back to virtual URI-slice playback mutation when `librespot` is active.
+  3. User can create new playlists, rename or edit playlist descriptions, delete or unfollow playlists with a confirmation modal, and reorder or remove tracks inside user-owned playlists directly from the controller in `PlaylistsTab`.
+**Plans**: TBD
+**UI hint**: yes
+
+### Phase 28: CDP Offline Downloads, Wi-Fi Travel Mode & Living Room Spotify Jam
+**Goal**: Users can download playlists, albums, and podcast episodes for offline playback with a 3.0 GB free-space guardrail, automatically filter to downloaded content in Offline Travel Mode when Wi-Fi disconnects, and host living-room Spotify Jam sessions via scannable QR codes.
+**Depends on**: Phase 27
+**Requirements**: CDP-01, CDP-02, JAM-01
+**Success Criteria** (what must be TRUE):
+  1. User can toggle *"Download for Offline"* on playlists, albums, and podcast episodes via Official Spotify Client CDP `OfflineAPI` (with a 1-click engine switch prompt when on `librespot`), viewing live `0–100%` download progress and green offline badges while protected by an `os.statvfs` 3.0 GB minimum free-space disk guardrail.
+  2. User can manually toggle **Offline / Travel Mode** or have it activate automatically upon sustained Wi-Fi disconnect (after the 10-second wake-from-suspend grace window) to filter library views strictly to locally downloaded content and cached `.lrc` lyrics.
+  3. User can start or share a Spotify Jam / group session from `NowPlayingTab`, `DevicesTab`, or `TvSplitView`, rendering a high-contrast scannable `QRCodeSVG` modal/card for living-room guests (with a shareable track/playlist deep-link QR fallback when `librespot` is active).
+**Plans**: TBD
+**UI hint**: yes
+
+### Phase 29: 10-Foot Docked TV Split-View Mode & PipeWire Spectrum Visualizer
+**Goal**: Users can transform a docked Steam Deck into a living-room TV interface featuring large cover art, dynamic glow, 10-foot dual-line karaoke lyrics, queue preview, and a strictly modal-scoped 16-band real-time PipeWire audio spectrum visualizer.
+**Depends on**: Phase 28
+**Requirements**: TV-01, TV-02
+**Success Criteria** (what must be TRUE):
+  1. User can manually toggle the **10-Foot Docked TV Split-View Mode** (`TvSplitView.tsx` — large cover art + dynamic accent glow on the left, 10-foot dual-line romanized karaoke lyrics + Up Next queue preview + optional Jam QR badge on the right) or have it auto-activate when `DockAudioSwitcher` detects an external HDMI/USB-DAC dock.
+  2. When `TvSplitView` is open and actively playing, an optional 16-band real-time PipeWire audio spectrum visualizer (`parec --monitor-stream` tapped strictly to Deckify's audio stream at 15 Hz via `resolve_spotify_sink_input_ids()` with zero game or voice bleed) animates smoothly via GPU-composited CSS `scaleY` transforms.
+  3. Closing `TvSplitView`, pausing playback, or activating Handheld Battery Eco-Mode terminates the `parec` spectrum subprocess within `<100ms` so zero background DSP overhead runs during gameplay.
+**Plans**: TBD
+**UI hint**: yes
+
+### Phase 30: "Deck Wrapped" Listening Stats, Last.fm / ListenBrainz Scrobbling & Profile Backup
+**Goal**: Users can explore local "Deck Wrapped" listening analytics correlated with the Steam games they play, scrobble tracks to Last.fm and ListenBrainz with offline retry resilience, and export or import a 1-click JSON backup of their complete Deckify configuration.
+**Depends on**: Phase 29
+**Requirements**: STATS-01, STATS-02
+**Success Criteria** (what must be TRUE):
+  1. User can open the dedicated *"Deck Wrapped" / Listening Stats* view (`StatsTab.tsx`) to inspect total listening time, top tracks and artists on Steam Deck, and **Top Game + Soundtrack Pairings** recorded via monotonic wall-clock playback duration (`accumulated_play_ms`) correlated with `active_game_app_id`.
+  2. User can enable built-in **Last.fm** and/or **ListenBrainz** scrobbling that enforces the standard 50% / 240-second actual-play-time rule (immune to seek-bar scrubbing) and persists scrobbles in an offline retry queue when disconnected from Wi-Fi.
+  3. User can export or import a secret-redacted 1-click JSON profile backup (`~/.config/deckify/backups/`) containing all Deckify settings, game soundtrack & per-game EQ profiles, custom 10-band EQ presets, per-track lyric offsets, and pinned playlists without exposing OAuth or scrobbler tokens.
+**Plans**: TBD
+**UI hint**: yes
+
+## Progress
+
+**Execution Order:**
+Phases execute in numeric order: 19 → 20 → 21 → 22 → 23 → 24 → 25 → 26 → 27 → 28 → 29 → 30
+
+| Phase | Milestone | Plans Complete | Status | Completed |
+|-------|-----------|----------------|--------|-----------|
+| 1–5. Stability, Polish & Refactoring | v0.4 | 7/7 | Complete | 2026-11-12 |
+| 6–12. In-Game Flow & Music Discovery | v0.5 | 22/22 | Complete | 2026-11-15 |
+| 13–18.1. Audio DSP, Docked Flow & System Resilience | v0.6 | 14/14 | Complete | 2026-11-18 |
+| 19. Per-Game EQ & Volume Profiles | v0.7 | 0/TBD | Not started | - |
+| 20. 100% Silent HUD Toasts & Extended In-Game Quick-Chords | v0.7 | 0/TBD | Not started | - |
+| 21. Dynamic Album-Art Accent Themes & Handheld Battery Eco-Mode | v0.7 | 0/TBD | Not started | - |
+| 22. Spotify Connect Hub 2.0 & Native Crossfade | v0.7 | 0/TBD | Not started | - |
+| 23. Lyrics 2.0 — Offline .lrc Cache, Per-Track Sync Nudge & CJK Romanization | v0.7 | 0/TBD | Not started | - |
+| 24. Podcast & Audiobook Power Suite | v0.7 | 0/TBD | Not started | - |
+| 25. Universal Artist/Album Drill-Down, Instant Radio & Search 2.0 | v0.7 | 0/TBD | Not started | - |
+| 26. Unified CDP Platform Bridge & Deep Discovery 2.0 | v0.7 | 0/TBD | Not started | - |
+| 27. Interactive Queue Studio & Controller Playlist Management | v0.7 | 0/TBD | Not started | - |
+| 28. CDP Offline Downloads, Wi-Fi Travel Mode & Living Room Spotify Jam | v0.7 | 0/TBD | Not started | - |
+| 29. 10-Foot Docked TV Split-View Mode & PipeWire Spectrum Visualizer | v0.7 | 0/TBD | Not started | - |
+| 30. "Deck Wrapped" Listening Stats, Last.fm / ListenBrainz Scrobbling & Profile Backup | v0.7 | 0/TBD | Not started | - |
+
 ---
 
 ## Backlog & Future Milestones
 
-See [.planning/IDEAS.md](.planning/IDEAS.md) for the full **Deckify Master Feature & Upgrade Plan** (38+ structured ideas across 5 strategic pillars):
-1. **Audio, PipeWire & Playback:** In-game cutscene auto-pause, crossfade, BPM badges, podcast speed/chapters, local music/Steam soundtrack library.
-2. **In-Game Integration, Chords & Overlays:** Configureerbare chords + haptics, peek mode for HUD, Search/Queue gamepad shortcuts, live Steam menu position switcher.
-3. **Chrome DevTools Protocol (CDP), Library & Lyrics (CDP-01, QUEUE-03):** Offline downloads via `OfflineAPI`, interactive queue reordering and clearing via CDP `PlayerAPI`, real Spotify synced LRC data via CDP, bilingual/karaoke NetEase lyrics, Spotify Canvas video-loops, custom playlist folders UI, in-playlist filter/sort, podcast drilldown.
-4. **UI, Visuals & TV / Steam Machine Experience:** Split-view TV / Steam Machine 10-foot mode (Now Playing + Lyrics side-by-side), Spotify Jam QR-code, live audio ambient glow/spectrum visualizer, dynamic cover color theming, virtualized lists for 1000+ items, multi-language internationalization (i18n).
-5. **System, Power-Management, Smarthome & Diagnostics:** Pocket Mode (screen off / audio on), battery eco-switch, local webhook/MQTT smart home events, 1-click Flatpak installer, multi-account switcher, cache storage dashboard, live diagnostics log viewer in UI.
+See [.planning/IDEAS.md](.planning/IDEAS.md) for the full **Deckify Master Feature & Upgrade Plan**:
+- **LOCAL-01**: Local MP3/FLAC file library browser (`/home/deck/Music`) integrated alongside Spotify library tabs.
+- **VOICE-01**: Offline push-to-talk voice search (`"Play Synthwave"`) on Steam Deck microphone.
+- **MULTI-01**: Multi-account Spotify profile switcher in `SettingsTab` for shared family Steam Decks.
 
 ### Phase 999.1: Follow-up — Phase 09 deferred UAT follow-up: Test 2 (BACKLOG)
 
