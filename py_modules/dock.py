@@ -311,9 +311,14 @@ class DockAudioSwitcher:
 
         restored_label = self._resolve_sink_label(restored_sink, sinks)
         await volume.set_audio_sink(restored_sink, plugin=self._plugin, is_auto_dock=True)
-        await volume.configure_pipewire_clock(False)
-
         settings = getattr(self._plugin, "_settings", {}) or {}
+        preserve_lossless_clock = (
+            settings.get("audio_quality") == "lossless"
+            and bool(settings.get("bit_perfect_clock", False))
+        )
+        if not preserve_lossless_clock:
+            await volume.configure_pipewire_clock(False)
+
         if (
             not skip_pause
             and bool(settings.get("dock_pause_on_undock", False))
