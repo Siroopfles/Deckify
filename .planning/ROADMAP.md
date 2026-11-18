@@ -44,7 +44,7 @@
 - [x] **Phase 15: Real PipeWire Biquad Equalizer** - Isolated `pipewire -c` `filter-chain` DSP equalizer with presets and live 5-band custom sliders. (completed 2026-11-17)
 - [x] **Phase 16: Automatic Docked Audio-Switching** - Automatic USB-DAC/HDMI sink hotplug switching for Deckify streams with `bit_perfect_clock` management. (completed 2026-11-17)
 - [x] **Phase 17: Event-Driven librespot & Suspend/Wi-Fi Resilience** - Local `--onevent` Unix socket push updates, relaxed fallback polling, and unified suspend/Wi-Fi bookmark recovery. (completed 2026-11-17)
-- [ ] **Phase 18: MPRIS2 D-Bus Bridge** - Register `org.mpris.MediaPlayer2.deckify` on the `deck` user D-Bus for Bluetooth headset AVRCP playback and metadata.
+- [x] **Phase 18: MPRIS2 D-Bus Bridge** - Register `org.mpris.MediaPlayer2.deckify` on the `deck` user D-Bus for Bluetooth headset AVRCP playback and metadata. (completed 2026-11-18)
 
 ## Phase Details
 
@@ -140,7 +140,7 @@ Plans:
   1. Deckify registers `org.mpris.MediaPlayer2.deckify` on the `deck` (UID 1000) user session D-Bus without requiring C-extension D-Bus bindings.
   2. Pressing Play, Pause, Play/Pause, Next, or Previous on connected Bluetooth headsets/earbuds (via BlueZ `mpris-proxy`) controls Deckify playback reliably.
   3. Connected Bluetooth devices and D-Bus media controllers reflect current track title, artist, album, and playback status updates.
-**Plans:** 2/2 plans executed
+**Plans:** 2/2 plans complete
 **UI hint**: yes
 
 Plans:
@@ -159,7 +159,7 @@ Plans:
 | 15. Real PipeWire Biquad Equalizer | v0.6 | 2/2 | Complete    | 2026-11-17 |
 | 16. Automatic Docked Audio-Switching | v0.6 | 2/2 | Complete    | 2026-11-17 |
 | 17. Event-Driven librespot & Suspend/Wi-Fi Resilience | v0.6 | 2/2 | Complete    | 2026-11-17 |
-| 18. MPRIS2 D-Bus Bridge | v0.6 | 2/2 | In Progress | - |
+| 18. MPRIS2 D-Bus Bridge | v0.6 | 2/2 | Complete    | 2026-11-18 |
 
 ---
 
