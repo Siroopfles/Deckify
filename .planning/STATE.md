@@ -1,20 +1,16 @@
 ---
 gsd_state_version: "1.0"
-milestone: v0.6
-milestone_name: Audio DSP, Docked Flow & System Resilience (Active)
-status: Awaiting next milestone
-stopped_at: Phase 18.1 complete — all phases complete
-last_updated: "2026-11-18T19:11:03.566Z"
+milestone: v0.7
+milestone_name: Studio, Living Room TV, Offline Travel & Ultimate Immersion
+status: planning
+last_updated: "2026-11-18T19:33:46.386Z"
 last_activity: 2026-11-18
-last_activity_desc: Milestone v0.6 completed and archived
-state_head: 377730bbdc781c9ffe120e9613c942d83560d2c3
 progress:
-  total_phases: 7
-  completed_phases: 7
-  total_plans: 14
-  completed_plans: 14
-  percent: 100
-current_phase: "18.1"
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -28,10 +24,11 @@ See: [.planning/PROJECT.md](file:///C:/Users/djdje/Deckify/.planning/PROJECT.md)
 
 ## Current Position
 
-Phase: Milestone v0.6 complete
+Phase: Not started (defining requirements)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-11-18 — Milestone v0.6 completed and archived
+Status: Defining requirements
+Last activity: 2026-11-18 — Milestone v0.7 started
+
 
 ## Performance Metrics
 
