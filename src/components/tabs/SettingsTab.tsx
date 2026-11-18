@@ -1,8 +1,8 @@
 import { FC, useState, useEffect, useCallback, useRef } from "react";
 import { DialogButton, Focusable, SliderField, ToggleField } from "@decky/ui";
 import { callable, addEventListener, removeEventListener } from "@decky/api";
-import { FaSlidersH, FaClock, FaPowerOff, FaPlug } from "react-icons/fa";
-import { AudioSinkInfo, EqualizerPreset, ResilienceStatusInfo, StatusResponse, SleepTimerStatus } from "../../types";
+import { FaSlidersH, FaClock, FaPowerOff, FaPlug, FaBluetooth } from "react-icons/fa";
+import { AudioSinkInfo, EqualizerPreset, MprisStatusInfo, ResilienceStatusInfo, StatusResponse, SleepTimerStatus } from "../../types";
 import { InteractiveRow } from "../common/InteractiveRow";
 
 const EQ_BAND_LABELS = [
@@ -79,6 +79,9 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
   const [localSettings, setLocalSettings] = useState<Record<string, any>>(() => status?.settings || {});
   const [liveResilienceStatus, setLiveResilienceStatus] = useState<ResilienceStatusInfo | null>(
     () => status?.resilience_status ?? null
+  );
+  const [liveMprisStatus, setLiveMprisStatus] = useState<MprisStatusInfo | null>(
+    () => status?.mpris_status ?? null
   );
   const [localEqPreset, setLocalEqPreset] = useState<EqualizerPreset>(
     () => (status?.settings?.eq_preset as EqualizerPreset) || "flat"
@@ -209,6 +212,25 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
     const listener = addEventListener<[any]>("resilience_status", handler);
     return () => {
       removeEventListener("resilience_status", listener);
+    };
+  }, [refreshStatus]);
+
+  useEffect(() => {
+    if (status?.mpris_status !== undefined) {
+      setLiveMprisStatus(status.mpris_status ?? null);
+    }
+  }, [status?.mpris_status]);
+
+  useEffect(() => {
+    const handler = (data: any) => {
+      if (data && typeof data === "object") {
+        setLiveMprisStatus(data as MprisStatusInfo);
+      }
+      refreshStatus();
+    };
+    const listener = addEventListener<[any]>("mpris_status", handler);
+    return () => {
+      removeEventListener("mpris_status", listener);
     };
   }, [refreshStatus]);
 
@@ -1009,6 +1031,75 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
                 </Focusable>
               </div>
             )}
+          </div>
+        );
+      })()}
+
+      {/* Bluetooth & Media Controls (MPRIS2) */}
+      {(() => {
+        const mprisEnabled = Boolean(
+          localSettings.mpris_enabled ?? status?.settings?.mpris_enabled ?? true
+        );
+        const mprisAutoProxy = Boolean(
+          localSettings.mpris_auto_proxy ?? status?.settings?.mpris_auto_proxy ?? true
+        );
+        const mprisStatus = liveMprisStatus ?? status?.mpris_status ?? null;
+        let badgeLabel: string;
+        let badgeStyle: Record<string, any>;
+        if (!mprisEnabled) {
+          badgeLabel = "Disabled";
+          badgeStyle = { opacity: 0.6 };
+        } else if (mprisStatus?.bus_registered && mprisStatus?.proxy_running) {
+          badgeLabel = "Active (Bluetooth Ready)";
+          badgeStyle = { color: "#1db954" };
+        } else {
+          badgeLabel = "D-Bus Active (mpris-proxy unavailable)";
+          badgeStyle = { opacity: 0.8 };
+        }
+
+        return (
+          <div style={{ marginBottom: 20, padding: 14, borderRadius: 10, background: "rgba(255,255,255,0.04)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 8 }}>
+              <h3 style={{ fontSize: 14, fontWeight: 700, color: "#1db954", display: "flex", alignItems: "center", gap: 8, margin: 0 }}>
+                <FaBluetooth /> Bluetooth & Media Controls (MPRIS2)
+              </h3>
+              <span
+                style={{
+                  fontSize: 12,
+                  fontWeight: 700,
+                  minWidth: 0,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                  ...badgeStyle,
+                }}
+              >
+                {badgeLabel}
+              </span>
+            </div>
+
+            <Focusable flow-children="column" style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              <ToggleField
+                label="Enable MPRIS2 Media Controls"
+                description="Register org.mpris.MediaPlayer2.deckify on the user session D-Bus for Bluetooth headsets, earbuds, and system media keys."
+                checked={mprisEnabled}
+                onChange={(v: boolean) => {
+                  void updateSetting("mpris_enabled", v);
+                  showToast(v ? "MPRIS2 media controls enabled" : "MPRIS2 media controls disabled");
+                }}
+              />
+              {mprisEnabled && (
+                <ToggleField
+                  label="Auto-Start BlueZ mpris-proxy"
+                  description="Automatically run BlueZ mpris-proxy in SteamOS GamepadUI so Bluetooth AVRCP headset buttons work out of the box."
+                  checked={mprisAutoProxy}
+                  onChange={(v: boolean) => {
+                    void updateSetting("mpris_auto_proxy", v);
+                    showToast(v ? "Auto mpris-proxy enabled" : "Auto mpris-proxy disabled");
+                  }}
+                />
+              )}
+            </Focusable>
           </div>
         );
       })()}

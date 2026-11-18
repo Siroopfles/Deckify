@@ -51,6 +51,7 @@ vi.mock("react-icons/fa", () => ({
   FaClock: () => ({ type: "FaClock" }),
   FaPowerOff: () => ({ type: "FaPowerOff" }),
   FaPlug: () => ({ type: "FaPlug" }),
+  FaBluetooth: () => ({ type: "FaBluetooth" }),
 }));
 
 vi.mock("react/jsx-dev-runtime", () => ({
