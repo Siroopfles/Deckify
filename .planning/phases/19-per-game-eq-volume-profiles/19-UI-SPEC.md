@@ -122,7 +122,7 @@ Generated deterministically by `formatGameProfileSubtitle(profile)` in `src/comp
 ### 1. `SoundtracksTab.tsx` (Primary Screen)
 - **Primary Visual Anchor:** When `runningAppId` matches an installed game, that game card pins to the top of the list (`sortGames`) with `#1DB954` tint/border and `"Running"` badge, auto-expanded (`expandedAppId === game.app_id`), drawing focus directly to its linked playlists and audio override controls. When idle, the `Filter installed games...` search bar and the first configured game card lead visual priority.
 - **Expanded Game Card Section Order (top-to-bottom inside `<Focusable flow-children="column">`):**
-  1. **Game Header (`InteractiveRow`):** `42px` capsule thumbnail (`DeckifyImage` with `FaGamepad` fallback), game name + `"Running"` / `"Non-Steam"` badges, and D-11 `formatGameProfileSubtitle(profile)` subtitle.
+  1. **Game Header (`InteractiveRow`):** `48px` capsule thumbnail (`2xl` token; `DeckifyImage` with `FaGamepad` fallback), game name + `"Running"` / `"Non-Steam"` badges, and D-11 `formatGameProfileSubtitle(profile)` subtitle.
   2. **Assigned Playlists Row (`flow-children="horizontal"`):** Linked playlist chips + `Add Playlist / Album` button.
   3. **Playback / Resume / Exit Dropdowns Row (`flow-children="horizontal"`):** `Playback Mode`, `Resume Mode`, `On Game Exit`.
   4. **Per-Game EQ Override Row (`flow-children="horizontal"`, `D-01`):**
