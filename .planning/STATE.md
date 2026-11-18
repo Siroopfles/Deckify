@@ -4,17 +4,17 @@ milestone: v0.6
 milestone_name: Audio DSP, Docked Flow & System Resilience (Active)
 current_phase: "18.1"
 current_phase_name: "Address tech debt: v0.6 undock clock & audit metadata (INSERTED)"
-status: Phase 18.1 inserted - not planned yet
-stopped_at: Phase 18.1 context gathered
-last_updated: "2026-11-18T18:19:38.846Z"
+status: executing
+stopped_at: Completed 18.1-01-PLAN.md
+last_updated: "2026-11-18T18:23:43.052Z"
 last_activity: 2026-11-18
-last_activity_desc: Phase 18 complete
-state_head: b82a3c0f0107300659f1404838cf35c084c5a317
+last_activity_desc: Phase 18.1 execution started
+state_head: ea146911e8664bd577ea86adc38b287929f8f8b9
 progress:
   total_phases: 7
   completed_phases: 6
   total_plans: 14
-  completed_plans: 12
+  completed_plans: 13
   percent: 86
 ---
 
@@ -25,14 +25,14 @@ progress:
 See: [.planning/PROJECT.md](file:///C:/Users/djdje/Deckify/.planning/PROJECT.md) (updated 2026-11-16)
 
 **Core value:** Rock-solid Spotify playback and responsive, reliable controller navigation on Steam Deck without UI lag, broken images, or desynchronized playback states.
-**Current focus:** Phase 18 — MPRIS2 D-Bus Bridge
+**Current focus:** Phase 18.1 — Address tech debt: v0.6 undock clock & audit metadata (INSERTED)
 
 ## Current Position
 
-Phase: 18.1 (Address tech debt: v0.6 undock clock & audit metadata (INSERTED)) — READY TO EXECUTE
-Plan: Not started
-Status: Phase 18.1 inserted - not planned yet
-Last activity: 2026-11-18 — Phase 18 complete
+Phase: 18.1 (Address tech debt: v0.6 undock clock & audit metadata (INSERTED)) — EXECUTING
+Plan: 2 of 2
+Status: Ready to execute
+Last activity: 2026-11-18 — Phase 18.1 execution started
 
 
 ## Performance Metrics
@@ -99,6 +99,7 @@ Last activity: 2026-11-18 — Phase 18 complete
 | Phase 17 P02 | 14min | 2 tasks | 6 files |
 | Phase 18 P01 | 7min | 2 tasks | 8 files |
 | Phase 18 P02 | 3min | 2 tasks | 3 files |
+| Phase 18.1 P01 | 2m | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -175,9 +176,9 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-18T18:13:46.943Z
-Stopped at: Phase 18.1 context gathered
-Resume file: .planning/phases/18.1-address-tech-debt-v0-6-undock-clock-audit-metadata/18.1-CONTEXT.md
+Last session: 2026-11-18T18:23:39.979Z
+Stopped at: Completed 18.1-01-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 
