@@ -502,11 +502,11 @@ export function formatGameProfileSubtitle(profile: SoundtrackProfile): string {
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Modal Save-vs-Debounce Latency when Editing Running Game EQ (`D-02` / `D-04`)**
    - What we know: `SoundtracksTab.tsx` debounces `persistProfile` via `SAVE_DEBOUNCE_MS = 500`, while clicking **Save EQ** inside `GameEqModal` for a currently running game should keep/apply the new custom curve without a 500ms gap or accidental `clear_eq_preview()` teardown.
-   - Recommendation: When `GameEqModal` saves a curve (`onSave(bands)`), update React `profiles` state AND invoke `backendSaveProfile` immediately (cancelling any pending timer for that `app_id`), rather than waiting 500ms, so `EqualizerManager` promotes the live preview straight into `_ephemeral_bands` seamlessly.
+   - **RESOLVED:** `GameEqModal.onSave` and running-game edits in `SoundtracksTab` invoke `saveImmediate` (cancelling any pending 500ms debounce timer for that `app_id`) so active-game custom EQ edits promote directly into `_ephemeral_bands` without a 500ms gap.
 
 ---
 
