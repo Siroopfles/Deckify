@@ -364,6 +364,14 @@ class LibrespotEventServer:
             except Exception as e:
                 decky.logger.debug("Bookmark manager on_onevent error: %s", e)
 
+        # Notify MprisBridge if wired
+        mpris_bridge = getattr(self._plugin, "_mpris_bridge", None)
+        if mpris_bridge is not None and hasattr(mpris_bridge, "on_onevent"):
+            try:
+                await mpris_bridge.on_onevent(event_dict)
+            except Exception as e:
+                decky.logger.debug("MprisBridge on_onevent error: %s", e)
+
         await decky.emit("librespot_event", event_dict)
 
         # Debounced Web API enrichment (D-05):
