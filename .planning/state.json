@@ -26,18 +26,18 @@
     {
       "number": "17",
       "name": "Event-Driven librespot & Suspend/Wi-Fi Resilience",
-      "status": "pending"
+      "status": "complete"
     },
     {
       "number": "18",
       "name": "MPRIS2 D-Bus Bridge",
-      "status": "pending"
+      "status": "in_progress"
     }
   ],
   "next": {
     "command": "/gsd-progress --next",
-    "label": "Advance to the next step (plan phase 17)",
-    "reason": "Phase 5 of 6 — needs a plan"
+    "label": "Advance to the next step",
+    "reason": "Phase 6 of 6 · 83% · executing"
   },
-  "updated_at": "2026-11-17T18:05:54.150Z"
+  "updated_at": "2026-11-18T06:15:01.733Z"
 }
