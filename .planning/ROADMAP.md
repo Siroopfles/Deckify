@@ -45,7 +45,7 @@
 - [x] **Phase 16: Automatic Docked Audio-Switching** - Automatic USB-DAC/HDMI sink hotplug switching for Deckify streams with `bit_perfect_clock` management. (completed 2026-11-17)
 - [x] **Phase 17: Event-Driven librespot & Suspend/Wi-Fi Resilience** - Local `--onevent` Unix socket push updates, relaxed fallback polling, and unified suspend/Wi-Fi bookmark recovery. (completed 2026-11-17)
 - [x] **Phase 18: MPRIS2 D-Bus Bridge** - Register `org.mpris.MediaPlayer2.deckify` on the `deck` user D-Bus for Bluetooth headset AVRCP playback and metadata. (completed 2026-11-18)
-- [ ] **Phase 18.1: Address tech debt: v0.6 undock clock & audit metadata**
+- [x] **Phase 18.1: Address tech debt: v0.6 undock clock & audit metadata** (completed 2026-11-18)
 
 ## Phase Details
 
@@ -178,7 +178,7 @@ See [.planning/IDEAS.md](.planning/IDEAS.md) for the full **Deckify Master Featu
 **Goal:** Close out v0.6 tech debt: preserve `bit_perfect_clock` on undock when lossless + `bit_perfect_clock` is enabled, add `requirements-completed: [SLEEP-01]` to Phase 14 summaries, and promote Phases 14–18 `VALIDATION.md` contracts to `nyquist_compliant: true`.
 **Requirements**: DOCK-02, SLEEP-01, EQ-01, EQ-02, DOCK-01, RESIL-01, RESIL-02, MPRIS-01
 **Depends on:** Phase 18
-**Plans:** 2/2 plans executed
+**Plans:** 2/2 plans complete
 
 Plans:
 **Wave 1**
