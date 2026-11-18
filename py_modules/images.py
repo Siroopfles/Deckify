@@ -2,6 +2,7 @@ import hashlib
 import os
 import urllib.parse
 import urllib.request
+from pathlib import Path
 from py_modules.common import CACHE_DIR, MAX_IMAGE_BYTES, _API_SSL_CTX
 
 IMAGE_CACHE_DIR = os.path.join(CACHE_DIR, "images")
@@ -118,6 +119,23 @@ def _fetch_spotify_image(url: str) -> tuple[str, bytes]:
             pass
 
         return content_type, body
+
+
+def get_cached_image_file_uri(url: str | None) -> str:
+    """Resolve a Spotify image URL to a local file:// URI if cached on disk, else HTTPS fallback."""
+    if not url or not isinstance(url, str):
+        return ""
+    cleaned = _proxy_spotify_image_url(url) or url.strip()
+    if not cleaned:
+        return ""
+    url_hash = hashlib.sha256(cleaned.encode("utf-8")).hexdigest()
+    cache_path = os.path.join(IMAGE_CACHE_DIR, f"{url_hash}.bin")
+    try:
+        if os.path.isfile(cache_path) and os.path.getsize(cache_path) > 0:
+            return Path(cache_path).resolve().as_uri()
+    except OSError:
+        pass
+    return cleaned
 
 
 def _proxy_spotify_image_url(raw_url: str | None) -> str | None:

@@ -43,6 +43,7 @@ from py_modules.images import (
     _proxy_spotify_image_url,
     _image_url,
     _proxy_folder_tree_images,
+    get_cached_image_file_uri,
 )
 from py_modules.auth import (
     _generate_pkce_pair,
@@ -81,6 +82,7 @@ from py_modules import equalizer
 from py_modules import rpc_playback
 from py_modules import rpc_library
 from py_modules import resilience
+from py_modules import mpris
 
 __all__ = [
     "SETTINGS_FILE",
@@ -125,6 +127,7 @@ __all__ = [
     "_proxy_spotify_image_url",
     "_image_url",
     "_proxy_folder_tree_images",
+    "get_cached_image_file_uri",
     "_generate_pkce_pair",
     "_spotify_token_request",
     "_spotify_api_request",
@@ -148,4 +151,5 @@ __all__ = [
     "_ensure_ssl_cert",
     "shutdown_system_sync",
     "SuspendResumeMonitor",
+    "mpris",
 ]
