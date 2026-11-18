@@ -1,9 +1,9 @@
 ---
 phase: "18"
 slug: "mpris2-d-bus-bridge"
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
+status: complete
+nyquist_compliant: true
+wave_0_complete: true
 created: "2026-11-18"
 ---
 
@@ -20,7 +20,7 @@ created: "2026-11-18"
 | **Framework** | Python `unittest` (`IsolatedAsyncioTestCase`) + Vitest 5.1.0 |
 | **Config file** | `package.json` / `tsconfig.json` |
 | **Quick run command** | `py -3 -m unittest tests/test_mpris.py -v` |
-| **Full suite command** | `pnpm test && py -3 -m unittest discover -s tests -p "test_*.py"` |
+| **Full suite command** | `pnpm test -- --run && py -3 -m unittest discover -s tests -p "test_*.py"` |
 | **Estimated runtime** | ~10 seconds |
 
 ---
@@ -38,9 +38,10 @@ created: "2026-11-18"
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 18-01-01 | 01 | 1 | MPRIS-01 | T-18-01 | Pure-Python D-Bus wire protocol (`SASL EXTERNAL`, `Hello`, `RequestName`, `Introspect`, `Get`, `GetAll`, `Set`, `Play`, `Pause`, `PlayPause`, `Stop`, `Next`, `Previous`, `Seek`, `SetPosition`, `OpenUri`, `Seeked`, `PropertiesChanged`) | unit | `py -3 -m unittest tests/test_mpris.py -v` | ❌ W0 | ⬜ pending |
-| 18-01-02 | 01 | 1 | MPRIS-01 | T-18-02 / T-18-03 | `MprisBridge` integration with `Plugin`, `VolumeFader` safe coordination, `get_cached_image_file_uri`, and `mpris-proxy` UID 1000 supervision | unit | `py -3 -m unittest tests/test_mpris.py -v && py -3 -m unittest discover -s tests -p "test_*.py"` | ❌ W0 | ⬜ pending |
-| 18-02-01 | 02 | 2 | MPRIS-01 | — | `"Bluetooth & Media Controls (MPRIS2)"` card in `SettingsTab.tsx`, `MprisStatusInfo` types, and live `mpris_status` event handling | unit | `pnpm test -- --run src/components/tabs/SettingsTab.test.tsx src/index.test.tsx && pnpm typecheck && pnpm lint` | ✅ | ⬜ pending |
+| 18-01-01 | 01 | 1 | MPRIS-01 | T-18-01 | Pure-Python D-Bus wire protocol (`SASL EXTERNAL`, `Hello`, `RequestName`, `Introspect`, `Get`, `GetAll`, `Set`, `Play`, `Pause`, `PlayPause`, `Stop`, `Next`, `Previous`, `Seek`, `SetPosition`, `OpenUri`, `Seeked`, `PropertiesChanged`) | unit | `py -3 -m unittest tests/test_mpris.py -v` | ✅ | ✅ green |
+| 18-01-02 | 01 | 1 | MPRIS-01 | T-18-02 / T-18-03 | `MprisBridge` integration with `Plugin`, `VolumeFader` safe coordination, `get_cached_image_file_uri`, and `mpris-proxy` UID 1000 supervision | unit | `py -3 -m unittest tests/test_mpris.py -v && py -3 -m unittest discover -s tests -p "test_*.py"` | ✅ | ✅ green |
+| 18-02-01 | 02 | 2 | MPRIS-01 | — | `MprisStatusInfo` types and `"Bluetooth & Media Controls (MPRIS2)"` card in `SettingsTab.tsx` with live `mpris_status` event handling | unit | `pnpm test -- --run src/components/tabs/SettingsTab.test.tsx src/index.test.tsx && pnpm typecheck && pnpm lint` | ✅ | ✅ green |
+| 18-02-02 | 02 | 2 | MPRIS-01 | — | Vitest unit tests for `"Bluetooth & Media Controls (MPRIS2)"` in `SettingsTab.test.tsx` | unit | `pnpm test -- --run src/components/tabs/SettingsTab.test.tsx` | ✅ | ✅ green |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -48,7 +49,7 @@ created: "2026-11-18"
 
 ## Wave 0 Requirements
 
-- [ ] `tests/test_mpris.py` — unit test suite covering `DbusMarshaller`/`DbusUnmarshaller`, `MprisDbusSession`, `MprisBridge`, `get_cached_image_file_uri`, `VolumeFader` coordination, `mpris-proxy` supervision, and `Plugin` RPC integration for `MPRIS-01`.
+- [x] `tests/test_mpris.py` — unit test suite covering `DbusMarshaller`/`DbusUnmarshaller`, `MprisDbusSession`, `MprisBridge`, `get_cached_image_file_uri`, `VolumeFader` coordination, `mpris-proxy` supervision, and `Plugin` RPC integration for `MPRIS-01`.
 
 ---
 
@@ -62,11 +63,11 @@ created: "2026-11-18"
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references
-- [ ] No watch-mode flags
-- [ ] Feedback latency < 15s
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify
+- [x] Wave 0 covers all MISSING references
+- [x] No watch-mode flags
+- [x] Feedback latency < 15s
+- [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending
+**Approval:** complete

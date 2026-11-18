@@ -1,9 +1,9 @@
 ---
 phase: "17"
 slug: "event-driven-librespot-suspend-wi-fi-resilience"
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
+status: complete
+nyquist_compliant: true
+wave_0_complete: true
 created: "2026-11-17"
 ---
 
@@ -38,9 +38,10 @@ created: "2026-11-17"
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 17-01-01 | 01 | 1 | RESIL-01 | T-17-01 | Unix socket under runtime dir (`0o600`/`0o660`), no shell eval, clamped int fields | unit | `py -3 -m unittest tests/test_resilience.py -v` | ❌ W0 | ⬜ pending |
-| 17-01-02 | 01 | 1 | RESIL-02 | T-17-02 | Atomic `session_bookmark.json` write via `os.replace()` + corrupt JSON fallback | unit | `py -3 -m unittest tests/test_resilience.py -v` | ❌ W0 | ⬜ pending |
-| 17-02-01 | 02 | 2 | RESIL-01, RESIL-02 | — | Frontend `usePlaybackStatus`, QAM, SettingsTab, and Overlay react to `librespot_event` and resilience settings | unit | `pnpm test -- --run src/index.test.tsx src/components/tabs/SettingsTab.test.tsx && pnpm typecheck && pnpm lint` | ✅ | ⬜ pending |
+| 17-01-01 | 01 | 1 | RESIL-01 | T-17-01 | Unix socket under runtime dir (`0o600`/`0o660`), no shell eval, clamped int fields | unit | `py -3 -m unittest tests/test_resilience.py -v` | ✅ | ✅ green |
+| 17-01-02 | 01 | 1 | RESIL-02 | T-17-02 | Atomic `session_bookmark.json` write via `os.replace()` + corrupt JSON fallback | unit | `py -3 -m unittest tests/test_resilience.py -v` | ✅ | ✅ green |
+| 17-02-01 | 02 | 2 | RESIL-01, RESIL-02 | — | Resilience types, `usePlaybackStatus` immediate push sync, and QAM `librespot_event` listeners + conditional Resume Bookmark | unit | `pnpm test -- --run src/index.test.tsx` | ✅ | ✅ green |
+| 17-02-02 | 02 | 2 | RESIL-01, RESIL-02 | — | `SettingsTab` Playback Resilience card and `SettingsTab.test.tsx` Vitest suite | unit | `pnpm test -- --run src/components/tabs/SettingsTab.test.tsx` | ✅ | ✅ green |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -48,7 +49,7 @@ created: "2026-11-17"
 
 ## Wave 0 Requirements
 
-- [ ] `tests/test_resilience.py` — covers `RESIL-01` and `RESIL-02` backend logic (`LibrespotEventServer`, Base16→Base62, adaptive polling, `SessionBookmarkManager`, wake lock, Wi-Fi grace window, conflict yield, expiry).
+- [x] `tests/test_resilience.py` — covers `RESIL-01` and `RESIL-02` backend logic (`LibrespotEventServer`, Base16→Base62, adaptive polling, `SessionBookmarkManager`, wake lock, Wi-Fi grace window, conflict yield, expiry).
 
 ---
 
@@ -63,11 +64,11 @@ created: "2026-11-17"
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references
-- [ ] No watch-mode flags
-- [ ] Feedback latency < 20s
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify
+- [x] Wave 0 covers all MISSING references
+- [x] No watch-mode flags
+- [x] Feedback latency < 20s
+- [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending
+**Approval:** complete
