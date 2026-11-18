@@ -11,7 +11,28 @@ Rock-solid Spotify playback and responsive, reliable controller navigation on St
 ## Current State
 
 - **Current Version:** v0.6 — Audio DSP, Docked Flow & System Resilience (shipped 2026-11-18)
+- **Active Milestone:** v0.7 — Studio, Living Room TV, Offline Travel & Ultimate Immersion (started 2026-11-18)
 - **Codebase Health:** Modular TypeScript frontend (`src/`, 17,581 LOC) and Python backend (`main.py` + `py_modules/`, 11,028 LOC), 547 Python `unittest` tests, 175 Vitest tests across 16 files, zero TypeScript errors, zero ESLint errors.
+
+## Current Milestone: v0.7 Studio, Living Room TV, Offline Travel & Ultimate Immersion
+
+**Goal:** Transform Deckify into the ultimate all-in-one Steam Deck Spotify experience with a 10-foot Docked TV Split-View mode, interactive queue & playlist management studio, CDP offline downloads & algorithmic discovery, podcast/radio/lyrics/search 2.0 power suites, per-game audio profiles, listening stats, and scrobbling.
+
+**Target features:**
+- **10-Foot Docked TV Split-View Mode & Audio Visualizer (`TV-01`)** — Big-screen split-view (Now Playing + live karaoke lyrics + queue preview + optional PipeWire audio spectrum visualizer), manually toggled or auto-activated on dock connect.
+- **Interactive Queue Studio & Full Playlist Management (`QUEUE-03` & `PL-01`)** — Reorder, remove, and clear tracks in `QueueTab` (via CDP `PlayerAPI` + URI-slice fallback), plus create, rename, and curate playlists directly from the controller.
+- **Offline Downloads & Travel Mode via CDP (`CDP-01`)** — Download playlists, albums, and podcasts for offline playback via Official Spotify Client CDP `OfflineAPI` with download progress, offline badges, and automatic Offline Filter on Wi-Fi disconnect.
+- **Deep Discovery 2.0 via CDP (`DISC-04`)** — Unlock algorithmic Spotify mixes (*Daylist*, *Discover Weekly*, *Release Radar*, *Daily Mixes*) blocked by Web API Dev Mode via a hybrid CDP Pathfinder/Client discovery bridge.
+- **Spotify Jam & Living Room QR Sessions (`JAM-01`)** — Start and share Spotify Jam sessions with an on-screen QR code so friends in the living room can scan and add tracks to the shared queue.
+- **Per-Game EQ/Volume Profiles & Silent HUD Toasts (`GAME-01` & `TOAST-01`)** — Bind a per-game 10-band EQ preset and volume/ducking target in `SoundtracksTab`, and display a 100% silent in-overlay track-change toast when `toast_sound_enabled` is false.
+- **Podcast & Audiobook Power Suite (`POD-01`)** — Configurable playback speed (`0.75x`–`2.0x`), automatic `-15s`/`+15s` smart-skip buttons for episodes, episode resume progress bars, and *Unplayed* filtering.
+- **Instant Track Radio, Deep Artist/Album Drill-Down & Crossfade (`RADIO-01`)** — 1-click *"Start Song/Artist Radio"*, seamless navigation to full Artist and Album detail pages from any track view, and configurable native crossfade (`0–12s`).
+- **Extended In-Game Quick-Chords & HUD Feedback (`CHORD-01`)** — Configurable in-game button chords to Like (`♥`) the current track, cycle through the 4 Pinned Playlists, or toggle the Lyrics HUD with instant visual HUD confirmation.
+- **Deckify Listening Stats, Last.fm / ListenBrainz Scrobbling & Profile Backup (`STATS-01`)** — Local *"Deck Wrapped"* listening analytics (including *Top Game + Soundtrack* pairings), built-in Last.fm/ListenBrainz scrobbler with offline retry queue, and 1-click JSON backup/restore.
+- **Search 2.0: Search History, Genre/Mood Tiles & Podcast Search (`SEARCH-01`)** — Recent search history pills, controller-friendly genre/gaming-mood browse tiles when query is empty, and Podcasts & Episodes search filters.
+- **Lyrics 2.0: Offline LRC Cache, Per-Track Sync Nudge & Romanization (`LYRICS-01`)** — Local `.lrc` disk cache (`~/.cache/deckify/lyrics/`), persistent per-track `-0.5s`/`+0.5s` sync offset nudging, and optional Romaji/Pinyin/Korean romanization.
+- **Spotify Connect Hub 2.0 (`CONNECT-01`)** — Upgraded `DevicesTab` with 1-click *"Pull Playback to Steam Deck"* (auto-wake), device type icons, active engine badges, and remote device volume control.
+- **Dynamic Album-Art Accent Colors & Handheld Battery Eco-Mode (`THEME-01` & `ECO-01`)** — Dominant color palette extraction from cover art for dynamic UI/HUD accents, plus a battery-saving Eco-Mode that suspends idle engines and background visualizers during handheld gaming.
 
 ## Requirements
 
@@ -44,7 +65,20 @@ Rock-solid Spotify playback and responsive, reliable controller navigation on St
 
 ### Active
 
-<!-- Populated when starting the next milestone via /gsd-new-milestone -->
+- [ ] **TV-01**: 10-Foot Docked TV Split-View Mode (Now Playing + live karaoke lyrics + queue preview + optional PipeWire audio spectrum visualizer), manually toggled or auto-activated on dock connect.
+- [ ] **QUEUE-03 & PL-01**: Interactive Queue Studio (reorder, remove, clear tracks via CDP `PlayerAPI` + URI-slice fallback) and full controller Playlist Management (create, rename, edit, remove/reorder tracks).
+- [ ] **CDP-01**: Native Spotify CDP offline downloads via `OfflineAPI` with download progress, offline badges, and automatic Offline Filter / Travel Mode on Wi-Fi disconnect.
+- [ ] **DISC-04**: Personalized Spotify mixes in Discovery (*Daylist*, *Discover Weekly*, *Release Radar*, *Daily Mixes*) via hybrid CDP Pathfinder / Spotify Client discovery bridge.
+- [ ] **JAM-01**: Spotify Jam & Living Room QR-code session sharing and management.
+- [ ] **GAME-01 & TOAST-01**: Per-Game EQ Preset & Volume/Ducking Profiles in `SoundtracksTab`, plus 100% silent in-overlay track-change HUD toast when `toast_sound_enabled` is false.
+- [ ] **POD-01**: Podcast & Audiobook Power Suite (`0.75x`–`2.0x` playback speed, automatic `-15s`/`+15s` smart-skip controls, episode resume progress bars, and *Unplayed* filter).
+- [ ] **RADIO-01**: Instant Song/Artist Radio (`spotify:station:...` / seed mixes), deep `"Go to Artist"` & `"Go to Album"` drill-down from any view, and native Crossfade (`0–12s`).
+- [ ] **CHORD-01**: Configurable In-Game Quick-Chords for Track Like (`♥`), Pinned Playlist cycling, and Lyrics HUD toggle with visual HUD confirmation.
+- [ ] **STATS-01**: Local *"Deck Wrapped"* listening analytics (including *Top Game + Soundtrack* pairings), Last.fm / ListenBrainz scrobbler with offline retry queue, and JSON profile backup/restore.
+- [ ] **SEARCH-01**: Search 2.0 with recent search history pills, controller-friendly genre/gaming-mood tiles when query is empty, and Podcasts & Episodes search filters.
+- [ ] **LYRICS-01**: Lyrics 2.0 with local `.lrc` disk cache (`~/.cache/deckify/lyrics/`), persistent per-track `-0.5s`/`+0.5s` sync offset nudging, and optional Romaji/Pinyin/Korean romanization.
+- [ ] **CONNECT-01**: Spotify Connect Hub 2.0 in `DevicesTab` with 1-click *"Pull Playback to Steam Deck"* (auto-wake), device icons, active engine badges, and remote device volume control.
+- [ ] **THEME-01 & ECO-01**: Dynamic album-art dominant color extraction for UI/HUD accents and Handheld Battery Eco-Mode suspending idle engines and background visualizers during gameplay.
 
 ### Out of Scope
 
@@ -102,4 +136,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-11-18 after v0.6 milestone*
+*Last updated: 2026-11-18 — started v0.7 milestone*
