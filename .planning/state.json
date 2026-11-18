@@ -1,43 +1,88 @@
 {
   "contract": "1.0.0",
   "flavor": "core",
-  "milestone": "v0.6 — Audio DSP, Docked Flow & System Resilience (Active)",
+  "milestone": "v0.7 — Studio, Living Room TV, Offline Travel & Ultimate Immersion (In Progress)",
   "phases": [
     {
+      "number": "1",
+      "name": "5. Stability, Polish & Refactoring",
+      "status": "complete"
+    },
+    {
+      "number": "6",
+      "name": "12. In-Game Flow & Music Discovery",
+      "status": "complete"
+    },
+    {
       "number": "13",
-      "name": "Like Button 403 Fix & Sink-Input Guardrails",
+      "name": "18.1. Audio DSP, Docked Flow & System Resilience",
       "status": "complete"
     },
     {
-      "number": "14",
-      "name": "Gentle Sleep Timer Fade-Out",
-      "status": "complete"
+      "number": "19",
+      "name": "Per-Game EQ & Volume Profiles",
+      "status": "in_progress"
     },
     {
-      "number": "15",
-      "name": "Real PipeWire Biquad Equalizer",
-      "status": "complete"
+      "number": "20",
+      "name": "100% Silent HUD Toasts & Extended In-Game Quick-Chords",
+      "status": "pending"
     },
     {
-      "number": "16",
-      "name": "Automatic Docked Audio-Switching",
-      "status": "complete"
+      "number": "21",
+      "name": "Dynamic Album-Art Accent Themes & Handheld Battery Eco-Mode",
+      "status": "pending"
     },
     {
-      "number": "17",
-      "name": "Event-Driven librespot & Suspend/Wi-Fi Resilience",
-      "status": "complete"
+      "number": "22",
+      "name": "Spotify Connect Hub 2.0 & Native Crossfade",
+      "status": "pending"
     },
     {
-      "number": "18",
-      "name": "MPRIS2 D-Bus Bridge",
-      "status": "complete"
+      "number": "23",
+      "name": "Lyrics 2.0 — Offline .lrc Cache, Per-Track Sync Nudge & CJK Romanization",
+      "status": "pending"
+    },
+    {
+      "number": "24",
+      "name": "Podcast & Audiobook Power Suite",
+      "status": "pending"
+    },
+    {
+      "number": "25",
+      "name": "Universal Artist/Album Drill-Down, Instant Radio & Search 2.0",
+      "status": "pending"
+    },
+    {
+      "number": "26",
+      "name": "Unified CDP Platform Bridge & Deep Discovery 2.0",
+      "status": "pending"
+    },
+    {
+      "number": "27",
+      "name": "Interactive Queue Studio & Controller Playlist Management",
+      "status": "pending"
+    },
+    {
+      "number": "28",
+      "name": "CDP Offline Downloads, Wi-Fi Travel Mode & Living Room Spotify Jam",
+      "status": "pending"
+    },
+    {
+      "number": "29",
+      "name": "10-Foot Docked TV Split-View Mode & PipeWire Spectrum Visualizer",
+      "status": "pending"
+    },
+    {
+      "number": "30",
+      "name": "\"Deck Wrapped\" Listening Stats, Last.fm / ListenBrainz Scrobbling & Profile Backup",
+      "status": "pending"
     }
   ],
   "next": {
-    "command": "/gsd-progress",
-    "label": "Show progress",
-    "reason": "Unsure of state — showing progress"
+    "command": "/gsd-progress --next",
+    "label": "Advance to the next step",
+    "reason": "Phase 1 of 12 · 0% · executing"
   },
-  "updated_at": "2026-11-18T19:11:03.721Z"
+  "updated_at": "2026-11-18T21:06:37.817Z"
 }
