@@ -28,7 +28,7 @@
 - [x] **RESIL-02**: On system suspend (`PrepareForSleep`) or Wi-Fi disconnect/reconnect, Deckify snapshots the active playback bookmark (`track_uri`, `context_uri`, `position_ms`) under a unified wake lock and restores the session cleanly once network and tokens recover.
 
 ### MPRIS2 Bluetooth Controls
-- [ ] **MPRIS-01**: Deckify registers `org.mpris.MediaPlayer2.deckify` on the `deck` (UID 1000) user D-Bus so Bluetooth headsets/earbuds (via BlueZ `mpris-proxy`) can control Play/Pause/Next/Previous and read current track metadata locally.
+- [x] **MPRIS-01**: Deckify registers `org.mpris.MediaPlayer2.deckify` on the `deck` (UID 1000) user D-Bus so Bluetooth headsets/earbuds (via BlueZ `mpris-proxy`) can control Play/Pause/Next/Previous and read current track metadata locally.
 
 ---
 
@@ -64,7 +64,7 @@
 | DOCK-02 | Phase 16 | Complete |
 | RESIL-01 | Phase 17 | Complete |
 | RESIL-02 | Phase 17 | Complete |
-| MPRIS-01 | Phase 18 | Pending |
+| MPRIS-01 | Phase 18 | Complete |
 
 **Coverage:**
 - v0.6 requirements: 10 total

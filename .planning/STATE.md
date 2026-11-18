@@ -5,16 +5,16 @@ milestone_name: Audio DSP, Docked Flow & System Resilience (Active)
 current_phase: 18
 current_phase_name: MPRIS2 D-Bus Bridge
 status: executing
-stopped_at: Phase 18 context gathered
-last_updated: "2026-11-18T06:15:01.593Z"
-last_activity: 2026-11-17
-last_activity_desc: Phase 17 complete, transitioned to Phase 18
-state_head: 62774eb9504fa43307a5d7ed2c713d08dcd0eabe
+stopped_at: Completed 18-01-PLAN.md
+last_updated: "2026-11-18T16:30:53.447Z"
+last_activity: 2026-11-18
+last_activity_desc: Phase 18 execution started
+state_head: 4317f80d927ae36728bd683d74dc49fe7cb9b2ca
 progress:
   total_phases: 6
   completed_phases: 5
   total_plans: 12
-  completed_plans: 10
+  completed_plans: 11
   percent: 83
 ---
 
@@ -25,14 +25,14 @@ progress:
 See: [.planning/PROJECT.md](file:///C:/Users/djdje/Deckify/.planning/PROJECT.md) (updated 2026-11-16)
 
 **Core value:** Rock-solid Spotify playback and responsive, reliable controller navigation on Steam Deck without UI lag, broken images, or desynchronized playback states.
-**Current focus:** Phase 17 — Event-Driven librespot & Suspend/Wi-Fi Resilience
+**Current focus:** Phase 18 — MPRIS2 D-Bus Bridge
 
 ## Current Position
 
-Phase: 18 (MPRIS2 D-Bus Bridge) — READY TO EXECUTE
-Plan: Not started
+Phase: 18 (MPRIS2 D-Bus Bridge) — EXECUTING
+Plan: 2 of 2
 Status: Ready to execute
-Last activity: 2026-11-17 — Phase 17 complete, transitioned to Phase 18
+Last activity: 2026-11-18 — Phase 18 execution started
 
 
 ## Performance Metrics
@@ -96,6 +96,7 @@ Last activity: 2026-11-17 — Phase 17 complete, transitioned to Phase 18
 | Phase 16 P02 | 4 min | 2 tasks | 4 files |
 | Phase 17 P01 | 21min | 2 tasks | 5 files |
 | Phase 17 P02 | 14min | 2 tasks | 6 files |
+| Phase 18 P01 | 7min | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -141,6 +142,7 @@ Recent decisions affecting current work:
 - [Phase 17]: Generated a <5ms POSIX /bin/sh --onevent emitter in DECKY_PLUGIN_RUNTIME_DIR writing KEY=VALUE pairs in background to AF_UNIX socket with 400ms debounced Web API enrichment and 20s/3s adaptive polling
 - [Phase 17]: Serialized SuspendResumeMonitor._on_deck_resume, _monitor_process SUSPEND_THRESHOLD, and 4s buffer-aware Wi-Fi drop recovery behind a single asyncio.Lock and 10s cooldown in SessionBookmarkManager
 - [Phase 17]: Wired immediate librespot_event and track_metadata push updates into usePlaybackStatus and QuickAccessMenu with conditional held-bookmark restore CTA and SettingsTab Playback Resilience card
+- [Phase 18]: Implemented pure-Python stdlib D-Bus wire-protocol codec and UID 1000 --worker MPRIS2 bridge with Pitfall 3 Metadata enrichment guard and managed mpris-proxy supervision
 
 ### Pending Todos
 
@@ -169,9 +171,9 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-17T20:03:58.898Z
-Stopped at: Phase 18 context gathered
-Resume file: .planning/phases/18-mpris2-d-bus-bridge/18-CONTEXT.md
+Last session: 2026-11-18T16:30:50.848Z
+Stopped at: Completed 18-01-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 
