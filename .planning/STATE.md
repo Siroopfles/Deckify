@@ -4,17 +4,17 @@ milestone: v0.6
 milestone_name: Audio DSP, Docked Flow & System Resilience (Active)
 current_phase: "18.1"
 current_phase_name: "Address tech debt: v0.6 undock clock & audit metadata (INSERTED)"
-status: executing
+status: verifying
 stopped_at: Completed 18.1-01-PLAN.md
-last_updated: "2026-11-18T18:23:43.052Z"
+last_updated: "2026-11-18T18:27:52.854Z"
 last_activity: 2026-11-18
 last_activity_desc: Phase 18.1 execution started
-state_head: ea146911e8664bd577ea86adc38b287929f8f8b9
+state_head: 79b4f54d8ea2cd1a4ec8243897544df0c590ef43
 progress:
   total_phases: 7
   completed_phases: 6
   total_plans: 14
-  completed_plans: 13
+  completed_plans: 14
   percent: 86
 ---
 
@@ -31,7 +31,7 @@ See: [.planning/PROJECT.md](file:///C:/Users/djdje/Deckify/.planning/PROJECT.md)
 
 Phase: 18.1 (Address tech debt: v0.6 undock clock & audit metadata (INSERTED)) — EXECUTING
 Plan: 2 of 2
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-11-18 — Phase 18.1 execution started
 
 
@@ -100,6 +100,7 @@ Last activity: 2026-11-18 — Phase 18.1 execution started
 | Phase 18 P01 | 7min | 2 tasks | 8 files |
 | Phase 18 P02 | 3min | 2 tasks | 3 files |
 | Phase 18.1 P01 | 2m | 2 tasks | 4 files |
+| Phase 18.1 P02 | 5min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -147,6 +148,7 @@ Recent decisions affecting current work:
 - [Phase 17]: Wired immediate librespot_event and track_metadata push updates into usePlaybackStatus and QuickAccessMenu with conditional held-bookmark restore CTA and SettingsTab Playback Resilience card
 - [Phase 18]: Implemented pure-Python stdlib D-Bus wire-protocol codec and UID 1000 --worker MPRIS2 bridge with Pitfall 3 Metadata enrichment guard and managed mpris-proxy supervision
 - [Phase 18]: Added Bluetooth & Media Controls (MPRIS2) card in SettingsTab.tsx with live mpris_status badge, mpris_enabled toggle, and conditional mpris_auto_proxy toggle
+- [Phase 18.1]: Normalized Per-Task Verification Map commands in 14-18-VALIDATION.md to py -3 -m unittest and pnpm test -- --run so contracts match exact observed runs
 
 ### Pending Todos
 
