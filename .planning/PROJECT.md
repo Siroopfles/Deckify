@@ -10,21 +10,8 @@ Rock-solid Spotify playback and responsive, reliable controller navigation on St
 
 ## Current State
 
-- **Current Version:** v0.5 (shipped 2026-11-15)
-- **Active Milestone:** v0.6 — Audio DSP, Docked Flow & System Resilience
-- **Codebase Health:** Modular TypeScript frontend (`src/`, 13,995 LOC) and Python backend (`main.py` + `py_modules/`, 5,776 LOC), 458 Python `unittest` tests, 152 Vitest tests across 16 files, zero TypeScript errors, zero ESLint errors.
-
-## Current Milestone: v0.6 Audio DSP, Docked Flow & System Resilience
-
-**Goal:** Deliver real PipeWire biquad EQ filtering, automatic docked USB-DAC/HDMI audio switching, event-driven `librespot` & suspend/Wi-Fi resilience, MPRIS2 Bluetooth headset controls, gentle sleep timer fade-out, and fix the Like button HTTP 403 error.
-
-**Target features:**
-- Fix Like button HTTP 403 error (`toggle_like_track`)
-- Real PipeWire biquad Equalizer (`filter-chain` DSP + presets/sliders)
-- Automatic Docked Audio-Switching (USB-DAC / HDMI sink routing + `bit_perfect_clock`)
-- Event-driven `librespot` (`--onevent`) & Suspend/Wi-Fi session bookmark resilience
-- MPRIS2 D-Bus Bridge for Bluetooth headset media controls
-- Gentle Sleep Timer fade-out (30s gradual volume ramp-down)
+- **Current Version:** v0.6 — Audio DSP, Docked Flow & System Resilience (shipped 2026-11-18)
+- **Codebase Health:** Modular TypeScript frontend (`src/`, 17,581 LOC) and Python backend (`main.py` + `py_modules/`, 11,028 LOC), 547 Python `unittest` tests, 175 Vitest tests across 16 files, zero TypeScript errors, zero ESLint errors.
 
 ## Requirements
 
@@ -48,17 +35,16 @@ Rock-solid Spotify playback and responsive, reliable controller navigation on St
 - ✓ Quick Access Menu Pinned Playlists — Up to 4 non-evicting pinned playlists as QAM pills with engine-waking <2s playback switching — shipped in v0.5 (Phases 9, 12)
 - ✓ In-Game Overlay 2.0 (Live Synced Lyrics) — Discrete `setTimeout` event-scheduled synced lyrics line in Gamescope HUD with configurable auto-hide & latency offset — shipped in v0.5 (Phases 10, 12)
 - ✓ Home / Discovery Hub Tab — Controller-first Discovery tab with Top Tracks, Top Artists, Made For You, New Releases, TTL caching, and HTTP 429 circuit breaker — shipped in v0.5 (Phase 11)
+- ✓ Spotify Library 403 Fix & Sink-Input Guardrails (`LIB-01`, `LIB-02`) — Migrated `/v1/me/library` & 40-URI `/v1/me/library/contains` with CDP `LibraryAPI` 403 fallback, plus centralized `resolve_spotify_sink_input_ids` allowlist/deny-list routing — shipped in v0.6 (Phase 13)
+- ✓ Gentle Sleep Timer Fade-Out (`SLEEP-01`) — Smooth volume ramp-down via `VolumeFader` with `"sleep"` priority lock before pause and baseline restore — shipped in v0.6 (Phase 14)
+- ✓ Real PipeWire Biquad Equalizer (`EQ-01`, `EQ-02`) — Isolated `pipewire -c` 10-band biquad `filter-chain` DSP with 7 presets, live `pw-cli` updates, and `SettingsTab` sliders — shipped in v0.6 (Phase 15)
+- ✓ Automatic Docked Audio-Switching (`DOCK-01`, `DOCK-02`) — `pactl subscribe` hotplug watcher for USB-DAC/HDMI sinks with `bit_perfect_clock` management and lossless undock preservation — shipped in v0.6 (Phases 16, 18.1)
+- ✓ Event-Driven `librespot` & Suspend/Wi-Fi Resilience (`RESIL-01`, `RESIL-02`) — `<5ms` `--onevent` `AF_UNIX` push updates, 20s/3s adaptive polling, and unified wake-lock `SessionBookmarkManager` — shipped in v0.6 (Phase 17)
+- ✓ MPRIS2 D-Bus Bridge (`MPRIS-01`) — Pure-Python UID 1000 `org.mpris.MediaPlayer2.deckify` service with BlueZ `mpris-proxy` supervision for Bluetooth headsets — shipped in v0.6 (Phase 18)
 
 ### Active
 
-<!-- Scope for Milestone v0.6: Audio DSP, Docked Flow & System Resilience -->
-
-- [ ] **Like Button 403 Fix**: Resolve HTTP 403 error on `toggle_like_track` so liking/unliking tracks works reliably across backends.
-- [ ] **Real PipeWire Equalizer (`EQ-01`)**: Active PipeWire `filter-chain` / biquad DSP filtering on the Spotify/librespot sink-input with presets and custom band sliders.
-- [ ] **Automatic Docked Audio-Switching (`DOCK-01`)**: Configurable USB-DAC / HDMI sink watcher that routes only the Deckify audio stream and enables `bit_perfect_clock`.
-- [ ] **Event-Driven `librespot` & Suspend/Wi-Fi Resilience**: `--onevent` local event emission via `decky.emit` (reducing Web API polling) plus session bookmark restoration after sleep or Wi-Fi drops.
-- [ ] **MPRIS2 D-Bus Bridge**: Register `org.mpris.MediaPlayer2.deckify` on user D-Bus for Bluetooth headset play/pause/skip controls.
-- [ ] **Gentle Sleep Timer Fade-Out**: 30-second gradual volume ramp-down before pausing playback and restoring volume.
+<!-- Populated when starting the next milestone via /gsd-new-milestone -->
 
 ### Out of Scope
 
@@ -91,6 +77,12 @@ Rock-solid Spotify playback and responsive, reliable controller navigation on St
 | Discrete `setTimeout` synced lyrics scheduler in Gamescope HUD | Preserves 60/90 FPS in games with zero continuous clock polling | ✓ Shipped in Phase 10 |
 | Global HTTP 429 circuit breaker & section-isolated TTL caching for Discovery | Protects Spotify Web API quota while keeping Discovery navigation snappy | ✓ Shipped in Phase 11 |
 | Auto-wake stopped librespot on `play_tracks` 404 & base64 Non-Steam grid covers | Fixes cold-start playback failures and Steam CEF CSP grid artwork blocking | ✓ Shipped in Phase 12 |
+| `/v1/me/library` migration + centralized `resolve_spotify_sink_input_ids` | Fixes Spotify Web API 403 on track likes and isolates Deckify streams from `steamwebhelper`/game audio | ✓ Shipped in Phase 13 |
+| Priority-locked `VolumeFader` sleep fade-out with drain & baseline restore | Prevents game/voice ducking from interrupting sleep fade-out and avoids muted next sessions | ✓ Shipped in Phase 14 |
+| Isolated `pipewire -c` 10-band biquad `filter-chain` with `pw-cli` coalescing | Applies real-time EQ to Deckify only without restarting system PipeWire or crackling | ✓ Shipped in Phase 15 |
+| `pactl subscribe` hotplug switcher with lossless `bit_perfect_clock` preservation | Routes Deckify streams to USB-DAC/HDMI docks automatically without hijacking game audio or resetting lossless handheld clocks | ✓ Shipped in Phases 16, 18.1 |
+| `<5ms` `--onevent` `AF_UNIX` push server & single-lock `SessionBookmarkManager` | Eliminates tight Web API polling and dual-restart races on Steam Deck sleep/Wi-Fi recovery | ✓ Shipped in Phase 17 |
+| Pure-Python stdlib D-Bus wire-protocol `MprisBridge` under UID 1000 | Avoids C-extension `LD_LIBRARY_PATH` conflicts in Decky Loader while enabling Bluetooth AVRCP | ✓ Shipped in Phase 18 |
 
 ## Evolution
 
@@ -110,4 +102,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-11-16 after v0.6 milestone start*
+*Last updated: 2026-11-18 after v0.6 milestone*
