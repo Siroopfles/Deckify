@@ -81,9 +81,14 @@
 **Plans:** 4 plans
 
 Plans:
+**Wave 1**
 - [ ] 19-01-PLAN.md — Per-game EQ preset tracer slice, unified local PipeWire VolumeFader overrides, and sequenced SoundtrackManager lifecycle
+
+**Wave 2** *(blocked on Wave 1 completion)*
 - [ ] 19-02-PLAN.md — Controller wiring in main.py (boot crash recovery, preview_eq_bands/clear_eq_preview RPCs, live hot-apply, status exposure)
 - [ ] 19-03-PLAN.md — Reusable EqBandFaders extraction, dedicated GameEqModal with live pw-cli preview, and SettingsTab Active Game EQ Override badge
+
+**Wave 3** *(blocked on Wave 2 completion)*
 - [ ] 19-04-PLAN.md — Complete SoundtracksTab EQ modal button & dual sliders, DeckifyExpandedModal prop wiring, and QAM GAME VOL display
 **UI hint**: yes
 
