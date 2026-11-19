@@ -730,6 +730,24 @@ class TestMainEqualizerIntegration(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(good["ok"])
         self.plugin._equalizer_manager.set_bands.assert_awaited_once_with([12.0, -12.0] + [1.5] * 8)
 
+    async def test_validate_eq_bands_rejects_non_finite_values(self):
+        for bad_val in (float("nan"), float("inf"), float("-inf")):
+            bad_bands = [bad_val] + [0.0] * 9
+            validated, err = main._validate_eq_bands(bad_bands)
+            self.assertIsNone(validated)
+            self.assertEqual(err, "Band gain must be finite")
+
+            set_res = await self.plugin.set_eq_bands(bad_bands)
+            self.assertFalse(set_res["ok"])
+            self.assertEqual(set_res["error"], "Band gain must be finite")
+
+            prev_res = await self.plugin.preview_eq_bands(bad_bands)
+            self.assertFalse(prev_res["ok"])
+            self.assertEqual(prev_res["error"], "Band gain must be finite")
+
+        self.plugin._equalizer_manager.set_bands.assert_not_awaited()
+        self.plugin._equalizer_manager.preview_bands.assert_not_awaited()
+
     async def test_set_audio_sink_passes_plugin_self(self):
         with patch.object(main.volume, "set_audio_sink", new_callable=AsyncMock, return_value={"ok": True}) as mock_sink:
             res = await self.plugin.set_audio_sink("alsa_output.test")

@@ -4,6 +4,7 @@ import errno
 import glob
 import hashlib
 import json
+import math
 import os
 import re
 import secrets
@@ -72,8 +73,8 @@ def _validate_eq_bands(bands: list[float]) -> tuple[list[float] | None, str | No
         if isinstance(item, bool) or not isinstance(item, (int, float)):
             return None, "All band gains must be numeric"
         val = float(item)
-        if val != val:
-            return None, "Band gain cannot be NaN"
+        if not math.isfinite(val):
+            return None, "Band gain must be finite"
         validated.append(round(max(-12.0, min(12.0, val)), 2))
     return validated, None
 
