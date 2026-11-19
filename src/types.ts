@@ -276,6 +276,13 @@ export interface DuckingState {
   effective_volume: number;
   base_volume: number;
   duck_reasons: string[];
+  has_game_override?: boolean;
+}
+
+export interface ActiveGameOverrideInfo {
+  app_id: number | null;
+  app_name: string;
+  eq_preset: EqualizerPreset;
 }
 
 export interface SpotifyDevice {
@@ -319,6 +326,8 @@ export interface StatusResponse {
   dock_status?: DockStatusInfo;
   resilience_status?: ResilienceStatusInfo;
   mpris_status?: MprisStatusInfo;
+  active_game_app_id?: number | null;
+  active_game_override?: ActiveGameOverrideInfo | null;
 }
 
 export interface GameAudioProfile {
@@ -362,6 +371,9 @@ export interface SoundtrackProfile {
   exit_policy: "restore_snapshot" | "pause" | "keep_playing";
   volume_override: number | null;
   ducking_override: boolean | null;
+  eq_preset?: EqualizerPreset | null;
+  eq_custom_bands?: number[] | null;
+  ducking_level_override?: number | null;
   last_track_uri?: string;
   last_position_ms?: number;
 }

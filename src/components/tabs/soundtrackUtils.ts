@@ -1,9 +1,31 @@
 import {
+  EqualizerPreset,
   InstalledGame,
   SoundtrackMode,
   SoundtrackPlaylist,
   SoundtrackProfile,
 } from "../../types";
+
+export const EQ_PRESET_LABELS: Record<EqualizerPreset, string> = {
+  flat: "Flat",
+  bass: "Bass Boost",
+  vocal: "Vocal Clarity",
+  gaming: "Gaming Balance",
+  deck_speakers: "Deck Speakers",
+  late_night: "Late Night",
+  custom: "Custom",
+};
+
+export const EQ_OVERRIDE_OPTIONS: { data: "global" | EqualizerPreset; label: string }[] = [
+  { data: "global", label: "Use Global" },
+  { data: "flat", label: "Flat" },
+  { data: "bass", label: "Bass Boost" },
+  { data: "vocal", label: "Vocal Clarity" },
+  { data: "gaming", label: "Gaming Balance" },
+  { data: "deck_speakers", label: "Deck Speakers" },
+  { data: "late_night", label: "Late Night" },
+  { data: "custom", label: "Custom" },
+];
 
 export const MODE_OPTIONS: { data: SoundtrackMode; label: string }[] = [
   { data: "shuffle", label: "Multi-playlist Shuffle" },
@@ -37,6 +59,9 @@ export function defaultProfile(game: Pick<InstalledGame, "app_id" | "name">): So
     exit_policy: "restore_snapshot",
     volume_override: null,
     ducking_override: null,
+    eq_preset: null,
+    eq_custom_bands: null,
+    ducking_level_override: null,
   };
 }
 
@@ -47,7 +72,15 @@ export function normalizeProfiles(raw: any): Record<string, SoundtrackProfile> {
   const out: Record<string, SoundtrackProfile> = {};
   for (const [key, value] of Object.entries(source)) {
     if (value && typeof value === "object" && Array.isArray((value as any).playlists)) {
-      out[String(key)] = value as SoundtrackProfile;
+      const v = value as any;
+      out[String(key)] = {
+        ...v,
+        volume_override: v.volume_override ?? null,
+        ducking_override: v.ducking_override ?? null,
+        eq_preset: v.eq_preset ?? null,
+        eq_custom_bands: Array.isArray(v.eq_custom_bands) ? v.eq_custom_bands : null,
+        ducking_level_override: v.ducking_level_override ?? null,
+      } as SoundtrackProfile;
     }
   }
   return out;
@@ -106,6 +139,72 @@ export function setDuckingOverride(
   value: boolean | null,
 ): SoundtrackProfile {
   return { ...profile, ducking_override: value };
+}
+
+export function setEqPreset(
+  profile: SoundtrackProfile,
+  value: "global" | EqualizerPreset | null,
+): SoundtrackProfile {
+  if (!value || value === "global") {
+    return { ...profile, eq_preset: null };
+  }
+  return { ...profile, eq_preset: value };
+}
+
+export function setEqCustomBands(
+  profile: SoundtrackProfile,
+  bands: number[] | null,
+): SoundtrackProfile {
+  if (bands === null) {
+    return { ...profile, eq_custom_bands: null };
+  }
+  const normalized = Array.from({ length: 10 }, (_, idx) => {
+    const raw = Number(bands[idx]);
+    if (!Number.isFinite(raw)) return 0;
+    return Math.round(Math.max(-12, Math.min(12, raw)) * 100) / 100;
+  });
+  return { ...profile, eq_custom_bands: normalized };
+}
+
+export function setDuckingLevelOverride(
+  profile: SoundtrackProfile,
+  value: number | null,
+): SoundtrackProfile {
+  if (value === null) {
+    return { ...profile, ducking_level_override: null };
+  }
+  return { ...profile, ducking_level_override: Math.max(0, Math.min(95, Math.round(value))) };
+}
+
+export function formatGameProfileSubtitle(profile: SoundtrackProfile): string {
+  const parts: string[] = [];
+  const hasAudioOverride =
+    profile.eq_preset != null ||
+    profile.volume_override != null ||
+    profile.ducking_override === false ||
+    profile.ducking_level_override != null;
+
+  if (profile.playlists.length > 0) {
+    parts.push(`${profile.playlists.length} linked soundtrack${profile.playlists.length > 1 ? "s" : ""}`);
+  } else if (hasAudioOverride) {
+    parts.push("Audio profile only");
+  } else {
+    return "No soundtrack or audio overrides configured";
+  }
+
+  if (profile.eq_preset != null) {
+    parts.push(`EQ: ${EQ_PRESET_LABELS[profile.eq_preset] ?? profile.eq_preset}`);
+  }
+  if (profile.volume_override != null) {
+    parts.push(`Vol: ${profile.volume_override}%`);
+  }
+  if (profile.ducking_override === false) {
+    parts.push("Duck: Off");
+  } else if (profile.ducking_level_override != null) {
+    parts.push(`Duck: ${profile.ducking_level_override}%`);
+  }
+
+  return parts.join(" • ");
 }
 
 /** Normalise any Spotify playlist/album/search item to a picker selection. */

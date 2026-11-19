@@ -5,9 +5,11 @@ launch/exit, snapshots pre-game playback, starts the configured soundtrack,
 and restores the previous listening state when the game exits.
 """
 import asyncio
+import inspect
 import random
 
 from py_modules.common import _exec, _save_settings, decky
+from py_modules.equalizer import EQ_PRESETS, clamp_eq_bands
 from py_modules.spotify import _spotify_api_request
 
 VALID_MODES = ("shuffle", "random", "rotation")
@@ -28,6 +30,9 @@ _PROFILE_DEFAULTS = {
     "exit_policy": "restore_snapshot",
     "volume_override": None,
     "ducking_override": None,
+    "eq_preset": None,
+    "eq_custom_bands": None,
+    "ducking_level_override": None,
     "last_track_uri": None,
     "last_context_uri": None,
     "last_position_ms": None,
@@ -136,13 +141,37 @@ class SoundtrackManager:
             out["exit_policy"] = data["exit_policy"]
         if "volume_override" in data:
             vo = data["volume_override"]
-            try:
-                out["volume_override"] = None if vo is None else max(0, min(100, int(vo)))
-            except (TypeError, ValueError):
+            if vo is None or isinstance(vo, bool):
                 out["volume_override"] = None
+            else:
+                try:
+                    out["volume_override"] = max(0, min(100, int(vo)))
+                except (TypeError, ValueError, OverflowError):
+                    out["volume_override"] = None
         if "ducking_override" in data:
             do = data["ducking_override"]
             out["ducking_override"] = None if do is None else bool(do)
+        if "eq_preset" in data:
+            ep = data["eq_preset"]
+            if ep is None:
+                out["eq_preset"] = None
+            elif isinstance(ep, str):
+                norm_ep = ep.strip().lower()
+                out["eq_preset"] = None if norm_ep == "global" or norm_ep not in EQ_PRESETS else norm_ep
+            else:
+                out["eq_preset"] = None
+        if "eq_custom_bands" in data:
+            eb = data["eq_custom_bands"]
+            out["eq_custom_bands"] = clamp_eq_bands(eb) if isinstance(eb, (list, tuple)) else None
+        if "ducking_level_override" in data:
+            dl = data["ducking_level_override"]
+            if dl is None or isinstance(dl, bool):
+                out["ducking_level_override"] = None
+            else:
+                try:
+                    out["ducking_level_override"] = max(0, min(95, int(dl)))
+                except (TypeError, ValueError, OverflowError):
+                    out["ducking_level_override"] = None
         if "last_track_uri" in data:
             out["last_track_uri"] = _clean_uri(data["last_track_uri"])
         if "last_context_uri" in data:
@@ -287,6 +316,23 @@ class SoundtrackManager:
 
     async def _run_launch(self, app_id: int) -> None:
         profile = self.get_profile(app_id)
+        eq_mgr = getattr(self.plugin, "_equalizer_manager", None)
+        if eq_mgr is not None:
+            eq_preset = profile.get("eq_preset") if isinstance(profile, dict) else None
+            eq_bands = profile.get("eq_custom_bands") if (isinstance(profile, dict) and eq_preset == "custom") else None
+            if eq_preset and hasattr(eq_mgr, "apply_ephemeral_preset"):
+                res = eq_mgr.apply_ephemeral_preset(
+                    eq_preset,
+                    custom_bands=eq_bands,
+                    app_id=app_id,
+                    app_name=str((profile or {}).get("app_name") or ""),
+                )
+                if inspect.isawaitable(res):
+                    await res
+            elif hasattr(eq_mgr, "clear_ephemeral_override"):
+                res = eq_mgr.clear_ephemeral_override()
+                if inspect.isawaitable(res):
+                    await res
         persisted = profile is not None
         if profile is None:
             default_uri = self._settings.get("soundtrack_default_playlist") or ""
@@ -391,6 +437,12 @@ class SoundtrackManager:
         self._pre_game_snapshot = None
         self._user_paused_in_game = False
         self._playback_altered = False
+
+        eq_mgr = getattr(self.plugin, "_equalizer_manager", None)
+        if eq_mgr is not None and hasattr(eq_mgr, "clear_ephemeral_override"):
+            res = eq_mgr.clear_ephemeral_override()
+            if inspect.isawaitable(res):
+                await res
 
     # ── Misc public API ───────────────────────────────────────
 

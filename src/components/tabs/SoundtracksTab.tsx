@@ -11,6 +11,7 @@ import {
 import { callable } from "@decky/api";
 import { FaGamepad, FaPlus, FaTimes, FaTrash, FaSearch, FaMusic } from "react-icons/fa";
 import {
+  EqualizerPreset,
   InstalledGame,
   SoundtrackMode,
   SoundtrackPlaylist,
@@ -20,6 +21,7 @@ import { DeckifyImage } from "../common/DeckifyImage";
 import { InteractiveRow } from "../common/InteractiveRow";
 import { PlaylistPickerModal } from "./PlaylistPickerModal";
 import {
+  EQ_OVERRIDE_OPTIONS,
   MODE_OPTIONS,
   RESUME_OPTIONS,
   EXIT_OPTIONS,
@@ -31,8 +33,10 @@ import {
   addPlaylist,
   removePlaylist,
   setMode,
+  setEqPreset,
   setVolumeOverride,
   setDuckingOverride,
+  formatGameProfileSubtitle,
 } from "./soundtrackUtils";
 
 const TextFieldAny = TextField as any;
@@ -311,9 +315,7 @@ export const SoundtracksTab: FC<SoundtracksTabProps> = ({
                     )}
                   </div>
                   <div style={{ fontSize: 11, opacity: 0.55, marginTop: 2 }}>
-                    {profile.playlists.length > 0
-                      ? `${profile.playlists.length} linked soundtrack${profile.playlists.length > 1 ? "s" : ""}`
-                      : "No soundtrack configured"}
+                    {formatGameProfileSubtitle(profile)}
                   </div>
                 </div>
               </InteractiveRow>
@@ -417,6 +419,23 @@ export const SoundtracksTab: FC<SoundtracksTabProps> = ({
                         selectedOption={profile.exit_policy}
                         onChange={(opt: { data: "restore_snapshot" | "pause" | "keep_playing" }) =>
                           persistProfile(game.app_id, { ...profile, exit_policy: opt.data })
+                        }
+                      />
+                    </div>
+                  </Focusable>
+
+                  {/* Per-Game EQ Preset Override */}
+                  <Focusable
+                    flow-children="horizontal"
+                    style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}
+                  >
+                    <div style={{ flex: "1 1 220px" }}>
+                      <DropdownItem
+                        label="EQ Preset Override"
+                        rgOptions={EQ_OVERRIDE_OPTIONS}
+                        selectedOption={profile.eq_preset ?? "global"}
+                        onChange={(opt: { data: "global" | EqualizerPreset }) =>
+                          persistProfile(game.app_id, setEqPreset(profile, opt.data))
                         }
                       />
                     </div>

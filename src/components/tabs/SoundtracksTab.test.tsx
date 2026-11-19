@@ -82,7 +82,20 @@ vi.mock("react", () => ({
 
 import { SoundtracksTab } from "./SoundtracksTab";
 import { InstalledGame, SoundtrackProfile } from "../../types";
-import { filterGames, removePlaylist, setMode, setVolumeOverride, setDuckingOverride } from "./soundtrackUtils";
+import {
+  EQ_OVERRIDE_OPTIONS,
+  defaultProfile,
+  filterGames,
+  formatGameProfileSubtitle,
+  normalizeProfiles,
+  removePlaylist,
+  setDuckingLevelOverride,
+  setDuckingOverride,
+  setEqCustomBands,
+  setEqPreset,
+  setMode,
+  setVolumeOverride,
+} from "./soundtrackUtils";
 
 function typeName(n: any): string {
   return typeof n?.type === "string" ? n.type : n?.type?.name || "";
@@ -349,5 +362,101 @@ describe("SoundtracksTab Component", () => {
 
     modalElement.props.onClose();
     expect(onPickerOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("normalizes profiles by backfilling Phase 19 optional fields to null", () => {
+    const normalized = normalizeProfiles({
+      "42": {
+        app_id: 42,
+        app_name: "Hades",
+        playlists: [],
+        mode: "shuffle",
+        rotation_index: 0,
+        resume_mode: "remember_position",
+        always_auto_start: false,
+        exit_policy: "restore_snapshot",
+      },
+    });
+    expect(normalized["42"]).toEqual(
+      expect.objectContaining({
+        volume_override: null,
+        ducking_override: null,
+        eq_preset: null,
+        eq_custom_bands: null,
+        ducking_level_override: null,
+      })
+    );
+  });
+
+  it("formats D-11 game row subtitles for linked soundtracks and audio-only profiles", () => {
+    const base = defaultProfile({ app_id: 100, name: "Hades" });
+    expect(formatGameProfileSubtitle(base)).toBe("No soundtrack or audio overrides configured");
+
+    const audioOnly = setVolumeOverride(setEqPreset(base, "bass"), 70);
+    expect(formatGameProfileSubtitle(audioOnly)).toBe("Audio profile only • EQ: Bass Boost • Vol: 70%");
+
+    const onePlaylist: SoundtrackProfile = {
+      ...base,
+      playlists: [{ uri: "spotify:playlist:1", name: "OST" }],
+    };
+    expect(formatGameProfileSubtitle(onePlaylist)).toBe("1 linked soundtrack");
+
+    const multiOverride: SoundtrackProfile = {
+      ...sampleProfiles["1091500"],
+      eq_preset: "gaming",
+      ducking_level_override: 40,
+    };
+    expect(formatGameProfileSubtitle(multiOverride)).toBe(
+      "2 linked soundtracks • EQ: Gaming Balance • Vol: 65% • Duck: 40%"
+    );
+
+    const duckOff = setDuckingOverride(audioOnly, false);
+    expect(formatGameProfileSubtitle(duckOff)).toBe(
+      "Audio profile only • EQ: Bass Boost • Vol: 70% • Duck: Off"
+    );
+  });
+
+  it("updates EQ preset, custom bands, and ducking level immutably with clamping", () => {
+    const base = defaultProfile({ app_id: 100, name: "Hades" });
+    const withGaming = setEqPreset(base, "gaming");
+    expect(withGaming.eq_preset).toBe("gaming");
+    expect(setEqPreset(withGaming, "global").eq_preset).toBeNull();
+    expect(setEqPreset(withGaming, null).eq_preset).toBeNull();
+
+    const withBands = setEqCustomBands(base, [15, -20, 3.126, NaN, 1]);
+    expect(withBands.eq_custom_bands).toEqual([12, -12, 3.13, 0, 1, 0, 0, 0, 0, 0]);
+    expect(setEqCustomBands(withBands, null).eq_custom_bands).toBeNull();
+
+    expect(setDuckingLevelOverride(base, -10).ducking_level_override).toBe(0);
+    expect(setDuckingLevelOverride(base, 120).ducking_level_override).toBe(95);
+    expect(setDuckingLevelOverride(base, 40).ducking_level_override).toBe(40);
+    expect(setDuckingLevelOverride(base, null).ducking_level_override).toBeNull();
+  });
+
+  it("renders EQ Preset Override DropdownItem and persists selected preset (D-01, D-11)", () => {
+    const tree = SoundtracksTab({
+      initialGames: sampleGames,
+      initialProfiles: sampleProfiles,
+    });
+
+    const text = findText(tree);
+    expect(text).toContain("2 linked soundtracks • Vol: 65%");
+    expect(text).toContain("No soundtrack or audio overrides configured");
+
+    const eqDropdowns = findNodes(
+      tree,
+      (n) => typeName(n) === "DropdownItem" && n.props.label === "EQ Preset Override"
+    );
+    expect(eqDropdowns).toHaveLength(1);
+    expect(eqDropdowns[0].props.rgOptions).toEqual(EQ_OVERRIDE_OPTIONS);
+    expect(eqDropdowns[0].props.selectedOption).toBe("global");
+
+    eqDropdowns[0].props.onChange({ data: "gaming" });
+    vi.advanceTimersByTime(600);
+
+    expect(mockSaveProfile).toHaveBeenCalledWith(
+      1091500,
+      expect.objectContaining({ eq_preset: "gaming" })
+    );
   });
 });
