@@ -711,3 +711,67 @@ describe("EqBandFaders Component Wrapper", () => {
     expect(onBandChange).toHaveBeenCalledWith(0, 1.5);
   });
 });
+
+describe("GameEqModal Threat Mitigations (T-19-10 & T-19-11)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    stateValues = [];
+    stateIdx = 0;
+    refValues = [];
+    refIdx = 0;
+    mountedEffects = [];
+    effectIdx = 0;
+    effectCleanups = [];
+  });
+
+  it("renders title as JSX text with ellipsis truncation and guards null bodyRef / missing cancelAnimationFrame", () => {
+    const longGame = "A".repeat(220);
+    const rafCallbacks: Array<() => void> = [];
+    vi.stubGlobal(
+      "requestAnimationFrame",
+      vi.fn((cb: () => void) => {
+        rafCallbacks.push(cb);
+        return 7;
+      })
+    );
+    vi.stubGlobal("cancelAnimationFrame", undefined);
+
+    try {
+      const tree = renderModal({
+        gameName: longGame,
+        onSave: vi.fn(),
+      });
+      const heading = findNodes(tree, (n) => n.type === "h3")[0];
+      expect(heading).toBeDefined();
+      const titleSpan = findNodes(
+        heading,
+        (n) => n.type === "span" && findText(n) === `${longGame} — Custom Game EQ`
+      )[0];
+      expect(titleSpan).toBeDefined();
+      expect(titleSpan.props.style).toMatchObject({
+        minWidth: 0,
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+      });
+      expect(heading.props.dangerouslySetInnerHTML).toBeUndefined();
+
+      // Null bodyRef.current when requestAnimationFrame fires must not throw
+      expect(rafCallbacks).toHaveLength(1);
+      expect(() => rafCallbacks[0]()).not.toThrow();
+
+      // Empty querySelector match must not throw
+      const bodyWrapper = findNodes(
+        tree,
+        (n) => n.type === "div" && n.props?.ref && typeof n.props.ref === "object"
+      )[0];
+      bodyWrapper.props.ref.current = { querySelector: () => null };
+      expect(() => rafCallbacks[0]()).not.toThrow();
+
+      // Missing cancelAnimationFrame on unmount must not throw
+      expect(() => unmountModal()).not.toThrow();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});

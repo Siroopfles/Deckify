@@ -1005,6 +1005,38 @@ class TestPerGameAudioProfiles(SoundtrackBase):
             "app_name": "PCSX2",
         })
 
+    async def test_resolve_app_name_sanitizes_bounds_whitespace_and_bool_app_id(self):
+        long_title = "X" * 250
+        vdf_long = "  " + ("V" * 240)
+        with patch.object(
+            soundtrack.vdf_parser,
+            "get_installed_games",
+            return_value=[
+                {"app_id": True, "name": "Bool Spoof"},
+                {"app_id": 1, "name": vdf_long},
+            ],
+        ):
+            # Whitespace-only app_name triggers fallback, skips bool app_id==True for app_id=1, and bounds to MAX_STR (200)
+            res_ws = self.mgr.save_profile(1, {"app_name": "   \t\n  "})
+            self.assertTrue(res_ws["ok"])
+            self.assertLessEqual(len(res_ws["profile"]["app_name"]), soundtrack.MAX_STR)
+            self.assertEqual(res_ws["profile"]["app_name"], vdf_long[:soundtrack.MAX_STR].strip())
+
+            # Explicit oversized app_name in save_profile and bind_current_music_to_game is bounded to MAX_STR
+            res_long = self.mgr.save_profile(1, {"app_name": long_title})
+            self.assertEqual(len(res_long["profile"]["app_name"]), soundtrack.MAX_STR)
+            self.assertEqual(res_long["profile"]["app_name"], "X" * soundtrack.MAX_STR)
+
+            self.plugin._settings["game_audio_profiles"].pop("1", None)
+            with patch.object(self.mgr, "get_player_state", AsyncMock(return_value=snap(ctx=PL_A))), \
+                 patch.object(self.mgr, "_resolve_context_metadata", AsyncMock(return_value=("OST", ""))):
+                res_bind_ws = await self.mgr.bind_current_music_to_game(1, "   ")
+                self.assertEqual(res_bind_ws["profile"]["app_name"], vdf_long[:soundtrack.MAX_STR].strip())
+
+                res_bind_long = await self.mgr.bind_current_music_to_game(1, "B" * 250)
+                self.assertEqual(len(res_bind_long["profile"]["app_name"]), soundtrack.MAX_STR)
+                self.assertEqual(res_bind_long["profile"]["app_name"], "B" * soundtrack.MAX_STR)
+
 
 if __name__ == "__main__":
     unittest.main()
