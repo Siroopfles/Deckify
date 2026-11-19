@@ -145,6 +145,7 @@ class Plugin:
         self._poll_wake_event = asyncio.Event()
         self._crash_timestamps = []
         self._settings = _load_settings()
+        stale_snapshot = self._settings.get("active_game_override_snapshot")
         # Restore persisted tokens
         self._access_token = self._settings.get("access_token")
         self._refresh_token = self._settings.get("refresh_token")
@@ -162,6 +163,7 @@ class Plugin:
         self._voice_detector.start()
         self._soundtrack_manager = soundtrack.SoundtrackManager(self)
         self._equalizer_manager = equalizer.EqualizerManager(self)
+        await self._equalizer_manager.cleanup_stale_process()
         self._dock_switcher = dock.DockAudioSwitcher(self)
         self._dock_switcher.start()
         self._bookmark_manager = resilience.SessionBookmarkManager(self)
@@ -175,7 +177,24 @@ class Plugin:
         await self._sync_native_spotify_folders()
         await self.start_librespot()
         initial_eq = self._settings.get("eq_preset", "flat")
-        if initial_eq != "flat":
+        if (
+            isinstance(stale_snapshot, dict)
+            and self._soundtrack_manager._active_game_app_id != stale_snapshot.get("app_id")
+        ):
+            decky.logger.info(
+                "Recovering stale game audio override snapshot for app_id=%s",
+                stale_snapshot.get("app_id"),
+            )
+            self._settings["active_game_override_snapshot"] = None
+            _save_settings(self._settings)
+            await self._equalizer_manager.apply_preset(initial_eq)
+            if getattr(self._volume_fader, "_sleep_locked", False) is not True:
+                self._volume_fader._duck_reasons.clear()
+                self._volume_fader._game_override = None
+                self._volume_fader._cached_sink_input_id = None
+                baseline = 150.0 if getattr(self, "_pa_volume_boosted", False) else 100.0
+                await self._volume_fader.fade_to(baseline, 0.0)
+        elif initial_eq != "flat":
             await self._equalizer_manager.apply_preset(initial_eq)
         await self._dock_switcher.evaluate_now()
 
@@ -529,8 +548,12 @@ class Plugin:
         self._pa_volume_boosted = False
         self._write_pid(self._process.pid)
         self._start_monitor()
-        if getattr(self, "_equalizer_manager", None) and self._settings.get("eq_preset", "flat") != "flat":
-            await self._equalizer_manager.on_librespot_started()
+        eq_mgr = getattr(self, "_equalizer_manager", None)
+        if eq_mgr is not None and (
+            self._settings.get("eq_preset", "flat") != "flat"
+            or getattr(eq_mgr, "has_ephemeral_override", False) is True
+        ):
+            await eq_mgr.on_librespot_started()
         await decky.emit("librespot_status", {"running": True, "error": None, "audio_backend": "librespot"})
         decky.logger.info("librespot started, pid=%d", self._process.pid)
         return {"ok": True, "pid": self._process.pid, "audio_backend": "librespot"}
@@ -576,6 +599,20 @@ class Plugin:
             "resilience_prompt_held_enabled",
             "mpris_enabled", "mpris_auto_proxy",
         )
+        eq_mgr = getattr(self, "_equalizer_manager", None)
+        raw_app_id = getattr(getattr(self, "_soundtrack_manager", None), "_active_game_app_id", None)
+        active_game_app_id = (
+            raw_app_id if isinstance(raw_app_id, int) and not isinstance(raw_app_id, bool) else None
+        )
+        active_game_override = (
+            eq_mgr.get_active_override_info()
+            if (
+                eq_mgr is not None
+                and getattr(eq_mgr, "has_ephemeral_override", False) is True
+                and callable(getattr(eq_mgr, "get_active_override_info", None))
+            )
+            else None
+        )
         return {
             "authenticated": bool(self._access_token),
             "running": running,
@@ -584,6 +621,8 @@ class Plugin:
             "audio_backend": self._settings.get("audio_backend", "librespot"),
             "binary_found": os.path.isfile(LIBRESPOT_BIN),
             "settings": {k: v for k, v in self._settings.items() if k in public_keys},
+            "active_game_app_id": active_game_app_id,
+            "active_game_override": active_game_override,
             "last_event": self._last_event,
             "track_meta": self._track_meta,
             "track": self._track_meta,
@@ -642,6 +681,8 @@ class Plugin:
         return dict(self._settings)
 
     async def set_setting(self, key: str, value) -> dict:
+        if key == "active_game_override_snapshot":
+            return {"ok": False, "error": "active_game_override_snapshot is managed internally"}
         if key not in DEFAULT_SETTINGS:
             return {"ok": False, "error": f"unknown setting: {key}"}
         backend_changed = False
@@ -853,14 +894,22 @@ class Plugin:
             valid_id = soundtrack.validate_app_id(app_id)
         except ValueError as e:
             return {"ok": False, "error": str(e)}
-        return self._get_soundtrack_manager().save_profile(valid_id, profile)
+        manager = self._get_soundtrack_manager()
+        res = manager.save_profile(valid_id, profile)
+        if isinstance(res, dict) and res.get("ok") is True and valid_id == getattr(manager, "_active_game_app_id", None):
+            await manager.refresh_active_overrides(valid_id)
+        return res
 
     async def delete_game_soundtrack_profile(self, app_id: int) -> dict:
         try:
             valid_id = soundtrack.validate_app_id(app_id)
         except ValueError as e:
             return {"ok": False, "error": str(e)}
-        return self._get_soundtrack_manager().delete_profile(valid_id)
+        manager = self._get_soundtrack_manager()
+        res = manager.delete_profile(valid_id)
+        if isinstance(res, dict) and res.get("ok") is True and valid_id == getattr(manager, "_active_game_app_id", None):
+            await manager.refresh_active_overrides(valid_id)
+        return res
 
     async def bind_current_music_to_game(self, app_id: int, app_name: str = "") -> dict:
         try:
@@ -877,9 +926,6 @@ class Plugin:
         manager = self._get_soundtrack_manager()
         running = bool(running)
         try:
-            override = manager.ducking_override(valid_id)
-            if override is not False and running:
-                await self.trigger_ducking(True, "game", valid_id)
             await manager.handle_app_lifecycle(valid_id, running)
         except Exception as e:
             decky.logger.error("handle_app_lifetime_event failed: %s", e)
@@ -897,6 +943,21 @@ class Plugin:
         if not hasattr(self, "_volume_fader") or not self._volume_fader:
             self._volume_fader = volume.VolumeFader(self)
 
+        if not active and reason == "game":
+            manager = getattr(self, "_soundtrack_manager", None)
+            if (
+                manager is not None
+                and callable(getattr(manager, "_pending", None))
+                and manager._pending(getattr(manager, "_exit_task", None)) is True
+            ):
+                return {
+                    "ok": True,
+                    "skipped": "exit_debounce_pending",
+                    "is_ducked": self._volume_fader.is_ducked,
+                    "effective_volume": self._volume_fader.effective_volume,
+                    "has_game_override": getattr(self._volume_fader, "has_game_override", False) is True,
+                }
+
         if active:
             if reason == "game" and not self._settings.get("auto_ducking", True):
                 return {"ok": True, "ducked": False, "skipped": "auto_ducking_disabled"}
@@ -908,6 +969,7 @@ class Plugin:
             "ok": True,
             "is_ducked": self._volume_fader.is_ducked,
             "effective_volume": self._volume_fader.effective_volume,
+            "has_game_override": getattr(self._volume_fader, "has_game_override", False) is True,
         }
 
     async def get_ducking_state(self) -> dict:
@@ -919,6 +981,7 @@ class Plugin:
             "effective_volume": self._volume_fader.effective_volume,
             "base_volume": self._poll_volume or 80,
             "duck_reasons": list(self._volume_fader._duck_reasons),
+            "has_game_override": getattr(self._volume_fader, "has_game_override", False) is True,
         }
 
     async def seek_playback(self, position_ms: int, device_id: str = "") -> dict:
