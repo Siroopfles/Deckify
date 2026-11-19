@@ -78,11 +78,11 @@
   1. User can select and bind a per-game 10-band EQ preset and target volume/ducking level to any Steam or Non-Steam game profile in `SoundtracksTab`.
   2. Launching a game with an assigned audio profile automatically applies the ephemeral EQ and volume/ducking override without overwriting the user's persistent global `eq_preset` or baseline volume on disk.
   3. Exiting the game (or restarting the plugin after an unexpected crash/reboot via `active_game_override_snapshot`) restores the user's global EQ preset and volume baseline while respecting any active Sleep Timer fade-out priority lock (`_sleep_locked`).
-**Plans:** 4 plans
+**Plans:** 1/4 plans executed
 
 Plans:
 **Wave 1**
-- [ ] 19-01-PLAN.md — Per-game EQ preset tracer slice, unified local PipeWire VolumeFader overrides, and sequenced SoundtrackManager lifecycle
+- [x] 19-01-PLAN.md — Per-game EQ preset tracer slice, unified local PipeWire VolumeFader overrides, and sequenced SoundtrackManager lifecycle
 
 **Wave 2** *(blocked on Wave 1 completion)*
 - [ ] 19-02-PLAN.md — Controller wiring in main.py (boot crash recovery, preview_eq_bands/clear_eq_preview RPCs, live hot-apply, status exposure)
@@ -224,7 +224,7 @@ Phases execute in numeric order: 19 → 20 → 21 → 22 → 23 → 24 → 25 �
 | 1–5. Stability, Polish & Refactoring | v0.4 | 7/7 | Complete | 2026-11-12 |
 | 6–12. In-Game Flow & Music Discovery | v0.5 | 22/22 | Complete | 2026-11-15 |
 | 13–18.1. Audio DSP, Docked Flow & System Resilience | v0.6 | 14/14 | Complete | 2026-11-18 |
-| 19. Per-Game EQ & Volume Profiles | v0.7 | 0/4 | Planned | - |
+| 19. Per-Game EQ & Volume Profiles | v0.7 | 1/4 | In Progress | - |
 | 20. 100% Silent HUD Toasts & Extended In-Game Quick-Chords | v0.7 | 0/TBD | Not started | - |
 | 21. Dynamic Album-Art Accent Themes & Handheld Battery Eco-Mode | v0.7 | 0/TBD | Not started | - |
 | 22. Spotify Connect Hub 2.0 & Native Crossfade | v0.7 | 0/TBD | Not started | - |
