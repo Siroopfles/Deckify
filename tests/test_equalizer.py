@@ -59,6 +59,10 @@ class TestEqualizerHelpers(unittest.TestCase):
         self.assertEqual(clamped[3], 3.5)
         self.assertEqual(clamped[4:], [0.0] * 6)
 
+        # Boundary values, rounding to 2 decimals, bool/NaN/Inf rejection
+        edge = equalizer.clamp_eq_bands([12.1, -12.1, 1.236, float("nan"), float("inf"), True, -12.0, 12.0])
+        self.assertEqual(edge[:8], [12.0, -12.0, 1.24, 0.0, 0.0, 0.0, -12.0, 12.0])
+
     def test_generate_filter_chain_conf(self):
         conf = equalizer.generate_filter_chain_conf(
             equalizer.EQ_PRESETS["bass"], target_sink="alsa_output.pci-0000_04_00.6.analog-stereo"
@@ -129,6 +133,24 @@ class TestCommonSettingsEQ(unittest.TestCase):
                 loaded = common._load_settings()
                 self.assertEqual(loaded["eq_preset"], "flat")
 
+    def test_load_settings_validates_active_game_override_snapshot(self):
+        self.assertIn("active_game_override_snapshot", common.DEFAULT_SETTINGS)
+        self.assertIsNone(common.DEFAULT_SETTINGS["active_game_override_snapshot"])
+        self.assertTrue(common.EQ_PID_FILE.endswith("eq.pid"))
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings_path = os.path.join(tmpdir, "settings.json")
+            with patch.object(common, "SETTINGS_FILE", settings_path):
+                valid_snap = {"app_id": 1091500, "eq_preset": "gaming"}
+                with open(settings_path, "w", encoding="utf-8") as f:
+                    json.dump({"active_game_override_snapshot": valid_snap}, f)
+                self.assertEqual(common._load_settings()["active_game_override_snapshot"], valid_snap)
+
+                for bad in ("bad", 123, {"app_id": True}, {"app_id": 0}, {"app_id": -5}, {"app_id": 2 ** 33}, {}):
+                    with open(settings_path, "w", encoding="utf-8") as f:
+                        json.dump({"active_game_override_snapshot": bad}, f)
+                    self.assertIsNone(common._load_settings()["active_game_override_snapshot"], f"Expected None for {bad}")
+
 
 class TestEqualizerManager(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
@@ -184,6 +206,7 @@ class TestEqualizerManager(unittest.IsolatedAsyncioTestCase):
             self.assertIn(self.conf_path, popen_cmd)
             self.assertNotIn("LD_LIBRARY_PATH", mock_popen.call_args[1].get("env", {}))
             self.assertEqual(self.mgr._node_id, 222)
+            self.assertTrue(os.path.exists(self.mgr.pid_path))
 
             # Confirm pw-cli set-param was called
             pw_cli_calls = [c[0][0] for c in mock_run.call_args_list if "pw-cli" in " ".join(c[0][0])]
@@ -197,6 +220,7 @@ class TestEqualizerManager(unittest.IsolatedAsyncioTestCase):
             fake_proc.terminate.assert_called_once()
             self.assertIsNone(self.mgr._process)
             self.assertIsNone(self.mgr._node_id)
+            self.assertFalse(os.path.exists(self.mgr.pid_path))
 
     async def test_set_bands_coalesces_pw_cli_and_debounces_save(self):
         fake_proc = MagicMock()
@@ -236,6 +260,170 @@ class TestEqualizerManager(unittest.IsolatedAsyncioTestCase):
             self.assertIn("error", res)
             self.assertIsNone(self.mgr._process)
             mock_route.assert_awaited()
+
+    async def test_ephemeral_preset_isolation_and_clear_restores_global(self):
+        self.mock_plugin._settings["eq_preset"] = "vocal"
+        self.mock_plugin._settings["eq_custom_bands"] = [1.0] * 10
+        applied: list[tuple[str, list[float] | None]] = []
+
+        async def fake_apply(preset, custom_bands=None):
+            applied.append((preset, custom_bands))
+            return {"ok": True, "preset": preset}
+
+        with patch.object(self.mgr, "apply_preset", side_effect=fake_apply) as mock_apply:
+            res = await self.mgr.apply_ephemeral_preset("gaming", app_id=1091500, app_name="Cyberpunk 2077")
+            self.assertTrue(res["ok"])
+            self.assertTrue(self.mgr.has_ephemeral_override)
+            self.assertEqual(
+                self.mgr.get_active_override_info(),
+                {"app_id": 1091500, "app_name": "Cyberpunk 2077", "eq_preset": "gaming"},
+            )
+            # Global settings untouched
+            self.assertEqual(self.mock_plugin._settings["eq_preset"], "vocal")
+            self.assertEqual(self.mock_plugin._settings["eq_custom_bands"], [1.0] * 10)
+
+            # Repeated identical call is idempotent
+            res2 = await self.mgr.apply_ephemeral_preset("gaming", app_id=1091500, app_name="Cyberpunk 2077")
+            self.assertTrue(res2["ok"])
+            self.assertEqual(mock_apply.await_count, 1)
+
+            # Custom ephemeral bands stay isolated from global custom bands
+            custom_curve = [4.0, 2.0] + [0.0] * 8
+            await self.mgr.apply_ephemeral_preset("custom", custom_bands=custom_curve, app_id=1091500, app_name="Cyberpunk 2077")
+            self.assertEqual(self.mock_plugin._settings["eq_custom_bands"], [1.0] * 10)
+            self.assertEqual(applied[-1], ("custom", custom_curve))
+
+            # Clear restores global preset ("vocal")
+            await self.mgr.clear_ephemeral_override()
+            self.assertFalse(self.mgr.has_ephemeral_override)
+            self.assertIsNone(self.mgr.get_active_override_info())
+            self.assertEqual(applied[-1], ("vocal", None))
+
+            # Repeated clear is idempotent
+            before = mock_apply.await_count
+            res_noop = await self.mgr.clear_ephemeral_override()
+            self.assertEqual(res_noop, {"ok": True, "restored": False})
+            self.assertEqual(mock_apply.await_count, before)
+
+    async def test_settings_tab_global_isolation_during_game_override(self):
+        self.mock_plugin._equalizer_manager = self.mgr
+        self.mock_plugin._settings["eq_preset"] = "flat"
+        self.mgr._ephemeral_preset = "gaming"
+        self.mgr._ephemeral_app_id = 1091500
+
+        with patch.object(self.mgr, "apply_preset", new_callable=AsyncMock) as mock_apply, \
+             patch.object(volume, "_save_settings") as mock_vol_save, \
+             patch.object(equalizer, "_save_settings") as mock_eq_save, \
+             patch.object(volume.decky, "emit", new_callable=AsyncMock):
+            res = await volume.apply_equalizer_preset(self.mock_plugin, "vocal")
+            self.assertTrue(res["ok"])
+            self.assertTrue(res.get("deferred_by_game_override"))
+            self.assertEqual(self.mock_plugin._settings["eq_preset"], "vocal")
+            mock_vol_save.assert_called_once()
+            mock_apply.assert_not_awaited()
+
+            res_bands = await self.mgr.set_bands([3.0] * 10)
+            self.assertTrue(res_bands["ok"])
+            self.assertTrue(res_bands.get("deferred_by_game_override"))
+            self.assertEqual(self.mock_plugin._settings["eq_preset"], "custom")
+            self.assertEqual(self.mock_plugin._settings["eq_custom_bands"], [3.0] * 10)
+            mock_apply.assert_not_awaited()
+            await asyncio.sleep(0.55)
+            self.assertEqual(mock_eq_save.call_count, 1)
+
+            # Once game exits, clear_ephemeral_override restores the updated global "custom" preset
+            await self.mgr.clear_ephemeral_override()
+            mock_apply.assert_awaited_once_with("custom")
+
+    async def test_preview_bands_and_clear_preview_restore_and_idempotency(self):
+        fake_proc = MagicMock()
+        fake_proc.poll.return_value = None
+        self.mgr._process = fake_proc
+        self.mgr._node_id = 333
+        self.mock_plugin._settings["eq_preset"] = "flat"
+        self.mock_plugin._settings["eq_custom_bands"] = [0.0] * 10
+
+        with patch("subprocess.run", return_value=SimpleNamespace(returncode=0, stdout="", stderr="")) as mock_run, \
+             patch.object(equalizer, "_save_settings") as mock_save, \
+             patch.object(self.mgr, "apply_preset", new_callable=AsyncMock, return_value={"ok": True}) as mock_apply:
+            res = await self.mgr.preview_bands([6.0, -3.0] + [0.0] * 8)
+            self.assertTrue(res["ok"])
+            self.assertTrue(self.mgr._preview_active)
+            # Global settings untouched
+            self.assertEqual(self.mock_plugin._settings["eq_preset"], "flat")
+            self.assertEqual(self.mock_plugin._settings["eq_custom_bands"], [0.0] * 10)
+            await asyncio.sleep(0.12)
+            mock_save.assert_not_called()
+            pw_cli_calls = [c[0][0] for c in mock_run.call_args_list if "pw-cli" in " ".join(c[0][0])]
+            self.assertEqual(len(pw_cli_calls), 1)
+
+            # Clear preview restores global preset when no game override
+            await self.mgr.clear_preview()
+            self.assertFalse(self.mgr._preview_active)
+            mock_apply.assert_awaited_once_with("flat")
+
+            # Repeated clear_preview is a no-op
+            mock_apply.reset_mock()
+            res2 = await self.mgr.clear_preview()
+            self.assertEqual(res2, {"ok": True, "restored": False})
+            mock_apply.assert_not_awaited()
+
+            # When ephemeral override is active, clear_preview restores ephemeral override
+            self.mgr._ephemeral_preset = "custom"
+            self.mgr._ephemeral_bands = [2.0] * 10
+            await self.mgr.preview_bands([5.0] * 10)
+            await self.mgr.clear_preview()
+            mock_apply.assert_awaited_once_with("custom", custom_bands=[2.0] * 10)
+
+    async def test_route_librespot_to_eq_preserves_ephemeral_override(self):
+        self.mock_plugin._settings["eq_preset"] = "flat"
+        self.mgr._ephemeral_preset = "custom"
+        self.mgr._ephemeral_bands = [2.5] * 10
+        with patch.object(self.mgr, "apply_preset", new_callable=AsyncMock, return_value={"ok": True}) as mock_apply:
+            ok = await self.mgr.route_librespot_to_eq()
+            self.assertTrue(ok)
+            mock_apply.assert_awaited_once_with("custom", custom_bands=[2.5] * 10)
+
+    async def test_eq_pid_lifecycle_and_cleanup_stale_process(self):
+        with open(self.mgr.pid_path, "w", encoding="utf-8") as f:
+            f.write("98765")
+        with patch("os.kill") as mock_kill, \
+             patch.object(self.mgr, "_fallback_to_hardware_sink", new_callable=AsyncMock) as mock_fb:
+            await self.mgr.cleanup_stale_process()
+            mock_fb.assert_awaited_once()
+            self.assertEqual(mock_kill.call_args_list[0][0], (98765, 0))
+            self.assertEqual(mock_kill.call_args_list[1][0], (98765, 15))
+            self.assertFalse(os.path.exists(self.mgr.pid_path))
+
+        # Corrupted 0 / -1 PIDs must never call os.kill
+        for bad_pid in ("0", "-1"):
+            with open(self.mgr.pid_path, "w", encoding="utf-8") as f:
+                f.write(bad_pid)
+            with patch("os.kill") as mock_kill:
+                await self.mgr.cleanup_stale_process()
+                mock_kill.assert_not_called()
+                self.assertFalse(os.path.exists(self.mgr.pid_path))
+
+    async def test_clear_ephemeral_override_flat_migrates_sink_before_stop(self):
+        fake_proc = MagicMock()
+        fake_proc.poll.return_value = None
+        self.mgr._process = fake_proc
+        self.mgr._ephemeral_preset = "gaming"
+        self.mock_plugin._settings["eq_preset"] = "flat"
+        order: list[str] = []
+
+        async def rec_fb():
+            order.append("fallback")
+
+        async def rec_stop():
+            order.append("stop")
+            self.mgr._process = None
+
+        with patch.object(self.mgr, "_fallback_to_hardware_sink", side_effect=rec_fb), \
+             patch.object(self.mgr, "stop", side_effect=rec_stop):
+            res = await self.mgr.clear_ephemeral_override()
+            self.assertTrue(res["ok"])
+            self.assertEqual(order, ["fallback", "stop"])
 
 
 class TestSinkIsolationAndVolumeEQ(unittest.IsolatedAsyncioTestCase):

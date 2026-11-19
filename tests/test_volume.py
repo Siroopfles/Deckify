@@ -259,6 +259,7 @@ class TestVolumeFader(unittest.IsolatedAsyncioTestCase):
                 "effective_volume": 40,  # 80 * (50/100) = 40
                 "base_volume": 80,
                 "duck_reasons": ["game"],
+                "has_game_override": False,
             })
 
     async def test_boost_pa_volume_synchronizes_fader_volume(self):
@@ -324,6 +325,136 @@ class TestVolumeFader(unittest.IsolatedAsyncioTestCase):
         await self.fader.release_sleep_lock(0.0, wait=True)
 
         self.assertFalse(self.fader._sleep_locked)
+        self.assertAlmostEqual(self.fader._current_sink_volume, 100.0, places=2)
+
+    async def test_game_override_ceiling_without_ducking_and_emit_state(self):
+        self.fader._cached_sink_input_id = "42"
+        with patch.object(self.fader, "fade_to", new_callable=AsyncMock) as mock_fade:
+            await self.fader.apply_game_override(
+                active_duck=False,
+                volume_override=65,
+                ducking_override=False,
+                ducking_level_override=None,
+            )
+            mock_fade.assert_awaited_once_with(65.0, 1.0)
+        self.assertTrue(self.fader.has_game_override)
+        self.assertFalse(self.fader.is_ducked)
+
+        self.fader._current_sink_volume = 65.0
+        self.mock_plugin._poll_volume = 80
+        with patch.object(volume.decky, "emit", new_callable=AsyncMock) as mock_emit:
+            await self.fader._emit_state()
+            mock_emit.assert_called_once_with("ducking_state_changed", {
+                "is_ducked": False,
+                "effective_volume": 52,  # 80 * 0.65
+                "base_volume": 80,
+                "duck_reasons": [],
+                "has_game_override": True,
+            })
+
+    async def test_game_override_ceiling_plus_custom_attenuation_and_clamping(self):
+        with patch.object(self.fader, "fade_to", new_callable=AsyncMock) as mock_fade:
+            await self.fader.apply_game_override(
+                active_duck=True,
+                volume_override=80,
+                ducking_override=True,
+                ducking_level_override=40,
+            )
+            mock_fade.assert_awaited_once()
+            self.assertAlmostEqual(mock_fade.await_args.args[0], 48.0, places=5)
+
+        # Out-of-range clamping and bool rejection + float precision retention
+        with patch.object(self.fader, "fade_to", new_callable=AsyncMock) as mock_fade:
+            await self.fader.apply_game_override(
+                active_duck=True,
+                volume_override=105,
+                ducking_override=True,
+                ducking_level_override=99,
+            )
+            self.assertEqual(self.fader._game_override["volume_override"], 100)
+            self.assertEqual(self.fader._game_override["ducking_level_override"], 95)
+            self.assertAlmostEqual(mock_fade.await_args.args[0], 5.0, places=5)
+
+        with patch.object(self.fader, "fade_to", new_callable=AsyncMock) as mock_fade:
+            await self.fader.apply_game_override(
+                active_duck=True,
+                volume_override=True,
+                ducking_override=True,
+                ducking_level_override=-5,
+            )
+            self.assertIsNone(self.fader._game_override["volume_override"])
+            self.assertEqual(self.fader._game_override["ducking_level_override"], 0)
+            self.assertAlmostEqual(mock_fade.await_args.args[0], 100.0, places=5)
+
+        # Floating point precision retained before final int rounding
+        await self.fader.apply_game_override(
+            active_duck=True,
+            volume_override=75,
+            ducking_override=True,
+            ducking_level_override=35,
+        )
+        self.assertAlmostEqual(self.fader._compute_target_sink_volume(), 48.75, places=5)
+
+    async def test_voice_vad_dips_further_beneath_game_ceiling_and_ducking(self):
+        self.mock_plugin._settings["ducking_mode"] = "proportional"
+        self.mock_plugin._settings["ducking_proportional_pct"] = 50
+        with patch.object(self.fader, "fade_to", new_callable=AsyncMock):
+            # Ceiling 80%, no game ducking -> 80.0
+            await self.fader.apply_game_override(
+                active_duck=False, volume_override=80, ducking_override=False
+            )
+            self.assertAlmostEqual(self.fader._compute_target_sink_volume(), 80.0, places=5)
+            # Voice 50% dips beneath ceiling -> 80 * 0.50 = 40.0
+            await self.fader.set_ducking(True, reason="voice")
+            self.assertAlmostEqual(self.fader._compute_target_sink_volume(), 40.0, places=5)
+            # Deeper game ducking (80% -> factor 0.20 => 16.0) stays at 16.0 even with voice active
+            await self.fader.apply_game_override(
+                active_duck=True, volume_override=80, ducking_override=True, ducking_level_override=80
+            )
+            self.assertAlmostEqual(self.fader._compute_target_sink_volume(), 16.0, places=5)
+
+    async def test_clear_game_override_and_set_ducking_idempotency(self):
+        with patch.object(self.fader, "fade_to", new_callable=AsyncMock) as mock_fade:
+            # Already clean -> no-op
+            await self.fader.clear_game_override()
+            await self.fader.set_ducking(False, reason="game")
+            mock_fade.assert_not_called()
+
+            # Apply then clear -> clears once, second clear is no-op
+            await self.fader.apply_game_override(active_duck=True, volume_override=65, ducking_override=True)
+            mock_fade.reset_mock()
+            await self.fader.clear_game_override()
+            mock_fade.assert_awaited_once_with(100.0, 1.5)
+            self.assertFalse(self.fader.has_game_override)
+
+            mock_fade.reset_mock()
+            await self.fader.clear_game_override()
+            await self.fader.set_ducking(False, reason="game")
+            mock_fade.assert_not_called()
+
+    async def test_sleep_lock_blocks_game_override_fades_and_restores_on_release(self):
+        self.fader.resolve_sink_input_id = AsyncMock(return_value="42")
+        self.fader._apply_sink_volume = AsyncMock(return_value=True)
+
+        await self.fader.start_sleep_fade(0.0)
+        with patch.object(self.fader, "fade_to", new_callable=AsyncMock) as mock_fade:
+            await self.fader.apply_game_override(
+                active_duck=True, volume_override=80, ducking_override=True, ducking_level_override=50
+            )
+            mock_fade.assert_not_called()
+            self.assertTrue(self.fader.has_game_override)
+
+        await self.fader.release_sleep_lock(0.0, wait=True)
+        # 80% ceiling * 50% duck = 40.0
+        self.assertAlmostEqual(self.fader._current_sink_volume, 40.0, places=2)
+
+        await self.fader.start_sleep_fade(0.0)
+        with patch.object(self.fader, "fade_to", new_callable=AsyncMock) as mock_fade:
+            await self.fader.clear_game_override()
+            mock_fade.assert_not_called()
+            self.assertFalse(self.fader.has_game_override)
+
+        await self.fader.release_sleep_lock(0.0, wait=True)
         self.assertAlmostEqual(self.fader._current_sink_volume, 100.0, places=2)
 
 

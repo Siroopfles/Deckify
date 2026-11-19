@@ -99,10 +99,13 @@ async def apply_equalizer_preset(plugin, preset: str) -> dict:
     decky.logger.info("Applying EQ preset: %s", preset)
     eq_mgr = getattr(plugin, "_equalizer_manager", None)
     res: dict = {"ok": True, "preset": preset}
-    if eq_mgr is not None:
+    has_game_eq = eq_mgr is not None and getattr(eq_mgr, "has_ephemeral_override", False) is True
+    if eq_mgr is not None and not has_game_eq:
         res = await eq_mgr.apply_preset(preset)
         if isinstance(res, dict) and res.get("ok") is False:
             return res
+    elif has_game_eq:
+        res = {"ok": True, "preset": preset, "deferred_by_game_override": True}
     plugin._settings["eq_preset"] = preset
     _save_settings(plugin._settings)
     await decky.emit("eq_preset_changed", {"preset": preset})
@@ -216,10 +219,18 @@ class VolumeFader:
         self._cached_sink_input_id: str | None = None
         self._duck_reasons: set[str] = set()
         self._sleep_locked: bool = False
+        self._game_override: dict | None = None
 
     @property
     def is_ducked(self) -> bool:
         return len(self._duck_reasons) > 0
+
+    @property
+    def has_game_override(self) -> bool:
+        return isinstance(self._game_override, dict) and (
+            self._game_override.get("volume_override") is not None
+            or ("game" in self._duck_reasons and self._game_override.get("ducking_level_override") is not None)
+        )
 
     @property
     def effective_volume(self) -> int:
@@ -269,29 +280,107 @@ class VolumeFader:
         except Exception:
             return False
 
+    @staticmethod
+    def _sanitize_opt_int(value: int | None, low: int, high: int) -> int | None:
+        if value is None or isinstance(value, bool):
+            return None
+        try:
+            return max(low, min(high, int(value)))
+        except (TypeError, ValueError, OverflowError):
+            return None
+
     def _compute_target_sink_volume(self) -> float:
-        """Compute target sink-input percentage from active ducking reasons and settings."""
+        """Compute target sink-input percentage from game override, active ducking reasons, and settings."""
         settings = getattr(self.plugin, "_settings", {})
         baseline_sink_vol = 150.0 if getattr(self.plugin, "_pa_volume_boosted", False) else 100.0
-        if len(self._duck_reasons) == 0:
-            return baseline_sink_vol
 
-        mode = settings.get("ducking_mode", "proportional")
-        if mode == "proportional":
-            attenuation_pct = float(settings.get("ducking_proportional_pct", 50))
-            factor = max(0.05, 1.0 - (attenuation_pct / 100.0))
-        else:
-            if "voice" in self._duck_reasons and "game" not in self._duck_reasons:
-                fixed_vol = float(settings.get("voice_ducking_volume", 25))
+        override = self._game_override if isinstance(self._game_override, dict) else None
+        vol_override = override.get("volume_override") if override is not None else None
+        ceiling_factor = (max(0, min(100, int(vol_override))) / 100.0) if vol_override is not None else 1.0
+
+        in_game_factor = ceiling_factor
+        if "game" in self._duck_reasons:
+            custom_atten = override.get("ducking_level_override") if override is not None else None
+            if custom_atten is not None:
+                game_duck_factor = max(0.05, 1.0 - (max(0, min(95, int(custom_atten))) / 100.0))
+            elif settings.get("ducking_mode", "proportional") == "proportional":
+                attenuation_pct = float(settings.get("ducking_proportional_pct", 50))
+                game_duck_factor = max(0.05, 1.0 - (attenuation_pct / 100.0))
             else:
                 fixed_vol = float(settings.get("auto_ducking_volume", 25))
-            base_spotify_vol = float(getattr(self.plugin, "_poll_volume", 80) or 80)
-            factor = min(1.0, fixed_vol / max(1.0, base_spotify_vol))
+                base_spotify_vol = float(getattr(self.plugin, "_poll_volume", 80) or 80)
+                game_duck_factor = min(1.0, fixed_vol / max(1.0, base_spotify_vol))
+            in_game_factor = ceiling_factor * game_duck_factor
 
-        return baseline_sink_vol * factor
+        final_factor = in_game_factor
+        if "voice" in self._duck_reasons:
+            if settings.get("ducking_mode", "proportional") == "proportional":
+                atten_pct = float(settings.get("ducking_proportional_pct", 50))
+                voice_factor = ceiling_factor * max(0.05, 1.0 - (atten_pct / 100.0))
+            else:
+                voice_vol = float(settings.get("voice_ducking_volume", 25))
+                base_spotify_vol = float(getattr(self.plugin, "_poll_volume", 80) or 80)
+                voice_factor = min(1.0, voice_vol / max(1.0, base_spotify_vol))
+            final_factor = min(in_game_factor, voice_factor)
+
+        return baseline_sink_vol * final_factor
+
+    async def apply_game_override(
+        self,
+        active_duck: bool,
+        volume_override: int | None = None,
+        ducking_override: bool | None = None,
+        ducking_level_override: int | None = None,
+    ) -> None:
+        """Apply local PipeWire game volume ceiling and ducking attenuation overrides."""
+        vol_val = self._sanitize_opt_int(volume_override, 0, 100)
+        duck_val = self._sanitize_opt_int(ducking_level_override, 0, 95)
+        prev_target = self._compute_target_sink_volume()
+
+        if vol_val is not None or duck_val is not None:
+            self._game_override = {
+                "volume_override": vol_val,
+                "ducking_override": ducking_override,
+                "ducking_level_override": duck_val,
+            }
+        else:
+            self._game_override = None
+
+        if active_duck:
+            self._duck_reasons.add("game")
+        else:
+            self._duck_reasons.discard("game")
+
+        if self._sleep_locked:
+            return
+
+        new_target = self._compute_target_sink_volume()
+        settings = getattr(self.plugin, "_settings", {})
+        if new_target < prev_target:
+            duration = float(settings.get("duck_fade_down_duration", 1.0))
+        elif new_target > prev_target:
+            duration = float(settings.get("duck_fade_up_duration", 1.5))
+        else:
+            duration = 0.0
+        await self.fade_to(new_target, duration)
+
+    async def clear_game_override(self) -> None:
+        """Clear active game volume/ducking overrides and restore baseline/voice target."""
+        if self._game_override is None and "game" not in self._duck_reasons:
+            return
+        self._game_override = None
+        self._duck_reasons.discard("game")
+        if self._sleep_locked:
+            return
+        settings = getattr(self.plugin, "_settings", {})
+        duration = float(settings.get("duck_fade_up_duration", 1.5))
+        target_sink_vol = self._compute_target_sink_volume()
+        await self.fade_to(target_sink_vol, duration)
 
     async def set_ducking(self, active: bool, reason: str = "game") -> None:
         """Coordinate ducking state changes from game lifecycle or voice chat."""
+        if not active and reason == "game" and "game" not in self._duck_reasons and self._game_override is None:
+            return
         if active:
             self._duck_reasons.add(reason)
         else:
@@ -392,6 +481,7 @@ class VolumeFader:
             "effective_volume": effective_vol,
             "base_volume": base_vol,
             "duck_reasons": list(self._duck_reasons),
+            "has_game_override": self.has_game_override,
         })
 
 
