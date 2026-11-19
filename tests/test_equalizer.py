@@ -532,6 +532,8 @@ class TestMainEqualizerIntegration(unittest.IsolatedAsyncioTestCase):
         self.plugin._equalizer_manager = MagicMock()
         self.plugin._equalizer_manager.apply_preset = AsyncMock(return_value={"ok": True})
         self.plugin._equalizer_manager.set_bands = AsyncMock(return_value={"ok": True, "preset": "custom", "bands": [0.0] * 10})
+        self.plugin._equalizer_manager.preview_bands = AsyncMock(return_value={"ok": True, "preview": True, "bands": [0.0] * 10})
+        self.plugin._equalizer_manager.clear_preview = AsyncMock(return_value={"ok": True})
         self.plugin._equalizer_manager.unload = AsyncMock()
         self.plugin._equalizer_manager.on_librespot_started = AsyncMock(return_value=True)
 
@@ -607,6 +609,88 @@ class TestMainEqualizerIntegration(unittest.IsolatedAsyncioTestCase):
         status = await self.plugin.get_status()
         self.assertEqual(status["settings"]["eq_preset"], "custom")
         self.assertEqual(status["settings"]["eq_custom_bands"], custom)
+
+    async def test_preview_eq_bands_validates_clamps_and_isolates_settings(self):
+        self.plugin._settings["eq_preset"] = "flat"
+        self.plugin._settings["eq_custom_bands"] = [0.0] * 10
+
+        for invalid in (
+            "not-a-list",
+            [1.0, 2.0],
+            [True] + [0.0] * 9,
+            [float("nan")] + [0.0] * 9,
+            ["bad"] + [0.0] * 9,
+        ):
+            res = await self.plugin.preview_eq_bands(invalid)
+            self.assertFalse(res["ok"], f"Expected validation failure for {invalid}")
+        self.plugin._equalizer_manager.preview_bands.assert_not_awaited()
+
+        good = await self.plugin.preview_eq_bands([15.0, -15.0] + [1.5] * 8)
+        self.assertTrue(good["ok"])
+        self.plugin._equalizer_manager.preview_bands.assert_awaited_once_with([12.0, -12.0] + [1.5] * 8)
+        self.assertEqual(self.plugin._settings["eq_preset"], "flat")
+        self.assertEqual(self.plugin._settings["eq_custom_bands"], [0.0] * 10)
+
+    async def test_clear_eq_preview_delegates_and_handles_uninitialized_or_errors(self):
+        res = await self.plugin.clear_eq_preview()
+        self.assertTrue(res["ok"])
+        self.plugin._equalizer_manager.clear_preview.assert_awaited_once()
+
+        self.plugin._equalizer_manager.clear_preview = AsyncMock(side_effect=RuntimeError("pw failure"))
+        err_res = await self.plugin.clear_eq_preview()
+        self.assertFalse(err_res["ok"])
+        self.assertIn("pw failure", err_res["error"])
+
+        self.plugin._equalizer_manager = None
+        uninit_clear = await self.plugin.clear_eq_preview()
+        self.assertFalse(uninit_clear["ok"])
+        uninit_preview = await self.plugin.preview_eq_bands([0.0] * 10)
+        self.assertFalse(uninit_preview["ok"])
+
+    async def test_start_librespot_routes_ephemeral_override_when_global_flat(self):
+        self.plugin._settings["eq_preset"] = "flat"
+        self.plugin._equalizer_manager = MagicMock()
+        self.plugin._equalizer_manager.has_ephemeral_override = True
+        self.plugin._equalizer_manager.on_librespot_started = AsyncMock(return_value=True)
+        fake_proc = MagicMock()
+        fake_proc.pid = 8888
+        fake_proc.poll.return_value = None
+
+        with patch.object(self.plugin, "_kill_spotify_client", new_callable=AsyncMock), \
+             patch.object(self.plugin, "_configure_pipewire_clock", new_callable=AsyncMock), \
+             patch.object(self.plugin, "_kill_stale_librespot"), \
+             patch("os.path.isfile", return_value=True), \
+             patch("os.makedirs"), \
+             patch("subprocess.Popen", return_value=fake_proc), \
+             patch.object(self.plugin, "_write_pid"), \
+             patch.object(self.plugin, "_start_monitor"), \
+             patch.object(main.decky, "emit", new_callable=AsyncMock):
+            res = await self.plugin.start_librespot()
+            self.assertTrue(res["ok"])
+            self.plugin._equalizer_manager.on_librespot_started.assert_awaited_once()
+
+            # When global is flat and no ephemeral override, on_librespot_started is skipped
+            self.plugin._process = None
+            self.plugin._equalizer_manager.has_ephemeral_override = False
+            self.plugin._equalizer_manager.on_librespot_started.reset_mock()
+            res2 = await self.plugin.start_librespot()
+            self.assertTrue(res2["ok"])
+            self.plugin._equalizer_manager.on_librespot_started.assert_not_awaited()
+
+    async def test_get_status_exposes_active_game_app_id_and_override(self):
+        self.plugin._soundtrack_manager._active_game_app_id = None
+        self.plugin._equalizer_manager.has_ephemeral_override = False
+        idle = await self.plugin.get_status()
+        self.assertIsNone(idle["active_game_app_id"])
+        self.assertIsNone(idle["active_game_override"])
+
+        info = {"app_id": 1091500, "app_name": "Cyberpunk 2077", "eq_preset": "gaming"}
+        self.plugin._soundtrack_manager._active_game_app_id = 1091500
+        self.plugin._equalizer_manager.has_ephemeral_override = True
+        self.plugin._equalizer_manager.get_active_override_info = MagicMock(return_value=info)
+        active = await self.plugin.get_status()
+        self.assertEqual(active["active_game_app_id"], 1091500)
+        self.assertEqual(active["active_game_override"], info)
 
 
 if __name__ == "__main__":
