@@ -5,16 +5,16 @@ milestone_name: Studio, Living Room TV, Offline Travel & Ultimate Immersion (In 
 current_phase: 19
 current_phase_name: Per-Game EQ & Volume Profiles
 status: verifying
-stopped_at: Completed 19-04-PLAN.md
-last_updated: "2026-11-19T08:08:28.819Z"
+stopped_at: Completed 19-05-PLAN.md
+last_updated: "2026-11-19T17:13:36.563Z"
 last_activity: 2026-11-19
 last_activity_desc: Phase 19 execution started
-state_head: 6531eb961bbac5b9eb3962e3d55f434f6a79adf5
+state_head: c979368e3426451db307fbcbade8efeb81707ea9
 progress:
   total_phases: 12
   completed_phases: 0
-  total_plans: 4
-  completed_plans: 4
+  total_plans: 5
+  completed_plans: 5
   percent: 0
 ---
 
@@ -30,7 +30,7 @@ See: [.planning/PROJECT.md](file:///C:/Users/djdje/Deckify/.planning/PROJECT.md)
 ## Current Position
 
 Phase: 19 (Per-Game EQ & Volume Profiles) — EXECUTING
-Plan: 4 of 4
+Plan: 5 of 5
 Status: Phase complete — ready for verification
 Last activity: 2026-11-19 — Phase 19 execution started
 
@@ -106,6 +106,7 @@ Last activity: 2026-11-19 — Phase 19 execution started
 | Phase 19 P02 | 7min | 2 tasks | 3 files |
 | Phase 19 P03 | 9min | 3 tasks | 5 files |
 | Phase 19 P04 | 11min | 2 tasks | 5 files |
+| Phase 19 P05 | 11min | 3 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -165,6 +166,9 @@ Recent decisions affecting current work:
 - [Phase 19]: Preserved SoundtracksTab top-level useState slot order (slots 0..4 before confirmDeleteAppId) and extracted action hooks and render helpers for zero ESLint warnings
 - [Phase 19]: Backed unset Ducking Attenuation Override value with globalDuckingPct and != null guards so partial profiles never render undefined%
 - [Phase 19]: Deferred profiles[key] removal in handleDeleteProfile until backendDeleteProfile succeeds so disk errors preserve inputs
+- [Phase 19]: Replaced SoundtracksTab inline Reset DialogButtons with full-width Volume Override and Custom Ducking Level ToggleFields gating dedicated-row SliderFields and added width: auto across compact DialogButtons
+- [Phase 19]: Aligned GameEqModal two-row preset bar, EqBandFaders, and footer on NavEntryPositionPreferences.MAINTAIN_X with native ModalRoot surface and requestAnimationFrame body focus
+- [Phase 19]: Self-healed empty app_name via QAM display_name propagation and SoundtrackManager._resolve_app_name VDF fallback alongside dedicated full-width SettingsTab Active Game EQ Override banner
 
 ### Pending Todos
 
@@ -195,8 +199,8 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-19T08:08:28.758Z
-Stopped at: Completed 19-04-PLAN.md
+Last session: 2026-11-19T17:13:35.902Z
+Stopped at: Completed 19-05-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
