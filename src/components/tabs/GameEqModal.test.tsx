@@ -15,6 +15,13 @@ vi.mock("@decky/ui", () => ({
   ModalRoot: ({ children, ...props }: any) => ({ type: "ModalRoot", props: { children, ...props } }),
   Focusable: ({ children, ...props }: any) => ({ type: "Focusable", props: { children, ...props } }),
   DialogButton: ({ children, ...props }: any) => ({ type: "DialogButton", props: { children, ...props } }),
+  NavEntryPositionPreferences: {
+    FIRST: 0,
+    LAST: 1,
+    MAINTAIN_X: 2,
+    MAINTAIN_Y: 3,
+    PREFERRED_CHILD: 4,
+  },
 }));
 
 vi.mock("react-icons/fa", () => ({
@@ -191,15 +198,22 @@ describe("GameEqModal Component", () => {
       "Flat Curve (0.0 dB) — Adjust any band slider or choose Copy from Preset to sculpt this game's EQ."
     );
 
-    // Check 1280x800 container overflow & maxHeight constraints
+    // Check 1280x800 container overflow & native ModalRoot surface constraints
     const outerFocusable = findNodes(
       flatTree,
       (n) => typeName(n) === "Focusable" && n.props?.["flow-children"] === "column"
     )[0];
     expect(outerFocusable.props.style).toMatchObject({
+      width: "100%",
+      maxWidth: "min(680px, 88vw)",
       maxHeight: "82vh",
       overflowY: "auto",
+      overflowX: "hidden",
+      boxSizing: "border-box",
+      padding: 12,
     });
+    expect(outerFocusable.props.style.background).toBeUndefined();
+    expect(outerFocusable.props.style.minWidth).toBeUndefined();
 
     // Fresh mount with boosted bass curve
     stateValues = [];
@@ -502,20 +516,98 @@ describe("GameEqModal Component", () => {
     expect(mockClearEqPreview).toHaveBeenCalledTimes(1);
   });
 
-  it("uses flow-children='horizontal' on all horizontal strips and zero flow-children='row'", () => {
-    const tree = renderModal({
-      gameName: "Hades",
-      onSave: vi.fn(),
+  it("uses flow-children='horizontal' with MAINTAIN_X alignment, two non-wrapping preset rows, auto-width Close/footer buttons, and initial body focus", () => {
+    const rafCallbacks: Array<() => void> = [];
+    const mockRaf = vi.fn((cb: () => void) => {
+      rafCallbacks.push(cb);
+      return 42;
     });
-    const rowFocusables = findNodes(tree, (n) => n.props?.["flow-children"] === "row");
-    expect(rowFocusables).toHaveLength(0);
+    const mockCancelRaf = vi.fn();
+    vi.stubGlobal("requestAnimationFrame", mockRaf);
+    vi.stubGlobal("cancelAnimationFrame", mockCancelRaf);
 
-    const horizontalFocusables = findNodes(
-      tree,
-      (n) => n.props?.["flow-children"] === "horizontal"
-    );
-    // 1) preset seed pills strip, 2) 10-band EQ fader strip, 3) footer actions strip
-    expect(horizontalFocusables.length).toBeGreaterThanOrEqual(3);
+    try {
+      const tree = renderModal({
+        gameName: "Hades",
+        onSave: vi.fn(),
+      });
+      const rowFocusables = findNodes(tree, (n) => n.props?.["flow-children"] === "row");
+      expect(rowFocusables).toHaveLength(0);
+
+      const horizontalFocusables = findNodes(
+        tree,
+        (n) => typeName(n) === "Focusable" && n.props?.["flow-children"] === "horizontal"
+      );
+      // 1) header, 2) preset row 1, 3) preset row 2, 4) 10-band EQ fader strip, 5) footer actions strip
+      expect(horizontalFocusables).toHaveLength(5);
+
+      const [headerRow, presetRow1, presetRow2, fadersStrip, footerRow] = horizontalFocusables;
+
+      // Header Close button prevents SteamOS width: 100% overflow push
+      const closeBtn = findNodes(
+        headerRow,
+        (n) => typeName(n) === "DialogButton" && n.props["aria-label"] === "Close"
+      )[0];
+      expect(closeBtn).toBeDefined();
+      expect(closeBtn.props.style.width).toBe("auto");
+      expect(closeBtn.props.style.flexShrink).toBeUndefined();
+
+      // Preset rows: two non-wrapping 4-item rows with MAINTAIN_X
+      expect(presetRow1.props.style.flexWrap).toBeUndefined();
+      expect(presetRow1.props.preferredFocus).toBe(true);
+      expect(presetRow1.props.navEntryPreferPosition).toBe(2);
+      expect(presetRow1.props.children).toHaveLength(4);
+
+      expect(presetRow2.props.style.flexWrap).toBeUndefined();
+      expect(presetRow2.props.preferredFocus).toBeUndefined();
+      expect(presetRow2.props.navEntryPreferPosition).toBe(2);
+      expect(presetRow2.props.children).toHaveLength(4);
+
+      const resetBtn = findNodes(
+        presetRow2,
+        (n) => typeName(n) === "DialogButton" && findText(n).includes("Reset to Flat")
+      )[0];
+      expect(resetBtn).toBeDefined();
+      expect(resetBtn.props.style.width).toBe("auto");
+      expect(resetBtn.props.style.flex).toBe(1);
+
+      // EqBandFaders and footer preserve MAINTAIN_X
+      expect(fadersStrip.props.navEntryPreferPosition).toBe(2);
+      expect(footerRow.props.navEntryPreferPosition).toBe(2);
+
+      const discardBtn = findNodes(
+        footerRow,
+        (n) => typeName(n) === "DialogButton" && findText(n).includes("Discard Changes")
+      )[0];
+      const saveBtn = findNodes(
+        footerRow,
+        (n) => typeName(n) === "DialogButton" && findText(n).includes("Save Game EQ")
+      )[0];
+      expect(discardBtn.props.style.width).toBe("auto");
+      expect(discardBtn.props.style.flex).toBe(1);
+      expect(saveBtn.props.style.width).toBe("auto");
+      expect(saveBtn.props.style.flex).toBe(1);
+
+      // Body wrapper focuses first [tabindex="0"] via requestAnimationFrame instead of top-right Close
+      const bodyWrapper = findNodes(
+        tree,
+        (n) => n.type === "div" && n.props?.ref && typeof n.props.ref === "object"
+      )[0];
+      expect(bodyWrapper).toBeDefined();
+      const firstBodyTargetFocus = vi.fn();
+      const querySelector = vi.fn(() => ({ focus: firstBodyTargetFocus }));
+      bodyWrapper.props.ref.current = { querySelector };
+
+      expect(mockRaf).toHaveBeenCalledTimes(1);
+      rafCallbacks[0]();
+      expect(querySelector).toHaveBeenCalledWith('[tabindex="0"]');
+      expect(firstBodyTargetFocus).toHaveBeenCalledTimes(1);
+
+      unmountModal();
+      expect(mockCancelRaf).toHaveBeenCalledWith(42);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
 

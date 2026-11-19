@@ -1,5 +1,5 @@
 import { FC } from "react";
-import { Focusable } from "@decky/ui";
+import { Focusable, NavEntryPositionPreferences } from "@decky/ui";
 import { EqualizerPreset } from "../../types";
 import { InteractiveRow } from "./InteractiveRow";
 
@@ -218,6 +218,7 @@ export function renderEqBandFaders({ bands, onBandChange }: EqBandFadersProps) {
   return (
     <Focusable
       flow-children="horizontal"
+      navEntryPreferPosition={NavEntryPositionPreferences.MAINTAIN_X}
       style={{
         display: "flex",
         gap: 4,

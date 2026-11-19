@@ -44,6 +44,13 @@ vi.mock("@decky/ui", () => ({
     type: "ToggleField",
     props,
   }),
+  NavEntryPositionPreferences: {
+    FIRST: 0,
+    LAST: 1,
+    MAINTAIN_X: 2,
+    MAINTAIN_Y: 3,
+    PREFERRED_CHILD: 4,
+  },
 }));
 
 vi.mock("react-icons/fa", () => ({
@@ -719,7 +726,7 @@ describe("Equalizer & Audio Presets", () => {
     expect(sentBands[1]).toBe(-1.5);
   });
 
-  it("protects long app_name Active Game EQ Override badge with ellipsis truncation and subscribes to game_audio_override_changed", () => {
+  it("renders Active Game EQ Override on a dedicated full-width banner row below the Equalizer header and subscribes to game_audio_override_changed", () => {
     const longName =
       "A Very Long Steam Game Title That Exceeds The Header Width On Handheld 1280x800 Screen";
     const tree = SettingsTab({
@@ -735,18 +742,53 @@ describe("Equalizer & Audio Presets", () => {
       showToast,
     });
 
+    const eqHeading = findNodes(
+      tree,
+      (n) => n.type === "h3" && findText(n).includes("Equalizer & Audio Presets")
+    )[0];
+    expect(eqHeading).toBeDefined();
+
+    const headerRow = findNodes(
+      tree,
+      (n) =>
+        n.type === "div" &&
+        Array.isArray(n.props?.children) &&
+        n.props.children.some((c: any) => c?.type === "h3" && findText(c).includes("Equalizer & Audio Presets"))
+    )[0];
+    expect(headerRow).toBeDefined();
+    expect(
+      findNodes(headerRow, (n) => n.props?.["data-testid"] === "active-game-eq-override-badge")
+    ).toHaveLength(0);
+    expect(findText(headerRow)).toContain("Bypass (0.0 dB)");
+
     const badge = findNodes(
       tree,
       (n) => n.props?.["data-testid"] === "active-game-eq-override-badge"
     )[0];
     expect(badge).toBeDefined();
-    expect(findText(badge)).toContain(`Active Game EQ Override: ${longName} (Custom)`);
+    expect(badge.type).toBe("div");
+    expect(findText(badge)).toBe(`Active Game EQ Override: ${longName} (Custom)`);
     expect(badge.props.style).toMatchObject({
+      display: "flex",
+      alignItems: "center",
+      width: "100%",
+      boxSizing: "border-box",
+      minWidth: 0,
+    });
+
+    const badgeSpans = findNodes(badge, (n) => n.type === "span");
+    expect(badgeSpans).toHaveLength(3);
+    expect(findText(badgeSpans[0])).toBe("Active Game EQ Override: ");
+    expect(badgeSpans[0].props.style).toMatchObject({ flexShrink: 0 });
+    expect(findText(badgeSpans[1])).toBe(longName);
+    expect(badgeSpans[1].props.style).toMatchObject({
       minWidth: 0,
       overflow: "hidden",
       textOverflow: "ellipsis",
       whiteSpace: "nowrap",
     });
+    expect(findText(badgeSpans[2])).toBe(" (Custom)");
+    expect(badgeSpans[2].props.style).toMatchObject({ flexShrink: 0 });
 
     const regCall = (
       mockAddEventListener.mock.calls as unknown as Array<[string, (data: unknown) => void]>

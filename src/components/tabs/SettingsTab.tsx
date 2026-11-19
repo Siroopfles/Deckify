@@ -506,36 +506,50 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
           >
             <FaSlidersH /> Equalizer & Audio Presets
           </h3>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, justifyContent: "flex-end", flex: 1 }}>
-            {liveGameOverride?.eq_preset && (
-              <span
-                data-testid="active-game-eq-override-badge"
-                style={{
-                  minWidth: 0,
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
-                  fontSize: 12,
-                  fontWeight: 700,
-                  lineHeight: 1.3,
-                  padding: "2px 8px",
-                  borderRadius: 4,
-                  background: "rgba(29, 185, 84, 0.16)",
-                  color: "#1DB954",
-                }}
-              >
-                {`Active Game EQ Override: ${liveGameOverride.app_name || `App ${liveGameOverride.app_id}`} (${EQ_PRESET_LABELS[liveGameOverride.eq_preset] ?? liveGameOverride.eq_preset})`}
-              </span>
-            )}
-            {localEqPreset === "flat" ? (
-              <span style={{ fontSize: 12, fontWeight: 700, opacity: 0.6, flexShrink: 0 }}>Bypass (0.0 dB)</span>
-            ) : (
-              <span style={{ fontSize: 12, fontWeight: 700, color: "#1db954", flexShrink: 0 }}>
-                {`Preamp: ${(Math.max(0, ...localBands) > 0 ? -Math.max(0, ...localBands) : 0).toFixed(1)} dB`}
-              </span>
-            )}
-          </div>
+          {localEqPreset === "flat" ? (
+            <span style={{ fontSize: 12, fontWeight: 700, opacity: 0.6, flexShrink: 0 }}>Bypass (0.0 dB)</span>
+          ) : (
+            <span style={{ fontSize: 12, fontWeight: 700, color: "#1db954", flexShrink: 0 }}>
+              {`Preamp: ${(Math.max(0, ...localBands) > 0 ? -Math.max(0, ...localBands) : 0).toFixed(1)} dB`}
+            </span>
+          )}
         </div>
+        {liveGameOverride?.eq_preset && (
+          <div
+            data-testid="active-game-eq-override-badge"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              width: "100%",
+              boxSizing: "border-box",
+              minWidth: 0,
+              marginBottom: 6,
+              padding: "4px 10px",
+              borderRadius: 6,
+              background: "rgba(29, 185, 84, 0.16)",
+              color: "#1DB954",
+              fontSize: 12,
+              fontWeight: 700,
+              lineHeight: 1.3,
+            }}
+          >
+            <span style={{ flexShrink: 0, whiteSpace: "pre" }}>Active Game EQ Override: </span>
+            <span
+              style={{
+                flex: "0 1 auto",
+                minWidth: 0,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {liveGameOverride.app_name || `App ${liveGameOverride.app_id}`}
+            </span>
+            <span style={{ flexShrink: 0, whiteSpace: "pre" }}>
+              {` (${EQ_PRESET_LABELS[liveGameOverride.eq_preset] ?? liveGameOverride.eq_preset})`}
+            </span>
+          </div>
+        )}
         {liveGameOverride?.eq_preset && (
           <div style={{ fontSize: 14, fontWeight: 400, lineHeight: 1.5, opacity: 0.75, marginBottom: 10 }}>
             {`Edits below update your global baseline and apply automatically after ${liveGameOverride.app_name || "the active game"} exits.`}

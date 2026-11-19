@@ -1,5 +1,5 @@
 import { FC, ReactNode, useEffect, useRef, useState } from "react";
-import { DialogButton, Focusable, ModalRoot } from "@decky/ui";
+import { DialogButton, Focusable, ModalRoot, NavEntryPositionPreferences } from "@decky/ui";
 import { callable } from "@decky/api";
 import { FaSlidersH, FaTimes, FaUndo } from "react-icons/fa";
 import { EqualizerPreset } from "../../types";
@@ -30,14 +30,23 @@ const PREVIEW_ERROR_MESSAGE =
 
 type SeedPresetKey = "global" | Exclude<EqualizerPreset, "custom">;
 
-const SEED_PRESET_OPTIONS: Array<{ key: SeedPresetKey; label: string }> = [
-  { key: "global", label: "Global" },
-  { key: "flat", label: "Flat" },
-  { key: "bass", label: "Bass Boost" },
-  { key: "vocal", label: "Vocal Clarity" },
-  { key: "gaming", label: "Gaming Balance" },
-  { key: "deck_speakers", label: "Deck Speakers" },
-  { key: "late_night", label: "Late Night" },
+type SeedBarItem =
+  | { kind: "preset"; key: SeedPresetKey; label: string }
+  | { kind: "reset"; label: string };
+
+const SEED_PRESET_ROWS: SeedBarItem[][] = [
+  [
+    { kind: "preset", key: "global", label: "Global" },
+    { kind: "preset", key: "flat", label: "Flat" },
+    { kind: "preset", key: "bass", label: "Bass Boost" },
+    { kind: "preset", key: "vocal", label: "Vocal Clarity" },
+  ],
+  [
+    { kind: "preset", key: "gaming", label: "Gaming Balance" },
+    { kind: "preset", key: "deck_speakers", label: "Deck Speakers" },
+    { kind: "preset", key: "late_night", label: "Late Night" },
+    { kind: "reset", label: "Reset to Flat" },
+  ],
 ];
 
 export type GameEqSaveResult = { ok?: boolean; error?: string } | void;
@@ -83,7 +92,17 @@ function renderModalHeader(
 ) {
   const preamp = formatPreampReadout(bands);
   return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+    <Focusable
+      flow-children="horizontal"
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 8,
+        width: "100%",
+        minWidth: 0,
+      }}
+    >
       <h3
         style={{
           margin: 0,
@@ -111,6 +130,7 @@ function renderModalHeader(
           fontWeight: 700,
           lineHeight: 1.3,
           flexShrink: 0,
+          whiteSpace: "nowrap",
           color: preamp.isBypass ? "rgba(255,255,255,0.6)" : "#1DB954",
         }}
       >
@@ -120,21 +140,22 @@ function renderModalHeader(
         onClick={onDiscard}
         aria-label="Close"
         style={{
-          minWidth: 32,
+          width: "auto",
+          minWidth: "auto",
           minHeight: 32,
-          padding: "4px 8px",
+          padding: "4px 10px",
           fontSize: 12,
           fontWeight: 700,
           display: "flex",
           alignItems: "center",
           gap: 4,
-          flexShrink: 0,
+          whiteSpace: "nowrap",
         }}
       >
         <FaTimes size={12} />
         <span>Close</span>
       </DialogButton>
-    </div>
+    </Focusable>
   );
 }
 
@@ -171,55 +192,79 @@ function renderStatusCaption(bands: number[], previewError: string | null) {
   );
 }
 
+function renderSeedBarItem(
+  item: SeedBarItem,
+  activeSeedKey: string | null,
+  onCopyPreset: (key: SeedPresetKey) => void,
+  onResetFlat: () => void
+) {
+  if (item.kind === "reset") {
+    return (
+      <DialogButton
+        key="reset-flat"
+        onClick={onResetFlat}
+        style={{
+          width: "auto",
+          minWidth: "auto",
+          flex: 1,
+          minHeight: 44,
+          padding: "6px 8px",
+          fontSize: 12,
+          fontWeight: 700,
+          lineHeight: 1.3,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 6,
+        }}
+      >
+        <FaUndo size={11} />
+        <span>{item.label}</span>
+      </DialogButton>
+    );
+  }
+  return (
+    <InteractiveRow
+      key={item.key}
+      active={activeSeedKey === item.key}
+      onClick={() => onCopyPreset(item.key)}
+      style={{
+        flex: 1,
+        minWidth: 0,
+        minHeight: 44,
+        padding: "6px 8px",
+        fontSize: 12,
+        fontWeight: 700,
+        lineHeight: 1.3,
+        justifyContent: "center",
+      }}
+    >
+      {item.label}
+    </InteractiveRow>
+  );
+}
+
 function renderPresetSeedBar(
   activeSeedKey: string | null,
   onCopyPreset: (key: SeedPresetKey) => void,
   onResetFlat: () => void
 ) {
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
       <div style={{ fontSize: 12, fontWeight: 700, lineHeight: 1.3, opacity: 0.85 }}>
         Copy from Preset
       </div>
-      <Focusable
-        flow-children="horizontal"
-        style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}
-      >
-        {SEED_PRESET_OPTIONS.map((option) => (
-          <InteractiveRow
-            key={option.key}
-            active={activeSeedKey === option.key}
-            onClick={() => onCopyPreset(option.key)}
-            style={{
-              minHeight: 44,
-              padding: "6px 12px",
-              fontSize: 12,
-              fontWeight: 700,
-              lineHeight: 1.3,
-              justifyContent: "center",
-            }}
-          >
-            {option.label}
-          </InteractiveRow>
-        ))}
-        <DialogButton
-          onClick={onResetFlat}
-          style={{
-            minWidth: "auto",
-            minHeight: 44,
-            padding: "6px 12px",
-            fontSize: 12,
-            fontWeight: 700,
-            lineHeight: 1.3,
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-          }}
+      {SEED_PRESET_ROWS.map((row, rowIdx) => (
+        <Focusable
+          key={rowIdx}
+          flow-children="horizontal"
+          preferredFocus={rowIdx === 0 ? true : undefined}
+          navEntryPreferPosition={NavEntryPositionPreferences.MAINTAIN_X}
+          style={{ display: "flex", gap: 8, alignItems: "stretch" }}
         >
-          <FaUndo size={11} />
-          <span>Reset to Flat</span>
-        </DialogButton>
-      </Focusable>
+          {row.map((item) => renderSeedBarItem(item, activeSeedKey, onCopyPreset, onResetFlat))}
+        </Focusable>
+      ))}
     </div>
   );
 }
@@ -228,11 +273,15 @@ function renderModalFooter(onDiscard: () => void, onSave: () => void) {
   return (
     <Focusable
       flow-children="horizontal"
+      navEntryPreferPosition={NavEntryPositionPreferences.MAINTAIN_X}
       style={{ display: "flex", justifyContent: "space-between", gap: 8, marginTop: 4 }}
     >
       <DialogButton
         onClick={onDiscard}
         style={{
+          width: "auto",
+          flex: 1,
+          minWidth: 0,
           minHeight: 44,
           padding: "8px 16px",
           fontSize: 12,
@@ -244,6 +293,9 @@ function renderModalFooter(onDiscard: () => void, onSave: () => void) {
       <DialogButton
         onClick={onSave}
         style={{
+          width: "auto",
+          flex: 1,
+          minWidth: 0,
           minHeight: 44,
           padding: "8px 16px",
           fontSize: 12,
@@ -399,6 +451,23 @@ function useGameEqState({
   };
 }
 
+function useBodyInitialFocus(isOpen: boolean) {
+  const bodyRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!isOpen || typeof requestAnimationFrame !== "function") return;
+    const frameId = requestAnimationFrame(() => {
+      const target = bodyRef.current?.querySelector?.('[tabindex="0"]') as HTMLElement | null;
+      target?.focus?.();
+    });
+    return () => {
+      if (typeof cancelAnimationFrame === "function") {
+        cancelAnimationFrame(frameId);
+      }
+    };
+  }, [isOpen]);
+  return bodyRef;
+}
+
 export const GameEqModal: FC<GameEqModalProps> = ({
   isOpen = true,
   gameName,
@@ -428,6 +497,7 @@ export const GameEqModal: FC<GameEqModalProps> = ({
     onClose,
     closeModal,
   });
+  const bodyRef = useBodyInitialFocus(isOpen);
 
   if (!isOpen) return null;
 
@@ -436,12 +506,13 @@ export const GameEqModal: FC<GameEqModalProps> = ({
       <Focusable
         flow-children="column"
         style={{
-          padding: 16,
-          minWidth: 520,
-          maxWidth: "90vw",
+          width: "100%",
+          maxWidth: "min(680px, 88vw)",
           maxHeight: "82vh",
           overflowY: "auto",
-          background: "#121212",
+          overflowX: "hidden",
+          boxSizing: "border-box",
+          padding: 12,
           color: "#fff",
           display: "flex",
           flexDirection: "column",
@@ -449,10 +520,12 @@ export const GameEqModal: FC<GameEqModalProps> = ({
         }}
       >
         {renderModalHeader(gameName, bands, handleDiscard)}
-        {renderStatusCaption(bands, previewError)}
-        {renderPresetSeedBar(activeSeedKey, handleCopyPreset, handleResetFlat)}
-        {renderEqBandFaders({ bands, onBandChange: handleBandChange })}
-        {renderModalFooter(handleDiscard, handleSave)}
+        <div ref={bodyRef} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {renderStatusCaption(bands, previewError)}
+          {renderPresetSeedBar(activeSeedKey, handleCopyPreset, handleResetFlat)}
+          {renderEqBandFaders({ bands, onBandChange: handleBandChange })}
+          {renderModalFooter(handleDiscard, handleSave)}
+        </div>
       </Focusable>
     </ModalRootCompat>
   );
