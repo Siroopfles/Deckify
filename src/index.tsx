@@ -49,6 +49,7 @@ import {
 import { QRCodeSVG } from "qrcode.react";
 import type {
   AudioStreamInfo,
+  DuckingState,
   EngineSettings,
   PinnedPlaylistItem,
   ResilienceStatusInfo,
@@ -72,8 +73,11 @@ const backendToggleLike = callable<[string, boolean | null], { ok: boolean; is_l
 const backendGetDevices = callable<[], { ok: boolean; devices?: SpotifyDevice[]; error?: string }>("get_devices");
 const backendTransferPlayback = callable<[string], { ok: boolean; error?: string }>("transfer_playback");
 const backendSetSetting = callable<[string, unknown], { ok: boolean; settings?: any; error?: string }>("set_setting");
-const backendTriggerDucking = callable<[boolean, string?, number?], { ok: boolean; is_ducked?: boolean; effective_volume?: number; error?: string }>("trigger_ducking");
-const backendGetDuckingState = callable<[], { is_ducked: boolean; effective_volume: number; base_volume: number; duck_reasons: string[] }>("get_ducking_state");
+const backendTriggerDucking = callable<
+  [boolean, string?, number?],
+  { ok: boolean; is_ducked?: boolean; effective_volume?: number; has_game_override?: boolean; error?: string }
+>("trigger_ducking");
+const backendGetDuckingState = callable<[], DuckingState>("get_ducking_state");
 const backendHandleAppLifetimeEvent = callable<[number, boolean], { ok: boolean; error?: string }>("handle_app_lifetime_event");
 const backendBindCurrentMusicToGame = callable<[number, string?], { ok: boolean; error?: string }>("bind_current_music_to_game");
 const backendQuickPlayPinned = callable<[string, string], { ok: boolean; error?: string }>("quick_play_pinned");
@@ -198,6 +202,7 @@ const Content: FC = () => {
   const [qrUrl, setQrUrl] = useState<string | null>(null);
   const [isDucked, setIsDucked] = useState<boolean>(false);
   const [effectiveVolume, setEffectiveVolume] = useState<number | null>(null);
+  const [hasGameOverride, setHasGameOverride] = useState<boolean>(false);
   const [activeGameAppId, setActiveGameAppId] = useState<number | null>(currentRunningAppId);
   const [contextUri, setContextUri] = useState<string | null>(null);
   const [optimisticContextUri, setOptimisticContextUri] = useState<string | null>(null);
@@ -284,6 +289,7 @@ const Content: FC = () => {
     backendGetDuckingState().then((state) => {
       if (state) {
         setIsDucked(Boolean(state.is_ducked));
+        setHasGameOverride(Boolean(state.has_game_override));
         if (typeof state.effective_volume === "number") {
           setEffectiveVolume(state.effective_volume);
         }
@@ -293,6 +299,7 @@ const Content: FC = () => {
     const unsubDucking = addEventListener<[any]>("ducking_state_changed", (data: any) => {
       if (!data) return;
       setIsDucked(Boolean(data.is_ducked));
+      setHasGameOverride(Boolean(data.has_game_override));
       if (typeof data.effective_volume === "number") {
         setEffectiveVolume(data.effective_volume);
       }
@@ -898,7 +905,7 @@ const Content: FC = () => {
             <PanelSectionRow>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", marginBottom: 4 }}>
                 <span style={{ fontSize: 13, fontWeight: 600 }}>Volume</span>
-                {isDucked && (
+                {(isDucked || hasGameOverride) && (
                   <span
                     style={{
                       background: "#1db954",
@@ -910,13 +917,13 @@ const Content: FC = () => {
                       letterSpacing: "0.5px",
                     }}
                   >
-                    DUCKED
+                    {isDucked ? "DUCKED" : "GAME VOL"}
                   </span>
                 )}
               </div>
               <SliderField
                 label=""
-                value={isDucked && effectiveVolume != null ? effectiveVolume : volume}
+                value={(isDucked || hasGameOverride) && effectiveVolume != null ? effectiveVolume : volume}
                 min={0}
                 max={100}
                 step={1}
