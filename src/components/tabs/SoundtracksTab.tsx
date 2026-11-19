@@ -109,10 +109,13 @@ function executeSaveProfile(
   appId: number,
   updated: SoundtrackProfile,
   showToast?: (msg: string) => void
-) {
+): Promise<{ ok: boolean; error?: string }> {
   return backendSaveProfile(appId, updated)
     .then((res) => {
-      if (!res?.ok) showToast?.(SAVE_ERROR_MESSAGE);
+      if (!res?.ok) {
+        showToast?.(SAVE_ERROR_MESSAGE);
+        return res && typeof res === "object" ? res : { ok: false };
+      }
       return res;
     })
     .catch(() => {
@@ -912,7 +915,7 @@ function useGameModalActions(opts: {
               ...prev,
               [key]: setEqCustomBands(setEqPreset(prev[key] || profile, "custom"), bands),
             }));
-            void saveImmediate(game.app_id, next);
+            return saveImmediate(game.app_id, next);
           }}
         />
       );

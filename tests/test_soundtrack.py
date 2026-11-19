@@ -471,6 +471,40 @@ class TestPluginRpc(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(res_del["ok"])
         mgr.refresh_active_overrides.assert_awaited_once_with(77)
 
+    async def test_save_profile_clears_stale_eq_preview_when_not_active_or_failed(self):
+        from py_modules import equalizer
+
+        eq_mgr = equalizer.EqualizerManager(self.plugin)
+        eq_mgr._preview_active = True
+        eq_mgr.clear_preview = AsyncMock(return_value={"ok": True, "restored": True})
+        self.plugin._equalizer_manager = eq_mgr
+        mgr = self.plugin._get_soundtrack_manager()
+
+        # 1. Game exited mid-edit (_active_game_app_id is None) while _preview_active is True -> clears preview
+        mgr._active_game_app_id = None
+        res = await self.plugin.save_game_soundtrack_profile(77, {"eq_preset": "custom", "eq_custom_bands": [2.0] * 10})
+        self.assertTrue(res["ok"])
+        eq_mgr.clear_preview.assert_awaited_once()
+
+        # 2. Invalid app_id while _preview_active is True -> clears preview before returning error
+        eq_mgr.clear_preview.reset_mock()
+        bad_res = await self.plugin.save_game_soundtrack_profile(-1, {"eq_preset": "bass"})
+        self.assertFalse(bad_res["ok"])
+        eq_mgr.clear_preview.assert_awaited_once()
+
+        # 3. Active settled game: refresh_active_overrides clears _preview_active -> no duplicate clear_preview
+        eq_mgr.clear_preview.reset_mock()
+        mgr._active_game_app_id = 77
+
+        async def fake_refresh(_app_id):
+            eq_mgr._preview_active = False
+
+        mgr.refresh_active_overrides = AsyncMock(side_effect=fake_refresh)
+        res_active = await self.plugin.save_game_soundtrack_profile(77, {"eq_preset": "gaming"})
+        self.assertTrue(res_active["ok"])
+        mgr.refresh_active_overrides.assert_awaited_once_with(77)
+        eq_mgr.clear_preview.assert_not_awaited()
+
     async def test_trigger_ducking_exit_skips_when_exit_debounce_pending(self):
         mgr = self.plugin._get_soundtrack_manager()
         mgr._exit_task = asyncio.create_task(asyncio.sleep(1.0))
