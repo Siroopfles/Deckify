@@ -89,4 +89,12 @@ describe("InteractiveRow", () => {
     tree = renderRow();
     expect(tree.props["data-deckify-focused"]).toBeUndefined();
   });
+
+  it("forwards aria-label to Focusable when set and omits it when not provided", () => {
+    const omittedTree = renderRow();
+    expect(omittedTree.props["aria-label"]).toBeUndefined();
+
+    const labeledTree = renderRow({ "aria-label": "Increase 31 Hz" });
+    expect(labeledTree.props["aria-label"]).toBe("Increase 31 Hz");
+  });
 });
