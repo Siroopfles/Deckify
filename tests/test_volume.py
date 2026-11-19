@@ -274,6 +274,59 @@ class TestVolumeFader(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.fader._current_sink_volume, 150.0)
         self.assertEqual(self.fader._target_sink_volume, 150.0)
 
+    async def test_boost_pa_volume_respects_game_override_ducking_and_sleep_lock(self):
+        self.mock_plugin._set_pa_volume_percent = AsyncMock(return_value=True)
+        self.mock_plugin._volume_fader = self.fader
+
+        # 1. Unducked game override (volume_override=60, ducking_override=False) -> 150 * 0.60 = 90%
+        self.fader._game_override = {
+            "volume_override": 60,
+            "ducking_override": False,
+            "ducking_level_override": None,
+        }
+        self.fader._duck_reasons.clear()
+        self.fader._current_sink_volume = 60.0
+        self.fader._target_sink_volume = 60.0
+        await volume.boost_pa_volume(self.mock_plugin)
+        self.mock_plugin._set_pa_volume_percent.assert_awaited_once_with(90)
+        self.assertTrue(self.mock_plugin._pa_volume_boosted)
+        self.assertAlmostEqual(self.fader._current_sink_volume, 90.0, places=2)
+        self.assertAlmostEqual(self.fader._target_sink_volume, 90.0, places=2)
+
+        # 2. Ducked game override (volume_override=80, ducking_level_override=50) -> 150 * 0.80 * 0.50 = 60%
+        self.mock_plugin._pa_volume_boosted = False
+        self.mock_plugin._set_pa_volume_percent.reset_mock()
+        self.fader._game_override = {
+            "volume_override": 80,
+            "ducking_override": True,
+            "ducking_level_override": 50,
+        }
+        self.fader._duck_reasons.add("game")
+        await volume.boost_pa_volume(self.mock_plugin)
+        self.mock_plugin._set_pa_volume_percent.assert_awaited_once_with(60)
+        self.assertAlmostEqual(self.fader._current_sink_volume, 60.0, places=2)
+        self.assertAlmostEqual(self.fader._target_sink_volume, 60.0, places=2)
+
+        # 3. Sleep locked -> 0%, never blasts 150%
+        self.mock_plugin._pa_volume_boosted = False
+        self.mock_plugin._set_pa_volume_percent.reset_mock()
+        self.fader._sleep_locked = True
+        await volume.boost_pa_volume(self.mock_plugin)
+        self.mock_plugin._set_pa_volume_percent.assert_awaited_once_with(0)
+        self.assertAlmostEqual(self.fader._current_sink_volume, 0.0, places=2)
+        self.assertAlmostEqual(self.fader._target_sink_volume, 0.0, places=2)
+
+        # 4. Failed _set_pa_volume_percent restores _pa_volume_boosted to False
+        self.mock_plugin._pa_volume_boosted = False
+        self.mock_plugin._set_pa_volume_percent = AsyncMock(return_value=False)
+        self.fader._sleep_locked = False
+        self.fader._game_override = None
+        self.fader._duck_reasons.clear()
+        self.fader._current_sink_volume = 100.0
+        await volume.boost_pa_volume(self.mock_plugin)
+        self.assertFalse(self.mock_plugin._pa_volume_boosted)
+        self.assertEqual(self.fader._current_sink_volume, 100.0)
+
     def test_effective_volume_with_boosted_pa_volume(self):
         self.mock_plugin._pa_volume_boosted = True
         self.fader._current_sink_volume = 150.0

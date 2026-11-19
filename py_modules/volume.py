@@ -83,15 +83,38 @@ async def set_pa_volume_percent(plugin, percent: int) -> bool:
     return False
 
 
+def _compute_boost_target(fader) -> float:
+    if fader is None:
+        return 150.0
+    if getattr(fader, "_sleep_locked", False) is True:
+        return 0.0
+    if hasattr(fader, "_compute_target_sink_volume"):
+        return float(fader._compute_target_sink_volume())
+    return 150.0
+
+
 async def boost_pa_volume(plugin):
-    """Set librespot's PulseAudio sink-input to 150% for audible volume."""
-    if await plugin._set_pa_volume_percent(150):
-        decky.logger.info("PA volume boosted to 150%%")
-        plugin._pa_volume_boosted = True
-        fader = getattr(plugin, "_volume_fader", None)
-        if fader and not fader.is_ducked:
-            fader._current_sink_volume = 150.0
-            fader._target_sink_volume = 150.0
+    """Set librespot's PulseAudio sink-input to 150% (respecting active fader overrides/locks)."""
+    fader = getattr(plugin, "_volume_fader", None)
+    prev_boosted = bool(getattr(plugin, "_pa_volume_boosted", False))
+    plugin._pa_volume_boosted = True
+    try:
+        target = _compute_boost_target(fader)
+        if await plugin._set_pa_volume_percent(int(round(target))):
+            decky.logger.info("PA volume boosted (applied=%d%%)", int(round(target)))
+            if fader:
+                fade_task = getattr(fader, "_fade_task", None)
+                if not (fade_task and not fade_task.done()):
+                    latest = _compute_boost_target(fader)
+                    if latest != target and await plugin._set_pa_volume_percent(int(round(latest))):
+                        target = latest
+                    fader._current_sink_volume = target
+                    fader._target_sink_volume = target
+        else:
+            plugin._pa_volume_boosted = prev_boosted
+    except Exception:
+        plugin._pa_volume_boosted = prev_boosted
+        raise
 
 
 async def apply_equalizer_preset(plugin, preset: str) -> dict:
