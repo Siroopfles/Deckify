@@ -214,6 +214,7 @@ class VolumeFader:
     def __init__(self, plugin):
         self.plugin = plugin
         self._fade_task: asyncio.Task | None = None
+        self._fade_seq: int = 0
         self._current_sink_volume: float = 150.0 if getattr(plugin, "_pa_volume_boosted", False) else 100.0
         self._target_sink_volume: float = self._current_sink_volume
         self._cached_sink_input_id: str | None = None
@@ -415,12 +416,19 @@ class VolumeFader:
 
     async def fade_to(self, target_sink_volume: float, duration_sec: float) -> None:
         """Fade volume smoothly using cosine easing curve."""
-        if self._fade_task and not self._fade_task.done():
-            self._fade_task.cancel()
+        self._fade_seq += 1
+        my_seq = self._fade_seq
+        while self._fade_task and not self._fade_task.done():
+            task = self._fade_task
+            task.cancel()
             try:
-                await self._fade_task
+                await task
             except asyncio.CancelledError:
                 pass
+            if my_seq != self._fade_seq:
+                return
+        if my_seq != self._fade_seq:
+            return
 
         self._fade_task = asyncio.create_task(
             self._execute_fade(target_sink_volume, duration_sec)
