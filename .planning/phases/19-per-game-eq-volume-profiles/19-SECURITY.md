@@ -25,6 +25,8 @@ created: "2026-11-19"
 | Plugin restart / crash recovery -> `Plugin._main()` | Persisted `active_game_override_snapshot` and `eq.pid` files drive PipeWire teardown and audio baseline reset on startup | Snapshot `app_id`, stale PID file |
 | User controller / pointer input -> `GameEqModal` -> `preview_eq_bands` RPC | Slider drags, +/- steppers, and preset seeds produce 10-band float arrays sent to Python PipeWire preview | 10-band float arrays, `gameName`, active override labels (`app_name`, `eq_preset`) |
 | Steam/Spotify external icon URLs & Gamepad input -> `SoundtracksTab.tsx` / `DeckifyExpandedModal.tsx` / QAM `src/index.tsx` | Cover URLs proxy via `<DeckifyImage>` (CSP compliance), modal trigger shortcuts require focus isolation, destructive deletes require confirmation, QAM binds to backend state | Cover image URLs, modal open state, profile delete actions, `DuckingState` events |
+| `Router.MainRunningApp?.display_name` & `shortcuts.vdf` / `appmanifest_*.acf` -> `SoundtrackManager._resolve_app_name` -> `SettingsTab` / `GameEqModal` JSX | Untrusted game titles from Steam/Non-Steam metadata or QAM RPC enter Python persistence and React UI rendering | Persisted `app_name` (bounded to `MAX_STR = 200`), QAM `display_name` guarded by `appid` match |
+| `GameEqModal` / `SoundtracksTab` FocusNavController & DOM focus (`rAF`) | Unbounded modal width, `DialogButton` `width: 100%` defaults, or unguarded `requestAnimationFrame` focus calls enter SteamOS FocusNavController | Modal container bounds (`overflowX: "hidden"`), `DialogButton` `width: "auto"`, `rAF` cleanup, `useState` slots `0..6` |
 
 ---
 
@@ -41,6 +43,8 @@ created: "2026-11-19"
 | T-19-07 | Tampering | `EqBandFaders.tsx` & `GameEqModal.tsx` | low | accept | Frontend `normalizeEqBands` clamps gains to `[-12.0, 12.0]` in `0.5` dB steps; authoritative validation/clamping is enforced in `main.py:_validate_eq_bands` (`T-19-04`). | closed |
 | T-19-08 | Tampering | `SoundtracksTab.tsx` & `DeckifyExpandedModal.tsx` | medium | mitigate | `SoundtracksTab.tsx` routes all game/playlist artwork strictly through `<DeckifyImage>`, suppresses `useTriggerNavigation` via `onPickerOpenChange(true/false)` while `GameEqModal` or `PlaylistPickerModal` is open, and guards destructive deletes with two-step `Delete Game Profile` -> `Confirm Delete` / `Keep Profile`. | closed |
 | T-19-09 | Spoofing | `src/index.tsx` (`QuickAccessMenu`) | low | accept | QAM Volume `SliderField` and `"DUCKED"` / `"GAME VOL"` pills bind directly to backend `get_ducking_state` and `ducking_state_changed` payloads (`effective_volume`, `is_ducked`, `has_game_override`) rather than optimistic client calculations. | closed |
+| T-19-10 | Tampering | `py_modules/soundtrack.py` (`_resolve_app_name`, `save_profile`, `bind_current_music_to_game`, `apply_active_audio_profile`) & `src/index.tsx` (`handleQuickBind`) | medium | mitigate | `py_modules/soundtrack.py` (`MAX_STR = 200`, `_clean_str`, `_sanitize_profile`, `_resolve_app_name` with `try/except` around `vdf_parser.get_installed_games()`, `save_profile`, `apply_active_audio_profile`, `bind_current_music_to_game`); `src/index.tsx:424-430` (`handleQuickBind` checks `(!mainAppId \|\| mainAppId === activeGameAppId)` before forwarding trimmed `display_name`); `SettingsTab.tsx:536-550`, `GameEqModal.tsx:123-125`, and `SoundtracksTab.tsx:309-321` render names solely as React JSX text nodes with `textOverflow: "ellipsis"` (no raw HTML injection). | closed |
+| T-19-11 | Denial of Service | `GameEqModal.tsx` & `SoundtracksTab.tsx` | low | mitigate | `src/components/tabs/GameEqModal.tsx:454-469` (`useBodyInitialFocus` guards `requestAnimationFrame`/`cancelAnimationFrame`, optional-chains `bodyRef.current?.querySelector?.` and `target?.focus?.()`), `506-520` (`overflowX: "hidden"`, `maxWidth: "min(680px, 88vw)"`), `width: "auto"` on `DialogButton`s (`143, 207, 282, 296`); `src/components/tabs/SoundtracksTab.tsx:367, 383, 473, 638, 665, 678` (`width: "auto"` on all 6 compact/inline `DialogButton`s) and `1150-1160` (`useState` slots `0..6` preserved). | closed |
 | T-19-SC | Tampering | npm/pip dependencies | low | accept | Zero new packages installed; `git diff 7e3a744c95e8313102827d2eba702d06c2a8b442..HEAD -- package.json pnpm-lock.yaml` is empty. | closed |
 
 *Status: open · closed · open — below high threshold (non-blocking)*
@@ -64,6 +68,7 @@ created: "2026-11-19"
 | Audit Date | Threats Total | Closed | Open | Run By |
 |------------|---------------|--------|------|--------|
 | 2026-11-19 | 10 | 10 | 0 | execute-phase (ASVS L1 verification) |
+| 2026-11-19 | 12 | 12 | 0 | secure-phase (State A post 19-05 ASVS L1 verification) |
 
 ---
 
@@ -75,3 +80,11 @@ created: "2026-11-19"
 - [x] `status: verified` set in frontmatter
 
 **Approval:** verified 2026-11-19
+
+## Security Audit 2026-11-19
+
+| Metric | Count |
+|---|---|
+| Threats found | 12 |
+| Closed | 12 |
+| Open | 0 |
