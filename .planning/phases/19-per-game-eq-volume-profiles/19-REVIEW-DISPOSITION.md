@@ -65,16 +65,16 @@ findings:
     title: "`SoundtracksTab` `confirmDeleteAppId` stays active across card clicks and configured cards cannot collapse"
 open: 0
 total: 15
-recorded: 2026-11-19T18:03:17.063Z
+recorded: 2026-11-19T18:15:37.195Z
 ---
 
 # Phase 19: Code Review Disposition
 
 | Finding | Severity | Disposition | Source |
 |---------|----------|-------------|--------|
-| WR-08 | warning | fixed | 19-REVIEW-FIX.md |
-| WR-09 | warning | fixed | 19-REVIEW-FIX.md |
-| IN-06 | info | fixed | 19-REVIEW-FIX.md |
+| WR-08 | warning | fixed | 19-REVIEW-FIX.md (not in the current review) |
+| WR-09 | warning | fixed | 19-REVIEW-FIX.md (not in the current review) |
+| IN-06 | info | fixed | 19-REVIEW-FIX.md (not in the current review) |
 | WR-01 | warning | fixed | 19-REVIEW-FIX.md (not in the current review) |
 | WR-02 | warning | fixed | 19-REVIEW-FIX.md (not in the current review) |
 | WR-03 | warning | fixed | 19-REVIEW-FIX.md (not in the current review) |
