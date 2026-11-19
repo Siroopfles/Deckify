@@ -904,15 +904,25 @@ class Plugin:
     async def get_game_soundtrack_profiles(self) -> dict:
         return dict(self._get_soundtrack_manager().get_profiles())
 
+    async def _clear_active_eq_preview(self) -> None:
+        eq_mgr = getattr(self, "_equalizer_manager", None)
+        if eq_mgr is not None and getattr(eq_mgr, "_preview_active", False) is True:
+            try:
+                await eq_mgr.clear_preview()
+            except Exception as e:
+                decky.logger.warning("Failed to clear active EQ preview: %s", e)
+
     async def save_game_soundtrack_profile(self, app_id: int, profile: dict) -> dict:
         try:
             valid_id = soundtrack.validate_app_id(app_id)
         except ValueError as e:
+            await self._clear_active_eq_preview()
             return {"ok": False, "error": str(e)}
         manager = self._get_soundtrack_manager()
         res = manager.save_profile(valid_id, profile)
         if isinstance(res, dict) and res.get("ok") is True and valid_id == getattr(manager, "_active_game_app_id", None):
             await manager.refresh_active_overrides(valid_id)
+        await self._clear_active_eq_preview()
         return res
 
     async def delete_game_soundtrack_profile(self, app_id: int) -> dict:

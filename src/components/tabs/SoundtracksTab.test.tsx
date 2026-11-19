@@ -987,3 +987,52 @@ describe("SoundtracksTab Debounced Unmount Flush", () => {
     expect(mockSaveProfile).not.toHaveBeenCalled();
   });
 });
+
+describe("SoundtracksTab GameEqModal Save Result", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+    stateValues = [];
+    stateIdx = 0;
+    refValues = [];
+    refIdx = 0;
+    mountedEffects = [];
+    effectIdx = 0;
+    effectCleanups = [];
+    mockGetInstalledGames.mockResolvedValue(sampleGames);
+    mockGetProfiles.mockResolvedValue(sampleProfiles);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("returns backend save result promise from GameEqModal onSave callback", async () => {
+    const customProfiles: Record<string, SoundtrackProfile> = {
+      "1091500": {
+        ...sampleProfiles["1091500"],
+        eq_preset: "custom",
+        eq_custom_bands: [3, 2, 1, 0, -1, -2, 0, 1, 2, 3],
+      },
+    };
+    const showToast = vi.fn();
+    mockSaveProfile.mockResolvedValueOnce({ ok: false, error: "write error" });
+    const tree = SoundtracksTab({
+      runningAppId: 1091500,
+      initialGames: sampleGames,
+      initialProfiles: customProfiles,
+      showToast,
+    });
+    const editEqBtn = findNodes(
+      tree,
+      (n) => typeName(n) === "DialogButton" && findText(n).includes("Edit Game EQ")
+    )[0];
+    editEqBtn.props.onClick();
+    const modalEl = mockShowModal.mock.calls[0][0];
+    const res = await modalEl.props.onSave([1, 1, 0, 0, 0, 0, 0, 0, 0, 0]);
+    expect(res).toEqual({ ok: false, error: "write error" });
+    expect(showToast).toHaveBeenCalledWith(
+      "Failed to save game audio profile — verify Decky storage permissions and try again."
+    );
+  });
+});

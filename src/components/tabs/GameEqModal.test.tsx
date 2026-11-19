@@ -499,3 +499,83 @@ describe("GameEqModal Component", () => {
     expect(horizontalFocusables.length).toBeGreaterThanOrEqual(3);
   });
 });
+
+describe("GameEqModal Async Save Preview Recovery", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    stateValues = [];
+    stateIdx = 0;
+    refValues = [];
+    refIdx = 0;
+    mountedEffects = [];
+    effectIdx = 0;
+    effectCleanups = [];
+    mockPreviewEqBands.mockResolvedValue({ ok: true });
+    mockClearEqPreview.mockResolvedValue({ ok: true, restored: true });
+  });
+
+  it("calls clear_eq_preview when running-game onSave resolves { ok: false } or rejects", async () => {
+    const closeFail = vi.fn();
+    const failTree = renderModal({
+      gameName: "Cyberpunk 2077",
+      isRunningGame: true,
+      onSave: vi.fn().mockResolvedValue({ ok: false, error: "disk full" }),
+      closeModal: closeFail,
+    });
+    const saveFailBtn = findNodes(
+      failTree,
+      (n) => typeName(n) === "DialogButton" && findText(n).includes("Save Game EQ")
+    )[0];
+    await saveFailBtn.props.onClick();
+    expect(mockClearEqPreview).toHaveBeenCalledTimes(1);
+    expect(closeFail).toHaveBeenCalledTimes(1);
+
+    vi.clearAllMocks();
+    stateValues = [];
+    refValues = [];
+    mountedEffects = [];
+    effectCleanups = [];
+    const closeReject = vi.fn();
+    const rejectTree = renderModal({
+      gameName: "Cyberpunk 2077",
+      isRunningGame: true,
+      onSave: vi.fn().mockRejectedValue(new Error("RPC error")),
+      closeModal: closeReject,
+    });
+    const saveRejectBtn = findNodes(
+      rejectTree,
+      (n) => typeName(n) === "DialogButton" && findText(n).includes("Save Game EQ")
+    )[0];
+    await saveRejectBtn.props.onClick();
+    expect(mockClearEqPreview).toHaveBeenCalledTimes(1);
+    expect(closeReject).toHaveBeenCalledTimes(1);
+  });
+
+  it("awaits running-game onSave { ok: true } before closing without calling clear_eq_preview", async () => {
+    let resolveSave: ((val: { ok: boolean }) => void) | undefined;
+    const onSave = vi.fn(
+      () =>
+        new Promise<{ ok: boolean }>((resolve) => {
+          resolveSave = resolve;
+        })
+    );
+    const closeModal = vi.fn();
+    const tree = renderModal({
+      gameName: "Cyberpunk 2077",
+      isRunningGame: true,
+      onSave,
+      closeModal,
+    });
+    const saveBtn = findNodes(
+      tree,
+      (n) => typeName(n) === "DialogButton" && findText(n).includes("Save Game EQ")
+    )[0];
+    const savePromise = saveBtn.props.onClick();
+    expect(closeModal).not.toHaveBeenCalled();
+
+    resolveSave?.({ ok: true });
+    await savePromise;
+    expect(mockClearEqPreview).not.toHaveBeenCalled();
+    expect(closeModal).toHaveBeenCalledTimes(1);
+  });
+});

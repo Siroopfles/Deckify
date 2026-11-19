@@ -40,6 +40,8 @@ const SEED_PRESET_OPTIONS: Array<{ key: SeedPresetKey; label: string }> = [
   { key: "late_night", label: "Late Night" },
 ];
 
+export type GameEqSaveResult = { ok?: boolean; error?: string } | void;
+
 export interface GameEqModalProps {
   isOpen?: boolean;
   gameName: string;
@@ -47,7 +49,7 @@ export interface GameEqModalProps {
   seedBands?: number[];
   isRunningGame?: boolean;
   showToast?: (msg: string) => void;
-  onSave: (bands: number[]) => void;
+  onSave: (bands: number[]) => GameEqSaveResult | Promise<GameEqSaveResult>;
   onClose?: () => void;
   closeModal?: () => void;
 }
@@ -275,6 +277,41 @@ function sendPreviewRequest(
     });
 }
 
+function invokeSaveWithClear(opts: {
+  onSave: GameEqModalProps["onSave"];
+  bands: number[];
+  isRunningRef: { current: boolean };
+  clearedRef: { current: boolean };
+  closeModal?: () => void;
+  onClose?: () => void;
+}) {
+  const { onSave, bands, isRunningRef, clearedRef, closeModal, onClose } = opts;
+  const finish = (saveRes?: GameEqSaveResult) => {
+    const failed = Boolean(saveRes && saveRes.ok === false);
+    if ((!isRunningRef.current || failed) && !clearedRef.current) {
+      clearedRef.current = true;
+      backendClearEqPreview().catch(() => {});
+    }
+    closeModal?.();
+    onClose?.();
+  };
+  let result: unknown;
+  try {
+    result = onSave(bands);
+  } catch {
+    finish({ ok: false });
+    return Promise.resolve();
+  }
+  if (result && typeof (result as PromiseLike<unknown>).then === "function") {
+    return Promise.resolve(result as PromiseLike<GameEqSaveResult>).then(
+      (res) => finish(res),
+      () => finish({ ok: false })
+    );
+  }
+  finish(result as GameEqSaveResult);
+  return undefined;
+}
+
 function useGameEqState({
   initialBands,
   seedBands,
@@ -341,13 +378,14 @@ function useGameEqState({
 
   const handleSave = () => {
     savedRef.current = true;
-    if (!isRunningRef.current && !clearedRef.current) {
-      clearedRef.current = true;
-      backendClearEqPreview().catch(() => {});
-    }
-    onSave(bandsRef.current);
-    closeModal?.();
-    onClose?.();
+    return invokeSaveWithClear({
+      onSave,
+      bands: bandsRef.current,
+      isRunningRef,
+      clearedRef,
+      closeModal,
+      onClose,
+    });
   };
 
   return {
