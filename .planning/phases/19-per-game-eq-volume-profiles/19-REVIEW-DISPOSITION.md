@@ -5,27 +5,27 @@ titles: json
 findings:
   - id: WR-01
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "Async race in `EqualizerManager.preview_bands` / `set_bands` can overwrite restored EQ after `clear_preview` or `apply_ephemeral_preset`"
   - id: WR-02
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "Concurrent `VolumeFader.fade_to` task replacement race during rapid `SoundtracksTab` slider hot-apply"
   - id: WR-03
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "`boost_pa_volume` overwrites active per-game volume ceiling, ducking, and sleep lock when `librespot` stream initializes late"
   - id: WR-04
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "`EqualizerManager.cleanup_stale_process` sends `SIGTERM` as `root` without verifying `/proc/{pid}/cmdline`"
   - id: WR-05
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "`SoundtracksTab` cancels pending debounced saves on unmount instead of flushing them"
   - id: WR-06
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "`GameEqModal` relies on stale `isRunningRef` and leaves `_preview_active = True` if running-game save fails or game exits mid-edit"
   - id: WR-07
     severity: warning
@@ -51,21 +51,21 @@ findings:
     severity: info
     disposition: open
     title: "`SoundtracksTab` `confirmDeleteAppId` stays active across card clicks and configured cards cannot collapse"
-open: 12
+open: 6
 total: 12
-recorded: 2026-11-19T08:27:52.999Z
+recorded: 2026-11-19T09:01:04.753Z
 ---
 
 # Phase 19: Code Review Disposition
 
 | Finding | Severity | Disposition | Source |
 |---------|----------|-------------|--------|
-| WR-01 | warning | open | - |
-| WR-02 | warning | open | - |
-| WR-03 | warning | open | - |
-| WR-04 | warning | open | - |
-| WR-05 | warning | open | - |
-| WR-06 | warning | open | - |
+| WR-01 | warning | fixed | 19-REVIEW-FIX.md |
+| WR-02 | warning | fixed | 19-REVIEW-FIX.md |
+| WR-03 | warning | fixed | 19-REVIEW-FIX.md |
+| WR-04 | warning | fixed | 19-REVIEW-FIX.md |
+| WR-05 | warning | fixed | 19-REVIEW-FIX.md |
+| WR-06 | warning | fixed | 19-REVIEW-FIX.md |
 | WR-07 | warning | open | - |
 | IN-01 | info | open | - |
 | IN-02 | info | open | - |
@@ -75,3 +75,4 @@ recorded: 2026-11-19T08:27:52.999Z
 
 Dispositions: `open` (recorded, not yet triaged), `fixed`, `skipped`, `deferred`.
 Set `deferred` by hand and put the reason in the Source cell; both are preserved. A `|` in the reason is kept as prose and escaped on the next run.
+Re-running the gate keeps every row it can. A row the current review no longer reports is kept and its Source cell flagged, so a finding does not leave this record silently. ONE exception: when a finding id is REUSED by a different finding, the earlier decision cannot keep a row — the id is taken — and it is dropped. A RECORDED decision (anything but `open`) is named on the console when that happens; a row still at `open` is replaced silently, because `open` records no decision to lose.
