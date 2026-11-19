@@ -3,6 +3,18 @@ phase: 19
 review: 19-REVIEW.md
 titles: json
 findings:
+  - id: WR-08
+    severity: warning
+    disposition: open
+    title: "`handleQuickBind` allows missing or zero `Router.MainRunningApp.appid` to forward an unverified `display_name`"
+  - id: WR-09
+    severity: warning
+    disposition: open
+    title: "`SoundtrackManager._resolve_app_name` executes synchronous `vdf_parser.get_installed_games()` disk I/O on the asyncio event loop (including on unbound game launches)"
+  - id: IN-06
+    severity: info
+    disposition: open
+    title: "`Reset to Flat` `DialogButton` uses `minWidth: \"auto\"` instead of `minWidth: 0`, and `patchProfileAppName` skips `.trim()` on `fallbackName`"
   - id: WR-01
     severity: warning
     disposition: fixed
@@ -51,27 +63,30 @@ findings:
     severity: info
     disposition: fixed
     title: "`SoundtracksTab` `confirmDeleteAppId` stays active across card clicks and configured cards cannot collapse"
-open: 0
-total: 12
-recorded: 2026-11-19T12:42:16.624Z
+open: 3
+total: 15
+recorded: 2026-11-19T17:29:43.465Z
 ---
 
 # Phase 19: Code Review Disposition
 
 | Finding | Severity | Disposition | Source |
 |---------|----------|-------------|--------|
-| WR-01 | warning | fixed | 19-REVIEW-FIX.md |
-| WR-02 | warning | fixed | 19-REVIEW-FIX.md |
-| WR-03 | warning | fixed | 19-REVIEW-FIX.md |
-| WR-04 | warning | fixed | 19-REVIEW-FIX.md |
-| WR-05 | warning | fixed | 19-REVIEW-FIX.md |
-| WR-06 | warning | fixed | 19-REVIEW-FIX.md |
-| WR-07 | warning | fixed | 19-REVIEW-FIX.md |
-| IN-01 | info | fixed | 19-REVIEW-FIX.md |
-| IN-02 | info | fixed | 19-REVIEW-FIX.md |
-| IN-03 | info | fixed | 19-REVIEW-FIX.md |
-| IN-04 | info | fixed | 19-REVIEW-FIX.md |
-| IN-05 | info | fixed | 19-REVIEW-FIX.md |
+| WR-08 | warning | open | - |
+| WR-09 | warning | open | - |
+| IN-06 | info | open | - |
+| WR-01 | warning | fixed | 19-REVIEW-FIX.md (not in the current review) |
+| WR-02 | warning | fixed | 19-REVIEW-FIX.md (not in the current review) |
+| WR-03 | warning | fixed | 19-REVIEW-FIX.md (not in the current review) |
+| WR-04 | warning | fixed | 19-REVIEW-FIX.md (not in the current review) |
+| WR-05 | warning | fixed | 19-REVIEW-FIX.md (not in the current review) |
+| WR-06 | warning | fixed | 19-REVIEW-FIX.md (not in the current review) |
+| WR-07 | warning | fixed | 19-REVIEW-FIX.md (not in the current review) |
+| IN-01 | info | fixed | 19-REVIEW-FIX.md (not in the current review) |
+| IN-02 | info | fixed | 19-REVIEW-FIX.md (not in the current review) |
+| IN-03 | info | fixed | 19-REVIEW-FIX.md (not in the current review) |
+| IN-04 | info | fixed | 19-REVIEW-FIX.md (not in the current review) |
+| IN-05 | info | fixed | 19-REVIEW-FIX.md (not in the current review) |
 
 Dispositions: `open` (recorded, not yet triaged), `fixed`, `skipped`, `deferred`.
 Set `deferred` by hand and put the reason in the Source cell; both are preserved. A `|` in the reason is kept as prose and escaped on the next run.
