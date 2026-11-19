@@ -1227,7 +1227,14 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
               )}
 
               {mode === "soundtracks" && (
-                <SoundtracksTab showToast={showToast} onPickerOpenChange={setPlaylistPickerOpen} />
+                <SoundtracksTab
+                  runningAppId={status?.active_game_app_id ?? null}
+                  globalEqPreset={status?.settings?.eq_preset ?? "flat"}
+                  globalEqCustomBands={status?.settings?.eq_custom_bands}
+                  globalDuckingPct={status?.settings?.ducking_proportional_pct ?? 50}
+                  showToast={showToast}
+                  onPickerOpenChange={setPlaylistPickerOpen}
+                />
               )}
 
               {mode === "engine" && (

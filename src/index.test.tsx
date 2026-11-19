@@ -955,4 +955,83 @@ describe("Phase 17: Event-Driven librespot (--onevent) & QAM Resilience UX", () 
 
     plugin.onDismount?.();
   });
+
+  it("QuickAccessMenu renders GAME VOL / DUCKED pills and effective_volume from get_ducking_state and ducking_state_changed (D-08)", async () => {
+    await import("./index");
+    const { addEventListener } = await import("@decky/api");
+    mockGetDuckingState.mockResolvedValueOnce({
+      is_ducked: false,
+      has_game_override: true,
+      effective_volume: 52,
+      base_volume: 80,
+      duck_reasons: [],
+    });
+
+    const plugin = capturedPluginFactory!();
+    const renderContent = () => {
+      hookIdx = 0;
+      return plugin.content.type({});
+    };
+
+    renderContent();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // Seed active trackMeta (slot 4) so secondary zone volume slider is rendered
+    hookValues[4] = { name: "Game OST", artist: "Composer", album: "OST", duration_ms: 180000 };
+
+    let nodes = flattenNodes(renderContent());
+    let volSlider = nodes.find((n) => n.type === "SliderField" && n.props?.valueSuffix === "%");
+    expect(volSlider).toBeDefined();
+    expect(volSlider.props.value).toBe(52);
+    expect(nodes.some((n) => n.type === "span" && textContent(n) === "GAME VOL")).toBe(true);
+    expect(nodes.some((n) => n.type === "span" && textContent(n) === "DUCKED")).toBe(false);
+
+    const duckCalls = (addEventListener as any).mock.calls.filter(
+      (c: any[]) => c[0] === "ducking_state_changed"
+    );
+    expect(duckCalls.length).toBeGreaterThan(0);
+    const duckHandler = duckCalls[duckCalls.length - 1][1];
+
+    duckHandler({
+      is_ducked: true,
+      has_game_override: true,
+      effective_volume: 32,
+      base_volume: 80,
+      duck_reasons: ["game"],
+    });
+    nodes = flattenNodes(renderContent());
+    volSlider = nodes.find((n) => n.type === "SliderField" && n.props?.valueSuffix === "%");
+    expect(volSlider.props.value).toBe(32);
+    expect(nodes.some((n) => n.type === "span" && textContent(n) === "DUCKED")).toBe(true);
+    expect(nodes.some((n) => n.type === "span" && textContent(n) === "GAME VOL")).toBe(false);
+
+    duckHandler({
+      is_ducked: false,
+      has_game_override: true,
+      effective_volume: 65,
+      base_volume: 80,
+      duck_reasons: [],
+    });
+    nodes = flattenNodes(renderContent());
+    volSlider = nodes.find((n) => n.type === "SliderField" && n.props?.valueSuffix === "%");
+    expect(volSlider.props.value).toBe(65);
+    expect(nodes.some((n) => n.type === "span" && textContent(n) === "GAME VOL")).toBe(true);
+    expect(nodes.some((n) => n.type === "span" && textContent(n) === "DUCKED")).toBe(false);
+
+    duckHandler({
+      is_ducked: false,
+      has_game_override: false,
+      effective_volume: 80,
+      base_volume: 80,
+      duck_reasons: [],
+    });
+    nodes = flattenNodes(renderContent());
+    volSlider = nodes.find((n) => n.type === "SliderField" && n.props?.valueSuffix === "%");
+    expect(volSlider.props.value).toBe(50);
+    expect(nodes.some((n) => n.type === "span" && textContent(n) === "GAME VOL")).toBe(false);
+    expect(nodes.some((n) => n.type === "span" && textContent(n) === "DUCKED")).toBe(false);
+
+    plugin.onDismount?.();
+  });
 });
