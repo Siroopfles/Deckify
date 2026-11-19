@@ -743,6 +743,35 @@ function renderGameCard(opts: {
   );
 }
 
+type PendingSaveEntry = { appId: number; profile: SoundtrackProfile };
+
+function clearPendingSaveTimer(
+  timers: Record<string, ReturnType<typeof setTimeout>>,
+  key: string
+) {
+  if (timers[key]) {
+    clearTimeout(timers[key]);
+    delete timers[key];
+  }
+}
+
+function flushPendingSaves(
+  timers: Record<string, ReturnType<typeof setTimeout>>,
+  pendingSaves: Record<string, PendingSaveEntry>,
+  showToast?: (msg: string) => void
+) {
+  for (const key of Object.keys(timers)) {
+    clearPendingSaveTimer(timers, key);
+  }
+  const entries = Object.values(pendingSaves);
+  for (const key of Object.keys(pendingSaves)) {
+    delete pendingSaves[key];
+  }
+  for (const entry of entries) {
+    void executeSaveProfile(entry.appId, entry.profile, showToast);
+  }
+}
+
 function useProfileSaveActions(opts: {
   setProfiles: Dispatch<SetStateAction<Record<string, SoundtrackProfile>>>;
   setConfirmDeleteAppId: Dispatch<SetStateAction<number | null>>;
@@ -750,14 +779,13 @@ function useProfileSaveActions(opts: {
 }) {
   const { setProfiles, setConfirmDeleteAppId, showToast } = opts;
   const saveTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const pendingSavesRef = useRef<Record<string, PendingSaveEntry>>({});
 
   const saveImmediate = useCallback(
     (appId: number, updated: SoundtrackProfile) => {
       const key = String(appId);
-      if (saveTimersRef.current[key]) {
-        clearTimeout(saveTimersRef.current[key]);
-        delete saveTimersRef.current[key];
-      }
+      clearPendingSaveTimer(saveTimersRef.current, key);
+      delete pendingSavesRef.current[key];
       return executeSaveProfile(appId, updated, showToast);
     },
     [showToast]
@@ -766,9 +794,11 @@ function useProfileSaveActions(opts: {
   const scheduleSave = useCallback(
     (appId: number, updated: SoundtrackProfile) => {
       const key = String(appId);
-      if (saveTimersRef.current[key]) clearTimeout(saveTimersRef.current[key]);
+      clearPendingSaveTimer(saveTimersRef.current, key);
+      pendingSavesRef.current[key] = { appId, profile: updated };
       saveTimersRef.current[key] = setTimeout(() => {
         delete saveTimersRef.current[key];
+        delete pendingSavesRef.current[key];
         void executeSaveProfile(appId, updated, showToast);
       }, SAVE_DEBOUNCE_MS);
     },
@@ -788,10 +818,8 @@ function useProfileSaveActions(opts: {
   const handleDeleteProfile = useCallback(
     async (appId: number) => {
       const key = String(appId);
-      if (saveTimersRef.current[key]) {
-        clearTimeout(saveTimersRef.current[key]);
-        delete saveTimersRef.current[key];
-      }
+      clearPendingSaveTimer(saveTimersRef.current, key);
+      delete pendingSavesRef.current[key];
       try {
         const res = await backendDeleteProfile(appId);
         if (!res?.ok) {
@@ -812,7 +840,14 @@ function useProfileSaveActions(opts: {
     [setProfiles, setConfirmDeleteAppId, showToast]
   );
 
-  return { saveTimersRef, saveImmediate, scheduleSave, persistProfile, handleDeleteProfile };
+  return {
+    saveTimersRef,
+    pendingSavesRef,
+    saveImmediate,
+    scheduleSave,
+    persistProfile,
+    handleDeleteProfile,
+  };
 }
 
 function useGameModalActions(opts: {
@@ -901,13 +936,25 @@ function useInitialSoundtrackLoad(opts: {
   setProfiles: Dispatch<SetStateAction<Record<string, SoundtrackProfile>>>;
   setLoading: Dispatch<SetStateAction<boolean>>;
   saveTimersRef: MutableRefObject<Record<string, ReturnType<typeof setTimeout>>>;
+  pendingSavesRef: MutableRefObject<Record<string, PendingSaveEntry>>;
+  showToastRef: MutableRefObject<((msg: string) => void) | undefined>;
   onPickerOpenChangeRef: MutableRefObject<((open: boolean) => void) | undefined>;
 }) {
-  const { setGames, setProfiles, setLoading, saveTimersRef, onPickerOpenChangeRef } = opts;
+  const {
+    setGames,
+    setProfiles,
+    setLoading,
+    saveTimersRef,
+    pendingSavesRef,
+    showToastRef,
+    onPickerOpenChangeRef,
+  } = opts;
   useEffect(() => {
     let mounted = true;
     const timers = saveTimersRef.current;
+    const pendingSaves = pendingSavesRef.current;
     const pickerOpenRef = onPickerOpenChangeRef;
+    const toastRef = showToastRef;
     Promise.all([
       backendGetInstalledGames(false).catch(() => []),
       backendGetProfiles().catch(() => ({})),
@@ -923,9 +970,76 @@ function useInitialSoundtrackLoad(opts: {
     return () => {
       mounted = false;
       pickerOpenRef.current?.(false);
-      for (const timer of Object.values(timers)) clearTimeout(timer);
+      flushPendingSaves(timers, pendingSaves, toastRef.current);
     };
-  }, [setGames, setProfiles, setLoading, saveTimersRef, onPickerOpenChangeRef]);
+  }, [
+    setGames,
+    setProfiles,
+    setLoading,
+    saveTimersRef,
+    pendingSavesRef,
+    showToastRef,
+    onPickerOpenChangeRef,
+  ]);
+}
+
+function renderGamesList(opts: {
+  visibleGames: InstalledGame[];
+  profiles: Record<string, SoundtrackProfile>;
+  runningAppId: number | null;
+  expandedAppId: number | null;
+  confirmDeleteAppId: number | null;
+  globalDuckingPct: number;
+  setConfirmDeleteAppId: Dispatch<SetStateAction<number | null>>;
+  setExpandedAppId: Dispatch<SetStateAction<number | null>>;
+  persistProfile: PersistFn;
+  openPlaylistPicker: (game: InstalledGame) => void;
+  openGameEqModal: (game: InstalledGame, profile: SoundtrackProfile, isRunning: boolean) => void;
+  handleDeleteProfile: (appId: number) => Promise<void>;
+}) {
+  const {
+    visibleGames,
+    profiles,
+    runningAppId,
+    expandedAppId,
+    confirmDeleteAppId,
+    globalDuckingPct,
+    setConfirmDeleteAppId,
+    setExpandedAppId,
+    persistProfile,
+    openPlaylistPicker,
+    openGameEqModal,
+    handleDeleteProfile,
+  } = opts;
+  return (
+    <Focusable flow-children="column" data-deckify-sorted="az" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      {visibleGames.map((game) => {
+        const existingProfile = profiles[String(game.app_id)];
+        const profile = existingProfile || defaultProfile(game);
+        const isRunning = Boolean(game.is_running || (runningAppId !== null && game.app_id === runningAppId));
+        const isExpanded = expandedAppId === game.app_id || Boolean(existingProfile) || isRunning;
+        return renderGameCard({
+          game,
+          existingProfile,
+          profile,
+          isRunning,
+          isExpanded,
+          isConfirmingDelete: confirmDeleteAppId === game.app_id,
+          globalDuckingPct,
+          onToggleExpand: () => {
+            setConfirmDeleteAppId((prev) => (prev === game.app_id ? null : prev));
+            setExpandedAppId(expandedAppId === game.app_id ? null : game.app_id);
+          },
+          onPersist: persistProfile,
+          onOpenPicker: openPlaylistPicker,
+          onOpenEqModal: openGameEqModal,
+          onStartConfirmDelete: (appId) => setConfirmDeleteAppId(appId),
+          onCancelConfirmDelete: () => setConfirmDeleteAppId(null),
+          onConfirmDelete: handleDeleteProfile,
+        });
+      })}
+    </Focusable>
+  );
 }
 
 export const SoundtracksTab: FC<SoundtracksTabProps> = ({
@@ -951,9 +1065,17 @@ export const SoundtracksTab: FC<SoundtracksTabProps> = ({
   profilesRef.current = profiles;
   const onPickerOpenChangeRef = useRef(onPickerOpenChange);
   onPickerOpenChangeRef.current = onPickerOpenChange;
+  const showToastRef = useRef(showToast);
+  showToastRef.current = showToast;
 
-  const { saveTimersRef, saveImmediate, scheduleSave, persistProfile, handleDeleteProfile } =
-    useProfileSaveActions({ setProfiles, setConfirmDeleteAppId, showToast });
+  const {
+    saveTimersRef,
+    pendingSavesRef,
+    saveImmediate,
+    scheduleSave,
+    persistProfile,
+    handleDeleteProfile,
+  } = useProfileSaveActions({ setProfiles, setConfirmDeleteAppId, showToast });
 
   const { openPlaylistPicker, openGameEqModal } = useGameModalActions({
     profilesRef,
@@ -971,6 +1093,8 @@ export const SoundtracksTab: FC<SoundtracksTabProps> = ({
     setProfiles,
     setLoading,
     saveTimersRef,
+    pendingSavesRef,
+    showToastRef,
     onPickerOpenChangeRef,
   });
 
@@ -984,33 +1108,20 @@ export const SoundtracksTab: FC<SoundtracksTabProps> = ({
       {renderTabHeader()}
       {renderSearchBar(searchQuery, setSearchQuery)}
       {renderStatusBanner(loading, games.length, visibleGames.length)}
-      <Focusable flow-children="column" data-deckify-sorted="az" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        {visibleGames.map((game) => {
-          const existingProfile = profiles[String(game.app_id)];
-          const profile = existingProfile || defaultProfile(game);
-          const isRunning = Boolean(game.is_running || (runningAppId !== null && game.app_id === runningAppId));
-          const isExpanded = expandedAppId === game.app_id || Boolean(existingProfile) || isRunning;
-          return renderGameCard({
-            game,
-            existingProfile,
-            profile,
-            isRunning,
-            isExpanded,
-            isConfirmingDelete: confirmDeleteAppId === game.app_id,
-            globalDuckingPct,
-            onToggleExpand: () => {
-              setConfirmDeleteAppId((prev) => (prev === game.app_id ? null : prev));
-              setExpandedAppId(expandedAppId === game.app_id ? null : game.app_id);
-            },
-            onPersist: persistProfile,
-            onOpenPicker: openPlaylistPicker,
-            onOpenEqModal: openGameEqModal,
-            onStartConfirmDelete: (appId) => setConfirmDeleteAppId(appId),
-            onCancelConfirmDelete: () => setConfirmDeleteAppId(null),
-            onConfirmDelete: handleDeleteProfile,
-          });
-        })}
-      </Focusable>
+      {renderGamesList({
+        visibleGames,
+        profiles,
+        runningAppId,
+        expandedAppId,
+        confirmDeleteAppId,
+        globalDuckingPct,
+        setConfirmDeleteAppId,
+        setExpandedAppId,
+        persistProfile,
+        openPlaylistPicker,
+        openGameEqModal,
+        handleDeleteProfile,
+      })}
     </Focusable>
   );
 };
