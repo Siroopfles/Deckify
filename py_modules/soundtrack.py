@@ -191,8 +191,8 @@ class SoundtrackManager:
                 out["last_position_ms"] = None
         return out
 
-    def _resolve_app_name(self, app_id: int, profile: dict | None = None) -> str:
-        """Resolve a game's display name from profile, persisted store, or VDF discovery."""
+    def _resolve_known_app_name(self, app_id: int, profile: dict | None = None) -> str:
+        """Resolve a game's display name from in-memory profile or persisted store."""
         if isinstance(profile, dict):
             name = _clean_str(profile.get("app_name")).strip()
             if name:
@@ -202,23 +202,48 @@ class SoundtrackManager:
             name = _clean_str(existing.get("app_name")).strip()
             if name:
                 return name
-        try:
-            games = vdf_parser.get_installed_games()
-            if isinstance(games, list):
-                for game in games:
-                    if (
-                        isinstance(game, dict)
-                        and not isinstance(game.get("app_id"), bool)
-                        and game.get("app_id") == app_id
-                    ):
-                        name = _clean_str(game.get("name")).strip()
-                        if name:
-                            return name
-        except Exception:
-            pass
         return ""
 
-    def save_profile(self, app_id: int, profile_data: dict) -> dict:
+    @staticmethod
+    def _match_vdf_game_name(app_id: int, games) -> str:
+        if not isinstance(games, list):
+            return ""
+        for game in games:
+            if (
+                isinstance(game, dict)
+                and not isinstance(game.get("app_id"), bool)
+                and game.get("app_id") == app_id
+            ):
+                name = _clean_str(game.get("name")).strip()
+                if name:
+                    return name
+        return ""
+
+    def _resolve_app_name(self, app_id: int, profile: dict | None = None) -> str:
+        """Resolve a game's display name from profile, persisted store, or VDF discovery."""
+        name = self._resolve_known_app_name(app_id, profile)
+        if name:
+            return name
+        try:
+            games = vdf_parser.get_installed_games()
+            return self._match_vdf_game_name(app_id, games)
+        except Exception:
+            return ""
+
+    async def _resolve_app_name_async(self, app_id: int, profile: dict | None = None) -> str:
+        """Resolve a game's display name, offloading cold VDF discovery to an executor."""
+        name = self._resolve_known_app_name(app_id, profile)
+        if name:
+            return name
+        try:
+            games = await asyncio.get_running_loop().run_in_executor(
+                None, vdf_parser.get_installed_games
+            )
+            return self._match_vdf_game_name(app_id, games)
+        except Exception:
+            return ""
+
+    def save_profile(self, app_id: int, profile_data: dict, *, resolve_vdf: bool = True) -> dict:
         try:
             app_id = validate_app_id(app_id)
         except ValueError as e:
@@ -229,12 +254,32 @@ class SoundtrackManager:
         merged = {**_PROFILE_DEFAULTS, **existing, **self._sanitize_profile(app_id, profile_data)}
         merged["app_id"] = app_id
         if not _clean_str(merged.get("app_name")).strip():
-            merged["app_name"] = self._resolve_app_name(app_id, merged)
+            merged["app_name"] = (
+                self._resolve_app_name(app_id, merged)
+                if resolve_vdf
+                else self._resolve_known_app_name(app_id, merged)
+            )
         else:
             merged["app_name"] = _clean_str(merged.get("app_name")).strip()
         self.get_profiles()[str(app_id)] = merged
         self._persist()
         return {"ok": True, "profile": dict(merged)}
+
+    async def save_profile_async(self, app_id: int, profile_data: dict) -> dict:
+        try:
+            app_id = validate_app_id(app_id)
+        except ValueError as e:
+            return {"ok": False, "error": str(e)}
+        if not isinstance(profile_data, dict):
+            return {"ok": False, "error": "profile must be a dict"}
+        existing = self.get_profile(app_id) or {}
+        merged = {**_PROFILE_DEFAULTS, **existing, **self._sanitize_profile(app_id, profile_data)}
+        updated_data = dict(profile_data)
+        if not _clean_str(merged.get("app_name")).strip():
+            resolved = await self._resolve_app_name_async(app_id, merged)
+            if resolved:
+                updated_data["app_name"] = resolved
+        return self.save_profile(app_id, updated_data, resolve_vdf=False)
 
     def delete_profile(self, app_id: int) -> dict:
         try:
@@ -356,7 +401,7 @@ class SoundtrackManager:
         """Apply per-game ephemeral EQ and local PipeWire VolumeFader overrides in atomic order (D-09, D-10, D-14)."""
         eq_preset = profile.get("eq_preset") if isinstance(profile, dict) else None
         eq_bands = profile.get("eq_custom_bands") if (isinstance(profile, dict) and eq_preset == "custom") else None
-        app_name = self._resolve_app_name(app_id, profile)
+        app_name = await self._resolve_app_name_async(app_id, profile) if isinstance(profile, dict) else ""
         if isinstance(profile, dict) and app_name and not _clean_str(profile.get("app_name")).strip():
             profile["app_name"] = app_name
             self._persist()
@@ -624,9 +669,13 @@ class SoundtrackManager:
             name, image = await self._resolve_context_metadata(context_uri)
             existing_playlists.append({"uri": context_uri, "name": name or context_uri, "image": image})
         clean_arg = _clean_str(app_name).strip()
-        resolved_name = clean_arg or self._resolve_app_name(app_id, existing)
-        return self.save_profile(app_id, {
-            "app_name": resolved_name,
-            "playlists": existing_playlists,
-            "mode": existing.get("mode") or "shuffle",
-        })
+        resolved_name = clean_arg or await self._resolve_app_name_async(app_id, existing)
+        return self.save_profile(
+            app_id,
+            {
+                "app_name": resolved_name,
+                "playlists": existing_playlists,
+                "mode": existing.get("mode") or "shuffle",
+            },
+            resolve_vdf=False,
+        )

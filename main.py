@@ -3,6 +3,7 @@ import base64
 import errno
 import glob
 import hashlib
+import inspect
 import json
 import math
 import os
@@ -931,7 +932,11 @@ class Plugin:
             await self._clear_active_eq_preview()
             return {"ok": False, "error": str(e)}
         manager = self._get_soundtrack_manager()
-        res = manager.save_profile(valid_id, profile)
+        save_async = getattr(manager, "save_profile_async", None)
+        if inspect.iscoroutinefunction(save_async):
+            res = await save_async(valid_id, profile)
+        else:
+            res = manager.save_profile(valid_id, profile)
         if isinstance(res, dict) and res.get("ok") is True and valid_id == getattr(manager, "_active_game_app_id", None):
             await manager.refresh_active_overrides(valid_id)
         await self._clear_active_eq_preview()

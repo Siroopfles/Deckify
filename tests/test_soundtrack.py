@@ -687,6 +687,41 @@ class TestPluginRpc(unittest.IsolatedAsyncioTestCase):
             m_fade.assert_not_awaited()
             self.assertIn("game", self.plugin._volume_fader._duck_reasons)
 
+    async def test_save_game_soundtrack_profile_offloads_cold_vdf_and_falls_back_for_sync_mock(self):
+        loop = asyncio.get_running_loop()
+        vdf_mod = self.main.soundtrack.vdf_parser
+        # 1. Cold VDF miss via Plugin.save_game_soundtrack_profile offloads once via run_in_executor (no double VDF scan)
+        with patch.object(vdf_mod, "get_installed_games", return_value=[]) as mock_vdf, \
+             patch.object(loop, "run_in_executor", wraps=loop.run_in_executor) as mock_exec:
+            res_miss = await self.plugin.save_game_soundtrack_profile(888001, {"eq_preset": "gaming"})
+        self.assertTrue(res_miss["ok"])
+        self.assertEqual(res_miss["profile"]["app_name"], "")
+        mock_vdf.assert_called_once_with()
+        mock_exec.assert_any_call(None, mock_vdf)
+
+        # 2. Cold VDF hit offloads once and stores resolved app_name
+        self.plugin._settings["game_audio_profiles"].pop("888002", None)
+        with patch.object(
+            vdf_mod,
+            "get_installed_games",
+            return_value=[{"app_id": 888002, "name": "Executor Game"}],
+        ) as mock_vdf_hit, patch.object(loop, "run_in_executor", wraps=loop.run_in_executor) as mock_exec_hit:
+            res_hit = await self.plugin.save_game_soundtrack_profile(888002, {"eq_preset": "bass"})
+        self.assertTrue(res_hit["ok"])
+        self.assertEqual(res_hit["profile"]["app_name"], "Executor Game")
+        mock_vdf_hit.assert_called_once_with()
+        mock_exec_hit.assert_any_call(None, mock_vdf_hit)
+
+        # 3. Plain sync mock manager without async save_profile_async falls back cleanly to save_profile
+        sync_mgr = SimpleNamespace(
+            _active_game_app_id=None,
+            save_profile=MagicMock(return_value={"ok": True, "profile": {"app_id": 888003}}),
+        )
+        with patch.object(self.plugin, "_get_soundtrack_manager", return_value=sync_mgr):
+            res_fallback = await self.plugin.save_game_soundtrack_profile(888003, {"app_name": "Mocked"})
+        self.assertTrue(res_fallback["ok"])
+        sync_mgr.save_profile.assert_called_once_with(888003, {"app_name": "Mocked"})
+
 
 class TestPerGameAudioProfiles(SoundtrackBase):
     def test_sanitize_profile_phase19_fields_and_boundaries(self):
@@ -1036,6 +1071,52 @@ class TestPerGameAudioProfiles(SoundtrackBase):
                 res_bind_long = await self.mgr.bind_current_music_to_game(1, "B" * 250)
                 self.assertEqual(len(res_bind_long["profile"]["app_name"]), soundtrack.MAX_STR)
                 self.assertEqual(res_bind_long["profile"]["app_name"], "B" * soundtrack.MAX_STR)
+
+    async def test_unbound_launch_skips_vdf_and_async_callers_offload_without_double_scan(self):
+        loop = asyncio.get_running_loop()
+
+        # 1. Unbound game launch (profile is None) never calls vdf_parser.get_installed_games
+        with patch.object(soundtrack.vdf_parser, "get_installed_games", side_effect=AssertionError("unbound must skip VDF")) as mock_vdf:
+            await self.mgr.apply_active_audio_profile(999111, None)
+            await self.mgr._run_launch(999111)
+        mock_vdf.assert_not_called()
+
+        # 2. apply_active_audio_profile on profile with empty app_name offloads cold VDF once via run_in_executor
+        profile = {
+            "app_id": 999222,
+            "app_name": "",
+            "playlists": [],
+            "eq_preset": "gaming",
+        }
+        self.plugin._settings["game_audio_profiles"]["999222"] = profile
+        with patch.object(soundtrack.vdf_parser, "get_installed_games", return_value=[]) as mock_vdf_miss, \
+             patch.object(loop, "run_in_executor", wraps=loop.run_in_executor) as mock_exec:
+            await self.mgr.apply_active_audio_profile(999222, profile)
+        mock_vdf_miss.assert_called_once_with()
+        mock_exec.assert_any_call(None, mock_vdf_miss)
+        self.assertEqual(profile["app_name"], "")
+
+        # 3. bind_current_music_to_game offloads cold VDF once on miss (no second sync scan in save_profile)
+        with patch.object(self.mgr, "get_player_state", AsyncMock(return_value=snap(ctx=PL_A))), \
+             patch.object(self.mgr, "_resolve_context_metadata", AsyncMock(return_value=("OST", ""))), \
+             patch.object(soundtrack.vdf_parser, "get_installed_games", return_value=[]) as mock_vdf_bind, \
+             patch.object(loop, "run_in_executor", wraps=loop.run_in_executor) as mock_exec_bind:
+            res_bind = await self.mgr.bind_current_music_to_game(999333, "")
+        self.assertTrue(res_bind["ok"])
+        self.assertEqual(res_bind["profile"]["app_name"], "")
+        mock_vdf_bind.assert_called_once_with()
+        mock_exec_bind.assert_any_call(None, mock_vdf_bind)
+
+        # 4. save_profile_async validation errors and known app_name skip VDF completely
+        self.assertFalse((await self.mgr.save_profile_async(-1, {}))["ok"])
+        self.assertFalse((await self.mgr.save_profile_async(999444, "not-a-dict"))["ok"])
+        with patch.object(soundtrack.vdf_parser, "get_installed_games", side_effect=AssertionError("known name must skip VDF")):
+            res_known = await self.mgr.save_profile_async(999444, {"app_name": "Explicit Game", "eq_preset": "bass"})
+            self.assertTrue(res_known["ok"])
+            self.assertEqual(res_known["profile"]["app_name"], "Explicit Game")
+            res_existing = await self.mgr.save_profile_async(999444, {"app_name": ""})
+            self.assertTrue(res_existing["ok"])
+            self.assertEqual(res_existing["profile"]["app_name"], "Explicit Game")
 
 
 if __name__ == "__main__":
