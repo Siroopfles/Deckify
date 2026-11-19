@@ -40,6 +40,8 @@ vi.mock("react-icons/fa", () => ({
   FaSearch: () => ({ type: "FaSearch" }),
   FaMusic: () => ({ type: "FaMusic" }),
   FaCompactDisc: () => ({ type: "FaCompactDisc" }),
+  FaSlidersH: () => ({ type: "FaSlidersH" }),
+  FaUndo: () => ({ type: "FaUndo" }),
 }));
 
 vi.mock("react/jsx-dev-runtime", () => ({
@@ -82,6 +84,7 @@ vi.mock("react", () => ({
 
 import { SoundtracksTab } from "./SoundtracksTab";
 import { InstalledGame, SoundtrackProfile } from "../../types";
+import { EQ_PRESET_CURVES } from "../common/EqBandFaders";
 import {
   EQ_OVERRIDE_OPTIONS,
   defaultProfile,
@@ -231,8 +234,17 @@ describe("SoundtracksTab Component", () => {
     });
 
     const sliders = findNodes(tree, (n) => typeName(n) === "SliderField");
-    expect(sliders).toHaveLength(1);
-    sliders[0].props.onChange(45);
+    expect(sliders).toHaveLength(2);
+    const volumeSlider = sliders.find((s) =>
+      String(s.props?.label).includes("Volume Override")
+    );
+    const duckingSlider = sliders.find((s) =>
+      String(s.props?.label).includes("Ducking Attenuation Override")
+    );
+    expect(volumeSlider).toBeDefined();
+    expect(duckingSlider).toBeDefined();
+
+    volumeSlider!.props.onChange(45);
     vi.advanceTimersByTime(600);
 
     expect(mockSaveProfile).toHaveBeenCalledWith(
@@ -457,6 +469,404 @@ describe("SoundtracksTab Component", () => {
     expect(mockSaveProfile).toHaveBeenCalledWith(
       1091500,
       expect.objectContaining({ eq_preset: "gaming" })
+    );
+  });
+});
+
+describe("SoundtracksTab Phase 19 EQ Modal, Dual Sliders, Hot-Apply & Delete UX", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+    stateValues = [];
+    stateIdx = 0;
+    mockGetInstalledGames.mockResolvedValue(sampleGames);
+    mockGetProfiles.mockResolvedValue(sampleProfiles);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("renders Edit Game EQ button only when eq_preset is custom, opens GameEqModal with seeded bands, and saves immediately (D-01, D-02, D-04)", () => {
+    const baseTree = SoundtracksTab({
+      initialGames: sampleGames,
+      initialProfiles: sampleProfiles,
+    });
+    expect(
+      findNodes(baseTree, (n) => typeName(n) === "DialogButton" && findText(n).includes("Edit Game EQ"))
+    ).toHaveLength(0);
+
+    stateValues = [];
+    stateIdx = 0;
+    const onPickerOpenChange = vi.fn();
+    const showToast = vi.fn();
+    const customProfiles: Record<string, SoundtrackProfile> = {
+      "1091500": {
+        ...sampleProfiles["1091500"],
+        eq_preset: "custom",
+        eq_custom_bands: [3, 2, 1, 0, -1, -2, 0, 1, 2, 3],
+      },
+    };
+    const customTree = SoundtracksTab({
+      initialGames: sampleGames,
+      initialProfiles: customProfiles,
+      globalEqPreset: "bass",
+      onPickerOpenChange,
+      showToast,
+    });
+
+    const editEqBtn = findNodes(
+      customTree,
+      (n) => typeName(n) === "DialogButton" && findText(n).includes("Edit Game EQ")
+    )[0];
+    expect(editEqBtn).toBeDefined();
+    editEqBtn.props.onClick();
+
+    expect(onPickerOpenChange).toHaveBeenCalledWith(true);
+    expect(mockShowModal).toHaveBeenCalledTimes(1);
+    const modalEl = mockShowModal.mock.calls[0][0];
+    expect(typeName(modalEl)).toBe("GameEqModal");
+    expect(modalEl.props.gameName).toBe("Cyberpunk 2077");
+    expect(modalEl.props.initialBands).toEqual([3, 2, 1, 0, -1, -2, 0, 1, 2, 3]);
+    expect(modalEl.props.seedBands).toEqual(EQ_PRESET_CURVES.bass);
+
+    const newBands = [4, 3, 2, 1, 0, 0, 1, 2, 3, 4];
+    modalEl.props.onSave(newBands);
+    expect(mockSaveProfile).toHaveBeenCalledTimes(1);
+    expect(mockSaveProfile).toHaveBeenCalledWith(
+      1091500,
+      expect.objectContaining({
+        eq_preset: "custom",
+        eq_custom_bands: newBands,
+      })
+    );
+
+    modalEl.props.onClose();
+    expect(onPickerOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("seeds GameEqModal from globalEqCustomBands when globalEqPreset is custom and preserves eq_custom_bands on Use Global", () => {
+    const customGlobal = [1, 2, 3, 4, 0, -1, -2, 0, 1, 2];
+    const customProfiles: Record<string, SoundtrackProfile> = {
+      "1091500": {
+        ...sampleProfiles["1091500"],
+        eq_preset: "custom",
+        eq_custom_bands: [5, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      },
+    };
+    const tree = SoundtracksTab({
+      initialGames: sampleGames,
+      initialProfiles: customProfiles,
+      globalEqPreset: "custom",
+      globalEqCustomBands: customGlobal,
+    });
+
+    const editEqBtn = findNodes(
+      tree,
+      (n) => typeName(n) === "DialogButton" && findText(n).includes("Edit Game EQ")
+    )[0];
+    editEqBtn.props.onClick();
+    expect(mockShowModal.mock.calls[0][0].props.seedBands).toEqual(customGlobal);
+
+    const eqDropdown = findNodes(
+      tree,
+      (n) => typeName(n) === "DropdownItem" && n.props.label === "EQ Preset Override"
+    )[0];
+    eqDropdown.props.onChange({ data: "global" });
+    vi.advanceTimersByTime(600);
+    expect(mockSaveProfile).toHaveBeenCalledWith(
+      1091500,
+      expect.objectContaining({
+        eq_preset: null,
+        eq_custom_bands: [5, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      })
+    );
+  });
+
+  it("exposes Ducking Attenuation Override (0..95) disabled when ducking_override is false and Clear/Use Global buttons (D-06)", () => {
+    const unsetProfiles: Record<string, SoundtrackProfile> = {
+      "1091500": {
+        ...sampleProfiles["1091500"],
+        volume_override: null,
+        ducking_override: false,
+        ducking_level_override: null,
+      },
+    };
+    const unsetTree = SoundtracksTab({
+      initialGames: sampleGames,
+      initialProfiles: unsetProfiles,
+      globalDuckingPct: 60,
+    });
+
+    const unsetSliders = findNodes(unsetTree, (n) => typeName(n) === "SliderField");
+    const unsetVol = unsetSliders.find((s) => String(s.props?.label) === "Volume Override (Disabled)");
+    const unsetDuck = unsetSliders.find(
+      (s) => String(s.props?.label) === "Ducking Attenuation Override (Use Global)"
+    );
+    expect(unsetVol).toBeDefined();
+    expect(unsetDuck).toBeDefined();
+    expect(unsetDuck!.props.min).toBe(0);
+    expect(unsetDuck!.props.max).toBe(95);
+    expect(unsetDuck!.props.step).toBe(5);
+    expect(unsetDuck!.props.value).toBe(60);
+    expect(unsetDuck!.props.disabled).toBe(true);
+    expect(
+      findNodes(unsetTree, (n) => typeName(n) === "DialogButton" && findText(n).includes("Clear Volume Override"))
+    ).toHaveLength(0);
+    expect(
+      findNodes(unsetTree, (n) => typeName(n) === "DialogButton" && findText(n).includes("Use Global Ducking"))
+    ).toHaveLength(0);
+
+    stateValues = [];
+    stateIdx = 0;
+    const activeProfiles: Record<string, SoundtrackProfile> = {
+      "1091500": {
+        ...sampleProfiles["1091500"],
+        volume_override: 65,
+        ducking_override: true,
+        ducking_level_override: 40,
+      },
+    };
+    const activeTree = SoundtracksTab({
+      initialGames: sampleGames,
+      initialProfiles: activeProfiles,
+    });
+
+    const duckSlider = findNodes(
+      activeTree,
+      (n) =>
+        typeName(n) === "SliderField" &&
+        String(n.props?.label) === "Ducking Attenuation Override (40%)"
+    )[0];
+    expect(duckSlider).toBeDefined();
+    expect(duckSlider.props.disabled).toBe(false);
+    duckSlider.props.onChange(75);
+    vi.advanceTimersByTime(600);
+    expect(mockSaveProfile).toHaveBeenCalledWith(
+      1091500,
+      expect.objectContaining({ ducking_level_override: 75 })
+    );
+
+    const clearVolBtn = findNodes(
+      activeTree,
+      (n) => typeName(n) === "DialogButton" && findText(n).includes("Clear Volume Override")
+    )[0];
+    const useGlobalDuckBtn = findNodes(
+      activeTree,
+      (n) => typeName(n) === "DialogButton" && findText(n).includes("Use Global Ducking")
+    )[0];
+    expect(clearVolBtn).toBeDefined();
+    expect(useGlobalDuckBtn).toBeDefined();
+
+    clearVolBtn.props.onClick();
+    vi.advanceTimersByTime(600);
+    expect(mockSaveProfile).toHaveBeenCalledWith(
+      1091500,
+      expect.objectContaining({ volume_override: null })
+    );
+
+    useGlobalDuckBtn.props.onClick();
+    vi.advanceTimersByTime(600);
+    expect(mockSaveProfile).toHaveBeenCalledWith(
+      1091500,
+      expect.objectContaining({ ducking_level_override: null })
+    );
+  });
+
+  it("flushes running-game EQ, volume, and ducking edits immediately without 500ms debounce (D-04, D-08)", () => {
+    const tree = SoundtracksTab({
+      runningAppId: 1091500,
+      initialGames: sampleGames,
+      initialProfiles: sampleProfiles,
+    });
+
+    const eqDropdown = findNodes(
+      tree,
+      (n) => typeName(n) === "DropdownItem" && n.props.label === "EQ Preset Override"
+    )[0];
+    eqDropdown.props.onChange({ data: "vocal" });
+    expect(mockSaveProfile).toHaveBeenCalledWith(
+      1091500,
+      expect.objectContaining({ eq_preset: "vocal" })
+    );
+
+    const volSlider = findNodes(
+      tree,
+      (n) => typeName(n) === "SliderField" && String(n.props?.label).includes("Volume Override")
+    )[0];
+    volSlider.props.onChange(50);
+    expect(mockSaveProfile).toHaveBeenCalledWith(
+      1091500,
+      expect.objectContaining({ volume_override: 50 })
+    );
+
+    const duckSlider = findNodes(
+      tree,
+      (n) =>
+        typeName(n) === "SliderField" &&
+        String(n.props?.label).includes("Ducking Attenuation Override")
+    )[0];
+    duckSlider.props.onChange(30);
+    expect(mockSaveProfile).toHaveBeenCalledWith(
+      1091500,
+      expect.objectContaining({ ducking_level_override: 30 })
+    );
+  });
+
+  it("guards profile deletion with two-step Delete Game Profile -> Keep Profile / Confirm Delete", async () => {
+    const showToast = vi.fn();
+    const tree1 = SoundtracksTab({
+      initialGames: sampleGames,
+      initialProfiles: sampleProfiles,
+      showToast,
+    });
+
+    const deleteBtn = findNodes(
+      tree1,
+      (n) => typeName(n) === "DialogButton" && findText(n).includes("Delete Game Profile")
+    )[0];
+    expect(deleteBtn).toBeDefined();
+    deleteBtn.props.onClick();
+    expect(mockDeleteProfile).not.toHaveBeenCalled();
+
+    stateIdx = 0;
+    const tree2 = SoundtracksTab({
+      initialGames: sampleGames,
+      initialProfiles: sampleProfiles,
+      showToast,
+    });
+
+    const keepBtn = findNodes(
+      tree2,
+      (n) => typeName(n) === "DialogButton" && findText(n).includes("Keep Profile")
+    )[0];
+    const confirmBtn = findNodes(
+      tree2,
+      (n) => typeName(n) === "DialogButton" && findText(n).includes("Confirm Delete")
+    )[0];
+    expect(keepBtn).toBeDefined();
+    expect(confirmBtn).toBeDefined();
+    expect(confirmBtn.props.style.background).toBe("#E53935");
+
+    keepBtn.props.onClick();
+    expect(stateValues[5]).toBeNull();
+    expect(mockDeleteProfile).not.toHaveBeenCalled();
+
+    stateIdx = 0;
+    const tree3 = SoundtracksTab({
+      initialGames: sampleGames,
+      initialProfiles: sampleProfiles,
+      showToast,
+    });
+    const deleteBtnAgain = findNodes(
+      tree3,
+      (n) => typeName(n) === "DialogButton" && findText(n).includes("Delete Game Profile")
+    )[0];
+    deleteBtnAgain.props.onClick();
+
+    stateIdx = 0;
+    const tree4 = SoundtracksTab({
+      initialGames: sampleGames,
+      initialProfiles: sampleProfiles,
+      showToast,
+    });
+    const confirmBtnAgain = findNodes(
+      tree4,
+      (n) => typeName(n) === "DialogButton" && findText(n).includes("Confirm Delete")
+    )[0];
+    await confirmBtnAgain.props.onClick();
+
+    expect(mockDeleteProfile).toHaveBeenCalledWith(1091500);
+    expect(stateValues[1]["1091500"]).toBeUndefined();
+    expect(showToast).toHaveBeenCalledWith("Game audio & soundtrack profile deleted");
+  });
+
+  it("renders empty, loading, audio-only, long-text truncation, and error recovery UI states", async () => {
+    const loadingTree = SoundtracksTab({});
+    expect(findText(loadingTree)).toContain("Scanning installed Steam & Non-Steam games...");
+
+    stateValues = [];
+    stateIdx = 0;
+    const emptyTree = SoundtracksTab({ initialGames: [], initialProfiles: {} });
+    const emptyText = findText(emptyTree);
+    expect(emptyText).toContain("No Game Profiles Configured");
+    expect(emptyText).toContain(
+      "No Steam or Non-Steam games matched your search. Clear the filter box above to browse all installed games."
+    );
+
+    stateValues = [];
+    stateIdx = 0;
+    const longGame: InstalledGame = {
+      app_id: 999,
+      name: "A Very Long Game Title That Must Truncate Cleanly With Ellipsis",
+      is_steam: true,
+      is_non_steam: false,
+    };
+    const audioOnlyProfiles: Record<string, SoundtrackProfile> = {
+      "999": {
+        ...defaultProfile(longGame),
+        eq_preset: "bass",
+        volume_override: 70,
+      },
+    };
+    const showToast = vi.fn();
+    mockGetInstalledGames.mockResolvedValue([longGame]);
+    mockGetProfiles.mockResolvedValue(audioOnlyProfiles);
+    mockSaveProfile.mockResolvedValueOnce({ ok: false, error: "disk error" });
+    const audioTree = SoundtracksTab({
+      runningAppId: 999,
+      initialGames: [longGame],
+      initialProfiles: audioOnlyProfiles,
+      showToast,
+    });
+    expect(findText(audioTree)).toContain("Audio profile only • EQ: Bass Boost • Vol: 70%");
+
+    const titleSpan = findNodes(
+      audioTree,
+      (n) => n.type === "span" && findText(n) === longGame.name
+    )[0];
+    expect(titleSpan.props.style).toEqual(
+      expect.objectContaining({
+        minWidth: 0,
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+      })
+    );
+
+    const volSlider = findNodes(
+      audioTree,
+      (n) => typeName(n) === "SliderField" && String(n.props?.label).includes("Volume Override")
+    )[0];
+    volSlider.props.onChange(35);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(stateValues[1]["999"].volume_override).toBe(35);
+    expect(showToast).toHaveBeenCalledWith(
+      "Failed to save game audio profile — verify Decky storage permissions and try again."
+    );
+
+    mockDeleteProfile.mockResolvedValueOnce({ ok: false });
+    const delBtn = findNodes(
+      audioTree,
+      (n) => typeName(n) === "DialogButton" && findText(n).includes("Delete Game Profile")
+    )[0];
+    delBtn.props.onClick();
+    stateIdx = 0;
+    const confirmTree = SoundtracksTab({
+      runningAppId: 999,
+      initialGames: [longGame],
+      initialProfiles: audioOnlyProfiles,
+      showToast,
+    });
+    const confirmBtn = findNodes(
+      confirmTree,
+      (n) => typeName(n) === "DialogButton" && findText(n).includes("Confirm Delete")
+    )[0];
+    await confirmBtn.props.onClick();
+    expect(stateValues[1]["999"]).toBeDefined();
+    expect(showToast).toHaveBeenCalledWith(
+      "Failed to save game audio profile — verify Decky storage permissions and try again."
     );
   });
 });
