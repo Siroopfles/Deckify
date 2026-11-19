@@ -570,6 +570,7 @@ describe("GameEqModal Component", () => {
       expect(resetBtn).toBeDefined();
       expect(resetBtn.props.style.width).toBe("auto");
       expect(resetBtn.props.style.flex).toBe(1);
+      expect(resetBtn.props.style.minWidth).toBe(0);
 
       // EqBandFaders and footer preserve MAINTAIN_X
       expect(fadersStrip.props.navEntryPreferPosition).toBe(2);

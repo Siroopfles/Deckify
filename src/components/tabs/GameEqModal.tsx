@@ -205,7 +205,7 @@ function renderSeedBarItem(
         onClick={onResetFlat}
         style={{
           width: "auto",
-          minWidth: "auto",
+          minWidth: 0,
           flex: 1,
           minHeight: 44,
           padding: "6px 8px",

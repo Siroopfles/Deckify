@@ -106,8 +106,9 @@ function resolveSeedBands(
 }
 
 function patchProfileAppName(profile: SoundtrackProfile, fallbackName: string): SoundtrackProfile {
-  if (profile.app_name?.trim() || !fallbackName) return profile;
-  return { ...profile, app_name: fallbackName };
+  const cleanFallback = fallbackName.trim();
+  if (profile.app_name?.trim() || !cleanFallback) return profile;
+  return { ...profile, app_name: cleanFallback };
 }
 
 function backfillProfileAppNames(
@@ -117,7 +118,8 @@ function backfillProfileAppNames(
   if (games.length === 0) return profiles;
   const namesById = new Map<string, string>();
   for (const game of games) {
-    if (game.name) namesById.set(String(game.app_id), game.name);
+    const cleanName = game.name?.trim();
+    if (cleanName) namesById.set(String(game.app_id), cleanName);
   }
   const next: Record<string, SoundtrackProfile> = {};
   for (const [key, prof] of Object.entries(profiles)) {

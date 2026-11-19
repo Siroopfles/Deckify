@@ -894,6 +894,84 @@ describe("SoundtracksTab Phase 19 EQ Modal, Dual Sliders, Hot-Apply & Delete UX"
     expect(stateValues[1]["1091500"].app_name).toBe("Cyberpunk 2077");
   });
 
+  it("ignores whitespace-only game.name and stores padded game.name trimmed when backfilling or patching app_name", async () => {
+    const emptyNameProfiles: Record<string, SoundtrackProfile> = {
+      "1091500": {
+        ...sampleProfiles["1091500"],
+        app_name: "",
+        eq_preset: "custom",
+      },
+    };
+    const whitespaceGames: InstalledGame[] = [{ ...sampleGames[0], name: "   " }];
+    mockGetInstalledGames.mockResolvedValueOnce(whitespaceGames);
+    mockGetProfiles.mockResolvedValueOnce(emptyNameProfiles);
+
+    const wsTree = SoundtracksTab({
+      initialGames: whitespaceGames,
+      initialProfiles: emptyNameProfiles,
+    });
+    expect(stateValues[1]["1091500"].app_name).toBe("");
+
+    const wsVolToggle = findNodes(
+      wsTree,
+      (n) => typeName(n) === "ToggleField" && n.props.label === "Volume Override"
+    )[0];
+    wsVolToggle.props.onChange(false);
+    vi.advanceTimersByTime(600);
+    expect(mockSaveProfile).toHaveBeenLastCalledWith(
+      1091500,
+      expect.objectContaining({ app_name: "", volume_override: null })
+    );
+
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(stateValues[1]["1091500"].app_name).toBe("");
+
+    // Padded game.name is trimmed during initial backfill
+    unmountAndResetMount();
+    const paddedGames: InstalledGame[] = [{ ...sampleGames[0], name: "  Cyberpunk 2077  " }];
+    mockGetInstalledGames.mockResolvedValueOnce(paddedGames);
+    mockGetProfiles.mockResolvedValueOnce(emptyNameProfiles);
+
+    SoundtracksTab({
+      initialGames: paddedGames,
+      initialProfiles: emptyNameProfiles,
+    });
+    expect(stateValues[1]["1091500"].app_name).toBe("Cyberpunk 2077");
+
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(stateValues[1]["1091500"].app_name).toBe("Cyberpunk 2077");
+
+    // Padded game.name is also trimmed when patchProfileAppName runs directly via renderGamesList / GameEqModal onSave
+    unmountAndResetMount();
+    mockGetInstalledGames.mockResolvedValueOnce([]);
+    mockGetProfiles.mockResolvedValueOnce(emptyNameProfiles);
+    SoundtracksTab({
+      initialGames: paddedGames,
+    });
+    for (let i = 0; i < 6; i += 1) {
+      await Promise.resolve();
+    }
+    expect(stateValues[1]["1091500"].app_name).toBe("");
+
+    stateIdx = 0;
+    const unpatchedTree = SoundtracksTab({
+      initialGames: paddedGames,
+    });
+    const editEqBtn = findNodes(
+      unpatchedTree,
+      (n) => typeName(n) === "DialogButton" && findText(n).includes("Edit Game EQ")
+    )[0];
+    editEqBtn.props.onClick();
+    const modalEl = mockShowModal.mock.calls[0][0];
+    await modalEl.props.onSave([1, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    expect(mockSaveProfile).toHaveBeenLastCalledWith(
+      1091500,
+      expect.objectContaining({ app_name: "Cyberpunk 2077" })
+    );
+  });
+
   it("guards profile deletion with two-step Delete Game Profile -> Keep Profile / Confirm Delete", async () => {
     const showToast = vi.fn();
     const tree1 = SoundtracksTab({
