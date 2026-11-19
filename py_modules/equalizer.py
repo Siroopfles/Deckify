@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import math
 import os
 import subprocess
 from typing import Any
@@ -33,6 +34,8 @@ EQ_OUTPUT_MEDIA_NAME = "deckify_eq_out"
 
 _SETTINGS_DIR = getattr(decky, "DECKY_PLUGIN_SETTINGS_DIR", None) or os.path.expanduser("~/.config/deckify")
 EQ_CONF_PATH = os.path.join(_SETTINGS_DIR, "eq-filter-chain.conf")
+_RUNTIME_DIR = getattr(decky, "DECKY_PLUGIN_RUNTIME_DIR", None) or os.path.expanduser("~/.config/deckify")
+EQ_PID_FILE = os.path.join(_RUNTIME_DIR, "eq.pid")
 
 EQ_PRESETS: dict[str, list[float]] = {
     "flat": [0.0] * 10,
@@ -54,12 +57,16 @@ def clamp_eq_bands(bands: Any) -> list[float]:
     result: list[float] = []
     for idx in range(10):
         if idx < len(raw):
-            try:
-                val = float(raw[idx])
-                if val != val:  # NaN guard
-                    val = 0.0
-            except (TypeError, ValueError):
+            item = raw[idx]
+            if isinstance(item, bool):
                 val = 0.0
+            else:
+                try:
+                    val = float(item)
+                    if not math.isfinite(val):  # NaN / Inf guard
+                        val = 0.0
+                except (TypeError, ValueError):
+                    val = 0.0
         else:
             val = 0.0
         result.append(round(max(-12.0, min(12.0, val)), 2))
@@ -209,16 +216,89 @@ def build_pw_cli_params(bands: list[float]) -> str:
 class EqualizerManager:
     """Manages an isolated pipewire -c filter-chain child process for Deckify EQ."""
 
-    def __init__(self, plugin: Any, conf_path: str | None = None):
+    def __init__(self, plugin: Any, conf_path: str | None = None, pid_path: str | None = None):
         self.plugin = plugin
         self.conf_path = conf_path or EQ_CONF_PATH
+        self.pid_path = pid_path or (
+            os.path.join(os.path.dirname(conf_path), "eq.pid") if conf_path else EQ_PID_FILE
+        )
         self._process: subprocess.Popen | None = None
         self._node_id: int | None = None
         self._target_hardware_sink: str | None = None
         self._throttle_task: asyncio.Task | None = None
         self._save_task: asyncio.Task | None = None
         self._pending_bands: list[float] | None = None
+        self._ephemeral_preset: str | None = None
+        self._ephemeral_bands: list[float] | None = None
+        self._ephemeral_app_id: int | None = None
+        self._ephemeral_app_name: str = ""
+        self._preview_active: bool = False
         self._lock = asyncio.Lock()
+
+    @property
+    def has_ephemeral_override(self) -> bool:
+        return isinstance(self._ephemeral_preset, str) and self._ephemeral_preset in EQ_PRESETS
+
+    def get_active_override_info(self) -> dict | None:
+        if not self.has_ephemeral_override:
+            return None
+        return {
+            "app_id": self._ephemeral_app_id,
+            "app_name": self._ephemeral_app_name,
+            "eq_preset": self._ephemeral_preset,
+        }
+
+    def _write_pid(self, pid: int) -> None:
+        if not self.pid_path or not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
+            return
+        try:
+            pid_dir = os.path.dirname(self.pid_path)
+            if pid_dir:
+                os.makedirs(pid_dir, exist_ok=True)
+            with open(self.pid_path, "w", encoding="utf-8") as f:
+                f.write(str(pid))
+        except Exception as e:
+            decky.logger.warning("Failed to write eq.pid: %s", e)
+
+    def _clear_pid(self) -> None:
+        if not self.pid_path:
+            return
+        try:
+            os.remove(self.pid_path)
+        except FileNotFoundError:
+            pass
+        except Exception as e:
+            decky.logger.warning("Failed to remove eq.pid: %s", e)
+
+    async def cleanup_stale_process(self) -> None:
+        """Clean up any orphan pipewire -c EQ process left behind by a crash."""
+        if not self.pid_path:
+            return
+        try:
+            with open(self.pid_path, "r", encoding="utf-8") as f:
+                old_pid = int(f.read().strip())
+        except (FileNotFoundError, ValueError, OSError):
+            return
+
+        if old_pid <= 0:
+            self._clear_pid()
+            return
+
+        try:
+            os.kill(old_pid, 0)
+        except (ProcessLookupError, OSError):
+            self._clear_pid()
+            return
+
+        decky.logger.info("Killing stale EQ pipewire process pid=%d", old_pid)
+        await self._fallback_to_hardware_sink()
+        try:
+            os.kill(old_pid, 15)  # SIGTERM
+        except ProcessLookupError:
+            pass
+        except OSError as e:
+            decky.logger.warning("Failed to terminate stale EQ pid=%d: %s", old_pid, e)
+        self._clear_pid()
 
     @property
     def is_active(self) -> bool:
@@ -336,6 +416,10 @@ class EqualizerManager:
             await self._fallback_to_hardware_sink()
             return {"ok": False, "error": f"Failed to spawn pipewire -c: {e}"}
 
+        proc_pid = getattr(self._process, "pid", None)
+        if isinstance(proc_pid, int) and not isinstance(proc_pid, bool) and proc_pid > 0:
+            self._write_pid(proc_pid)
+
         ready = await self._wait_for_eq_sink(timeout_s=2.0)
         if not ready or not self.is_active:
             code = self._process.poll() if self._process else None
@@ -369,12 +453,16 @@ class EqualizerManager:
         except Exception:
             pass
 
-    def _resolve_preset_bands(self, preset: str) -> list[float]:
+    def _resolve_preset_bands(self, preset: str, custom_bands: list[float] | None = None) -> list[float]:
         if preset == "custom":
+            if custom_bands is not None:
+                return clamp_eq_bands(custom_bands)
+            if self.has_ephemeral_override and self._ephemeral_bands is not None:
+                return clamp_eq_bands(self._ephemeral_bands)
             return clamp_eq_bands(self.plugin._settings.get("eq_custom_bands"))
         return list(EQ_PRESETS[preset])
 
-    async def apply_preset(self, preset: str) -> dict:
+    async def apply_preset(self, preset: str, custom_bands: list[float] | None = None) -> dict:
         """Apply an EQ preset (flat performs true bypass teardown)."""
         if preset not in EQ_PRESETS:
             return {"ok": False, "error": f"Invalid eq_preset: {preset}"}
@@ -392,7 +480,7 @@ class EqualizerManager:
                     await self._fallback_to_hardware_sink()
                 return {"ok": True, "preset": "flat", "bypassed": True}
 
-            bands = self._resolve_preset_bands(preset)
+            bands = self._resolve_preset_bands(preset, custom_bands=custom_bands)
             if not self.is_active:
                 start_res = await self._start_process(bands)
                 if not start_res.get("ok"):
@@ -403,6 +491,103 @@ class EqualizerManager:
             if self._target_hardware_sink:
                 await self._route_eq_output_to_sink(self._target_hardware_sink)
             return {"ok": True, "preset": preset, "bypassed": False}
+
+    async def apply_ephemeral_preset(
+        self,
+        preset: str | None,
+        custom_bands: list[float] | None = None,
+        app_id: int | None = None,
+        app_name: str = "",
+    ) -> dict:
+        """Apply a per-game ephemeral EQ preset without mutating persistent global settings."""
+        if preset is None or preset == "global":
+            return await self.clear_ephemeral_override()
+        if not isinstance(preset, str) or preset not in EQ_PRESETS:
+            return {"ok": False, "error": f"Invalid eq_preset: {preset}"}
+
+        clamped_bands = clamp_eq_bands(custom_bands) if preset == "custom" and custom_bands is not None else None
+        if (
+            self.has_ephemeral_override
+            and self._ephemeral_preset == preset
+            and self._ephemeral_bands == clamped_bands
+            and self._ephemeral_app_id == app_id
+            and not self._preview_active
+        ):
+            return {"ok": True, "preset": preset}
+
+        if self._throttle_task is not None and not self._throttle_task.done():
+            self._throttle_task.cancel()
+        self._throttle_task = None
+        self._pending_bands = None
+        self._preview_active = False
+
+        self._ephemeral_preset = preset
+        self._ephemeral_bands = clamped_bands
+        self._ephemeral_app_id = app_id
+        self._ephemeral_app_name = str(app_name or "")
+
+        return await self.apply_preset(preset, custom_bands=self._ephemeral_bands)
+
+    async def clear_ephemeral_override(self) -> dict:
+        """Clear any ephemeral game EQ override and restore the global EQ preset."""
+        if not self.has_ephemeral_override and not self._preview_active:
+            return {"ok": True, "restored": False}
+
+        if self._throttle_task is not None and not self._throttle_task.done():
+            self._throttle_task.cancel()
+        self._throttle_task = None
+        self._ephemeral_preset = None
+        self._ephemeral_bands = None
+        self._ephemeral_app_id = None
+        self._ephemeral_app_name = ""
+        self._preview_active = False
+        self._pending_bands = None
+
+        global_preset = self.plugin._settings.get("eq_preset", "flat")
+        if not isinstance(global_preset, str) or global_preset not in EQ_PRESETS:
+            global_preset = "flat"
+        return await self.apply_preset(global_preset)
+
+    async def preview_bands(self, bands: list[float]) -> dict:
+        """Preview 10-band EQ changes live via pw-cli without touching global settings."""
+        clamped = clamp_eq_bands(bands)
+        self._preview_active = True
+
+        if not self.is_active:
+            async with self._lock:
+                if not self.is_active:
+                    start_res = await self._start_process(clamped)
+                    if not start_res.get("ok"):
+                        self._preview_active = False
+                        return start_res
+                    await self._route_librespot_to_sink(EQ_SINK_NAME)
+                    if self._target_hardware_sink:
+                        await self._route_eq_output_to_sink(self._target_hardware_sink)
+
+        self._pending_bands = clamped
+        if self._throttle_task is None or self._throttle_task.done():
+            self._throttle_task = asyncio.create_task(self._throttled_pw_cli_flush())
+
+        return {"ok": True, "preview": True, "bands": clamped}
+
+    async def clear_preview(self) -> dict:
+        """End modal live EQ preview and restore active ephemeral or global preset."""
+        if not self._preview_active:
+            return {"ok": True, "restored": False}
+
+        if self._throttle_task is not None and not self._throttle_task.done():
+            self._throttle_task.cancel()
+        self._throttle_task = None
+        self._pending_bands = None
+        self._preview_active = False
+
+        if self.has_ephemeral_override:
+            return await self.apply_preset(self._ephemeral_preset, custom_bands=self._ephemeral_bands)
+
+        global_preset = self.plugin._settings.get("eq_preset", "flat")
+        if not isinstance(global_preset, str) or global_preset not in EQ_PRESETS:
+            global_preset = "flat"
+        return await self.apply_preset(global_preset)
 
     async def _throttled_pw_cli_flush(self) -> None:
         try:
@@ -426,6 +611,18 @@ class EqualizerManager:
         self.plugin._settings["eq_preset"] = "custom"
         self.plugin._settings["eq_custom_bands"] = clamped
 
+        if self._save_task is not None and not self._save_task.done():
+            self._save_task.cancel()
+        self._save_task = asyncio.create_task(self._debounced_save_settings())
+
+        if self.has_ephemeral_override:
+            return {
+                "ok": True,
+                "preset": "custom",
+                "bands": clamped,
+                "deferred_by_game_override": True,
+            }
+
         if not self.is_active:
             async with self._lock:
                 if not self.is_active:
@@ -439,10 +636,6 @@ class EqualizerManager:
         self._pending_bands = clamped
         if self._throttle_task is None or self._throttle_task.done():
             self._throttle_task = asyncio.create_task(self._throttled_pw_cli_flush())
-
-        if self._save_task is not None and not self._save_task.done():
-            self._save_task.cancel()
-        self._save_task = asyncio.create_task(self._debounced_save_settings())
 
         return {"ok": True, "preset": "custom", "bands": clamped}
 
@@ -461,11 +654,16 @@ class EqualizerManager:
 
     async def route_librespot_to_eq(self) -> bool:
         """Ensure EQ is running for non-flat presets and route librespot into deckify_eq_sink."""
-        preset = self.plugin._settings.get("eq_preset", "flat")
+        if self.has_ephemeral_override:
+            preset = self._ephemeral_preset
+            custom_bands = self._ephemeral_bands
+        else:
+            preset = self.plugin._settings.get("eq_preset", "flat")
+            custom_bands = None
         if preset == "flat":
             return False
         if not self.is_active:
-            res = await self.apply_preset(preset)
+            res = await self.apply_preset(preset, custom_bands=custom_bands)
             return bool(res.get("ok"))
         return await self._route_librespot_to_sink(EQ_SINK_NAME)
 
@@ -490,6 +688,7 @@ class EqualizerManager:
                     proc.kill()
                 except Exception:
                     pass
+        self._clear_pid()
 
     async def unload(self) -> None:
         """Cleanly cancel pending tasks and stop the filter-chain process on plugin unload."""
