@@ -291,6 +291,19 @@ class EqualizerManager:
             self._clear_pid()
             return
 
+        cmdline_path = f"/proc/{old_pid}/cmdline"
+        if os.path.exists(cmdline_path):
+            try:
+                with open(cmdline_path, "rb") as cf:
+                    cmdline = cf.read().decode("utf-8", errors="ignore")
+                if "pipewire" not in cmdline:
+                    decky.logger.warning("Skipping stale eq.pid=%d (not pipewire)", old_pid)
+                    self._clear_pid()
+                    return
+            except OSError:
+                self._clear_pid()
+                return
+
         decky.logger.info("Killing stale EQ pipewire process pid=%d", old_pid)
         await self._fallback_to_hardware_sink()
         try:

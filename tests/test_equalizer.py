@@ -404,6 +404,71 @@ class TestEqualizerManager(unittest.IsolatedAsyncioTestCase):
                 mock_kill.assert_not_called()
                 self.assertFalse(os.path.exists(self.mgr.pid_path))
 
+    async def test_cleanup_stale_process_verifies_proc_cmdline_before_sigterm(self):
+        import builtins
+        import io
+
+        orig_exists = os.path.exists
+        orig_open = builtins.open
+        cmdline_target = "/proc/98765/cmdline"
+
+        # 1. Recycled PID belonging to unrelated process -> skip SIGTERM, clear pid
+        with open(self.mgr.pid_path, "w", encoding="utf-8") as f:
+            f.write("98765")
+
+        def fake_open_other(path, mode="r", *args, **kwargs):
+            if path == cmdline_target:
+                return io.BytesIO(b"/usr/lib/systemd/systemd\x00--user\x00")
+            return orig_open(path, mode, *args, **kwargs)
+
+        with patch("os.kill") as mock_kill, \
+             patch("os.path.exists", side_effect=lambda p: True if p == cmdline_target else orig_exists(p)), \
+             patch("builtins.open", side_effect=fake_open_other), \
+             patch.object(self.mgr, "_fallback_to_hardware_sink", new_callable=AsyncMock) as mock_fb:
+            await self.mgr.cleanup_stale_process()
+            mock_fb.assert_not_awaited()
+            self.assertEqual(mock_kill.call_args_list, [unittest.mock.call(98765, 0)])
+            self.assertFalse(os.path.exists(self.mgr.pid_path))
+
+        # 2. Matching pipewire process -> fallback and send SIGTERM
+        with open(self.mgr.pid_path, "w", encoding="utf-8") as f:
+            f.write("98765")
+
+        def fake_open_pipewire(path, mode="r", *args, **kwargs):
+            if path == cmdline_target:
+                return io.BytesIO(b"pipewire\x00-c\x00/home/deck/.config/deckify/eq-filter-chain.conf\x00")
+            return orig_open(path, mode, *args, **kwargs)
+
+        with patch("os.kill") as mock_kill, \
+             patch("os.path.exists", side_effect=lambda p: True if p == cmdline_target else orig_exists(p)), \
+             patch("builtins.open", side_effect=fake_open_pipewire), \
+             patch.object(self.mgr, "_fallback_to_hardware_sink", new_callable=AsyncMock) as mock_fb:
+            await self.mgr.cleanup_stale_process()
+            mock_fb.assert_awaited_once()
+            self.assertEqual(
+                mock_kill.call_args_list,
+                [unittest.mock.call(98765, 0), unittest.mock.call(98765, 15)],
+            )
+            self.assertFalse(os.path.exists(self.mgr.pid_path))
+
+        # 3. OSError reading /proc/{pid}/cmdline -> skip SIGTERM, clear pid
+        with open(self.mgr.pid_path, "w", encoding="utf-8") as f:
+            f.write("98765")
+
+        def fake_open_err(path, mode="r", *args, **kwargs):
+            if path == cmdline_target:
+                raise OSError("proc vanished")
+            return orig_open(path, mode, *args, **kwargs)
+
+        with patch("os.kill") as mock_kill, \
+             patch("os.path.exists", side_effect=lambda p: True if p == cmdline_target else orig_exists(p)), \
+             patch("builtins.open", side_effect=fake_open_err), \
+             patch.object(self.mgr, "_fallback_to_hardware_sink", new_callable=AsyncMock) as mock_fb:
+            await self.mgr.cleanup_stale_process()
+            mock_fb.assert_not_awaited()
+            self.assertEqual(mock_kill.call_args_list, [unittest.mock.call(98765, 0)])
+            self.assertFalse(os.path.exists(self.mgr.pid_path))
+
     async def test_clear_ephemeral_override_flat_migrates_sink_before_stop(self):
         fake_proc = MagicMock()
         fake_proc.poll.return_value = None
