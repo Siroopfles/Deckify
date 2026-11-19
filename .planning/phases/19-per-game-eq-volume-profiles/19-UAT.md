@@ -3,7 +3,7 @@ status: testing
 phase: 19-per-game-eq-volume-profiles
 source: [19-VERIFICATION.md]
 started: 2026-11-19T08:35:00Z
-updated: 2026-11-19T17:36:30Z
+updated: 2026-11-19T18:20:30Z
 ---
 
 ## Current Test
@@ -11,7 +11,7 @@ updated: 2026-11-19T17:36:30Z
 number: 2
 name: SteamOS GamepadUI Navigation, Layout & Visual Verification (1280x800)
 expected: |
-  SoundtracksTab renders explicit Volume Override and Custom Ducking Level ToggleFields gating dedicated full-width SliderField rows without layout jumping or vertical letter-stacking, and compact DialogButtons respect width: 'auto'; GameEqModal inherits native ModalRoot surface with zero horizontal scroll, focuses body preset row on open instead of top-right Close, and navigates two 4-item preset rows -> 10-band EqBandFaders -> footer via D-pad with MAINTAIN_X alignment; SettingsTab renders Active Game EQ Override on a dedicated full-width banner row below the Equalizer header showing full resolved Steam/Non-Steam game names (e.g., PCSX2) and preset suffixes with ellipsis only on extraordinarily long titles; QAM displays GAME VOL / DUCKED pills and live effective_volume; two-step Delete Game Profile confirmation works cleanly.
+  SoundtracksTab renders explicit Volume Override and Custom Ducking Level ToggleFields gating dedicated full-width SliderField rows without layout jumping or vertical letter-stacking, compact DialogButtons respect width: 'auto', and trimmed app_name backfill displays cleanly; GameEqModal inherits native ModalRoot surface with zero horizontal scroll, focuses body preset row on open instead of top-right Close, and navigates two 4-item preset rows (with Reset to Flat flex: 1, minWidth: 0) -> 10-band EqBandFaders -> footer via D-pad with MAINTAIN_X alignment; SettingsTab renders Active Game EQ Override on a dedicated full-width banner row below the Equalizer header showing full resolved Steam/Non-Steam game names (e.g., PCSX2) and preset suffixes with ellipsis only on extraordinarily long titles; QAM displays GAME VOL / DUCKED pills, live effective_volume, and quick-bind passes verified display_name on exact appid match; two-step Delete Game Profile confirmation works cleanly.
 awaiting: user response
 
 ## Tests
@@ -21,7 +21,7 @@ expected: Launching and exiting Steam/Non-Steam games (including rapid game swit
 result: pass
 
 ### 2. SteamOS GamepadUI Navigation, Layout & Visual Verification (1280x800)
-expected: SoundtracksTab renders explicit Volume Override and Custom Ducking Level ToggleFields gating dedicated full-width SliderField rows without layout jumping or vertical letter-stacking, and compact DialogButtons respect width: 'auto'; GameEqModal inherits native ModalRoot surface with zero horizontal scroll, focuses body preset row on open instead of top-right Close, and navigates two 4-item preset rows -> 10-band EqBandFaders -> footer via D-pad with MAINTAIN_X alignment; SettingsTab renders Active Game EQ Override on a dedicated full-width banner row below the Equalizer header showing full resolved Steam/Non-Steam game names (e.g., PCSX2) and preset suffixes with ellipsis only on extraordinarily long titles; QAM displays GAME VOL / DUCKED pills and live effective_volume; two-step Delete Game Profile confirmation works cleanly.
+expected: SoundtracksTab renders explicit Volume Override and Custom Ducking Level ToggleFields gating dedicated full-width SliderField rows without layout jumping or vertical letter-stacking, compact DialogButtons respect width: 'auto', and trimmed app_name backfill displays cleanly; GameEqModal inherits native ModalRoot surface with zero horizontal scroll, focuses body preset row on open instead of top-right Close, and navigates two 4-item preset rows (with Reset to Flat flex: 1, minWidth: 0) -> 10-band EqBandFaders -> footer via D-pad with MAINTAIN_X alignment; SettingsTab renders Active Game EQ Override on a dedicated full-width banner row below the Equalizer header showing full resolved Steam/Non-Steam game names (e.g., PCSX2) and preset suffixes with ellipsis only on extraordinarily long titles; QAM displays GAME VOL / DUCKED pills, live effective_volume, and quick-bind passes verified display_name on exact appid match; two-step Delete Game Profile confirmation works cleanly.
 result: [pending]
 
 ### 3. Mid-Game Crash Recovery & Sleep Timer _sleep_locked Priority on Hardware
