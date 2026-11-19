@@ -425,6 +425,110 @@ class TestEqualizerManager(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(res["ok"])
             self.assertEqual(order, ["fallback", "stop"])
 
+    async def test_preview_bands_cancelled_by_clear_preview_during_startup_does_not_flush(self):
+        self.mock_plugin._settings["eq_preset"] = "bass"
+        fake_proc = MagicMock()
+        fake_proc.poll.return_value = None
+        start_entered = asyncio.Event()
+        release_start = asyncio.Event()
+        applied_bands: list[list[float]] = []
+
+        async def slow_start(bands):
+            start_entered.set()
+            await release_start.wait()
+            self.mgr._process = fake_proc
+            self.mgr._node_id = 444
+            return {"ok": True}
+
+        async def rec_pw_cli(bands):
+            applied_bands.append(list(bands))
+            return True
+
+        with patch.object(self.mgr, "_start_process", side_effect=slow_start), \
+             patch.object(self.mgr, "_route_librespot_to_sink", new_callable=AsyncMock, return_value=True), \
+             patch.object(self.mgr, "_route_eq_output_to_sink", new_callable=AsyncMock, return_value=True), \
+             patch.object(self.mgr, "_apply_pw_cli_params", side_effect=rec_pw_cli):
+            preview_task = asyncio.create_task(self.mgr.preview_bands([8.0] + [0.0] * 9))
+            await start_entered.wait()
+            clear_task = asyncio.create_task(self.mgr.clear_preview())
+            await asyncio.sleep(0)
+            release_start.set()
+            preview_res, clear_res = await asyncio.gather(preview_task, clear_task)
+            await asyncio.sleep(0.12)
+
+        self.assertEqual(preview_res, {"ok": True, "preview": False, "cancelled": True})
+        self.assertTrue(clear_res["ok"])
+        self.assertFalse(self.mgr._preview_active)
+        self.assertEqual(applied_bands, [equalizer.EQ_PRESETS["bass"]])
+
+    async def test_preview_bands_and_set_bands_cancelled_by_apply_ephemeral_preset_during_startup(self):
+        fake_proc = MagicMock()
+        fake_proc.poll.return_value = None
+        start_entered = asyncio.Event()
+        release_start = asyncio.Event()
+        applied_bands: list[list[float]] = []
+
+        async def slow_start(bands):
+            start_entered.set()
+            await release_start.wait()
+            self.mgr._process = fake_proc
+            self.mgr._node_id = 445
+            return {"ok": True}
+
+        async def rec_pw_cli(bands):
+            applied_bands.append(list(bands))
+            return True
+
+        with patch.object(self.mgr, "_start_process", side_effect=slow_start), \
+             patch.object(self.mgr, "_route_librespot_to_sink", new_callable=AsyncMock, return_value=True), \
+             patch.object(self.mgr, "_apply_pw_cli_params", side_effect=rec_pw_cli):
+            preview_task = asyncio.create_task(self.mgr.preview_bands([9.0] + [0.0] * 9))
+            await start_entered.wait()
+            ephem_task = asyncio.create_task(
+                self.mgr.apply_ephemeral_preset("gaming", app_id=77, app_name="TestGame")
+            )
+            await asyncio.sleep(0)
+            release_start.set()
+            preview_res, ephem_res = await asyncio.gather(preview_task, ephem_task)
+            await asyncio.sleep(0.12)
+
+        self.assertEqual(preview_res, {"ok": True, "preview": False, "cancelled": True})
+        self.assertTrue(ephem_res["ok"])
+        self.assertFalse(self.mgr._preview_active)
+        self.assertEqual(applied_bands, [equalizer.EQ_PRESETS["gaming"]])
+
+        # Now test set_bands startup race against apply_ephemeral_preset + apply_preset cancelling active throttle
+        self.mgr._process = None
+        self.mgr._ephemeral_preset = None
+        applied_bands.clear()
+        start_entered.clear()
+        release_start.clear()
+        with patch.object(self.mgr, "_start_process", side_effect=slow_start), \
+             patch.object(self.mgr, "_route_librespot_to_sink", new_callable=AsyncMock, return_value=True), \
+             patch.object(self.mgr, "_apply_pw_cli_params", side_effect=rec_pw_cli), \
+             patch.object(equalizer, "_save_settings"):
+            set_task = asyncio.create_task(self.mgr.set_bands([7.0] + [0.0] * 9))
+            await start_entered.wait()
+            ephem_task2 = asyncio.create_task(
+                self.mgr.apply_ephemeral_preset("vocal", app_id=77, app_name="TestGame")
+            )
+            await asyncio.sleep(0)
+            release_start.set()
+            set_res, _ = await asyncio.gather(set_task, ephem_task2)
+            await asyncio.sleep(0.12)
+            self.assertTrue(set_res.get("deferred_by_game_override"))
+            self.assertEqual(applied_bands, [equalizer.EQ_PRESETS["vocal"]])
+
+            # Non-flat apply_preset cancels an already-scheduled _throttle_task
+            self.mgr._ephemeral_preset = None
+            applied_bands.clear()
+            await self.mgr.preview_bands([10.0] + [0.0] * 9)
+            await self.mgr.apply_preset("bass")
+            await asyncio.sleep(0.12)
+            self.assertEqual(applied_bands, [equalizer.EQ_PRESETS["bass"]])
+            if self.mgr._save_task and not self.mgr._save_task.done():
+                self.mgr._save_task.cancel()
+
 
 class TestSinkIsolationAndVolumeEQ(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
