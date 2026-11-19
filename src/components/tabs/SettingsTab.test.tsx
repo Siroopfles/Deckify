@@ -653,6 +653,108 @@ describe("Equalizer & Audio Presets", () => {
     });
     expect(findText(bassTree)).toContain("Preamp: -6.0 dB");
   });
+
+  it("renders Active Game EQ Override badge and global isolation caption only when active_game_override is present", () => {
+    const idleTree = SettingsTab({
+      status: { ...mockStatus, active_game_override: null },
+      refreshStatus,
+      showToast,
+    });
+    expect(findText(idleTree)).not.toContain("Active Game EQ Override:");
+    expect(findText(idleTree)).not.toContain("Edits below update your global baseline");
+
+    const overrideTree = SettingsTab({
+      status: {
+        ...mockStatus,
+        active_game_override: {
+          app_id: 1091500,
+          app_name: "Cyberpunk 2077",
+          eq_preset: "gaming",
+        },
+      },
+      refreshStatus,
+      showToast,
+    });
+    const text = findText(overrideTree);
+    expect(text).toContain("Active Game EQ Override: Cyberpunk 2077 (Gaming Balance)");
+    expect(text).toContain(
+      "Edits below update your global baseline and apply automatically after Cyberpunk 2077 exits."
+    );
+  });
+
+  it("keeps global preset pills and 10-band sliders bound to global persistence while an active game override runs (D-03)", async () => {
+    const overrideStatus: StatusResponse = {
+      ...mockStatus,
+      settings: {
+        ...mockStatus.settings!,
+        eq_preset: "bass",
+      },
+      active_game_override: {
+        app_id: 1091500,
+        app_name: "Cyberpunk 2077",
+        eq_preset: "gaming",
+      },
+    };
+    const tree = SettingsTab({
+      status: overrideStatus,
+      refreshStatus,
+      showToast,
+    });
+
+    expect(findText(tree)).toContain("Active Game EQ Override: Cyberpunk 2077 (Gaming Balance)");
+
+    const pills = findNodes(tree, (n) => n.type === InteractiveRow);
+    const vocalPill = pills.find((p) => findText(p) === "Vocal Clarity");
+    expect(vocalPill).toBeDefined();
+    await vocalPill.props.onClick();
+    expect(mockSetSetting).toHaveBeenCalledWith("eq_preset", "vocal");
+
+    const inc31 = pills.find((p) => p.props?.["aria-label"] === "Increase 31 Hz");
+    expect(inc31).toBeDefined();
+    await inc31.props.onClick();
+    expect(mockSetEqBands).toHaveBeenCalledTimes(1);
+    const sentBands = mockSetEqBands.mock.calls[0][0];
+    expect(sentBands).toHaveLength(10);
+    expect(sentBands[0]).toBe(5.5);
+    expect(sentBands[1]).toBe(-1.5);
+  });
+
+  it("protects long app_name Active Game EQ Override badge with ellipsis truncation and subscribes to game_audio_override_changed", () => {
+    const longName =
+      "A Very Long Steam Game Title That Exceeds The Header Width On Handheld 1280x800 Screen";
+    const tree = SettingsTab({
+      status: {
+        ...mockStatus,
+        active_game_override: {
+          app_id: 999999,
+          app_name: longName,
+          eq_preset: "custom",
+        },
+      },
+      refreshStatus,
+      showToast,
+    });
+
+    const badge = findNodes(
+      tree,
+      (n) => n.props?.["data-testid"] === "active-game-eq-override-badge"
+    )[0];
+    expect(badge).toBeDefined();
+    expect(findText(badge)).toContain(`Active Game EQ Override: ${longName} (Custom)`);
+    expect(badge.props.style).toMatchObject({
+      minWidth: 0,
+      overflow: "hidden",
+      textOverflow: "ellipsis",
+      whiteSpace: "nowrap",
+    });
+
+    const regCall = (
+      mockAddEventListener.mock.calls as unknown as Array<[string, (data: unknown) => void]>
+    ).find((call) => call[0] === "game_audio_override_changed");
+    expect(regCall).toBeDefined();
+    regCall?.[1]?.({ active: false, app_id: null });
+    expect(refreshStatus).toHaveBeenCalled();
+  });
 });
 
 describe("SettingsTab Docked Audio-Switching (Phase 16)", () => {
