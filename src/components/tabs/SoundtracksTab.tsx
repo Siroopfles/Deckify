@@ -105,6 +105,28 @@ function resolveSeedBands(
   return [...(EQ_PRESET_CURVES[globalEqPreset] || EQ_PRESET_CURVES.flat)];
 }
 
+function patchProfileAppName(profile: SoundtrackProfile, fallbackName: string): SoundtrackProfile {
+  if (profile.app_name?.trim() || !fallbackName) return profile;
+  return { ...profile, app_name: fallbackName };
+}
+
+function backfillProfileAppNames(
+  profiles: Record<string, SoundtrackProfile>,
+  games: InstalledGame[]
+): Record<string, SoundtrackProfile> {
+  if (games.length === 0) return profiles;
+  const namesById = new Map<string, string>();
+  for (const game of games) {
+    if (game.name) namesById.set(String(game.app_id), game.name);
+  }
+  const next: Record<string, SoundtrackProfile> = {};
+  for (const [key, prof] of Object.entries(profiles)) {
+    const fallback = namesById.get(key) || namesById.get(String(prof.app_id)) || "";
+    next[key] = fallback ? patchProfileAppName(prof, fallback) : prof;
+  }
+  return next;
+}
+
 function executeSaveProfile(
   appId: number,
   updated: SoundtrackProfile,
@@ -342,7 +364,9 @@ function renderPlaylistSection(opts: {
             onClick={() => onPersist(game.app_id, removePlaylist(profile, pl.uri))}
             aria-label={`Remove ${pl.name}`}
             style={{
+              width: "auto",
               minWidth: 24,
+              flexShrink: 0,
               padding: "2px 6px",
               fontSize: 12,
               background: "transparent",
@@ -356,6 +380,8 @@ function renderPlaylistSection(opts: {
       <DialogButton
         onClick={() => onOpenPicker(game)}
         style={{
+          width: "auto",
+          minWidth: "auto",
           display: "flex",
           alignItems: "center",
           gap: 6,
@@ -444,6 +470,7 @@ function renderEqPresetRow(opts: {
         <DialogButton
           onClick={() => onOpenEqModal(game, profile, isRunning)}
           style={{
+            width: "auto",
             minWidth: "auto",
             minHeight: 44,
             padding: "8px 12px",
@@ -504,19 +531,28 @@ function renderVolumeOverrideRow(opts: {
   onPersist: PersistFn;
 }) {
   const { game, profile, isRunning, onPersist } = opts;
+  const volumeEnabled = profile.volume_override != null;
   return (
     <Focusable
-      flow-children="horizontal"
-      style={{ display: "flex", gap: 8, alignItems: "center" }}
+      flow-children="column"
+      style={{ display: "flex", flexDirection: "column", gap: 4 }}
     >
-      <div style={{ flex: 1, minWidth: 0 }}>
+      <ToggleField
+        label="Volume Override"
+        description={
+          volumeEnabled
+            ? `Capped at ${profile.volume_override}% relative to global volume`
+            : "Disabled — using global volume"
+        }
+        checked={volumeEnabled}
+        onChange={(enabled: boolean) =>
+          onPersist(game.app_id, setVolumeOverride(profile, enabled ? 80 : null), isRunning)
+        }
+      />
+      {volumeEnabled && profile.volume_override != null && (
         <SliderField
-          label={
-            profile.volume_override != null
-              ? `Volume Override (${profile.volume_override}%)`
-              : "Volume Override (Disabled)"
-          }
-          value={profile.volume_override ?? 80}
+          label={`Volume Override (${profile.volume_override}%)`}
+          value={profile.volume_override}
           min={0}
           max={100}
           step={5}
@@ -525,21 +561,6 @@ function renderVolumeOverrideRow(opts: {
             onPersist(game.app_id, setVolumeOverride(profile, val), isRunning)
           }
         />
-      </div>
-      {profile.volume_override != null && (
-        <DialogButton
-          onClick={() => onPersist(game.app_id, setVolumeOverride(profile, null), isRunning)}
-          style={{
-            minWidth: "auto",
-            minHeight: 44,
-            padding: "6px 10px",
-            fontSize: 12,
-            fontWeight: 700,
-            flexShrink: 0,
-          }}
-        >
-          Clear Volume Override
-        </DialogButton>
       )}
     </Focusable>
   );
@@ -554,45 +575,44 @@ function renderDuckingOverrideRow(opts: {
 }) {
   const { game, profile, isRunning, globalDuckingPct, onPersist } = opts;
   const fallbackDucking = Math.min(95, Math.max(0, globalDuckingPct));
+  const duckingDisabled = profile.ducking_override === false;
+  const customDuckingEnabled = profile.ducking_level_override != null;
+  const description = duckingDisabled
+    ? "Game ducking disabled above"
+    : customDuckingEnabled
+      ? `Duck by ${profile.ducking_level_override}% during gameplay`
+      : `Using global ducking (${fallbackDucking}%)`;
   return (
     <Focusable
-      flow-children="horizontal"
-      style={{ display: "flex", gap: 8, alignItems: "center" }}
+      flow-children="column"
+      style={{ display: "flex", flexDirection: "column", gap: 4 }}
     >
-      <div style={{ flex: 1, minWidth: 0 }}>
+      <ToggleField
+        label="Custom Ducking Level"
+        description={description}
+        checked={customDuckingEnabled}
+        disabled={duckingDisabled}
+        onChange={(enabled: boolean) =>
+          onPersist(
+            game.app_id,
+            setDuckingLevelOverride(profile, enabled ? fallbackDucking : null),
+            isRunning
+          )
+        }
+      />
+      {customDuckingEnabled && profile.ducking_level_override != null && (
         <SliderField
-          label={
-            profile.ducking_level_override != null
-              ? `Ducking Attenuation Override (${profile.ducking_level_override}%)`
-              : "Ducking Attenuation Override (Use Global)"
-          }
-          value={profile.ducking_level_override ?? fallbackDucking}
+          label={`Ducking Attenuation Override (${profile.ducking_level_override}%)`}
+          value={profile.ducking_level_override}
           min={0}
           max={95}
           step={5}
           showValue
-          disabled={profile.ducking_override === false}
+          disabled={duckingDisabled}
           onChange={(val: number) =>
             onPersist(game.app_id, setDuckingLevelOverride(profile, val), isRunning)
           }
         />
-      </div>
-      {profile.ducking_level_override != null && (
-        <DialogButton
-          onClick={() =>
-            onPersist(game.app_id, setDuckingLevelOverride(profile, null), isRunning)
-          }
-          style={{
-            minWidth: "auto",
-            minHeight: 44,
-            padding: "6px 10px",
-            fontSize: 12,
-            fontWeight: 700,
-            flexShrink: 0,
-          }}
-        >
-          Use Global Ducking
-        </DialogButton>
       )}
     </Focusable>
   );
@@ -615,6 +635,7 @@ function renderProfileDeleteActions(opts: {
         <DialogButton
           onClick={() => onStartConfirm(appId)}
           style={{
+            width: "auto",
             minWidth: "auto",
             minHeight: 44,
             padding: "6px 12px",
@@ -640,13 +661,21 @@ function renderProfileDeleteActions(opts: {
     >
       <DialogButton
         onClick={onCancelConfirm}
-        style={{ minWidth: "auto", minHeight: 44, padding: "6px 12px", fontSize: 12, fontWeight: 700 }}
+        style={{
+          width: "auto",
+          minWidth: "auto",
+          minHeight: 44,
+          padding: "6px 12px",
+          fontSize: 12,
+          fontWeight: 700,
+        }}
       >
         Keep Profile
       </DialogButton>
       <DialogButton
         onClick={() => onConfirmDelete(appId)}
         style={{
+          width: "auto",
           minWidth: "auto",
           minHeight: 44,
           padding: "6px 12px",
@@ -867,6 +896,14 @@ function useProfileSaveActions(opts: {
   };
 }
 
+function applyGameEqBands(
+  profile: SoundtrackProfile,
+  fallbackName: string,
+  bands: number[]
+): SoundtrackProfile {
+  return setEqCustomBands(setEqPreset(patchProfileAppName(profile, fallbackName), "custom"), bands);
+}
+
 function useGameModalActions(opts: {
   profilesRef: MutableRefObject<Record<string, SoundtrackProfile>>;
   setProfiles: Dispatch<SetStateAction<Record<string, SoundtrackProfile>>>;
@@ -897,7 +934,7 @@ function useGameModalActions(opts: {
           onClose={() => onPickerOpenChangeRef.current?.(false)}
           onSelect={(item: SoundtrackPlaylist) => {
             setProfiles((prev) => {
-              const current = prev[key] || defaultProfile(game);
+              const current = patchProfileAppName(prev[key] || defaultProfile(game), game.name);
               const updated = addPlaylist(current, item);
               scheduleSave(game.app_id, updated);
               return { ...prev, [key]: updated };
@@ -923,11 +960,10 @@ function useGameModalActions(opts: {
           showToast={showToast}
           onClose={() => onPickerOpenChangeRef.current?.(false)}
           onSave={(bands: number[]) => {
-            const current = profilesRef.current[key] || profile;
-            const next = setEqCustomBands(setEqPreset(current, "custom"), bands);
+            const next = applyGameEqBands(profilesRef.current[key] || profile, game.name, bands);
             setProfiles((prev) => ({
               ...prev,
-              [key]: setEqCustomBands(setEqPreset(prev[key] || profile, "custom"), bands),
+              [key]: applyGameEqBands(prev[key] || profile, game.name, bands),
             }));
             return saveImmediate(game.app_id, next);
           }}
@@ -977,10 +1013,13 @@ function useInitialSoundtrackLoad(opts: {
       backendGetProfiles().catch(() => ({})),
     ]).then(([fetchedGames, fetchedProfiles]) => {
       if (!mounted) return;
-      if (Array.isArray(fetchedGames) && fetchedGames.length > 0) setGames(fetchedGames);
+      const gamesList = Array.isArray(fetchedGames) ? fetchedGames : [];
+      if (gamesList.length > 0) setGames(gamesList);
       if (fetchedProfiles && typeof fetchedProfiles === "object") {
         const norm = normalizeProfiles(fetchedProfiles);
-        if (Object.keys(norm).length > 0) setProfiles(norm);
+        if (Object.keys(norm).length > 0) {
+          setProfiles(backfillProfileAppNames(norm, gamesList));
+        }
       }
       setLoading(false);
     });
@@ -1063,7 +1102,9 @@ function renderGamesList(opts: {
     <Focusable flow-children="column" data-deckify-sorted="az" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
       {visibleGames.map((game) => {
         const existingProfile = profiles[String(game.app_id)];
-        const profile = existingProfile || defaultProfile(game);
+        const profile = existingProfile
+          ? patchProfileAppName(existingProfile, game.name)
+          : defaultProfile(game);
         const isRunning = Boolean(game.is_running || (runningAppId !== null && game.app_id === runningAppId));
         const isDefaultExpanded = Boolean(existingProfile) || isRunning;
         const isExpanded = isDefaultExpanded ? !collapsedAppIds[game.app_id] : expandedAppId === game.app_id;
@@ -1108,7 +1149,9 @@ export const SoundtracksTab: FC<SoundtracksTabProps> = ({
 }) => {
   const [games, setGames] = useState<InstalledGame[]>(initialGames || []);
   const [profiles, setProfiles] = useState<Record<string, SoundtrackProfile>>(
-    initialProfiles ? normalizeProfiles(initialProfiles) : {}
+    initialProfiles
+      ? backfillProfileAppNames(normalizeProfiles(initialProfiles), initialGames || [])
+      : {}
   );
   const [searchQuery, setSearchQuery] = useState("");
   const [expandedAppId, setExpandedAppId] = useState<number | null>(runningAppId ?? null);
