@@ -84,6 +84,7 @@ import { InteractiveRow } from "../common/InteractiveRow";
 import {
   EQ_BAND_LABELS,
   EQ_PRESET_CURVES,
+  EqBandFaders,
   normalizeEqBands,
 } from "../common/EqBandFaders";
 
@@ -595,5 +596,26 @@ describe("GameEqModal Async Save Preview Recovery", () => {
     await savePromise;
     expect(mockClearEqPreview).not.toHaveBeenCalled();
     expect(closeModal).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("EqBandFaders Component Wrapper", () => {
+  it("delegates directly to renderEqBandFaders and forwards band changes", () => {
+    const onBandChange = vi.fn();
+    const tree = EqBandFaders({
+      bands: [1, 0, 0, 0, 0, 0, 0, 0, 0, -2],
+      onBandChange,
+    });
+    const sliders = findNodes(tree, (n) => n.props?.role === "slider");
+    expect(sliders).toHaveLength(10);
+    expect(sliders[0].props["aria-valuenow"]).toBe(1);
+    expect(sliders[9].props["aria-valuenow"]).toBe(-2);
+
+    const inc31 = findNodes(
+      tree,
+      (n) => n.type === InteractiveRow && n.props?.["aria-label"] === "Increase 31 Hz"
+    )[0];
+    inc31.props.onClick();
+    expect(onBandChange).toHaveBeenCalledWith(0, 1.5);
   });
 });

@@ -8,6 +8,7 @@ import subprocess
 from typing import Any
 
 from py_modules.common import (
+    EQ_PID_FILE,
     _build_deck_command,
     _exec,
     _save_settings,
@@ -34,8 +35,6 @@ EQ_OUTPUT_MEDIA_NAME = "deckify_eq_out"
 
 _SETTINGS_DIR = getattr(decky, "DECKY_PLUGIN_SETTINGS_DIR", None) or os.path.expanduser("~/.config/deckify")
 EQ_CONF_PATH = os.path.join(_SETTINGS_DIR, "eq-filter-chain.conf")
-_RUNTIME_DIR = getattr(decky, "DECKY_PLUGIN_RUNTIME_DIR", None) or os.path.expanduser("~/.config/deckify")
-EQ_PID_FILE = os.path.join(_RUNTIME_DIR, "eq.pid")
 
 EQ_PRESETS: dict[str, list[float]] = {
     "flat": [0.0] * 10,

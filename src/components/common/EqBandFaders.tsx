@@ -231,4 +231,8 @@ export function renderEqBandFaders({ bands, onBandChange }: EqBandFadersProps) {
   );
 }
 
+/**
+ * Thin JSX component wrapper over `renderEqBandFaders`.
+ * `SettingsTab` and `GameEqModal` call `renderEqBandFaders` directly for shallow tree compatibility.
+ */
 export const EqBandFaders: FC<EqBandFadersProps> = (props) => renderEqBandFaders(props);

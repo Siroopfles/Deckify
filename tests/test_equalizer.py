@@ -137,6 +137,7 @@ class TestCommonSettingsEQ(unittest.TestCase):
         self.assertIn("active_game_override_snapshot", common.DEFAULT_SETTINGS)
         self.assertIsNone(common.DEFAULT_SETTINGS["active_game_override_snapshot"])
         self.assertTrue(common.EQ_PID_FILE.endswith("eq.pid"))
+        self.assertEqual(equalizer.EQ_PID_FILE, common.EQ_PID_FILE)
 
         with tempfile.TemporaryDirectory() as tmpdir:
             settings_path = os.path.join(tmpdir, "settings.json")
