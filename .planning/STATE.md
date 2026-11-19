@@ -5,16 +5,16 @@ milestone_name: Studio, Living Room TV, Offline Travel & Ultimate Immersion (In 
 current_phase: 19
 current_phase_name: Per-Game EQ & Volume Profiles
 status: executing
-stopped_at: Completed 19-02-PLAN.md
-last_updated: "2026-11-19T07:41:09.274Z"
+stopped_at: Completed 19-03-PLAN.md
+last_updated: "2026-11-19T07:52:50.658Z"
 last_activity: 2026-11-19
 last_activity_desc: Phase 19 execution started
-state_head: f56272bcad38b292b204e37bdd83a4588da3b290
+state_head: def41750a36da775595cf8cf77b553e9d3430758
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 4
-  completed_plans: 2
+  completed_plans: 3
   percent: 0
 ---
 
@@ -30,7 +30,7 @@ See: [.planning/PROJECT.md](file:///C:/Users/djdje/Deckify/.planning/PROJECT.md)
 ## Current Position
 
 Phase: 19 (Per-Game EQ & Volume Profiles) — EXECUTING
-Plan: 3 of 4
+Plan: 4 of 4
 Status: Ready to execute
 Last activity: 2026-11-19 — Phase 19 execution started
 
@@ -104,6 +104,7 @@ Last activity: 2026-11-19 — Phase 19 execution started
 | Phase 18.1 P02 | 5min | 2 tasks | 5 files |
 | Phase 19 P01 | 12min | 3 tasks | 11 files |
 | Phase 19 P02 | 7min | 2 tasks | 3 files |
+| Phase 19 P03 | 9min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -157,6 +158,9 @@ Recent decisions affecting current work:
 - [Phase 19]: Unified per-game volume ceiling (0..100%) and attenuation (0..95%) locally in PipeWire VolumeFader, removing Spotify Web API set_volume from SoundtrackManager
 - [Phase 19]: Sequenced SoundtrackManager _run_launch/_run_exit with 0-playlist audio-only activation, A->B baseline preservation, and _sleep_locked protection
 - [Phase 19]: Extracted shared _validate_eq_bands in main.py for set_eq_bands/preview_eq_bands and gated _main() crash recovery on active_game_override_snapshot and _sleep_locked
+- [Phase 19]: Exposed renderEqBandFaders as a plain function alongside EqBandFaders FC so shallow JSX tests continue locating all 10 role=slider nodes
+- [Phase 19]: Extracted useGameEqState and sendPreviewRequest in GameEqModal.tsx to satisfy ESLint line and complexity limits with zero warnings
+- [Phase 19]: Gated clear_eq_preview on Discard/Cancel/unmount and non-running Save while skipping clear_eq_preview only when isRunningGame && savedRef.current
 
 ### Pending Todos
 
@@ -187,8 +191,8 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-19T07:41:09.173Z
-Stopped at: Completed 19-02-PLAN.md
+Last session: 2026-11-19T07:52:50.569Z
+Stopped at: Completed 19-03-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
