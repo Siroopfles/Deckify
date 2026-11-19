@@ -336,14 +336,17 @@ class TestPluginRpc(unittest.IsolatedAsyncioTestCase):
         res = await self.plugin.handle_app_lifetime_event("77", 1)
         self.assertEqual(res, {"ok": True, "app_id": 77, "running": True})
         mgr.handle_app_lifecycle.assert_awaited_once_with(77, True)
-        self.plugin.trigger_ducking.assert_awaited_once_with(True, "game", 77)
+        # D-10: no immediate t=0 trigger_ducking; ducking is sequenced post-debounce in _run_launch
+        self.plugin.trigger_ducking.assert_not_called()
 
     async def test_ducking_override_false_skips_duck(self):
         mgr = self.plugin._get_soundtrack_manager()
         mgr.save_profile(77, {"ducking_override": False})
         mgr.handle_app_lifecycle = AsyncMock()
         self.plugin.trigger_ducking = AsyncMock()
-        await self.plugin.handle_app_lifetime_event(77, True)
+        res = await self.plugin.handle_app_lifetime_event(77, True)
+        self.assertEqual(res, {"ok": True, "app_id": 77, "running": True})
+        mgr.handle_app_lifecycle.assert_awaited_once_with(77, True)
         self.plugin.trigger_ducking.assert_not_called()
 
     async def test_lifecycle_exit_does_not_immediately_unduck(self):
@@ -442,6 +445,186 @@ class TestPluginRpc(unittest.IsolatedAsyncioTestCase):
             "image": "",
         })
         self.assertEqual(res["profile"]["mode"], "rotation")
+
+    async def test_save_and_delete_profile_refresh_active_overrides(self):
+        mgr = self.plugin._get_soundtrack_manager()
+        mgr.refresh_active_overrides = AsyncMock()
+
+        # Inactive game -> does not call refresh_active_overrides
+        mgr._active_game_app_id = None
+        res_inactive = await self.plugin.save_game_soundtrack_profile(77, {"eq_preset": "gaming"})
+        self.assertTrue(res_inactive["ok"])
+        mgr.refresh_active_overrides.assert_not_awaited()
+
+        # Active game -> save and delete both immediately refresh active overrides
+        mgr._active_game_app_id = 77
+        res_save = await self.plugin.save_game_soundtrack_profile(77, {"eq_preset": "bass", "volume_override": 60})
+        self.assertTrue(res_save["ok"])
+        mgr.refresh_active_overrides.assert_awaited_once_with(77)
+
+        mgr.refresh_active_overrides.reset_mock()
+        res_del_other = await self.plugin.delete_game_soundtrack_profile(88)
+        self.assertTrue(res_del_other["ok"])
+        mgr.refresh_active_overrides.assert_not_awaited()
+
+        res_del = await self.plugin.delete_game_soundtrack_profile(77)
+        self.assertTrue(res_del["ok"])
+        mgr.refresh_active_overrides.assert_awaited_once_with(77)
+
+    async def test_trigger_ducking_exit_skips_when_exit_debounce_pending(self):
+        mgr = self.plugin._get_soundtrack_manager()
+        mgr._exit_task = asyncio.create_task(asyncio.sleep(1.0))
+        try:
+            self.plugin._volume_fader._duck_reasons.add("game")
+            self.plugin._volume_fader._game_override = {"volume_override": 60, "ducking_level_override": None}
+            res = await self.plugin.trigger_ducking(False, "game")
+            self.assertTrue(res["ok"])
+            self.assertEqual(res["skipped"], "exit_debounce_pending")
+            self.assertTrue(res["is_ducked"])
+            self.assertTrue(res["has_game_override"])
+            self.assertIn("game", self.plugin._volume_fader._duck_reasons)
+
+            # Voice release is NOT blocked by game exit debounce
+            self.plugin._volume_fader._duck_reasons.add("voice")
+            with patch.object(self.plugin._volume_fader, "set_ducking", new_callable=AsyncMock) as mock_set_duck:
+                res_voice = await self.plugin.trigger_ducking(False, "voice")
+            self.assertTrue(res_voice["ok"])
+            self.assertNotIn("skipped", res_voice)
+            mock_set_duck.assert_awaited_once_with(False, reason="voice")
+        finally:
+            mgr._exit_task.cancel()
+            try:
+                await mgr._exit_task
+            except asyncio.CancelledError:
+                pass
+
+    async def test_status_and_ducking_state_expose_game_override_and_hide_snapshot(self):
+        from py_modules import equalizer
+
+        self.plugin._settings["active_game_override_snapshot"] = {"app_id": 1091500, "eq_preset": "gaming"}
+        eq_mgr = equalizer.EqualizerManager(self.plugin)
+        eq_mgr._ephemeral_preset = "gaming"
+        eq_mgr._ephemeral_app_id = 1091500
+        eq_mgr._ephemeral_app_name = "Cyberpunk 2077"
+        self.plugin._equalizer_manager = eq_mgr
+        self.plugin._soundtrack_manager._active_game_app_id = 1091500
+        self.plugin._volume_fader._game_override = {
+            "volume_override": 70,
+            "ducking_override": None,
+            "ducking_level_override": None,
+        }
+
+        status = await self.plugin.get_status()
+        self.assertNotIn("active_game_override_snapshot", status["settings"])
+        self.assertEqual(status["active_game_app_id"], 1091500)
+        self.assertEqual(
+            status["active_game_override"],
+            {"app_id": 1091500, "app_name": "Cyberpunk 2077", "eq_preset": "gaming"},
+        )
+        dstate = await self.plugin.get_ducking_state()
+        self.assertTrue(dstate["has_game_override"])
+
+        # Inactive state
+        eq_mgr._ephemeral_preset = None
+        self.plugin._soundtrack_manager._active_game_app_id = None
+        self.plugin._volume_fader._game_override = None
+        status_idle = await self.plugin.get_status()
+        self.assertIsNone(status_idle["active_game_app_id"])
+        self.assertIsNone(status_idle["active_game_override"])
+        dstate_idle = await self.plugin.get_ducking_state()
+        self.assertFalse(dstate_idle["has_game_override"])
+
+    async def test_set_setting_rejects_active_game_override_snapshot(self):
+        res = await self.plugin.set_setting("active_game_override_snapshot", {"app_id": 999})
+        self.assertFalse(res["ok"])
+        self.assertIn("managed internally", res["error"])
+        self.assertIsNone(self.plugin._settings.get("active_game_override_snapshot"))
+
+    async def test_main_boot_crash_recovery_flat_running_and_sleep_locked(self):
+        # 1. Stale snapshot + initial_eq == "flat" -> cleans stale PID, clears snapshot, tears down EQ, fades to baseline
+        flat_settings = {
+            **self.main.DEFAULT_SETTINGS,
+            "eq_preset": "flat",
+            "active_game_override_snapshot": {"app_id": 1091500, "eq_preset": "gaming"},
+        }
+        with patch.object(self.main, "_load_settings", return_value=flat_settings), \
+             patch.object(self.main, "_exec", new_callable=AsyncMock), \
+             patch.object(self.main, "SuspendResumeMonitor"), \
+             patch.object(self.main.volume.VoiceActivityDetector, "start"), \
+             patch.object(self.main.dock.DockAudioSwitcher, "start"), \
+             patch.object(self.main.dock.DockAudioSwitcher, "evaluate_now", new_callable=AsyncMock), \
+             patch.object(self.main.resilience.LibrespotEventServer, "start", new_callable=AsyncMock), \
+             patch.object(self.main.mpris.MprisBridge, "start", new_callable=AsyncMock), \
+             patch.object(self.plugin, "_sync_native_spotify_folders", new_callable=AsyncMock), \
+             patch.object(self.plugin, "start_librespot", new_callable=AsyncMock), \
+             patch.object(self.main.equalizer.EqualizerManager, "cleanup_stale_process", new_callable=AsyncMock) as m_clean, \
+             patch.object(self.main.equalizer.EqualizerManager, "apply_preset", new_callable=AsyncMock, return_value={"ok": True}) as m_apply, \
+             patch.object(self.main.volume.VolumeFader, "fade_to", new_callable=AsyncMock) as m_fade:
+            await self.plugin._main()
+            m_clean.assert_awaited_once()
+            m_apply.assert_awaited_once_with("flat")
+            self.assertIsNone(self.plugin._settings["active_game_override_snapshot"])
+            m_fade.assert_awaited_once_with(100.0, 0.0)
+            self.assertEqual(self.plugin._volume_fader._duck_reasons, set())
+            self.assertIsNone(self.plugin._volume_fader._game_override)
+
+        # 2. Same app_id already reported running during startup -> skips crash recovery
+        running_settings = {
+            **self.main.DEFAULT_SETTINGS,
+            "eq_preset": "flat",
+            "active_game_override_snapshot": {"app_id": 1091500, "eq_preset": "gaming"},
+        }
+
+        async def mark_running():
+            self.plugin._soundtrack_manager._active_game_app_id = 1091500
+
+        with patch.object(self.main, "_load_settings", return_value=running_settings), \
+             patch.object(self.main, "_exec", new_callable=AsyncMock), \
+             patch.object(self.main, "SuspendResumeMonitor"), \
+             patch.object(self.main.volume.VoiceActivityDetector, "start"), \
+             patch.object(self.main.dock.DockAudioSwitcher, "start"), \
+             patch.object(self.main.dock.DockAudioSwitcher, "evaluate_now", new_callable=AsyncMock), \
+             patch.object(self.main.resilience.LibrespotEventServer, "start", new_callable=AsyncMock), \
+             patch.object(self.main.mpris.MprisBridge, "start", new_callable=AsyncMock), \
+             patch.object(self.plugin, "_sync_native_spotify_folders", new_callable=AsyncMock), \
+             patch.object(self.plugin, "start_librespot", side_effect=mark_running), \
+             patch.object(self.main.equalizer.EqualizerManager, "cleanup_stale_process", new_callable=AsyncMock), \
+             patch.object(self.main.equalizer.EqualizerManager, "apply_preset", new_callable=AsyncMock, return_value={"ok": True}) as m_apply, \
+             patch.object(self.main.volume.VolumeFader, "fade_to", new_callable=AsyncMock) as m_fade:
+            await self.plugin._main()
+            self.assertEqual(self.plugin._settings["active_game_override_snapshot"], {"app_id": 1091500, "eq_preset": "gaming"})
+            m_apply.assert_not_awaited()
+            m_fade.assert_not_awaited()
+
+        # 3. _sleep_locked True -> restores EQ and clears snapshot, but skips VolumeFader fade_to / un-duck
+        sleep_settings = {
+            **self.main.DEFAULT_SETTINGS,
+            "eq_preset": "bass",
+            "active_game_override_snapshot": {"app_id": 1091500, "eq_preset": "gaming"},
+        }
+
+        async def lock_sleep():
+            self.plugin._volume_fader._sleep_locked = True
+            self.plugin._volume_fader._duck_reasons.add("game")
+
+        with patch.object(self.main, "_load_settings", return_value=sleep_settings), \
+             patch.object(self.main, "_exec", new_callable=AsyncMock), \
+             patch.object(self.main, "SuspendResumeMonitor"), \
+             patch.object(self.main.volume.VoiceActivityDetector, "start"), \
+             patch.object(self.main.dock.DockAudioSwitcher, "start"), \
+             patch.object(self.main.dock.DockAudioSwitcher, "evaluate_now", new_callable=AsyncMock), \
+             patch.object(self.main.resilience.LibrespotEventServer, "start", new_callable=AsyncMock), \
+             patch.object(self.main.mpris.MprisBridge, "start", new_callable=AsyncMock), \
+             patch.object(self.plugin, "_sync_native_spotify_folders", new_callable=AsyncMock), \
+             patch.object(self.plugin, "start_librespot", side_effect=lock_sleep), \
+             patch.object(self.main.equalizer.EqualizerManager, "cleanup_stale_process", new_callable=AsyncMock), \
+             patch.object(self.main.equalizer.EqualizerManager, "apply_preset", new_callable=AsyncMock, return_value={"ok": True}) as m_apply, \
+             patch.object(self.main.volume.VolumeFader, "fade_to", new_callable=AsyncMock) as m_fade:
+            await self.plugin._main()
+            self.assertIsNone(self.plugin._settings["active_game_override_snapshot"])
+            m_apply.assert_awaited_once_with("bass")
+            m_fade.assert_not_awaited()
+            self.assertIn("game", self.plugin._volume_fader._duck_reasons)
 
 
 class TestPerGameAudioProfiles(SoundtrackBase):
