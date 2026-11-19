@@ -1,0 +1,501 @@
+import { describe, it, expect, vi, beforeEach } from "vitest";
+
+const mockPreviewEqBands = vi.fn();
+const mockClearEqPreview = vi.fn();
+
+vi.mock("@decky/api", () => ({
+  callable: (name: string) => {
+    if (name === "preview_eq_bands") return (...args: any[]) => mockPreviewEqBands(...args);
+    if (name === "clear_eq_preview") return (...args: any[]) => mockClearEqPreview(...args);
+    return vi.fn().mockResolvedValue({ ok: true });
+  },
+}));
+
+vi.mock("@decky/ui", () => ({
+  ModalRoot: ({ children, ...props }: any) => ({ type: "ModalRoot", props: { children, ...props } }),
+  Focusable: ({ children, ...props }: any) => ({ type: "Focusable", props: { children, ...props } }),
+  DialogButton: ({ children, ...props }: any) => ({ type: "DialogButton", props: { children, ...props } }),
+}));
+
+vi.mock("react-icons/fa", () => ({
+  FaSlidersH: () => ({ type: "FaSlidersH" }),
+  FaTimes: () => ({ type: "FaTimes" }),
+  FaUndo: () => ({ type: "FaUndo" }),
+}));
+
+vi.mock("react/jsx-dev-runtime", () => ({
+  jsxDEV: (type: any, props: any, key: any) => ({
+    type,
+    props: { ...props, ...(key !== undefined ? { key } : {}) },
+  }),
+}));
+
+vi.mock("react/jsx-runtime", () => ({
+  jsx: (type: any, props: any, key: any) => ({
+    type,
+    props: { ...props, ...(key !== undefined ? { key } : {}) },
+  }),
+  jsxs: (type: any, props: any, key: any) => ({
+    type,
+    props: { ...props, ...(key !== undefined ? { key } : {}) },
+  }),
+}));
+
+let stateValues: any[] = [];
+let stateIdx = 0;
+let refValues: any[] = [];
+let refIdx = 0;
+let mountedEffects: boolean[] = [];
+let effectIdx = 0;
+let effectCleanups: Array<() => void> = [];
+
+vi.mock("react", () => ({
+  useState: (init: any) => {
+    const idx = stateIdx++;
+    if (!(idx in stateValues)) {
+      stateValues[idx] = typeof init === "function" ? init() : init;
+    }
+    const setter = (val: any) => {
+      stateValues[idx] = typeof val === "function" ? val(stateValues[idx]) : val;
+    };
+    return [stateValues[idx], setter];
+  },
+  useRef: (init: any) => {
+    const idx = refIdx++;
+    if (!(idx in refValues)) {
+      refValues[idx] = { current: init };
+    }
+    return refValues[idx];
+  },
+  useEffect: (fn: any) => {
+    const idx = effectIdx++;
+    if (!mountedEffects[idx]) {
+      mountedEffects[idx] = true;
+      const cleanup = fn();
+      if (typeof cleanup === "function") {
+        effectCleanups.push(cleanup);
+      }
+    }
+  },
+}));
+
+import { GameEqModal, GameEqModalProps } from "./GameEqModal";
+import { InteractiveRow } from "../common/InteractiveRow";
+import { EQ_BAND_LABELS, EQ_PRESET_CURVES } from "../common/EqBandFaders";
+
+function renderModal(props: GameEqModalProps) {
+  stateIdx = 0;
+  refIdx = 0;
+  effectIdx = 0;
+  return GameEqModal(props);
+}
+
+function unmountModal() {
+  for (const cleanup of effectCleanups) {
+    cleanup();
+  }
+}
+
+function typeName(n: any): string {
+  return typeof n?.type === "string" ? n.type : n?.type?.name || "";
+}
+
+function findNodes(tree: any, predicate: (node: any) => boolean, results: any[] = []): any[] {
+  if (!tree) return results;
+  if (Array.isArray(tree)) {
+    for (const child of tree) findNodes(child, predicate, results);
+    return results;
+  }
+  if (predicate(tree)) results.push(tree);
+  if (tree.props && tree.props.children) {
+    findNodes(tree.props.children, predicate, results);
+  }
+  return results;
+}
+
+function findText(tree: any): string {
+  if (!tree) return "";
+  if (typeof tree === "string" || typeof tree === "number") return String(tree);
+  if (Array.isArray(tree)) return tree.map(findText).join(" ");
+  if (tree.props && tree.props.children) return findText(tree.props.children);
+  return "";
+}
+
+describe("GameEqModal Component", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    stateValues = [];
+    stateIdx = 0;
+    refValues = [];
+    refIdx = 0;
+    mountedEffects = [];
+    effectIdx = 0;
+    effectCleanups = [];
+    mockPreviewEqBands.mockResolvedValue({ ok: true });
+    mockClearEqPreview.mockResolvedValue({ ok: true, restored: true });
+  });
+
+  it("renders null when isOpen is false without calling clear_eq_preview", () => {
+    const tree = renderModal({
+      isOpen: false,
+      gameName: "Hades",
+      onSave: vi.fn(),
+    });
+    expect(tree).toBeNull();
+    expect(mockClearEqPreview).not.toHaveBeenCalled();
+  });
+
+  it("seeds initial bands from seedBands when initialBands is null and prefers initialBands when provided (D-02)", () => {
+    const seed = [3, 2, 1, 0, -1, -2, 0, 1, 2, 3];
+    const seededTree = renderModal({
+      gameName: "Hades",
+      initialBands: null,
+      seedBands: seed,
+      onSave: vi.fn(),
+    });
+    const seededSliders = findNodes(seededTree, (n) => n.props?.role === "slider");
+    expect(seededSliders.map((s) => s.props["aria-valuenow"])).toEqual(seed);
+
+    // Fresh mount with explicit initialBands overrides seedBands and clamps/rounds 0.5 dB steps
+    stateValues = [];
+    refValues = [];
+    mountedEffects = [];
+    effectCleanups = [];
+    const custom = [15, -15, 3.7, 0, 0, 0, 0, 0, 0, 0];
+    const customTree = renderModal({
+      gameName: "Cyberpunk 2077",
+      initialBands: custom,
+      seedBands: seed,
+      onSave: vi.fn(),
+    });
+    const customSliders = findNodes(customTree, (n) => n.props?.role === "slider");
+    expect(customSliders.map((s) => s.props["aria-valuenow"])).toEqual([
+      12, -12, 3.5, 0, 0, 0, 0, 0, 0, 0,
+    ]);
+  });
+
+  it("displays neutral empty caption when all bands are 0 and Preamp readout when boosted", () => {
+    const flatTree = renderModal({
+      gameName: "Celeste",
+      onSave: vi.fn(),
+    });
+    const flatText = findText(flatTree);
+    expect(flatText).toContain("Celeste — Custom Game EQ");
+    expect(flatText).toContain("Bypass (0.0 dB)");
+    expect(flatText).toContain(
+      "Flat Curve (0.0 dB) — Adjust any band slider or choose Copy from Preset to sculpt this game's EQ."
+    );
+
+    // Check 1280x800 container overflow & maxHeight constraints
+    const outerFocusable = findNodes(
+      flatTree,
+      (n) => typeName(n) === "Focusable" && n.props?.["flow-children"] === "column"
+    )[0];
+    expect(outerFocusable.props.style).toMatchObject({
+      maxHeight: "82vh",
+      overflowY: "auto",
+    });
+
+    // Fresh mount with boosted bass curve
+    stateValues = [];
+    refValues = [];
+    mountedEffects = [];
+    effectCleanups = [];
+    const bassTree = renderModal({
+      gameName: "DOOM Eternal",
+      initialBands: EQ_PRESET_CURVES.bass,
+      onSave: vi.fn(),
+    });
+    const bassText = findText(bassTree);
+    expect(bassText).toContain("Preamp: -6.0 dB");
+    expect(bassText).toContain("Live PipeWire audio preview active");
+  });
+
+  it("renders all 10 ISO role='slider' controls and stepping +0.5 dB triggers preview_eq_bands", async () => {
+    const tree = renderModal({
+      gameName: "Hades",
+      onSave: vi.fn(),
+    });
+
+    const sliders = findNodes(tree, (n) => n.props?.role === "slider");
+    expect(sliders).toHaveLength(10);
+    expect(sliders.map((s) => s.props["aria-label"])).toEqual(EQ_BAND_LABELS);
+    for (const s of sliders) {
+      expect(s.props["aria-valuemin"]).toBe(-12);
+      expect(s.props["aria-valuemax"]).toBe(12);
+    }
+
+    const inc31 = findNodes(
+      tree,
+      (n) => n.type === InteractiveRow && n.props?.["aria-label"] === "Increase 31 Hz"
+    )[0];
+    expect(inc31).toBeDefined();
+    await inc31.props.onClick();
+
+    expect(mockPreviewEqBands).toHaveBeenCalledWith([0.5, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    const updatedTree = renderModal({
+      gameName: "Hades",
+      onSave: vi.fn(),
+    });
+    expect(findText(updatedTree)).toContain("Preamp: -0.5 dB");
+
+    // Pointer drag on slider computes dB from rect and snaps to 0.5 dB steps
+    const slider3 = findNodes(updatedTree, (n) => n.props?.role === "slider")[2];
+    slider3.props.onPointerDown({
+      pointerId: 1,
+      clientY: 25,
+      currentTarget: {
+        setPointerCapture: vi.fn(),
+        getBoundingClientRect: () => ({ top: 0, bottom: 100, height: 100 }),
+      },
+    });
+    expect(mockPreviewEqBands).toHaveBeenLastCalledWith([0.5, 0, 6, 0, 0, 0, 0, 0, 0, 0]);
+  });
+
+  it("supports Copy from Preset pills (Bass Boost, Global) and Reset to Flat with live preview", async () => {
+    const seed = [1, 1, 0, 0, 0, 0, 0, 0, 0, 0];
+    const tree = renderModal({
+      gameName: "Elden Ring",
+      seedBands: seed,
+      onSave: vi.fn(),
+    });
+
+    const rows = findNodes(tree, (n) => n.type === InteractiveRow);
+    const bassPill = rows.find((r) => findText(r).includes("Bass Boost"));
+    const globalPill = rows.find((r) => findText(r).includes("Global"));
+    const resetBtn = findNodes(
+      tree,
+      (n) => typeName(n) === "DialogButton" && findText(n).includes("Reset to Flat")
+    )[0];
+
+    expect(bassPill).toBeDefined();
+    expect(globalPill).toBeDefined();
+    expect(resetBtn).toBeDefined();
+
+    await bassPill.props.onClick();
+    expect(mockPreviewEqBands).toHaveBeenLastCalledWith(EQ_PRESET_CURVES.bass);
+
+    await globalPill.props.onClick();
+    expect(mockPreviewEqBands).toHaveBeenLastCalledWith(seed);
+
+    await resetBtn.props.onClick();
+    expect(mockPreviewEqBands).toHaveBeenLastCalledWith(EQ_PRESET_CURVES.flat);
+  });
+
+  it("handles failed or rejected preview_eq_bands gracefully without losing local slider edits", async () => {
+    const showToast = vi.fn();
+    mockPreviewEqBands.mockResolvedValueOnce({ ok: false, error: "PipeWire down" });
+
+    const tree = renderModal({
+      gameName: "Hades",
+      showToast,
+      onSave: vi.fn(),
+    });
+    const inc31 = findNodes(
+      tree,
+      (n) => n.type === InteractiveRow && n.props?.["aria-label"] === "Increase 31 Hz"
+    )[0];
+
+    await expect(inc31.props.onClick()).resolves.toBeUndefined();
+    expect(showToast).toHaveBeenCalledWith(
+      "Equalizer preview unavailable — audio routed directly to hardware output. Check PipeWire status in Settings."
+    );
+
+    let reRendered = renderModal({
+      gameName: "Hades",
+      showToast,
+      onSave: vi.fn(),
+    });
+    expect(findText(reRendered)).toContain(
+      "Equalizer preview unavailable — audio routed directly to hardware output. Check PipeWire status in Settings."
+    );
+    const slidersAfterFail = findNodes(reRendered, (n) => n.props?.role === "slider");
+    expect(slidersAfterFail[0].props["aria-valuenow"]).toBe(0.5);
+
+    // Rejected promise also recovers cleanly without losing edits
+    mockPreviewEqBands.mockRejectedValueOnce(new Error("RPC timeout"));
+    const inc62 = findNodes(
+      reRendered,
+      (n) => n.type === InteractiveRow && n.props?.["aria-label"] === "Increase 62 Hz"
+    )[0];
+    await expect(inc62.props.onClick()).resolves.toBeUndefined();
+
+    reRendered = renderModal({
+      gameName: "Hades",
+      showToast,
+      onSave: vi.fn(),
+    });
+    const slidersAfterReject = findNodes(reRendered, (n) => n.props?.role === "slider");
+    expect(slidersAfterReject[0].props["aria-valuenow"]).toBe(0.5);
+    expect(slidersAfterReject[1].props["aria-valuenow"]).toBe(0.5);
+  });
+
+  it("calls clear_eq_preview on Save Game EQ, Discard Changes, onCancel, and unmount when isRunningGame is false (D-02)", async () => {
+    const onSave = vi.fn();
+    const closeModal = vi.fn();
+    const onClose = vi.fn();
+
+    const tree = renderModal({
+      gameName: "Portal 2",
+      isRunningGame: false,
+      onSave,
+      closeModal,
+      onClose,
+    });
+
+    const bassPill = findNodes(
+      tree,
+      (n) => n.type === InteractiveRow && findText(n).includes("Bass Boost")
+    )[0];
+    await bassPill.props.onClick();
+
+    const saveBtn = findNodes(
+      tree,
+      (n) => typeName(n) === "DialogButton" && findText(n).includes("Save Game EQ")
+    )[0];
+    saveBtn.props.onClick();
+
+    expect(onSave).toHaveBeenCalledWith(EQ_PRESET_CURVES.bass);
+    expect(mockClearEqPreview).toHaveBeenCalledTimes(1);
+    expect(closeModal).toHaveBeenCalledTimes(1);
+    expect(onClose).toHaveBeenCalledTimes(1);
+
+    // Unmount after Save should not duplicate clear_eq_preview
+    unmountModal();
+    expect(mockClearEqPreview).toHaveBeenCalledTimes(1);
+
+    // Fresh mount: Discard Changes calls clear_eq_preview without onSave
+    vi.clearAllMocks();
+    stateValues = [];
+    refValues = [];
+    mountedEffects = [];
+    effectCleanups = [];
+    const onSave2 = vi.fn();
+    const closeModal2 = vi.fn();
+    const tree2 = renderModal({
+      gameName: "Portal 2",
+      isRunningGame: false,
+      onSave: onSave2,
+      closeModal: closeModal2,
+    });
+    const discardBtn = findNodes(
+      tree2,
+      (n) => typeName(n) === "DialogButton" && findText(n).includes("Discard Changes")
+    )[0];
+    discardBtn.props.onClick();
+    expect(onSave2).not.toHaveBeenCalled();
+    expect(mockClearEqPreview).toHaveBeenCalledTimes(1);
+    expect(closeModal2).toHaveBeenCalledTimes(1);
+
+    // Fresh mount: ModalRoot onCancel + unmount without clicking Save/Discard calls clear_eq_preview
+    vi.clearAllMocks();
+    stateValues = [];
+    refValues = [];
+    mountedEffects = [];
+    effectCleanups = [];
+    const onSave3 = vi.fn();
+    const tree3 = renderModal({
+      gameName: "Portal 2",
+      isRunningGame: false,
+      onSave: onSave3,
+    });
+    const modalRoot = findNodes(tree3, (n) => typeName(n) === "ModalRoot")[0];
+    modalRoot.props.onCancel();
+    expect(onSave3).not.toHaveBeenCalled();
+    expect(mockClearEqPreview).toHaveBeenCalledTimes(1);
+
+    vi.clearAllMocks();
+    stateValues = [];
+    refValues = [];
+    mountedEffects = [];
+    effectCleanups = [];
+    renderModal({
+      gameName: "Portal 2",
+      isRunningGame: false,
+      onSave: vi.fn(),
+    });
+    unmountModal();
+    expect(mockClearEqPreview).toHaveBeenCalledTimes(1);
+  });
+
+  it("skips clear_eq_preview on Save Game EQ and unmount when isRunningGame is true, while calling clear_eq_preview on Discard/onCancel/unmount-without-save", async () => {
+    const onSave = vi.fn();
+    const closeModal = vi.fn();
+    const tree = renderModal({
+      gameName: "Cyberpunk 2077",
+      isRunningGame: true,
+      onSave,
+      closeModal,
+    });
+
+    const inc31 = findNodes(
+      tree,
+      (n) => n.type === InteractiveRow && n.props?.["aria-label"] === "Increase 31 Hz"
+    )[0];
+    await inc31.props.onClick();
+
+    const saveBtn = findNodes(
+      tree,
+      (n) => typeName(n) === "DialogButton" && findText(n).includes("Save Game EQ")
+    )[0];
+    saveBtn.props.onClick();
+
+    expect(onSave).toHaveBeenCalledWith([0.5, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    expect(mockClearEqPreview).not.toHaveBeenCalled();
+    expect(closeModal).toHaveBeenCalledTimes(1);
+
+    // Unmounting after Save while game is running must STILL skip clear_eq_preview
+    unmountModal();
+    expect(mockClearEqPreview).not.toHaveBeenCalled();
+
+    // Fresh mount while game is running: Discard Changes MUST restore saved game EQ via clear_eq_preview
+    vi.clearAllMocks();
+    stateValues = [];
+    refValues = [];
+    mountedEffects = [];
+    effectCleanups = [];
+    const onSaveDiscard = vi.fn();
+    const treeDiscard = renderModal({
+      gameName: "Cyberpunk 2077",
+      isRunningGame: true,
+      onSave: onSaveDiscard,
+    });
+    const discardBtn = findNodes(
+      treeDiscard,
+      (n) => typeName(n) === "DialogButton" && findText(n).includes("Discard Changes")
+    )[0];
+    discardBtn.props.onClick();
+    expect(onSaveDiscard).not.toHaveBeenCalled();
+    expect(mockClearEqPreview).toHaveBeenCalledTimes(1);
+
+    // Fresh mount while game is running: unmount without saving MUST restore via clear_eq_preview
+    vi.clearAllMocks();
+    stateValues = [];
+    refValues = [];
+    mountedEffects = [];
+    effectCleanups = [];
+    renderModal({
+      gameName: "Cyberpunk 2077",
+      isRunningGame: true,
+      onSave: vi.fn(),
+    });
+    unmountModal();
+    expect(mockClearEqPreview).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses flow-children='horizontal' on all horizontal strips and zero flow-children='row'", () => {
+    const tree = renderModal({
+      gameName: "Hades",
+      onSave: vi.fn(),
+    });
+    const rowFocusables = findNodes(tree, (n) => n.props?.["flow-children"] === "row");
+    expect(rowFocusables).toHaveLength(0);
+
+    const horizontalFocusables = findNodes(
+      tree,
+      (n) => n.props?.["flow-children"] === "horizontal"
+    );
+    // 1) preset seed pills strip, 2) 10-band EQ fader strip, 3) footer actions strip
+    expect(horizontalFocusables.length).toBeGreaterThanOrEqual(3);
+  });
+});
