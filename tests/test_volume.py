@@ -457,6 +457,52 @@ class TestVolumeFader(unittest.IsolatedAsyncioTestCase):
         await self.fader.release_sleep_lock(0.0, wait=True)
         self.assertAlmostEqual(self.fader._current_sink_volume, 100.0, places=2)
 
+    async def test_concurrent_fade_to_only_spawns_latest_task_without_parallel_overlap(self):
+        self.fader._cached_sink_input_id = "42"
+        started_targets: list[float] = []
+        applied_volumes: list[float] = []
+        in_flight_execs = 0
+        max_concurrent_execs = 0
+        first_entered = asyncio.Event()
+
+        orig_exec = self.fader._execute_fade
+
+        async def wrapped_exec(target_vol: float, duration_sec: float) -> None:
+            nonlocal in_flight_execs, max_concurrent_execs
+            started_targets.append(target_vol)
+            in_flight_execs += 1
+            max_concurrent_execs = max(max_concurrent_execs, in_flight_execs)
+            try:
+                await orig_exec(target_vol, duration_sec)
+            finally:
+                in_flight_execs -= 1
+
+        async def slow_apply(sink_id: str, pct: float) -> bool:
+            applied_volumes.append(pct)
+            first_entered.set()
+            await asyncio.sleep(0.01)
+            return True
+
+        with patch.object(self.fader, "_execute_fade", side_effect=wrapped_exec), \
+             patch.object(self.fader, "_apply_sink_volume", side_effect=slow_apply), \
+             patch.object(self.fader, "_emit_state", new_callable=AsyncMock):
+            await self.fader.fade_to(90.0, 2.0)
+            await first_entered.wait()
+
+            # Two concurrent fade_to calls race while the initial fade task is cancelling
+            await asyncio.gather(
+                self.fader.fade_to(60.0, 0.0),
+                self.fader.fade_to(25.0, 0.0),
+            )
+            if self.fader._fade_task:
+                await self.fader._fade_task
+
+        self.assertEqual(max_concurrent_execs, 1)
+        self.assertEqual(started_targets, [90.0, 25.0])
+        self.assertAlmostEqual(self.fader._current_sink_volume, 25.0, places=2)
+        self.assertAlmostEqual(self.fader._target_sink_volume, 25.0, places=2)
+        self.assertAlmostEqual(applied_volumes[-1], 25.0, places=2)
+
 
 class test_volume_fader(TestVolumeFader):
     """Alias for -k test_volume_fader CLI filtering."""
