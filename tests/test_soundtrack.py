@@ -24,12 +24,25 @@ def make_plugin():
     settings["game_audio_profiles"] = {}
     settings["soundtrack_launch_debounce"] = 0.05
     settings["soundtrack_exit_debounce"] = 0.05
+    fader = SimpleNamespace(
+        _sleep_locked=False,
+        _cached_sink_input_id="99",
+        _game_override=None,
+        _duck_reasons=set(),
+        apply_game_override=AsyncMock(),
+        clear_game_override=AsyncMock(),
+    )
+    eq_mgr = SimpleNamespace(
+        apply_ephemeral_preset=AsyncMock(return_value={"ok": True}),
+        clear_ephemeral_override=AsyncMock(return_value={"ok": True}),
+    )
     return SimpleNamespace(
         _settings=settings,
         _ensure_token=AsyncMock(return_value="tok"),
         _auto_transfer_and_play=AsyncMock(return_value={"ok": True}),
         _save_settings=MagicMock(),
-        _volume_fader=MagicMock(),
+        _volume_fader=fader,
+        _equalizer_manager=eq_mgr,
         play_tracks=AsyncMock(return_value={"ok": True}),
         control_playback=AsyncMock(return_value={"ok": True}),
         set_shuffle=AsyncMock(return_value={"ok": True}),
@@ -210,10 +223,17 @@ class TestLifecycle(SoundtrackBase):
         with patch.object(self.mgr, "get_player_state", AsyncMock(return_value=snap(vol=70))):
             await self.mgr.handle_app_lifecycle(10, True)
             await self.settle()
-            self.plugin.set_volume.assert_awaited_with(33)
+            self.plugin._volume_fader.apply_game_override.assert_awaited_once_with(
+                active_duck=True,
+                volume_override=33,
+                ducking_override=None,
+                ducking_level_override=None,
+            )
+            self.plugin.set_volume.assert_not_called()
             await self.mgr.handle_app_lifecycle(10, False)
             await self.settle()
-        self.plugin.set_volume.assert_awaited_with(70)
+        self.plugin._volume_fader.clear_game_override.assert_awaited_once()
+        self.plugin.set_volume.assert_not_called()
 
 
 class TestUnbound(SoundtrackBase):
@@ -422,6 +442,237 @@ class TestPluginRpc(unittest.IsolatedAsyncioTestCase):
             "image": "",
         })
         self.assertEqual(res["profile"]["mode"], "rotation")
+
+
+class TestPerGameAudioProfiles(SoundtrackBase):
+    def test_sanitize_profile_phase19_fields_and_boundaries(self):
+        self.mgr.save_profile(50, {
+            "eq_preset": "GAMING",
+            "eq_custom_bands": [15.0, -15.0, 1.236, float("nan"), True, "bad"],
+            "ducking_level_override": 99,
+            "volume_override": True,
+        })
+        p = self.mgr.get_profile(50)
+        self.assertEqual(p["eq_preset"], "gaming")
+        self.assertEqual(p["eq_custom_bands"][:6], [12.0, -12.0, 1.24, 0.0, 0.0, 0.0])
+        self.assertEqual(p["ducking_level_override"], 95)
+        self.assertIsNone(p["volume_override"])
+
+        # "global" -> None, invalid preset -> None, bool ducking_level_override -> None, -5 -> 0
+        self.mgr.save_profile(50, {
+            "eq_preset": "global",
+            "eq_custom_bands": "not-a-list",
+            "ducking_level_override": True,
+            "volume_override": -1,
+        })
+        p2 = self.mgr.get_profile(50)
+        self.assertIsNone(p2["eq_preset"])
+        self.assertIsNone(p2["eq_custom_bands"])
+        self.assertIsNone(p2["ducking_level_override"])
+        self.assertEqual(p2["volume_override"], 0)
+
+        self.mgr.save_profile(50, {"eq_preset": "bogus", "ducking_level_override": -5})
+        p3 = self.mgr.get_profile(50)
+        self.assertIsNone(p3["eq_preset"])
+        self.assertEqual(p3["ducking_level_override"], 0)
+
+    async def test_audio_only_profile_and_prompt_switch_apply_overrides(self):
+        # 0-playlist audio-only profile while music is already playing -> applies EQ & volume, zero prompt_switch
+        self.mgr.save_profile(101, {
+            "app_name": "Hades",
+            "playlists": [],
+            "eq_preset": "bass",
+            "volume_override": 65,
+            "ducking_override": False,
+        })
+        with patch.object(self.mgr, "get_player_state", AsyncMock(return_value=snap(playing=True))), \
+             patch.object(soundtrack.decky, "emit", new_callable=AsyncMock) as mock_emit:
+            await self.mgr.handle_app_lifecycle(101, True)
+            await self.settle()
+
+        self.plugin._equalizer_manager.apply_ephemeral_preset.assert_awaited_once_with(
+            "bass", custom_bands=None, app_id=101, app_name="Hades"
+        )
+        self.plugin._volume_fader.apply_game_override.assert_awaited_once_with(
+            active_duck=False,
+            volume_override=65,
+            ducking_override=False,
+            ducking_level_override=None,
+        )
+        self.plugin.play_tracks.assert_not_called()
+        self.plugin.set_volume.assert_not_called()
+        prompt_calls = [c for c in mock_emit.await_args_list if c.args and c.args[0] == "soundtrack_prompt_switch"]
+        self.assertEqual(prompt_calls, [])
+
+        # Linked playlist with always_auto_start=False while music is playing -> prompt_switch AND audio overrides
+        self.plugin._equalizer_manager.apply_ephemeral_preset.reset_mock()
+        self.plugin._volume_fader.apply_game_override.reset_mock()
+        self.mgr.save_profile(102, {
+            "app_name": "Elden Ring",
+            "playlists": [{"uri": PL_A, "name": "Epic"}],
+            "always_auto_start": False,
+            "eq_preset": "gaming",
+            "volume_override": 70,
+            "ducking_level_override": 40,
+        })
+        with patch.object(self.mgr, "get_player_state", AsyncMock(return_value=snap(playing=True))), \
+             patch.object(soundtrack.decky, "emit", new_callable=AsyncMock) as mock_emit:
+            await self.mgr.handle_app_lifecycle(102, True)
+            await self.settle()
+
+        self.plugin._equalizer_manager.apply_ephemeral_preset.assert_awaited_once()
+        self.plugin._volume_fader.apply_game_override.assert_awaited_once_with(
+            active_duck=True,
+            volume_override=70,
+            ducking_override=None,
+            ducking_level_override=40,
+        )
+        prompt_calls = [c for c in mock_emit.await_args_list if c.args and c.args[0] == "soundtrack_prompt_switch"]
+        self.assertEqual(len(prompt_calls), 1)
+
+    async def test_launch_and_exit_sequencing_and_snapshot_persistence(self):
+        events: list[str] = []
+
+        async def rec_eq(*args, **kwargs):
+            events.append("eq_apply")
+            return {"ok": True}
+
+        async def rec_fader(*args, **kwargs):
+            self.assertIsNone(self.plugin._volume_fader._cached_sink_input_id)
+            events.append("fader_apply")
+
+        async def rec_eq_clear():
+            events.append("eq_clear")
+            return {"ok": True}
+
+        async def rec_fader_clear():
+            self.assertIsNone(self.plugin._volume_fader._cached_sink_input_id)
+            events.append("fader_clear")
+
+        self.plugin._equalizer_manager.apply_ephemeral_preset = AsyncMock(side_effect=rec_eq)
+        self.plugin._volume_fader.apply_game_override = AsyncMock(side_effect=rec_fader)
+        self.plugin._equalizer_manager.clear_ephemeral_override = AsyncMock(side_effect=rec_eq_clear)
+        self.plugin._volume_fader.clear_game_override = AsyncMock(side_effect=rec_fader_clear)
+
+        self.mgr.save_profile(200, {
+            "app_name": "Portal 2",
+            "eq_preset": "vocal",
+            "volume_override": 75,
+        })
+        await self.mgr._run_launch(200)
+        self.assertEqual(events, ["eq_apply", "fader_apply"])
+        self.assertEqual(self.plugin._settings["active_game_override_snapshot"]["app_id"], 200)
+
+        self.plugin._volume_fader._cached_sink_input_id = "123"
+        await self.mgr._run_exit(200)
+        self.assertEqual(events, ["eq_apply", "fader_apply", "eq_clear", "fader_clear"])
+        self.assertIsNone(self.plugin._settings["active_game_override_snapshot"])
+
+    async def test_back_to_back_game_switch_preserves_pre_game_snapshot(self):
+        self.mgr.save_profile(301, {
+            "app_name": "Game A",
+            "playlists": [{"uri": PL_A}],
+            "always_auto_start": True,
+            "eq_preset": "bass",
+            "volume_override": 60,
+        })
+        self.mgr.save_profile(302, {
+            "app_name": "Game B",
+            "playlists": [],
+            "eq_preset": None,  # Use Global
+            "volume_override": 85,
+            "ducking_override": False,
+        })
+
+        snap_pre = snap(playing=True, ctx="spotify:playlist:orig", track="spotify:track:orig", pos=12345)
+        snap_in_a = snap(playing=True, ctx=PL_A, track="spotify:track:gameA", pos=9000)
+
+        with patch.object(self.mgr, "get_player_state", AsyncMock(side_effect=[snap_pre, snap_in_a])):
+            await self.mgr.handle_app_lifecycle(301, True)
+            await self.settle()
+            self.assertEqual(self.mgr._pre_game_snapshot["track_uri"], "spotify:track:orig")
+
+            # Exit Game A, then immediately launch Game B before exit debounce completes
+            await self.mgr.handle_app_lifecycle(301, False)
+            await self.mgr.handle_app_lifecycle(302, True)
+            await self.settle()
+
+        # Pre-Game-A baseline preserved across Game A -> Game B switch (D-12)
+        self.assertEqual(self.mgr._pre_game_snapshot["track_uri"], "spotify:track:orig")
+        self.plugin._equalizer_manager.clear_ephemeral_override.assert_awaited()
+        self.plugin._volume_fader.apply_game_override.assert_awaited_with(
+            active_duck=False,
+            volume_override=85,
+            ducking_override=False,
+            ducking_level_override=None,
+        )
+
+    async def test_exit_always_restores_eq_and_volume_on_keep_playing_and_manual_pause(self):
+        self.mgr.save_profile(401, {
+            "playlists": [{"uri": PL_A}],
+            "always_auto_start": True,
+            "exit_policy": "keep_playing",
+            "eq_preset": "gaming",
+            "volume_override": 55,
+        })
+        with patch.object(self.mgr, "get_player_state", AsyncMock(return_value=snap(playing=True))):
+            await self.mgr.handle_app_lifecycle(401, True)
+            await self.settle()
+            self.mgr.record_manual_pause()
+            self.plugin.play_tracks.reset_mock()
+            await self.mgr.handle_app_lifecycle(401, False)
+            await self.settle()
+
+        self.plugin._equalizer_manager.clear_ephemeral_override.assert_awaited_once()
+        self.plugin._volume_fader.clear_game_override.assert_awaited_once()
+        self.plugin.play_tracks.assert_not_called()
+        self.plugin.control_playback.assert_not_called()
+
+    async def test_sleep_locked_exit_restores_eq_and_clears_snapshot_without_unduck_or_play(self):
+        self.mgr.save_profile(501, {
+            "app_name": "Skyrim",
+            "playlists": [{"uri": PL_A}],
+            "always_auto_start": True,
+            "exit_policy": "restore_snapshot",
+            "eq_preset": "custom",
+            "eq_custom_bands": [3.0] * 10,
+            "volume_override": 65,
+        })
+        with patch.object(self.mgr, "get_player_state", AsyncMock(return_value=snap(playing=True))):
+            await self.mgr.handle_app_lifecycle(501, True)
+            await self.settle()
+            self.assertIsNotNone(self.plugin._settings["active_game_override_snapshot"])
+
+            self.plugin.play_tracks.reset_mock()
+            self.plugin.control_playback.reset_mock()
+            self.plugin._volume_fader._sleep_locked = True
+            self.plugin._volume_fader._game_override = {"volume_override": 65}
+            self.plugin._volume_fader._duck_reasons = {"game"}
+
+            await self.mgr.handle_app_lifecycle(501, False)
+            await self.settle()
+
+        self.plugin._equalizer_manager.clear_ephemeral_override.assert_awaited_once()
+        self.assertIsNone(self.plugin._settings["active_game_override_snapshot"])
+        self.plugin._volume_fader.clear_game_override.assert_not_called()
+        self.assertIsNone(self.plugin._volume_fader._game_override)
+        self.assertNotIn("game", self.plugin._volume_fader._duck_reasons)
+        self.plugin.play_tracks.assert_not_called()
+        self.plugin.control_playback.assert_not_called()
+
+    async def test_refresh_active_overrides_hot_applies_only_when_active_and_settled(self):
+        self.mgr.save_profile(601, {"app_name": "Hollow Knight", "eq_preset": "bass", "volume_override": 70})
+        # Not active -> no-op
+        await self.mgr.refresh_active_overrides(601)
+        self.plugin._equalizer_manager.apply_ephemeral_preset.assert_not_called()
+
+        # Active and settled -> hot-applies
+        self.mgr._active_game_app_id = 601
+        await self.mgr.refresh_active_overrides(601)
+        self.plugin._equalizer_manager.apply_ephemeral_preset.assert_awaited_once_with(
+            "bass", custom_bands=None, app_id=601, app_name="Hollow Knight"
+        )
+        self.plugin._volume_fader.apply_game_override.assert_awaited_once()
 
 
 if __name__ == "__main__":

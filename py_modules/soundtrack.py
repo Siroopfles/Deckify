@@ -51,6 +51,12 @@ def _clean_uri(value) -> str | None:
     return None
 
 
+async def _maybe_await(val):
+    if inspect.isawaitable(val):
+        return await val
+    return val
+
+
 def validate_app_id(app_id) -> int:
     """Cast and validate a positive unsigned 32-bit app id (T-07-02)."""
     if isinstance(app_id, bool):
@@ -314,26 +320,95 @@ class SoundtrackManager:
         # shuffle: Spotify cannot merge contexts; play first pool entry with shuffle on
         return playlists[0]["uri"] if len(playlists) == 1 else random.choice(playlists)["uri"]
 
-    async def _run_launch(self, app_id: int) -> None:
-        profile = self.get_profile(app_id)
+    async def apply_active_audio_profile(self, app_id: int, profile: dict | None) -> None:
+        """Apply per-game ephemeral EQ and local PipeWire VolumeFader overrides in atomic order (D-09, D-10, D-14)."""
+        eq_preset = profile.get("eq_preset") if isinstance(profile, dict) else None
+        eq_bands = profile.get("eq_custom_bands") if (isinstance(profile, dict) and eq_preset == "custom") else None
+        app_name = str(profile.get("app_name") or "") if isinstance(profile, dict) else ""
+        vol_override = profile.get("volume_override") if isinstance(profile, dict) else None
+        duck_override = profile.get("ducking_override") if isinstance(profile, dict) else None
+        duck_level = profile.get("ducking_level_override") if isinstance(profile, dict) else None
+
+        # Step 1: Apply ephemeral EQ (or clear prior game EQ if using global) first (D-10)
         eq_mgr = getattr(self.plugin, "_equalizer_manager", None)
         if eq_mgr is not None:
-            eq_preset = profile.get("eq_preset") if isinstance(profile, dict) else None
-            eq_bands = profile.get("eq_custom_bands") if (isinstance(profile, dict) and eq_preset == "custom") else None
             if eq_preset and hasattr(eq_mgr, "apply_ephemeral_preset"):
-                res = eq_mgr.apply_ephemeral_preset(
-                    eq_preset,
-                    custom_bands=eq_bands,
-                    app_id=app_id,
-                    app_name=str((profile or {}).get("app_name") or ""),
+                await _maybe_await(
+                    eq_mgr.apply_ephemeral_preset(
+                        eq_preset,
+                        custom_bands=eq_bands,
+                        app_id=app_id,
+                        app_name=app_name,
+                    )
                 )
-                if inspect.isawaitable(res):
-                    await res
             elif hasattr(eq_mgr, "clear_ephemeral_override"):
-                res = eq_mgr.clear_ephemeral_override()
-                if inspect.isawaitable(res):
-                    await res
+                await _maybe_await(eq_mgr.clear_ephemeral_override())
+
+        # Step 2: Persist crash-recovery snapshot when any game override or game ducking is active (D-14)
+        should_duck = (duck_override is True) or (
+            duck_override is None and bool(self._settings.get("auto_ducking", True))
+        )
+        has_ephemeral = (
+            eq_preset is not None
+            or vol_override is not None
+            or duck_override is not None
+            or duck_level is not None
+            or should_duck
+        )
+        if has_ephemeral:
+            self._settings["active_game_override_snapshot"] = {
+                "app_id": app_id,
+                "app_name": app_name,
+                "eq_preset": eq_preset,
+                "volume_override": vol_override,
+                "ducking_override": duck_override,
+                "ducking_level_override": duck_level,
+            }
+            self._persist()
+        elif self._settings.get("active_game_override_snapshot") is not None:
+            self._settings["active_game_override_snapshot"] = None
+            self._persist()
+
+        # Step 3: Invalidate cached sink-input ID after EQ sink routing and fade VolumeFader locally (D-05, D-10)
+        fader = getattr(self.plugin, "_volume_fader", None)
+        if fader is not None:
+            fader._cached_sink_input_id = None
+            if hasattr(fader, "apply_game_override"):
+                await _maybe_await(
+                    fader.apply_game_override(
+                        active_duck=should_duck,
+                        volume_override=vol_override,
+                        ducking_override=duck_override,
+                        ducking_level_override=duck_level,
+                    )
+                )
+
+        # Step 4: Notify frontend listeners
+        try:
+            await decky.emit("game_audio_override_changed", {
+                "active": True,
+                "app_id": app_id,
+                "app_name": app_name,
+                "eq_preset": eq_preset,
+            })
+        except Exception:
+            pass
+
+    async def refresh_active_overrides(self, app_id: int) -> None:
+        """Hot-apply updated EQ/volume/ducking overrides when editing the running game (D-04, D-08)."""
+        if (
+            self._active_game_app_id == app_id
+            and not self._pending(self._launch_task)
+            and not self._pending(self._exit_task)
+        ):
+            profile = self.get_profile(app_id)
+            await self.apply_active_audio_profile(app_id, profile)
+
+    async def _run_launch(self, app_id: int) -> None:
+        profile = self.get_profile(app_id)
         persisted = profile is not None
+        await self.apply_active_audio_profile(app_id, profile)
+
         if profile is None:
             default_uri = self._settings.get("soundtrack_default_playlist") or ""
             if default_uri and _clean_uri(default_uri):
@@ -351,6 +426,14 @@ class SoundtrackManager:
                         await self._pause()
                         self._playback_altered = True
                 return
+
+        if not profile.get("playlists"):
+            if not persisted and self._settings.get("soundtrack_unbound_policy") == "pause":
+                snap = self._pre_game_snapshot
+                if snap is None or snap.get("is_playing"):
+                    await self._pause()
+                    self._playback_altered = True
+            return
 
         snap = self._pre_game_snapshot
         was_playing = bool(snap and snap.get("is_playing"))
@@ -388,12 +471,6 @@ class SoundtrackManager:
                     await self.plugin.set_shuffle(True)
                 except Exception:
                     pass
-            vol = profile.get("volume_override")
-            if vol is not None:
-                try:
-                    await self.plugin.set_volume(int(vol))
-                except Exception:
-                    pass
 
     async def _run_exit(self, app_id: int) -> None:
         snap = self._pre_game_snapshot
@@ -407,42 +484,66 @@ class SoundtrackManager:
                 profile["last_context_uri"] = state["context_uri"]
             self._persist()
 
-        if profile is not None and profile.get("volume_override") is not None and snap and snap.get("volume") is not None:
-            try:
-                await self.plugin.set_volume(int(snap["volume"]))
-            except Exception:
-                pass
+        # Step 1 (D-13, D-16): Always restore global EQ first
+        eq_mgr = getattr(self.plugin, "_equalizer_manager", None)
+        if eq_mgr is not None and hasattr(eq_mgr, "clear_ephemeral_override"):
+            await _maybe_await(eq_mgr.clear_ephemeral_override())
 
-        if self._playback_altered and not self._user_paused_in_game:
-            policy = (profile or {}).get("exit_policy", "restore_snapshot")
-            if policy == "pause":
-                await self._pause()
-            elif policy == "restore_snapshot":
-                if snap and snap.get("is_playing"):
-                    kwargs: dict = {}
-                    if snap.get("context_uri"):
-                        kwargs["context_uri"] = snap["context_uri"]
-                        if snap.get("track_uri"):
-                            kwargs["offset_uri"] = snap["track_uri"]
-                    elif snap.get("track_uri"):
-                        kwargs["uris"] = [snap["track_uri"]]
-                    if kwargs:
-                        if snap.get("position_ms"):
-                            kwargs["position_ms"] = int(snap["position_ms"])
-                        await self._play(**kwargs)
-                else:
+        # Step 2 (D-14): Clear persisted crash-recovery snapshot
+        if self._settings.get("active_game_override_snapshot") is not None:
+            self._settings["active_game_override_snapshot"] = None
+            self._persist()
+
+        # Step 3 & 4 (D-15, D-16): Invalidate sink-input cache and respect Sleep Timer _sleep_locked
+        fader = getattr(self.plugin, "_volume_fader", None)
+        if fader is not None:
+            fader._cached_sink_input_id = None
+        sleep_locked = getattr(fader, "_sleep_locked", False) is True if fader is not None else False
+
+        if sleep_locked:
+            if getattr(fader, "_game_override", None) is not None:
+                fader._game_override = None
+            duck_reasons = getattr(fader, "_duck_reasons", None)
+            if isinstance(duck_reasons, set):
+                duck_reasons.discard("game")
+        else:
+            if fader is not None and hasattr(fader, "clear_game_override"):
+                await _maybe_await(fader.clear_game_override())
+
+            if self._playback_altered and not self._user_paused_in_game:
+                policy = (profile or {}).get("exit_policy", "restore_snapshot")
+                if policy == "pause":
                     await self._pause()
+                elif policy == "restore_snapshot":
+                    if snap and snap.get("is_playing"):
+                        kwargs: dict = {}
+                        if snap.get("context_uri"):
+                            kwargs["context_uri"] = snap["context_uri"]
+                            if snap.get("track_uri"):
+                                kwargs["offset_uri"] = snap["track_uri"]
+                        elif snap.get("track_uri"):
+                            kwargs["uris"] = [snap["track_uri"]]
+                        if kwargs:
+                            if snap.get("position_ms"):
+                                kwargs["position_ms"] = int(snap["position_ms"])
+                            await self._play(**kwargs)
+                    else:
+                        await self._pause()
 
+        # Step 5: Notify frontend listeners
+        try:
+            await decky.emit("game_audio_override_changed", {
+                "active": False,
+                "app_id": None,
+            })
+        except Exception:
+            pass
+
+        # Step 6: Reset lifecycle state
         self._active_game_app_id = None
         self._pre_game_snapshot = None
         self._user_paused_in_game = False
         self._playback_altered = False
-
-        eq_mgr = getattr(self.plugin, "_equalizer_manager", None)
-        if eq_mgr is not None and hasattr(eq_mgr, "clear_ephemeral_override"):
-            res = eq_mgr.clear_ephemeral_override()
-            if inspect.isawaitable(res):
-                await res
 
     # ── Misc public API ───────────────────────────────────────
 
