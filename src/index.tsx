@@ -424,7 +424,7 @@ const Content: FC = () => {
       const mainApp = Router?.MainRunningApp;
       const mainAppId = Number(mainApp?.appid);
       const runningAppName =
-        (!mainAppId || mainAppId === activeGameAppId) && typeof mainApp?.display_name === "string"
+        mainAppId === activeGameAppId && typeof mainApp?.display_name === "string"
           ? mainApp.display_name.trim()
           : "";
       const res = await backendBindCurrentMusicToGame(activeGameAppId, runningAppName);

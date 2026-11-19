@@ -409,6 +409,45 @@ describe("src/index.tsx GameSessions AppLifetime & QAM Pinned Playlists", () => 
     plugin.onDismount?.();
   });
 
+  it("handleQuickBind forwards trimmed display_name only on exact appid match and empty string for missing, empty, or zero appid", async () => {
+    await import("./index");
+    const plugin = capturedPluginFactory!();
+    const renderContent = () => {
+      hookIdx = 0;
+      return plugin.content.type({});
+    };
+
+    renderContent();
+    const nodes = flattenNodes(renderContent());
+    const bindBtn = nodes.find((n) => n.type === "ButtonItem" && textContent(n).includes("Bind current music to game"));
+    expect(bindBtn).toBeDefined();
+
+    const uiMod = await import("@decky/ui");
+    const router = uiMod.Router as { MainRunningApp: unknown };
+    const prevApp = router.MainRunningApp;
+    try {
+      for (const mainApp of [
+        undefined,
+        { display_name: "Stale Game" },
+        { appid: "", display_name: "Empty AppId Game" },
+        { appid: "0", display_name: "Zero String Game" },
+        { appid: 0, display_name: "Zero Number Game" },
+        { appid: "999999", display_name: "Wrong Game" },
+      ]) {
+        router.MainRunningApp = mainApp;
+        await bindBtn.props.onClick();
+        expect(mockBindCurrentMusicToGame).toHaveBeenLastCalledWith(1091500, "");
+      }
+
+      router.MainRunningApp = { appid: "1091500", display_name: "  Cyberpunk 2077  " };
+      await bindBtn.props.onClick();
+      expect(mockBindCurrentMusicToGame).toHaveBeenLastCalledWith(1091500, "Cyberpunk 2077");
+    } finally {
+      router.MainRunningApp = prevApp;
+      plugin.onDismount?.();
+    }
+  });
+
   it("renders PinnedPill with focusHalo on focus/gamepadFocus, clears on blur, and activates on onActivate (G-09-2)", async () => {
     await import("./index");
     const plugin = capturedPluginFactory!();
