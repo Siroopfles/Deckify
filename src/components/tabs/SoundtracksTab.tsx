@@ -775,12 +775,25 @@ function flushPendingSaves(
   }
 }
 
+function clearCollapsedAppId(
+  setCollapsedAppIds: Dispatch<SetStateAction<Record<number, boolean>>>,
+  appId: number
+) {
+  setCollapsedAppIds((prev) => {
+    if (!(appId in prev)) return prev;
+    const next = { ...prev };
+    delete next[appId];
+    return next;
+  });
+}
+
 function useProfileSaveActions(opts: {
   setProfiles: Dispatch<SetStateAction<Record<string, SoundtrackProfile>>>;
   setConfirmDeleteAppId: Dispatch<SetStateAction<number | null>>;
+  setCollapsedAppIds: Dispatch<SetStateAction<Record<number, boolean>>>;
   showToast?: (msg: string) => void;
 }) {
-  const { setProfiles, setConfirmDeleteAppId, showToast } = opts;
+  const { setProfiles, setConfirmDeleteAppId, setCollapsedAppIds, showToast } = opts;
   const saveTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const pendingSavesRef = useRef<Record<string, PendingSaveEntry>>({});
 
@@ -835,12 +848,13 @@ function useProfileSaveActions(opts: {
           return next;
         });
         setConfirmDeleteAppId((prev) => (prev === appId ? null : prev));
+        clearCollapsedAppId(setCollapsedAppIds, appId);
         showToast?.("Game audio & soundtrack profile deleted");
       } catch {
         showToast?.(SAVE_ERROR_MESSAGE);
       }
     },
-    [setProfiles, setConfirmDeleteAppId, showToast]
+    [setProfiles, setConfirmDeleteAppId, setCollapsedAppIds, showToast]
   );
 
   return {
@@ -986,15 +1000,44 @@ function useInitialSoundtrackLoad(opts: {
   ]);
 }
 
+function toggleGameCardExpand(opts: {
+  appId: number;
+  isDefaultExpanded: boolean;
+  expandedAppId: number | null;
+  setConfirmDeleteAppId: Dispatch<SetStateAction<number | null>>;
+  setExpandedAppId: Dispatch<SetStateAction<number | null>>;
+  setCollapsedAppIds: Dispatch<SetStateAction<Record<number, boolean>>>;
+}) {
+  const {
+    appId,
+    isDefaultExpanded,
+    expandedAppId,
+    setConfirmDeleteAppId,
+    setExpandedAppId,
+    setCollapsedAppIds,
+  } = opts;
+  setConfirmDeleteAppId(null);
+  if (isDefaultExpanded) {
+    setCollapsedAppIds((prev) => ({ ...prev, [appId]: !prev[appId] }));
+    if (expandedAppId === appId) {
+      setExpandedAppId(null);
+    }
+    return;
+  }
+  setExpandedAppId(expandedAppId === appId ? null : appId);
+}
+
 function renderGamesList(opts: {
   visibleGames: InstalledGame[];
   profiles: Record<string, SoundtrackProfile>;
   runningAppId: number | null;
   expandedAppId: number | null;
+  collapsedAppIds: Record<number, boolean>;
   confirmDeleteAppId: number | null;
   globalDuckingPct: number;
   setConfirmDeleteAppId: Dispatch<SetStateAction<number | null>>;
   setExpandedAppId: Dispatch<SetStateAction<number | null>>;
+  setCollapsedAppIds: Dispatch<SetStateAction<Record<number, boolean>>>;
   persistProfile: PersistFn;
   openPlaylistPicker: (game: InstalledGame) => void;
   openGameEqModal: (game: InstalledGame, profile: SoundtrackProfile, isRunning: boolean) => void;
@@ -1005,10 +1048,12 @@ function renderGamesList(opts: {
     profiles,
     runningAppId,
     expandedAppId,
+    collapsedAppIds,
     confirmDeleteAppId,
     globalDuckingPct,
     setConfirmDeleteAppId,
     setExpandedAppId,
+    setCollapsedAppIds,
     persistProfile,
     openPlaylistPicker,
     openGameEqModal,
@@ -1020,7 +1065,8 @@ function renderGamesList(opts: {
         const existingProfile = profiles[String(game.app_id)];
         const profile = existingProfile || defaultProfile(game);
         const isRunning = Boolean(game.is_running || (runningAppId !== null && game.app_id === runningAppId));
-        const isExpanded = expandedAppId === game.app_id || Boolean(existingProfile) || isRunning;
+        const isDefaultExpanded = Boolean(existingProfile) || isRunning;
+        const isExpanded = isDefaultExpanded ? !collapsedAppIds[game.app_id] : expandedAppId === game.app_id;
         return renderGameCard({
           game,
           existingProfile,
@@ -1029,10 +1075,15 @@ function renderGamesList(opts: {
           isExpanded,
           isConfirmingDelete: confirmDeleteAppId === game.app_id,
           globalDuckingPct,
-          onToggleExpand: () => {
-            setConfirmDeleteAppId((prev) => (prev === game.app_id ? null : prev));
-            setExpandedAppId(expandedAppId === game.app_id ? null : game.app_id);
-          },
+          onToggleExpand: () =>
+            toggleGameCardExpand({
+              appId: game.app_id,
+              isDefaultExpanded,
+              expandedAppId,
+              setConfirmDeleteAppId,
+              setExpandedAppId,
+              setCollapsedAppIds,
+            }),
           onPersist: persistProfile,
           onOpenPicker: openPlaylistPicker,
           onOpenEqModal: openGameEqModal,
@@ -1063,6 +1114,7 @@ export const SoundtracksTab: FC<SoundtracksTabProps> = ({
   const [expandedAppId, setExpandedAppId] = useState<number | null>(runningAppId ?? null);
   const [loading, setLoading] = useState(!initialGames);
   const [confirmDeleteAppId, setConfirmDeleteAppId] = useState<number | null>(null);
+  const [collapsedAppIds, setCollapsedAppIds] = useState<Record<number, boolean>>({});
 
   const profilesRef = useRef(profiles);
   profilesRef.current = profiles;
@@ -1072,33 +1124,16 @@ export const SoundtracksTab: FC<SoundtracksTabProps> = ({
   showToastRef.current = showToast;
 
   const {
-    saveTimersRef,
-    pendingSavesRef,
-    saveImmediate,
-    scheduleSave,
-    persistProfile,
-    handleDeleteProfile,
-  } = useProfileSaveActions({ setProfiles, setConfirmDeleteAppId, showToast });
+    saveTimersRef, pendingSavesRef, saveImmediate, scheduleSave, persistProfile, handleDeleteProfile,
+  } = useProfileSaveActions({ setProfiles, setConfirmDeleteAppId, setCollapsedAppIds, showToast });
 
   const { openPlaylistPicker, openGameEqModal } = useGameModalActions({
-    profilesRef,
-    setProfiles,
-    globalEqPreset,
-    globalEqCustomBands,
-    scheduleSave,
-    saveImmediate,
-    showToast,
-    onPickerOpenChangeRef,
+    profilesRef, setProfiles, globalEqPreset, globalEqCustomBands,
+    scheduleSave, saveImmediate, showToast, onPickerOpenChangeRef,
   });
 
   useInitialSoundtrackLoad({
-    setGames,
-    setProfiles,
-    setLoading,
-    saveTimersRef,
-    pendingSavesRef,
-    showToastRef,
-    onPickerOpenChangeRef,
+    setGames, setProfiles, setLoading, saveTimersRef, pendingSavesRef, showToastRef, onPickerOpenChangeRef,
   });
 
   const visibleGames = useMemo(
@@ -1112,18 +1147,9 @@ export const SoundtracksTab: FC<SoundtracksTabProps> = ({
       {renderSearchBar(searchQuery, setSearchQuery)}
       {renderStatusBanner(loading, games.length, visibleGames.length)}
       {renderGamesList({
-        visibleGames,
-        profiles,
-        runningAppId,
-        expandedAppId,
-        confirmDeleteAppId,
-        globalDuckingPct,
-        setConfirmDeleteAppId,
-        setExpandedAppId,
-        persistProfile,
-        openPlaylistPicker,
-        openGameEqModal,
-        handleDeleteProfile,
+        visibleGames, profiles, runningAppId, expandedAppId, collapsedAppIds, confirmDeleteAppId,
+        globalDuckingPct, setConfirmDeleteAppId, setExpandedAppId, setCollapsedAppIds,
+        persistProfile, openPlaylistPicker, openGameEqModal, handleDeleteProfile,
       })}
     </Focusable>
   );

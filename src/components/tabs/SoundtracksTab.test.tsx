@@ -1036,3 +1036,196 @@ describe("SoundtracksTab GameEqModal Save Result", () => {
     );
   });
 });
+
+describe("SoundtracksTab Collapse & Confirm Delete Reset", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+    stateValues = [];
+    stateIdx = 0;
+    refValues = [];
+    refIdx = 0;
+    mountedEffects = [];
+    effectIdx = 0;
+    effectCleanups = [];
+    mockGetInstalledGames.mockResolvedValue(sampleGames);
+    mockGetProfiles.mockResolvedValue(sampleProfiles);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("clears active confirmDeleteAppId on a previous card when clicking another card's header", () => {
+    const tree1 = SoundtracksTab({
+      initialGames: sampleGames,
+      initialProfiles: sampleProfiles,
+    });
+    const deleteBtn = findNodes(
+      tree1,
+      (n) => typeName(n) === "DialogButton" && findText(n).includes("Delete Game Profile")
+    )[0];
+    deleteBtn.props.onClick();
+    expect(stateValues[5]).toBe(1091500);
+
+    stateIdx = 0;
+    const tree2 = SoundtracksTab({
+      initialGames: sampleGames,
+      initialProfiles: sampleProfiles,
+    });
+    expect(
+      findNodes(tree2, (n) => typeName(n) === "DialogButton" && findText(n).includes("Confirm Delete"))
+    ).toHaveLength(1);
+
+    const retroHeader = findNodes(
+      tree2,
+      (n) => typeName(n) === "InteractiveRow" && n.props?.["data-deckify-label"] === "RetroArch"
+    )[0];
+    expect(retroHeader).toBeDefined();
+    retroHeader.props.onClick();
+    expect(stateValues[5]).toBeNull();
+
+    stateIdx = 0;
+    const tree3 = SoundtracksTab({
+      initialGames: sampleGames,
+      initialProfiles: sampleProfiles,
+    });
+    expect(
+      findNodes(tree3, (n) => typeName(n) === "DialogButton" && findText(n).includes("Confirm Delete"))
+    ).toHaveLength(0);
+  });
+
+  it("expands configured and running cards by default, collapses on header click, and re-expands on second click", () => {
+    // 1. Configured card (Cyberpunk 2077) starts expanded, unconfigured card (RetroArch) starts collapsed
+    const tree1 = SoundtracksTab({
+      initialGames: sampleGames,
+      initialProfiles: sampleProfiles,
+    });
+    expect(
+      findNodes(tree1, (n) => typeName(n) === "DropdownItem" && n.props.label === "EQ Preset Override")
+    ).toHaveLength(1);
+
+    const cyberHeader1 = findNodes(
+      tree1,
+      (n) => typeName(n) === "InteractiveRow" && n.props?.["data-deckify-label"] === "Cyberpunk 2077"
+    )[0];
+    cyberHeader1.props.onClick();
+
+    stateIdx = 0;
+    const tree2 = SoundtracksTab({
+      initialGames: sampleGames,
+      initialProfiles: sampleProfiles,
+    });
+    expect(
+      findNodes(tree2, (n) => typeName(n) === "DropdownItem" && n.props.label === "EQ Preset Override")
+    ).toHaveLength(0);
+
+    const cyberHeader2 = findNodes(
+      tree2,
+      (n) => typeName(n) === "InteractiveRow" && n.props?.["data-deckify-label"] === "Cyberpunk 2077"
+    )[0];
+    cyberHeader2.props.onClick();
+
+    stateIdx = 0;
+    const tree3 = SoundtracksTab({
+      initialGames: sampleGames,
+      initialProfiles: sampleProfiles,
+    });
+    expect(
+      findNodes(tree3, (n) => typeName(n) === "DropdownItem" && n.props.label === "EQ Preset Override")
+    ).toHaveLength(1);
+
+    // 2. Running unconfigured card (RetroArch) starts expanded, collapses, and re-expands cleanly
+    unmountAndResetMount();
+    const runTree1 = SoundtracksTab({
+      runningAppId: 2147483649,
+      initialGames: sampleGames,
+      initialProfiles: {},
+    });
+    expect(
+      findNodes(runTree1, (n) => typeName(n) === "DropdownItem" && n.props.label === "EQ Preset Override")
+    ).toHaveLength(1);
+
+    const retroHeader1 = findNodes(
+      runTree1,
+      (n) => typeName(n) === "InteractiveRow" && n.props?.["data-deckify-label"] === "RetroArch"
+    )[0];
+    retroHeader1.props.onClick();
+
+    stateIdx = 0;
+    const runTree2 = SoundtracksTab({
+      runningAppId: 2147483649,
+      initialGames: sampleGames,
+      initialProfiles: {},
+    });
+    expect(
+      findNodes(runTree2, (n) => typeName(n) === "DropdownItem" && n.props.label === "EQ Preset Override")
+    ).toHaveLength(0);
+
+    const retroHeader2 = findNodes(
+      runTree2,
+      (n) => typeName(n) === "InteractiveRow" && n.props?.["data-deckify-label"] === "RetroArch"
+    )[0];
+    retroHeader2.props.onClick();
+
+    stateIdx = 0;
+    const runTree3 = SoundtracksTab({
+      runningAppId: 2147483649,
+      initialGames: sampleGames,
+      initialProfiles: {},
+    });
+    expect(
+      findNodes(runTree3, (n) => typeName(n) === "DropdownItem" && n.props.label === "EQ Preset Override")
+    ).toHaveLength(1);
+  });
+
+  it("clears collapsedAppIds on profile deletion so re-configuring the game starts expanded", async () => {
+    const tree1 = SoundtracksTab({
+      initialGames: sampleGames,
+      initialProfiles: sampleProfiles,
+    });
+    const cyberHeader = findNodes(
+      tree1,
+      (n) => typeName(n) === "InteractiveRow" && n.props?.["data-deckify-label"] === "Cyberpunk 2077"
+    )[0];
+    // Collapse then re-expand, click Delete -> Confirm Delete
+    cyberHeader.props.onClick();
+    expect(stateValues[6][1091500]).toBe(true);
+
+    stateIdx = 0;
+    const collapsedTree = SoundtracksTab({
+      initialGames: sampleGames,
+      initialProfiles: sampleProfiles,
+    });
+    const cyberHeaderReopen = findNodes(
+      collapsedTree,
+      (n) => typeName(n) === "InteractiveRow" && n.props?.["data-deckify-label"] === "Cyberpunk 2077"
+    )[0];
+    cyberHeaderReopen.props.onClick();
+    expect(stateValues[6][1091500]).toBe(false);
+
+    stateIdx = 0;
+    const reopenedTree = SoundtracksTab({
+      initialGames: sampleGames,
+      initialProfiles: sampleProfiles,
+    });
+    const deleteBtn = findNodes(
+      reopenedTree,
+      (n) => typeName(n) === "DialogButton" && findText(n).includes("Delete Game Profile")
+    )[0];
+    deleteBtn.props.onClick();
+
+    stateIdx = 0;
+    const confirmTree = SoundtracksTab({
+      initialGames: sampleGames,
+      initialProfiles: sampleProfiles,
+    });
+    const confirmBtn = findNodes(
+      confirmTree,
+      (n) => typeName(n) === "DialogButton" && findText(n).includes("Confirm Delete")
+    )[0];
+    await confirmBtn.props.onClick();
+
+    expect(stateValues[6]).not.toHaveProperty("1091500");
+  });
+});
