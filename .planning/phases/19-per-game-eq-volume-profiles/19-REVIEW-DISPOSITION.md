@@ -29,31 +29,31 @@ findings:
     title: "`GameEqModal` relies on stale `isRunningRef` and leaves `_preview_active = True` if running-game save fails or game exits mid-edit"
   - id: WR-07
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "Already-defended-elsewhere — redundant `Number.isFinite` guard in `GameEqModal.handleBandChange`"
   - id: IN-01
     severity: info
-    disposition: open
+    disposition: fixed
     title: "Unused `EqBandFaders` component export and duplicate `EQ_PID_FILE` constant"
   - id: IN-02
     severity: info
-    disposition: open
+    disposition: fixed
     title: "`aria-label` props on `+`/`-` `InteractiveRow` controls in `EqBandFaders.tsx` are not forwarded to DOM"
   - id: IN-03
     severity: info
-    disposition: open
+    disposition: fixed
     title: "`_validate_eq_bands` permits `float(\"inf\")` unlike `clamp_eq_bands`"
   - id: IN-04
     severity: info
-    disposition: open
+    disposition: fixed
     title: "`Plugin.set_setting` broadcasts unfiltered `_settings` on `settings_changed`"
   - id: IN-05
     severity: info
-    disposition: open
+    disposition: fixed
     title: "`SoundtracksTab` `confirmDeleteAppId` stays active across card clicks and configured cards cannot collapse"
-open: 6
+open: 0
 total: 12
-recorded: 2026-11-19T09:01:04.753Z
+recorded: 2026-11-19T12:42:16.624Z
 ---
 
 # Phase 19: Code Review Disposition
@@ -66,12 +66,12 @@ recorded: 2026-11-19T09:01:04.753Z
 | WR-04 | warning | fixed | 19-REVIEW-FIX.md |
 | WR-05 | warning | fixed | 19-REVIEW-FIX.md |
 | WR-06 | warning | fixed | 19-REVIEW-FIX.md |
-| WR-07 | warning | open | - |
-| IN-01 | info | open | - |
-| IN-02 | info | open | - |
-| IN-03 | info | open | - |
-| IN-04 | info | open | - |
-| IN-05 | info | open | - |
+| WR-07 | warning | fixed | 19-REVIEW-FIX.md |
+| IN-01 | info | fixed | 19-REVIEW-FIX.md |
+| IN-02 | info | fixed | 19-REVIEW-FIX.md |
+| IN-03 | info | fixed | 19-REVIEW-FIX.md |
+| IN-04 | info | fixed | 19-REVIEW-FIX.md |
+| IN-05 | info | fixed | 19-REVIEW-FIX.md |
 
 Dispositions: `open` (recorded, not yet triaged), `fixed`, `skipped`, `deferred`.
 Set `deferred` by hand and put the reason in the Source cell; both are preserved. A `|` in the reason is kept as prose and escaped on the next run.
