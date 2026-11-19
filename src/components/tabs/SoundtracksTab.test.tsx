@@ -64,10 +64,30 @@ vi.mock("react/jsx-runtime", () => ({
 
 let stateValues: any[] = [];
 let stateIdx = 0;
+let refValues: Array<{ current: unknown }> = [];
+let refIdx = 0;
+let mountedEffects: boolean[] = [];
+let effectIdx = 0;
+let effectCleanups: Array<() => void> = [];
+
+function unmountAndResetMount() {
+  for (const cleanup of effectCleanups) cleanup();
+  stateValues = [];
+  stateIdx = 0;
+  refValues = [];
+  refIdx = 0;
+  mountedEffects = [];
+  effectIdx = 0;
+  effectCleanups = [];
+}
 
 vi.mock("react", () => ({
   useState: (init: any) => {
     const idx = stateIdx++;
+    if (idx === 0) {
+      refIdx = 0;
+      effectIdx = 0;
+    }
     if (!(idx in stateValues)) {
       stateValues[idx] = typeof init === "function" ? init() : init;
     }
@@ -76,9 +96,24 @@ vi.mock("react", () => ({
     };
     return [stateValues[idx], setter];
   },
-  useEffect: (fn: any) => fn(),
+  useEffect: (fn: any) => {
+    const idx = effectIdx++;
+    if (!mountedEffects[idx]) {
+      mountedEffects[idx] = true;
+      const cleanup = fn();
+      if (typeof cleanup === "function") {
+        effectCleanups.push(cleanup);
+      }
+    }
+  },
   useCallback: (fn: any) => fn,
-  useRef: (init: any) => ({ current: init }),
+  useRef: (init: any) => {
+    const idx = refIdx++;
+    if (!(idx in refValues)) {
+      refValues[idx] = { current: init };
+    }
+    return refValues[idx];
+  },
   useMemo: (fn: any) => fn(),
 }));
 
@@ -166,6 +201,11 @@ describe("SoundtracksTab Component", () => {
     vi.useFakeTimers();
     stateValues = [];
     stateIdx = 0;
+    refValues = [];
+    refIdx = 0;
+    mountedEffects = [];
+    effectIdx = 0;
+    effectCleanups = [];
     mockGetInstalledGames.mockResolvedValue(sampleGames);
     mockGetProfiles.mockResolvedValue(sampleProfiles);
   });
@@ -479,6 +519,11 @@ describe("SoundtracksTab Phase 19 EQ Modal, Dual Sliders, Hot-Apply & Delete UX"
     vi.useFakeTimers();
     stateValues = [];
     stateIdx = 0;
+    refValues = [];
+    refIdx = 0;
+    mountedEffects = [];
+    effectIdx = 0;
+    effectCleanups = [];
     mockGetInstalledGames.mockResolvedValue(sampleGames);
     mockGetProfiles.mockResolvedValue(sampleProfiles);
   });
@@ -496,8 +541,7 @@ describe("SoundtracksTab Phase 19 EQ Modal, Dual Sliders, Hot-Apply & Delete UX"
       findNodes(baseTree, (n) => typeName(n) === "DialogButton" && findText(n).includes("Edit Game EQ"))
     ).toHaveLength(0);
 
-    stateValues = [];
-    stateIdx = 0;
+    unmountAndResetMount();
     const onPickerOpenChange = vi.fn();
     const showToast = vi.fn();
     const customProfiles: Record<string, SoundtrackProfile> = {
@@ -617,8 +661,7 @@ describe("SoundtracksTab Phase 19 EQ Modal, Dual Sliders, Hot-Apply & Delete UX"
       findNodes(unsetTree, (n) => typeName(n) === "DialogButton" && findText(n).includes("Use Global Ducking"))
     ).toHaveLength(0);
 
-    stateValues = [];
-    stateIdx = 0;
+    unmountAndResetMount();
     const activeProfiles: Record<string, SoundtrackProfile> = {
       "1091500": {
         ...sampleProfiles["1091500"],
@@ -785,8 +828,7 @@ describe("SoundtracksTab Phase 19 EQ Modal, Dual Sliders, Hot-Apply & Delete UX"
     const loadingTree = SoundtracksTab({});
     expect(findText(loadingTree)).toContain("Scanning installed Steam & Non-Steam games...");
 
-    stateValues = [];
-    stateIdx = 0;
+    unmountAndResetMount();
     const emptyTree = SoundtracksTab({ initialGames: [], initialProfiles: {} });
     const emptyText = findText(emptyTree);
     expect(emptyText).toContain("No Game Profiles Configured");
@@ -794,8 +836,7 @@ describe("SoundtracksTab Phase 19 EQ Modal, Dual Sliders, Hot-Apply & Delete UX"
       "No Steam or Non-Steam games matched your search. Clear the filter box above to browse all installed games."
     );
 
-    stateValues = [];
-    stateIdx = 0;
+    unmountAndResetMount();
     const longGame: InstalledGame = {
       app_id: 999,
       name: "A Very Long Game Title That Must Truncate Cleanly With Ellipsis",
@@ -868,5 +909,81 @@ describe("SoundtracksTab Phase 19 EQ Modal, Dual Sliders, Hot-Apply & Delete UX"
     expect(showToast).toHaveBeenCalledWith(
       "Failed to save game audio profile — verify Decky storage permissions and try again."
     );
+  });
+});
+
+describe("SoundtracksTab Debounced Unmount Flush", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+    stateValues = [];
+    stateIdx = 0;
+    refValues = [];
+    refIdx = 0;
+    mountedEffects = [];
+    effectIdx = 0;
+    effectCleanups = [];
+    mockGetInstalledGames.mockResolvedValue(sampleGames);
+    mockGetProfiles.mockResolvedValue(sampleProfiles);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("flushes pending debounced profile edits on unmount without duplicating after timers advance", () => {
+    const tree = SoundtracksTab({
+      initialGames: sampleGames,
+      initialProfiles: sampleProfiles,
+    });
+    const volSlider = findNodes(
+      tree,
+      (n) => typeName(n) === "SliderField" && String(n.props?.label).includes("Volume Override")
+    )[0];
+    volSlider.props.onChange(55);
+    expect(mockSaveProfile).not.toHaveBeenCalled();
+
+    for (const cleanup of effectCleanups) cleanup();
+    expect(mockSaveProfile).toHaveBeenCalledTimes(1);
+    expect(mockSaveProfile).toHaveBeenCalledWith(
+      1091500,
+      expect.objectContaining({ volume_override: 55 })
+    );
+
+    vi.advanceTimersByTime(600);
+    expect(mockSaveProfile).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not flush a pending debounced save on unmount after profile deletion", async () => {
+    const tree = SoundtracksTab({
+      initialGames: sampleGames,
+      initialProfiles: sampleProfiles,
+    });
+    const eqDropdown = findNodes(
+      tree,
+      (n) => typeName(n) === "DropdownItem" && n.props.label === "EQ Preset Override"
+    )[0];
+    eqDropdown.props.onChange({ data: "gaming" });
+    expect(mockSaveProfile).not.toHaveBeenCalled();
+
+    const delBtn = findNodes(
+      tree,
+      (n) => typeName(n) === "DialogButton" && findText(n).includes("Delete Game Profile")
+    )[0];
+    delBtn.props.onClick();
+    stateIdx = 0;
+    const confirmTree = SoundtracksTab({
+      initialGames: sampleGames,
+      initialProfiles: sampleProfiles,
+    });
+    const confirmBtn = findNodes(
+      confirmTree,
+      (n) => typeName(n) === "DialogButton" && findText(n).includes("Confirm Delete")
+    )[0];
+    await confirmBtn.props.onClick();
+
+    for (const cleanup of effectCleanups) cleanup();
+    expect(mockDeleteProfile).toHaveBeenCalledWith(1091500);
+    expect(mockSaveProfile).not.toHaveBeenCalled();
   });
 });
