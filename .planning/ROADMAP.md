@@ -78,7 +78,7 @@
   1. User can select and bind a per-game 10-band EQ preset and target volume/ducking level to any Steam or Non-Steam game profile in `SoundtracksTab`.
   2. Launching a game with an assigned audio profile automatically applies the ephemeral EQ and volume/ducking override without overwriting the user's persistent global `eq_preset` or baseline volume on disk.
   3. Exiting the game (or restarting the plugin after an unexpected crash/reboot via `active_game_override_snapshot`) restores the user's global EQ preset and volume baseline while respecting any active Sleep Timer fade-out priority lock (`_sleep_locked`).
-**Plans:** 3/4 plans executed
+**Plans:** 4/4 plans executed
 
 Plans:
 **Wave 1**
@@ -89,7 +89,7 @@ Plans:
 - [x] 19-03-PLAN.md — Reusable EqBandFaders extraction, dedicated GameEqModal with live pw-cli preview, and SettingsTab Active Game EQ Override badge
 
 **Wave 3** *(blocked on Wave 2 completion)*
-- [ ] 19-04-PLAN.md — Complete SoundtracksTab EQ modal button & dual sliders, DeckifyExpandedModal prop wiring, and QAM GAME VOL display
+- [x] 19-04-PLAN.md — Complete SoundtracksTab EQ modal button & dual sliders, DeckifyExpandedModal prop wiring, and QAM GAME VOL display
 **UI hint**: yes
 
 ### Phase 20: 100% Silent HUD Toasts & Extended In-Game Quick-Chords
@@ -224,7 +224,7 @@ Phases execute in numeric order: 19 → 20 → 21 → 22 → 23 → 24 → 25 �
 | 1–5. Stability, Polish & Refactoring | v0.4 | 7/7 | Complete | 2026-11-12 |
 | 6–12. In-Game Flow & Music Discovery | v0.5 | 22/22 | Complete | 2026-11-15 |
 | 13–18.1. Audio DSP, Docked Flow & System Resilience | v0.6 | 14/14 | Complete | 2026-11-18 |
-| 19. Per-Game EQ & Volume Profiles | v0.7 | 3/4 | In Progress | - |
+| 19. Per-Game EQ & Volume Profiles | v0.7 | 4/4 | In Progress | - |
 | 20. 100% Silent HUD Toasts & Extended In-Game Quick-Chords | v0.7 | 0/TBD | Not started | - |
 | 21. Dynamic Album-Art Accent Themes & Handheld Battery Eco-Mode | v0.7 | 0/TBD | Not started | - |
 | 22. Spotify Connect Hub 2.0 & Native Crossfade | v0.7 | 0/TBD | Not started | - |

@@ -4,17 +4,17 @@ milestone: v0.7
 milestone_name: Studio, Living Room TV, Offline Travel & Ultimate Immersion (In Progress)
 current_phase: 19
 current_phase_name: Per-Game EQ & Volume Profiles
-status: executing
-stopped_at: Completed 19-03-PLAN.md
-last_updated: "2026-11-19T07:52:50.658Z"
+status: verifying
+stopped_at: Completed 19-04-PLAN.md
+last_updated: "2026-11-19T08:08:28.819Z"
 last_activity: 2026-11-19
 last_activity_desc: Phase 19 execution started
-state_head: def41750a36da775595cf8cf77b553e9d3430758
+state_head: 6531eb961bbac5b9eb3962e3d55f434f6a79adf5
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 4
-  completed_plans: 3
+  completed_plans: 4
   percent: 0
 ---
 
@@ -31,7 +31,7 @@ See: [.planning/PROJECT.md](file:///C:/Users/djdje/Deckify/.planning/PROJECT.md)
 
 Phase: 19 (Per-Game EQ & Volume Profiles) — EXECUTING
 Plan: 4 of 4
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-11-19 — Phase 19 execution started
 
 
@@ -105,6 +105,7 @@ Last activity: 2026-11-19 — Phase 19 execution started
 | Phase 19 P01 | 12min | 3 tasks | 11 files |
 | Phase 19 P02 | 7min | 2 tasks | 3 files |
 | Phase 19 P03 | 9min | 3 tasks | 5 files |
+| Phase 19 P04 | 11min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -161,6 +162,9 @@ Recent decisions affecting current work:
 - [Phase 19]: Exposed renderEqBandFaders as a plain function alongside EqBandFaders FC so shallow JSX tests continue locating all 10 role=slider nodes
 - [Phase 19]: Extracted useGameEqState and sendPreviewRequest in GameEqModal.tsx to satisfy ESLint line and complexity limits with zero warnings
 - [Phase 19]: Gated clear_eq_preview on Discard/Cancel/unmount and non-running Save while skipping clear_eq_preview only when isRunningGame && savedRef.current
+- [Phase 19]: Preserved SoundtracksTab top-level useState slot order (slots 0..4 before confirmDeleteAppId) and extracted action hooks and render helpers for zero ESLint warnings
+- [Phase 19]: Backed unset Ducking Attenuation Override value with globalDuckingPct and != null guards so partial profiles never render undefined%
+- [Phase 19]: Deferred profiles[key] removal in handleDeleteProfile until backendDeleteProfile succeeds so disk errors preserve inputs
 
 ### Pending Todos
 
@@ -191,8 +195,8 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-19T07:52:50.569Z
-Stopped at: Completed 19-03-PLAN.md
+Last session: 2026-11-19T08:08:28.758Z
+Stopped at: Completed 19-04-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
