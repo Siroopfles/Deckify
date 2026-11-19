@@ -13,7 +13,7 @@ findings:
     title: "`SoundtrackManager._resolve_app_name` executes synchronous `vdf_parser.get_installed_games()` disk I/O on the asyncio event loop (including on unbound game launches)"
   - id: IN-06
     severity: info
-    disposition: open
+    disposition: fixed
     title: "`Reset to Flat` `DialogButton` uses `minWidth: \"auto\"` instead of `minWidth: 0`, and `patchProfileAppName` skips `.trim()` on `fallbackName`"
   - id: WR-01
     severity: warning
@@ -63,9 +63,9 @@ findings:
     severity: info
     disposition: fixed
     title: "`SoundtracksTab` `confirmDeleteAppId` stays active across card clicks and configured cards cannot collapse"
-open: 1
+open: 0
 total: 15
-recorded: 2026-11-19T17:53:59.379Z
+recorded: 2026-11-19T18:03:17.063Z
 ---
 
 # Phase 19: Code Review Disposition
@@ -74,7 +74,7 @@ recorded: 2026-11-19T17:53:59.379Z
 |---------|----------|-------------|--------|
 | WR-08 | warning | fixed | 19-REVIEW-FIX.md |
 | WR-09 | warning | fixed | 19-REVIEW-FIX.md |
-| IN-06 | info | open | - |
+| IN-06 | info | fixed | 19-REVIEW-FIX.md |
 | WR-01 | warning | fixed | 19-REVIEW-FIX.md (not in the current review) |
 | WR-02 | warning | fixed | 19-REVIEW-FIX.md (not in the current review) |
 | WR-03 | warning | fixed | 19-REVIEW-FIX.md (not in the current review) |
