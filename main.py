@@ -63,6 +63,21 @@ _default_save_settings = _save_settings
 _default_exec = _exec
 
 
+def _validate_eq_bands(bands: list[float]) -> tuple[list[float] | None, str | None]:
+    """Validate and clamp a 10-band equalizer gain list."""
+    if not isinstance(bands, list) or len(bands) != 10:
+        return None, "bands must be a list of 10 numbers"
+    validated: list[float] = []
+    for item in bands:
+        if isinstance(item, bool) or not isinstance(item, (int, float)):
+            return None, "All band gains must be numeric"
+        val = float(item)
+        if val != val:
+            return None, "Band gain cannot be NaN"
+        validated.append(round(max(-12.0, min(12.0, val)), 2))
+    return validated, None
+
+
 if hasattr(os, "geteuid") and os.geteuid() == 0:  # pragma: no cover
     try:
         os.chown(os.path.dirname(__file__), DECK_UID, DECK_UID)
@@ -1069,16 +1084,9 @@ class Plugin:
 
     async def set_eq_bands(self, bands: list[float]) -> dict:
         """Update 10-band custom equalizer gains with live PipeWire updates."""
-        if not isinstance(bands, list) or len(bands) != 10:
-            return {"ok": False, "error": "bands must be a list of 10 numbers"}
-        validated: list[float] = []
-        for item in bands:
-            if isinstance(item, bool) or not isinstance(item, (int, float)):
-                return {"ok": False, "error": "All band gains must be numeric"}
-            val = float(item)
-            if val != val:
-                return {"ok": False, "error": "Band gain cannot be NaN"}
-            validated.append(round(max(-12.0, min(12.0, val)), 2))
+        validated, err = _validate_eq_bands(bands)
+        if err is not None or validated is None:
+            return {"ok": False, "error": err or "Invalid bands"}
         try:
             eq_mgr = getattr(self, "_equalizer_manager", None)
             if eq_mgr is None:
@@ -1086,6 +1094,31 @@ class Plugin:
             return await eq_mgr.set_bands(validated)
         except Exception as e:
             decky.logger.error("Failed to set EQ bands: %s", e)
+            return {"ok": False, "error": str(e)}
+
+    async def preview_eq_bands(self, bands: list[float]) -> dict:
+        """Preview 10-band equalizer gains live without overwriting persistent settings."""
+        validated, err = _validate_eq_bands(bands)
+        if err is not None or validated is None:
+            return {"ok": False, "error": err or "Invalid bands"}
+        try:
+            eq_mgr = getattr(self, "_equalizer_manager", None)
+            if eq_mgr is None:
+                return {"ok": False, "error": "EqualizerManager not initialized"}
+            return await eq_mgr.preview_bands(validated)
+        except Exception as e:
+            decky.logger.error("Failed to preview EQ bands: %s", e)
+            return {"ok": False, "error": str(e)}
+
+    async def clear_eq_preview(self) -> dict:
+        """Clear live modal EQ preview and restore active ephemeral or global preset."""
+        try:
+            eq_mgr = getattr(self, "_equalizer_manager", None)
+            if eq_mgr is None:
+                return {"ok": False, "error": "EqualizerManager not initialized"}
+            return await eq_mgr.clear_preview()
+        except Exception as e:
+            decky.logger.error("Failed to clear EQ preview: %s", e)
             return {"ok": False, "error": str(e)}
 
     async def get_spotify_client_auth_status(self) -> dict:
