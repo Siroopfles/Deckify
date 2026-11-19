@@ -5,16 +5,16 @@ milestone_name: Studio, Living Room TV, Offline Travel & Ultimate Immersion (In 
 current_phase: 19
 current_phase_name: Per-Game EQ & Volume Profiles
 status: executing
-stopped_at: Phase 19 context gathered
-last_updated: "2026-11-18T21:06:37.676Z"
-last_activity: 2026-11-18
-last_activity_desc: Milestone v0.7 roadmap revised into 12 focused phases (Phases 19–30)
-state_head: 745113e6d20101283e0d719cf1cc4b62a0eb589a
+stopped_at: Completed 19-01-PLAN.md
+last_updated: "2026-11-19T07:30:44.658Z"
+last_activity: 2026-11-19
+last_activity_desc: Phase 19 execution started
+state_head: e2bf074c3cc7b98dad60068060d4e810cf704608
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 4
-  completed_plans: 0
+  completed_plans: 1
   percent: 0
 ---
 
@@ -29,10 +29,10 @@ See: [.planning/PROJECT.md](file:///C:/Users/djdje/Deckify/.planning/PROJECT.md)
 
 ## Current Position
 
-Phase: 19 (Per-Game EQ & Volume Profiles) — READY TO EXECUTE
-Plan: 0 of TBD in current phase
+Phase: 19 (Per-Game EQ & Volume Profiles) — EXECUTING
+Plan: 2 of 4
 Status: Ready to execute
-Last activity: 2026-11-18 — Milestone v0.7 roadmap revised into 12 focused phases (Phases 19–30)
+Last activity: 2026-11-19 — Phase 19 execution started
 
 
 ## Performance Metrics
@@ -102,6 +102,7 @@ Last activity: 2026-11-18 — Milestone v0.7 roadmap revised into 12 focused pha
 | Phase 18 P02 | 3min | 2 tasks | 3 files |
 | Phase 18.1 P01 | 2m | 2 tasks | 4 files |
 | Phase 18.1 P02 | 5min | 2 tasks | 5 files |
+| Phase 19 P01 | 12min | 3 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -151,6 +152,9 @@ Recent decisions affecting current work:
 - [Phase 18]: Added Bluetooth & Media Controls (MPRIS2) card in SettingsTab.tsx with live mpris_status badge, mpris_enabled toggle, and conditional mpris_auto_proxy toggle
 - [Phase 18.1]: Normalized Per-Task Verification Map commands in 14-18-VALIDATION.md to py -3 -m unittest and pnpm test -- --run so contracts match exact observed runs
 - [v0.7 Roadmap]: Structured 24 requirements across 12 focused sequential phases (Phases 19–30) with zero new npm/pip dependencies, unified CDP bridge (`py_modules/cdp_bridge.py`) with `librespot` fallbacks, and strictly modal-scoped 15 Hz `parec` audio spectrum visualization.
+- [Phase 19]: Isolated EqualizerManager 3-layer ephemeral/preview state from global eq_preset and eq_custom_bands on disk
+- [Phase 19]: Unified per-game volume ceiling (0..100%) and attenuation (0..95%) locally in PipeWire VolumeFader, removing Spotify Web API set_volume from SoundtrackManager
+- [Phase 19]: Sequenced SoundtrackManager _run_launch/_run_exit with 0-playlist audio-only activation, A->B baseline preservation, and _sleep_locked protection
 
 ### Pending Todos
 
@@ -181,9 +185,9 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-18T20:25:48.908Z
-Stopped at: Phase 19 context gathered
-Resume file: .planning/phases/19-per-game-eq-volume-profiles/19-CONTEXT.md
+Last session: 2026-11-19T07:30:28.342Z
+Stopped at: Completed 19-01-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 
