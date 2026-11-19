@@ -421,7 +421,13 @@ const Content: FC = () => {
   const handleQuickBind = async () => {
     if (!activeGameAppId) return;
     try {
-      const res = await backendBindCurrentMusicToGame(activeGameAppId);
+      const mainApp = Router?.MainRunningApp;
+      const mainAppId = Number(mainApp?.appid);
+      const runningAppName =
+        (!mainAppId || mainAppId === activeGameAppId) && typeof mainApp?.display_name === "string"
+          ? mainApp.display_name.trim()
+          : "";
+      const res = await backendBindCurrentMusicToGame(activeGameAppId, runningAppName);
       toaster.toast({
         title: "Deckify",
         body: res?.ok ? "Music bound to current game!" : res?.error || "Failed to bind music to game",

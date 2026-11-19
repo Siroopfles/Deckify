@@ -7,6 +7,7 @@ const mockGetStatus = vi.fn().mockResolvedValue(null);
 const mockGetAuthStatus = vi.fn().mockResolvedValue({ authenticated: true, needs_reauth: false });
 const mockGetDevices = vi.fn().mockResolvedValue({ ok: true, devices: [] });
 const mockGetDuckingState = vi.fn().mockResolvedValue({ is_ducked: false, effective_volume: 50, base_volume: 50, duck_reasons: [] });
+const mockBindCurrentMusicToGame = vi.fn().mockResolvedValue({ ok: true });
 const mockQuickPlayPinned = vi.fn().mockResolvedValue({ ok: true });
 const mockGetLyrics = vi.fn().mockResolvedValue({ ok: true, synced_lyrics: "[00:01.00]Hello world" });
 const mockSetSetting = vi.fn().mockResolvedValue({ ok: true });
@@ -25,6 +26,7 @@ vi.mock("@decky/api", () => ({
     if (name === "get_auth_status") return (...args: any[]) => mockGetAuthStatus(...args);
     if (name === "get_devices") return (...args: any[]) => mockGetDevices(...args);
     if (name === "get_ducking_state") return (...args: any[]) => mockGetDuckingState(...args);
+    if (name === "bind_current_music_to_game") return (...args: any[]) => mockBindCurrentMusicToGame(...args);
     if (name === "quick_play_pinned") return (...args: any[]) => mockQuickPlayPinned(...args);
     if (name === "get_lyrics") return (...args: any[]) => mockGetLyrics(...args);
     if (name === "set_setting") return (...args: any[]) => mockSetSetting(...args);
@@ -59,7 +61,7 @@ vi.mock("@decky/ui", () => ({
   Focusable: ({ children, ...props }: any) => ({ type: "Focusable", props: { children, ...props } }),
   DialogButton: ({ children, ...props }: any) => ({ type: "DialogButton", props: { children, ...props } }),
   Navigation: { Navigate: vi.fn() },
-  Router: { MainRunningApp: { appid: 1091500 } },
+  Router: { MainRunningApp: { appid: 1091500, display_name: "Cyberpunk 2077" } },
   showModal: vi.fn(),
   staticClasses: { Title: "Title" },
 }));
@@ -378,6 +380,19 @@ describe("src/index.tsx GameSessions AppLifetime & QAM Pinned Playlists", () => 
     const bindBtn = nodes.find((n) => n.type === "ButtonItem" && textContent(n).includes("Bind current music to game"));
     expect(bindBtn).toBeDefined();
     expect(bindBtn.props.style?.borderColor).toBeUndefined();
+
+    await bindBtn.props.onClick();
+    expect(mockBindCurrentMusicToGame).toHaveBeenCalledWith(1091500, "Cyberpunk 2077");
+
+    const uiMod = await import("@decky/ui");
+    const prevApp = uiMod.Router.MainRunningApp;
+    (uiMod.Router as any).MainRunningApp = { appid: "999999", display_name: "Wrong Game" };
+    try {
+      await bindBtn.props.onClick();
+      expect(mockBindCurrentMusicToGame).toHaveBeenLastCalledWith(1091500, "");
+    } finally {
+      (uiMod.Router as any).MainRunningApp = prevApp;
+    }
 
     // Secondary controls toggle is collapsed by default when playing
     const toggleBtn = nodes.find((n) => n.type === "ButtonItem" && textContent(n).includes("Controls & Settings"));

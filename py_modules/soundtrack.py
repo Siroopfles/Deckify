@@ -8,6 +8,7 @@ import asyncio
 import inspect
 import random
 
+from py_modules import vdf_parser
 from py_modules.common import _exec, _save_settings, decky
 from py_modules.equalizer import EQ_PRESETS, clamp_eq_bands
 from py_modules.spotify import _spotify_api_request
@@ -116,7 +117,7 @@ class SoundtrackManager:
     def _sanitize_profile(self, app_id: int, data: dict) -> dict:
         out: dict = {}
         if "app_name" in data:
-            out["app_name"] = _clean_str(data["app_name"])
+            out["app_name"] = _clean_str(data["app_name"]).strip()
         if "playlists" in data:
             playlists = []
             raw = data["playlists"] if isinstance(data["playlists"], list) else []
@@ -190,6 +191,33 @@ class SoundtrackManager:
                 out["last_position_ms"] = None
         return out
 
+    def _resolve_app_name(self, app_id: int, profile: dict | None = None) -> str:
+        """Resolve a game's display name from profile, persisted store, or VDF discovery."""
+        if isinstance(profile, dict):
+            name = _clean_str(profile.get("app_name")).strip()
+            if name:
+                return name
+        existing = self.get_profile(app_id)
+        if isinstance(existing, dict):
+            name = _clean_str(existing.get("app_name")).strip()
+            if name:
+                return name
+        try:
+            games = vdf_parser.get_installed_games()
+            if isinstance(games, list):
+                for game in games:
+                    if (
+                        isinstance(game, dict)
+                        and not isinstance(game.get("app_id"), bool)
+                        and game.get("app_id") == app_id
+                    ):
+                        name = _clean_str(game.get("name")).strip()
+                        if name:
+                            return name
+        except Exception:
+            pass
+        return ""
+
     def save_profile(self, app_id: int, profile_data: dict) -> dict:
         try:
             app_id = validate_app_id(app_id)
@@ -200,6 +228,10 @@ class SoundtrackManager:
         existing = self.get_profile(app_id) or {}
         merged = {**_PROFILE_DEFAULTS, **existing, **self._sanitize_profile(app_id, profile_data)}
         merged["app_id"] = app_id
+        if not _clean_str(merged.get("app_name")).strip():
+            merged["app_name"] = self._resolve_app_name(app_id, merged)
+        else:
+            merged["app_name"] = _clean_str(merged.get("app_name")).strip()
         self.get_profiles()[str(app_id)] = merged
         self._persist()
         return {"ok": True, "profile": dict(merged)}
@@ -324,7 +356,10 @@ class SoundtrackManager:
         """Apply per-game ephemeral EQ and local PipeWire VolumeFader overrides in atomic order (D-09, D-10, D-14)."""
         eq_preset = profile.get("eq_preset") if isinstance(profile, dict) else None
         eq_bands = profile.get("eq_custom_bands") if (isinstance(profile, dict) and eq_preset == "custom") else None
-        app_name = str(profile.get("app_name") or "") if isinstance(profile, dict) else ""
+        app_name = self._resolve_app_name(app_id, profile)
+        if isinstance(profile, dict) and app_name and not _clean_str(profile.get("app_name")).strip():
+            profile["app_name"] = app_name
+            self._persist()
         vol_override = profile.get("volume_override") if isinstance(profile, dict) else None
         duck_override = profile.get("ducking_override") if isinstance(profile, dict) else None
         duck_level = profile.get("ducking_level_override") if isinstance(profile, dict) else None
@@ -588,7 +623,8 @@ class SoundtrackManager:
         if not any(p.get("uri") == context_uri for p in existing_playlists):
             name, image = await self._resolve_context_metadata(context_uri)
             existing_playlists.append({"uri": context_uri, "name": name or context_uri, "image": image})
-        resolved_name = app_name or str(existing.get("app_name") or "")
+        clean_arg = _clean_str(app_name).strip()
+        resolved_name = clean_arg or self._resolve_app_name(app_id, existing)
         return self.save_profile(app_id, {
             "app_name": resolved_name,
             "playlists": existing_playlists,

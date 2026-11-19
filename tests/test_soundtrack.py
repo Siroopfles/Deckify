@@ -918,6 +918,93 @@ class TestPerGameAudioProfiles(SoundtrackBase):
         )
         self.plugin._volume_fader.apply_game_override.assert_awaited_once()
 
+    def test_resolve_app_name_fallback_and_exception_safety(self):
+        with patch.object(
+            soundtrack.vdf_parser,
+            "get_installed_games",
+            return_value=[{"app_id": 2429414104, "name": "PCSX2"}],
+        ):
+            self.assertEqual(self.mgr._resolve_app_name(2429414104, {"app_name": ""}), "PCSX2")
+            self.assertEqual(self.mgr._resolve_app_name(2429414104, {"app_name": "Explicit"}), "Explicit")
+
+        # Falls back to persisted profile before vdf_parser
+        self.plugin._settings["game_audio_profiles"]["77"] = {"app_id": 77, "app_name": "Persisted Title"}
+        with patch.object(soundtrack.vdf_parser, "get_installed_games", side_effect=AssertionError("should not run")):
+            self.assertEqual(self.mgr._resolve_app_name(77, {"app_name": ""}), "Persisted Title")
+
+        # Returns "" cleanly if vdf_parser raises
+        with patch.object(soundtrack.vdf_parser, "get_installed_games", side_effect=RuntimeError("VDF broken")):
+            self.assertEqual(self.mgr._resolve_app_name(999999, {"app_name": ""}), "")
+
+    async def test_save_and_bind_resolve_empty_app_name_including_non_steam_uint32(self):
+        non_steam_id = 2429414104
+        with patch.object(
+            soundtrack.vdf_parser,
+            "get_installed_games",
+            return_value=[{"app_id": non_steam_id, "name": "PCSX2"}],
+        ):
+            res_save = self.mgr.save_profile(non_steam_id, {"app_name": "", "eq_preset": "gaming"})
+            self.assertTrue(res_save["ok"])
+            self.assertEqual(res_save["profile"]["app_name"], "PCSX2")
+
+            # Explicit name overrides fallback; empty bind falls back to existing/vdf_parser
+            self.plugin._settings["game_audio_profiles"].pop(str(non_steam_id), None)
+            with patch.object(self.mgr, "get_player_state", AsyncMock(return_value=snap(ctx=PL_A))), \
+                 patch.object(self.mgr, "_resolve_context_metadata", AsyncMock(return_value=("OST", ""))):
+                res_bind = await self.mgr.bind_current_music_to_game(non_steam_id, "")
+            self.assertTrue(res_bind["ok"])
+            self.assertEqual(res_bind["profile"]["app_name"], "PCSX2")
+
+            # Preserves explicit non-empty name
+            res_explicit = self.mgr.save_profile(non_steam_id, {"app_name": "Custom Label"})
+            self.assertEqual(res_explicit["profile"]["app_name"], "Custom Label")
+            with patch.object(self.mgr, "get_player_state", AsyncMock(return_value=snap(ctx=PL_B))), \
+                 patch.object(self.mgr, "_resolve_context_metadata", AsyncMock(return_value=("OST2", ""))):
+                res_bind_keep = await self.mgr.bind_current_music_to_game(non_steam_id, "")
+            self.assertEqual(res_bind_keep["profile"]["app_name"], "Custom Label")
+
+    async def test_apply_active_audio_profile_self_heals_legacy_empty_app_name(self):
+        non_steam_id = 2429414104
+        legacy_profile = {
+            "app_id": non_steam_id,
+            "app_name": "",
+            "playlists": [{"uri": PL_A, "name": "Arcade"}],
+            "always_auto_start": False,
+            "eq_preset": "gaming",
+            "volume_override": 75,
+        }
+        self.plugin._settings["game_audio_profiles"][str(non_steam_id)] = legacy_profile
+        self.plugin._save_settings.reset_mock()
+
+        with patch.object(
+            soundtrack.vdf_parser,
+            "get_installed_games",
+            return_value=[{"app_id": non_steam_id, "name": "PCSX2"}],
+        ), patch.object(soundtrack.decky, "emit", new_callable=AsyncMock) as mock_emit, \
+           patch.object(self.mgr, "get_player_state", AsyncMock(return_value=snap(playing=True))):
+            await self.mgr.handle_app_lifecycle(non_steam_id, True)
+            await self.settle()
+
+        self.assertEqual(legacy_profile["app_name"], "PCSX2")
+        self.plugin._save_settings.assert_called()
+        self.plugin._equalizer_manager.apply_ephemeral_preset.assert_awaited_once_with(
+            "gaming", custom_bands=None, app_id=non_steam_id, app_name="PCSX2"
+        )
+        self.assertEqual(
+            self.plugin._settings["active_game_override_snapshot"]["app_name"],
+            "PCSX2",
+        )
+        mock_emit.assert_any_await("game_audio_override_changed", {
+            "active": True,
+            "app_id": non_steam_id,
+            "app_name": "PCSX2",
+            "eq_preset": "gaming",
+        })
+        mock_emit.assert_any_await("soundtrack_prompt_switch", {
+            "app_id": non_steam_id,
+            "app_name": "PCSX2",
+        })
+
 
 if __name__ == "__main__":
     unittest.main()
