@@ -574,6 +574,33 @@ class TestPluginRpc(unittest.IsolatedAsyncioTestCase):
         self.assertIn("managed internally", res["error"])
         self.assertIsNone(self.plugin._settings.get("active_game_override_snapshot"))
 
+    async def test_set_setting_strips_internal_keys_from_event_and_response(self):
+        self.plugin._settings.update({
+            "active_game_override_snapshot": {"app_id": 1091500, "eq_preset": "gaming"},
+            "access_token": "secret-access",
+            "refresh_token": "secret-refresh",
+            "token_expires_at": 9999999999,
+        })
+        with patch.object(self.main, "_save_settings"), \
+             patch.object(self.main.decky, "emit", new_callable=AsyncMock) as mock_emit:
+            res = await self.plugin.set_setting("toast_enabled", False)
+
+        self.assertTrue(res["ok"])
+        self.assertIs(res["settings"]["toast_enabled"], False)
+        mock_emit.assert_awaited_once()
+        event_name, emitted_settings = mock_emit.await_args[0]
+        self.assertEqual(event_name, "settings_changed")
+        self.assertIs(emitted_settings["toast_enabled"], False)
+        for internal_key in (
+            "active_game_override_snapshot",
+            "access_token",
+            "refresh_token",
+            "token_expires_at",
+        ):
+            self.assertNotIn(internal_key, res["settings"])
+            self.assertNotIn(internal_key, emitted_settings)
+            self.assertIn(internal_key, self.plugin._settings)
+
     async def test_main_boot_crash_recovery_flat_running_and_sleep_locked(self):
         # 1. Stale snapshot + initial_eq == "flat" -> cleans stale PID, clears snapshot, tears down EQ, fades to baseline
         flat_settings = {

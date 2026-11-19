@@ -63,6 +63,13 @@ def _save_settings(settings: dict, settings_file: str | None = None) -> None:
 _default_save_settings = _save_settings
 _default_exec = _exec
 
+_INTERNAL_SETTING_KEYS = frozenset({
+    "access_token",
+    "refresh_token",
+    "token_expires_at",
+    "active_game_override_snapshot",
+})
+
 
 def _validate_eq_bands(bands: list[float]) -> tuple[list[float] | None, str | None]:
     """Validate and clamp a 10-band equalizer gain list."""
@@ -696,6 +703,9 @@ class Plugin:
     async def get_settings(self) -> dict:
         return dict(self._settings)
 
+    def _public_settings_payload(self) -> dict:
+        return {k: v for k, v in self._settings.items() if k not in _INTERNAL_SETTING_KEYS}
+
     async def set_setting(self, key: str, value) -> dict:
         if key == "active_game_override_snapshot":
             return {"ok": False, "error": "active_game_override_snapshot is managed internally"}
@@ -871,12 +881,13 @@ class Plugin:
                 and bool(self._settings.get("bit_perfect_clock", True))
             )
 
+        public_settings = self._public_settings_payload()
         try:
-            await decky.emit("settings_changed", dict(self._settings))
+            await decky.emit("settings_changed", public_settings)
         except Exception:
             pass
 
-        return {"ok": True, "settings": dict(self._settings)}
+        return {"ok": True, "settings": public_settings}
 
     # ── Playback control callable methods (Delegated to py_modules) ────
 

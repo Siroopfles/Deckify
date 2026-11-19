@@ -84,7 +84,11 @@ class TestPinnedPlaylists(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(res["ok"])
             self.assertEqual(len(plugin._settings["pinned_playlists"]), 4)
             mock_save.assert_called_once()
-            mock_emit.assert_awaited_once_with("settings_changed", dict(plugin._settings))
+            expected_public = {
+                k: v for k, v in plugin._settings.items()
+                if k not in main._INTERNAL_SETTING_KEYS
+            }
+            mock_emit.assert_awaited_once_with("settings_changed", expected_public)
 
             five_items = four_items + [
                 {"uri": "spotify:playlist:5", "name": "Mix 5", "type": "playlist"}

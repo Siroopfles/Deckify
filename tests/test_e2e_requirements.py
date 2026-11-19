@@ -1862,7 +1862,12 @@ class TestPhase10OverlaySettings(unittest.IsolatedAsyncioTestCase):
         res_bool = await self.plugin.set_setting("overlay_lyrics_enabled", True)
         self.assertTrue(res_bool["ok"])
         self.assertIs(res_bool["settings"]["overlay_lyrics_enabled"], True)
-        self.emit.assert_awaited_with("settings_changed", dict(self.plugin._settings))
+        expected_public = {
+            k: v for k, v in self.plugin._settings.items()
+            if k not in main._INTERNAL_SETTING_KEYS
+        }
+        self.emit.assert_awaited_with("settings_changed", expected_public)
+        self.assertNotIn("active_game_override_snapshot", res_bool["settings"])
 
         res_offset = await self.plugin.set_setting("overlay_lyrics_offset_ms", -5000)
         self.assertTrue(res_offset["ok"])
