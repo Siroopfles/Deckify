@@ -233,6 +233,7 @@ class EqualizerManager:
         self._ephemeral_app_id: int | None = None
         self._ephemeral_app_name: str = ""
         self._preview_active: bool = False
+        self._eq_seq: int = 0
         self._lock = asyncio.Lock()
 
     @property
@@ -462,12 +463,36 @@ class EqualizerManager:
             return clamp_eq_bands(self.plugin._settings.get("eq_custom_bands"))
         return list(EQ_PRESETS[preset])
 
+    def _cancel_throttle(self) -> None:
+        if self._throttle_task is not None and not self._throttle_task.done():
+            self._throttle_task.cancel()
+        self._throttle_task = None
+        self._pending_bands = None
+
+    def _schedule_throttle_locked(self, bands: list[float]) -> None:
+        self._pending_bands = bands
+        if self._throttle_task is None or self._throttle_task.done():
+            self._throttle_task = asyncio.create_task(self._throttled_pw_cli_flush())
+
+    async def _ensure_started_locked(self, bands: list[float]) -> dict | None:
+        if self.is_active:
+            return None
+        start_res = await self._start_process(bands)
+        if not start_res.get("ok"):
+            return start_res
+        await self._route_librespot_to_sink(EQ_SINK_NAME)
+        if self._target_hardware_sink:
+            await self._route_eq_output_to_sink(self._target_hardware_sink)
+        return None
+
     async def apply_preset(self, preset: str, custom_bands: list[float] | None = None) -> dict:
         """Apply an EQ preset (flat performs true bypass teardown)."""
         if preset not in EQ_PRESETS:
             return {"ok": False, "error": f"Invalid eq_preset: {preset}"}
 
+        self._eq_seq += 1
         async with self._lock:
+            self._cancel_throttle()
             if preset == "flat":
                 # Move librespot back to hardware sink BEFORE destroying deckify_eq_sink
                 # so PipeWire does not cork/stop active playback during teardown.
@@ -515,10 +540,8 @@ class EqualizerManager:
         ):
             return {"ok": True, "preset": preset}
 
-        if self._throttle_task is not None and not self._throttle_task.done():
-            self._throttle_task.cancel()
-        self._throttle_task = None
-        self._pending_bands = None
+        self._eq_seq += 1
+        self._cancel_throttle()
         self._preview_active = False
 
         self._ephemeral_preset = preset
@@ -533,15 +556,13 @@ class EqualizerManager:
         if not self.has_ephemeral_override and not self._preview_active:
             return {"ok": True, "restored": False}
 
-        if self._throttle_task is not None and not self._throttle_task.done():
-            self._throttle_task.cancel()
-        self._throttle_task = None
+        self._eq_seq += 1
+        self._cancel_throttle()
         self._ephemeral_preset = None
         self._ephemeral_bands = None
         self._ephemeral_app_id = None
         self._ephemeral_app_name = ""
         self._preview_active = False
-        self._pending_bands = None
 
         global_preset = self.plugin._settings.get("eq_preset", "flat")
         if not isinstance(global_preset, str) or global_preset not in EQ_PRESETS:
@@ -551,22 +572,24 @@ class EqualizerManager:
     async def preview_bands(self, bands: list[float]) -> dict:
         """Preview 10-band EQ changes live via pw-cli without touching global settings."""
         clamped = clamp_eq_bands(bands)
+        self._eq_seq += 1
+        my_seq = self._eq_seq
         self._preview_active = True
 
-        if not self.is_active:
-            async with self._lock:
-                if not self.is_active:
-                    start_res = await self._start_process(clamped)
-                    if not start_res.get("ok"):
-                        self._preview_active = False
-                        return start_res
-                    await self._route_librespot_to_sink(EQ_SINK_NAME)
-                    if self._target_hardware_sink:
-                        await self._route_eq_output_to_sink(self._target_hardware_sink)
+        async with self._lock:
+            if not self._preview_active or my_seq != self._eq_seq:
+                return {"ok": True, "preview": False, "cancelled": True}
 
-        self._pending_bands = clamped
-        if self._throttle_task is None or self._throttle_task.done():
-            self._throttle_task = asyncio.create_task(self._throttled_pw_cli_flush())
+            err_res = await self._ensure_started_locked(clamped)
+            if err_res is not None:
+                if my_seq == self._eq_seq:
+                    self._preview_active = False
+                return err_res
+
+            if not self._preview_active or my_seq != self._eq_seq:
+                return {"ok": True, "preview": False, "cancelled": True}
+
+            self._schedule_throttle_locked(clamped)
 
         return {"ok": True, "preview": True, "bands": clamped}
 
@@ -575,10 +598,8 @@ class EqualizerManager:
         if not self._preview_active:
             return {"ok": True, "restored": False}
 
-        if self._throttle_task is not None and not self._throttle_task.done():
-            self._throttle_task.cancel()
-        self._throttle_task = None
-        self._pending_bands = None
+        self._eq_seq += 1
+        self._cancel_throttle()
         self._preview_active = False
 
         if self.has_ephemeral_override:
@@ -592,9 +613,11 @@ class EqualizerManager:
     async def _throttled_pw_cli_flush(self) -> None:
         try:
             await asyncio.sleep(_PW_CLI_THROTTLE_S)
-            bands = self._pending_bands
-            if bands is not None and self.is_active:
-                await self._apply_pw_cli_params(bands)
+            async with self._lock:
+                bands = self._pending_bands
+                self._pending_bands = None
+                if bands is not None and self.is_active:
+                    await self._apply_pw_cli_params(bands)
         except asyncio.CancelledError:
             pass
 
@@ -623,19 +646,34 @@ class EqualizerManager:
                 "deferred_by_game_override": True,
             }
 
-        if not self.is_active:
-            async with self._lock:
-                if not self.is_active:
-                    start_res = await self._start_process(clamped)
-                    if not start_res.get("ok"):
-                        return start_res
-                    await self._route_librespot_to_sink(EQ_SINK_NAME)
-                    if self._target_hardware_sink:
-                        await self._route_eq_output_to_sink(self._target_hardware_sink)
+        self._eq_seq += 1
+        my_seq = self._eq_seq
+        async with self._lock:
+            if self.has_ephemeral_override:
+                return {
+                    "ok": True,
+                    "preset": "custom",
+                    "bands": clamped,
+                    "deferred_by_game_override": True,
+                }
+            if my_seq != self._eq_seq:
+                return {"ok": True, "preset": "custom", "bands": clamped, "cancelled": True}
 
-        self._pending_bands = clamped
-        if self._throttle_task is None or self._throttle_task.done():
-            self._throttle_task = asyncio.create_task(self._throttled_pw_cli_flush())
+            err_res = await self._ensure_started_locked(clamped)
+            if err_res is not None:
+                return err_res
+
+            if self.has_ephemeral_override:
+                return {
+                    "ok": True,
+                    "preset": "custom",
+                    "bands": clamped,
+                    "deferred_by_game_override": True,
+                }
+            if my_seq != self._eq_seq:
+                return {"ok": True, "preset": "custom", "bands": clamped, "cancelled": True}
+
+            self._schedule_throttle_locked(clamped)
 
         return {"ok": True, "preset": "custom", "bands": clamped}
 
@@ -672,9 +710,7 @@ class EqualizerManager:
 
     async def stop(self) -> None:
         """Terminate the isolated pipewire -c filter-chain process."""
-        if self._throttle_task is not None and not self._throttle_task.done():
-            self._throttle_task.cancel()
-        self._throttle_task = None
+        self._cancel_throttle()
 
         proc = self._process
         self._process = None
