@@ -352,9 +352,8 @@ function useGameEqState({
   };
 
   const handleBandChange = (idx: number, rawGain: number) => {
-    const safeGain = Number.isFinite(rawGain) ? rawGain : 0;
     const nextBands = normalizeEqBands(
-      bandsRef.current.map((b, i) => (i === idx ? safeGain : b))
+      bandsRef.current.map((b, i) => (i === idx ? rawGain : b))
     );
     return commitBandsPreview(nextBands, null);
   };

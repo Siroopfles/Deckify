@@ -81,7 +81,11 @@ vi.mock("react", () => ({
 
 import { GameEqModal, GameEqModalProps } from "./GameEqModal";
 import { InteractiveRow } from "../common/InteractiveRow";
-import { EQ_BAND_LABELS, EQ_PRESET_CURVES } from "../common/EqBandFaders";
+import {
+  EQ_BAND_LABELS,
+  EQ_PRESET_CURVES,
+  normalizeEqBands,
+} from "../common/EqBandFaders";
 
 function renderModal(props: GameEqModalProps) {
   stateIdx = 0;
@@ -250,6 +254,20 @@ describe("GameEqModal Component", () => {
       },
     });
     expect(mockPreviewEqBands).toHaveBeenLastCalledWith([0.5, 0, 6, 0, 0, 0, 0, 0, 0, 0]);
+
+    // Non-finite gain input from handleBandChange normalizes to 0 via normalizeEqBands
+    slider3.props.onPointerDown({
+      pointerId: 1,
+      clientY: Number.NaN,
+      currentTarget: {
+        setPointerCapture: vi.fn(),
+        getBoundingClientRect: () => ({ top: 0, bottom: 100, height: 100 }),
+      },
+    });
+    expect(mockPreviewEqBands).toHaveBeenLastCalledWith([0.5, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    expect(
+      normalizeEqBands([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])
+    ).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
   });
 
   it("supports Copy from Preset pills (Bass Boost, Global) and Reset to Flat with live preview", async () => {
