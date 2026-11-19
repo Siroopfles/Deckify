@@ -5,11 +5,11 @@ titles: json
 findings:
   - id: WR-08
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "`handleQuickBind` allows missing or zero `Router.MainRunningApp.appid` to forward an unverified `display_name`"
   - id: WR-09
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "`SoundtrackManager._resolve_app_name` executes synchronous `vdf_parser.get_installed_games()` disk I/O on the asyncio event loop (including on unbound game launches)"
   - id: IN-06
     severity: info
@@ -63,17 +63,17 @@ findings:
     severity: info
     disposition: fixed
     title: "`SoundtracksTab` `confirmDeleteAppId` stays active across card clicks and configured cards cannot collapse"
-open: 3
+open: 1
 total: 15
-recorded: 2026-11-19T17:29:43.465Z
+recorded: 2026-11-19T17:53:59.379Z
 ---
 
 # Phase 19: Code Review Disposition
 
 | Finding | Severity | Disposition | Source |
 |---------|----------|-------------|--------|
-| WR-08 | warning | open | - |
-| WR-09 | warning | open | - |
+| WR-08 | warning | fixed | 19-REVIEW-FIX.md |
+| WR-09 | warning | fixed | 19-REVIEW-FIX.md |
 | IN-06 | info | open | - |
 | WR-01 | warning | fixed | 19-REVIEW-FIX.md (not in the current review) |
 | WR-02 | warning | fixed | 19-REVIEW-FIX.md (not in the current review) |
