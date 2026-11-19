@@ -42,6 +42,7 @@ LIBRESPOT_BIN = os.path.join(decky.DECKY_PLUGIN_DIR, "bin", "librespot")
 CACHE_DIR = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, "cache")
 LIBRESPOT_PID_FILE = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, "librespot.pid")
 SPOTIFY_CLIENT_PID_FILE = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, "spotify_client.pid")
+EQ_PID_FILE = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, "eq.pid")
 ONEVENT_SOCK_FILE = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, "onevent.sock")
 ONEVENT_EMITTER_SCRIPT = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, "librespot-event.sh")
 SESSION_BOOKMARK_FILE = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, "session_bookmark.json")
@@ -84,6 +85,7 @@ DEFAULT_SETTINGS = {
     "playlist_folders": [],
     "spotify_folder_tree": [],
     "game_audio_profiles": {},
+    "active_game_override_snapshot": None,
     "soundtrack_launch_debounce": 3.5,
     "soundtrack_exit_debounce": 3.0,
     "soundtrack_unbound_policy": "keep_playing",
@@ -226,6 +228,18 @@ def _load_settings(settings_file: str | None = None) -> dict:
             merged["spotify_folder_tree"] = []
         if not isinstance(merged.get("game_audio_profiles"), dict):
             merged["game_audio_profiles"] = {}
+        raw_game_snap = merged.get("active_game_override_snapshot")
+        if raw_game_snap is not None:
+            if not isinstance(raw_game_snap, dict):
+                merged["active_game_override_snapshot"] = None
+            else:
+                snap_app_id = raw_game_snap.get("app_id")
+                if (
+                    isinstance(snap_app_id, bool)
+                    or not isinstance(snap_app_id, int)
+                    or not (1 <= snap_app_id <= 0xFFFFFFFF)
+                ):
+                    merged["active_game_override_snapshot"] = None
         for _k, _default in (("soundtrack_launch_debounce", 3.5), ("soundtrack_exit_debounce", 3.0)):
             try:
                 merged[_k] = max(0.5, min(10.0, float(merged.get(_k, _default))))
