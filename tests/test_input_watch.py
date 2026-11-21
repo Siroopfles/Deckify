@@ -222,5 +222,98 @@ class TestControllerInputWatcher(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(len(watcher._open_devices), 0)
 
 
+class TestPluginInputWatcherLifecycle(unittest.IsolatedAsyncioTestCase):
+    async def test_main_and_unload_manage_input_watcher(self):
+        try:
+            from test_token_refresh import main
+        except ImportError:
+            from tests.test_token_refresh import main
+
+        plugin = main.Plugin()
+        mock_watcher = MagicMock()
+        mock_watcher.start = AsyncMock()
+        mock_watcher.stop = AsyncMock()
+        mock_watcher.set_enabled = MagicMock()
+
+        with patch.object(main, "_load_settings", return_value={"gamepad_chords_enabled": False}), \
+             patch.object(main, "SuspendResumeMonitor") as mock_suspend, \
+             patch.object(main.volume, "VolumeFader"), \
+             patch.object(main.volume, "VoiceActivityDetector") as mock_vad, \
+             patch.object(main.soundtrack, "SoundtrackManager"), \
+             patch.object(main.equalizer, "EqualizerManager") as mock_eq, \
+             patch.object(main.dock, "DockAudioSwitcher") as mock_dock, \
+             patch.object(main.resilience, "SessionBookmarkManager"), \
+             patch.object(main.resilience, "LibrespotEventServer") as mock_ev, \
+             patch.object(main.mpris, "MprisBridge") as mock_mpris, \
+             patch.object(main, "_save_settings"), \
+             patch.object(plugin, "_sync_native_spotify_folders", new_callable=AsyncMock), \
+             patch.object(plugin, "start_librespot", new_callable=AsyncMock), \
+             patch.object(plugin, "_stop_monitor", new_callable=AsyncMock), \
+             patch.object(plugin, "_kill_librespot", new_callable=AsyncMock), \
+             patch.object(plugin, "_kill_spotify_client", new_callable=AsyncMock), \
+             patch.object(plugin, "_stop_oauth_server", new_callable=AsyncMock), \
+             patch.object(plugin, "_stop_api_poll", new_callable=AsyncMock), \
+             patch.object(main.input_watch, "ControllerInputWatcher", return_value=mock_watcher) as mock_cls:
+            mock_suspend.return_value.stop = AsyncMock()
+            mock_vad.return_value.stop = AsyncMock()
+            mock_eq.return_value.cleanup_stale_process = AsyncMock()
+            mock_eq.return_value.unload = AsyncMock()
+            mock_dock.return_value.evaluate_now = AsyncMock()
+            mock_dock.return_value.stop = AsyncMock()
+            mock_ev.return_value.start = AsyncMock()
+            mock_ev.return_value.stop = AsyncMock()
+            mock_mpris.return_value.start = AsyncMock()
+            mock_mpris.return_value.stop = AsyncMock()
+
+            await plugin._main()
+            mock_cls.assert_called_once()
+            mock_watcher.set_enabled.assert_called_once_with(False)
+            mock_watcher.start.assert_awaited_once()
+            self.assertIs(plugin._input_watcher, mock_watcher)
+
+            await plugin._unload()
+            mock_watcher.stop.assert_awaited_once()
+            self.assertIsNone(plugin._input_watcher)
+
+    async def test_set_setting_resume_and_controller_input_emit(self):
+        try:
+            from test_token_refresh import main
+        except ImportError:
+            from tests.test_token_refresh import main
+
+        plugin = main.Plugin()
+        plugin._settings = {"gamepad_chords_enabled": True}
+        mock_watcher = MagicMock()
+        mock_watcher.set_enabled = MagicMock()
+        mock_watcher.rescan = MagicMock()
+        plugin._input_watcher = mock_watcher
+
+        with patch.object(main, "_save_settings"), \
+             patch.object(main.decky, "emit", new_callable=AsyncMock) as mock_emit:
+            res = await plugin.set_setting("gamepad_chords_enabled", False)
+            self.assertTrue(res["ok"])
+            mock_watcher.set_enabled.assert_called_once_with(False)
+
+            res2 = await plugin.set_setting("gamepad_chords_enabled", True)
+            self.assertTrue(res2["ok"])
+            mock_watcher.set_enabled.assert_called_with(True)
+
+            plugin._bookmark_manager = MagicMock()
+            plugin._bookmark_manager.handle_wake_recovery = AsyncMock()
+            with patch.object(plugin, "_refresh_audio_stream_info", new_callable=AsyncMock):
+                await plugin._on_deck_resume()
+            mock_watcher.rescan.assert_called_once()
+
+            await plugin._on_controller_input_event(27, True, "hidraw")
+            mock_emit.assert_any_await(
+                "controller_input",
+                {"button": 27, "pressed": True, "source": "hidraw"},
+            )
+
+        # Error isolation: decky.emit raising must not propagate
+        with patch.object(main.decky, "emit", new_callable=AsyncMock, side_effect=RuntimeError("ipc down")):
+            await plugin._on_controller_input_event(1, False, "evdev")
+
+
 if __name__ == "__main__":
     unittest.main()

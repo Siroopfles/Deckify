@@ -56,6 +56,7 @@ from py_modules import dock
 from py_modules import resilience
 from py_modules import mpris
 from py_modules import vdf_parser
+from py_modules import input_watch
 
 common._MAIN_MODULE = sys.modules.get(__name__)
 
@@ -203,6 +204,12 @@ class Plugin:
         await self._event_server.start()
         self._mpris_bridge = mpris.MprisBridge(self)
         await self._mpris_bridge.start()
+        self._input_watcher = input_watch.ControllerInputWatcher(
+            on_button_event=self._on_controller_input_event,
+            logger=decky.logger,
+        )
+        self._input_watcher.set_enabled(bool(self._settings.get("gamepad_chords_enabled", True)))
+        await self._input_watcher.start()
         if self._access_token:
             self._start_api_poll()
         await self._sync_native_spotify_folders()
@@ -231,6 +238,9 @@ class Plugin:
 
     async def _unload(self):
         decky.logger.info("Deckify unloading")
+        if getattr(self, "_input_watcher", None):
+            await self._input_watcher.stop()
+            self._input_watcher = None
         if getattr(self, "_mpris_bridge", None):
             await self._mpris_bridge.stop()
             self._mpris_bridge = None
@@ -264,6 +274,15 @@ class Plugin:
         await self._stop_oauth_server()
         await self._stop_api_poll()
 
+    async def _on_controller_input_event(self, button: int, pressed: bool, source: str) -> None:
+        try:
+            await decky.emit(
+                "controller_input",
+                {"button": int(button), "pressed": bool(pressed), "source": source},
+            )
+        except Exception as e:
+            decky.logger.debug("controller_input emit failed: %s", e)
+
     async def _on_deck_sleep(self):
         decky.logger.info("Deck entering sleep")
         if getattr(self, "_bookmark_manager", None):
@@ -276,6 +295,8 @@ class Plugin:
                 self._bookmark_manager = resilience.SessionBookmarkManager(self)
             await self._bookmark_manager.handle_wake_recovery(source="dbus")
             await self._refresh_audio_stream_info()
+            if getattr(self, "_input_watcher", None):
+                self._input_watcher.rescan()
             await decky.emit("deck_resumed")
         except Exception as e:
             decky.logger.warning("Resume handler error: %s", e)
@@ -766,6 +787,8 @@ class Plugin:
                 asyncio.create_task(self._volume_fader.set_ducking(False, reason="game"))
         elif key in ("normalisation", "gapless", "autoplay", "bit_perfect_clock", "overlay_enabled", "toast_enabled", "toast_sound_enabled", "gamepad_chords_enabled", "silent_banner_enabled", "overlay_autohide", "overlay_show_progress", "overlay_lyrics_enabled", "voice_ducking_enabled", "sleep_timer_fade_enabled", "dock_auto_switch_enabled", "dock_respect_bluetooth", "dock_pause_on_undock", "dock_toast_enabled", "resilience_auto_resume", "resilience_bookmark_never_expires", "resilience_toast_enabled", "resilience_prompt_held_enabled", "mpris_enabled", "mpris_auto_proxy"):
             value = bool(value)
+            if key == "gamepad_chords_enabled" and getattr(self, "_input_watcher", None):
+                self._input_watcher.set_enabled(value)
         elif key == "gamepad_chord_bindings":
             validated, err = _validate_chord_bindings(
                 value, self._settings.get("gamepad_chord_bindings")
