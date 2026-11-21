@@ -38,7 +38,14 @@ for _dir in [
 
 from py_modules import *
 from py_modules import common
-from py_modules.common import MAX_PINNED_PLAYLISTS, _sanitize_pinned_playlists
+from py_modules.common import (
+    CHORD_ACTION_IDS,
+    DEFAULT_CHORD_BINDINGS,
+    MAX_PINNED_PLAYLISTS,
+    _sanitize_chord_bindings,
+    _sanitize_pinned_playlists,
+    _validate_chord_bindings,
+)
 from py_modules import volume
 from py_modules import system
 from py_modules import equalizer
@@ -604,7 +611,8 @@ class Plugin:
             "bit_perfect_clock", "spotify_client_id", "normalisation",
             "normalisation_pregain", "gapless", "autoplay", "playlist_folders",
             "spotify_folder_tree", "game_audio_profiles", "auto_ducking",
-            "auto_ducking_volume", "gamepad_chords_enabled", "toast_enabled",
+            "auto_ducking_volume", "gamepad_chords_enabled", "silent_banner_enabled",
+            "gamepad_chord_bindings", "toast_enabled",
             "toast_sound_enabled", "toast_position", "overlay_enabled", "overlay_position",
             "overlay_autohide", "overlay_show_progress",
             "overlay_lyrics_enabled", "overlay_lyrics_offset_ms",
@@ -756,8 +764,15 @@ class Plugin:
             value = bool(value)
             if not value and hasattr(self, "_volume_fader") and self._volume_fader:
                 asyncio.create_task(self._volume_fader.set_ducking(False, reason="game"))
-        elif key in ("normalisation", "gapless", "autoplay", "bit_perfect_clock", "overlay_enabled", "toast_enabled", "toast_sound_enabled", "gamepad_chords_enabled", "overlay_autohide", "overlay_show_progress", "overlay_lyrics_enabled", "voice_ducking_enabled", "sleep_timer_fade_enabled", "dock_auto_switch_enabled", "dock_respect_bluetooth", "dock_pause_on_undock", "dock_toast_enabled", "resilience_auto_resume", "resilience_bookmark_never_expires", "resilience_toast_enabled", "resilience_prompt_held_enabled", "mpris_enabled", "mpris_auto_proxy"):
+        elif key in ("normalisation", "gapless", "autoplay", "bit_perfect_clock", "overlay_enabled", "toast_enabled", "toast_sound_enabled", "gamepad_chords_enabled", "silent_banner_enabled", "overlay_autohide", "overlay_show_progress", "overlay_lyrics_enabled", "voice_ducking_enabled", "sleep_timer_fade_enabled", "dock_auto_switch_enabled", "dock_respect_bluetooth", "dock_pause_on_undock", "dock_toast_enabled", "resilience_auto_resume", "resilience_bookmark_never_expires", "resilience_toast_enabled", "resilience_prompt_held_enabled", "mpris_enabled", "mpris_auto_proxy"):
             value = bool(value)
+        elif key == "gamepad_chord_bindings":
+            validated, err = _validate_chord_bindings(
+                value, self._settings.get("gamepad_chord_bindings")
+            )
+            if err:
+                return {"ok": False, "error": err}
+            value = validated
         elif key == "resilience_bookmark_expiry_hours":
             if isinstance(value, bool):
                 return {"ok": False, "error": "resilience_bookmark_expiry_hours must be an integer between 1 and 24"}

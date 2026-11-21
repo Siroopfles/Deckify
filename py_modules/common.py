@@ -1,4 +1,5 @@
 import asyncio
+import copy
 import json
 import os
 import ssl
@@ -71,6 +72,33 @@ if pwd:
 SPOTIFY_CLIENT_CONFIG_DIR = os.path.join(DECK_HOME, ".var", "app", SPOTIFY_FLATPAK_ID, "config", "spotify")
 SPOTIFY_CLIENT_CACHE_DIR = os.path.join(DECK_HOME, ".var", "app", SPOTIFY_FLATPAK_ID, "cache", "spotify")
 
+CHORD_ACTION_IDS = (
+    "previous",
+    "next",
+    "play_pause",
+    "volume_up",
+    "volume_down",
+    "toggle_like",
+    "cycle_pinned",
+    "toggle_lyrics",
+)
+GUIDE_BUTTON_IDS = frozenset({13, 14, 27, 28})
+RESERVED_VALVE_TARGET_BUTTONS = frozenset({3, 5, 6})
+MAX_CHORD_BUTTONS = 4
+MIN_BUTTON_ID = 0
+MAX_BUTTON_ID = 28
+
+DEFAULT_CHORD_BINDINGS = {
+    "previous": [11, 27],
+    "next": [12, 27],
+    "play_pause": [1, 27],
+    "volume_up": [9, 27],
+    "volume_down": [10, 27],
+    "toggle_like": [],
+    "cycle_pinned": [],
+    "toggle_lyrics": [],
+}
+
 DEFAULT_SETTINGS = {
     "device_name": "",
     "audio_backend": "librespot",
@@ -101,6 +129,8 @@ DEFAULT_SETTINGS = {
     "voice_ducking_volume": 25,
     "voice_ducking_hold_delay": 1.2,
     "gamepad_chords_enabled": True,
+    "silent_banner_enabled": True,
+    "gamepad_chord_bindings": {k: list(v) for k, v in DEFAULT_CHORD_BINDINGS.items()},
     "toast_enabled": True,
     "toast_sound_enabled": False,
     "toast_position": "top_right",
@@ -198,15 +228,98 @@ def _sanitize_pinned_playlists(raw) -> list[dict]:
     return result
 
 
+def _normalize_chord_buttons(raw_btns) -> tuple[list[int] | None, str | None]:
+    """Validate, normalize (28 -> 27), deduplicate, and sort a chord button list."""
+    if not isinstance(raw_btns, list):
+        return None, "Chord binding must be a list of button IDs"
+    seen: set[int] = set()
+    normalized: list[int] = []
+    for btn in raw_btns:
+        if isinstance(btn, bool) or not isinstance(btn, int) or not (MIN_BUTTON_ID <= btn <= MAX_BUTTON_ID):
+            return None, "Invalid button ID in chord binding"
+        canon = 27 if btn == 28 else btn
+        if canon not in seen:
+            seen.add(canon)
+            normalized.append(canon)
+    normalized.sort()
+    if len(normalized) > MAX_CHORD_BUTTONS:
+        return None, "Chords support up to 4 buttons."
+    if (
+        len(normalized) == 2
+        and any(b in GUIDE_BUTTON_IDS for b in normalized)
+        and any(b in RESERVED_VALVE_TARGET_BUTTONS for b in normalized)
+    ):
+        return None, "That combination is reserved by Steam. Choose a different one."
+    return normalized, None
+
+
+def _sanitize_chord_bindings(raw) -> dict[str, list[int]]:
+    """Recover valid chord bindings from persisted disk JSON without shared references."""
+    if not isinstance(raw, dict):
+        return {k: list(v) for k, v in DEFAULT_CHORD_BINDINGS.items()}
+    used_chords: set[tuple[int, ...]] = set()
+    result: dict[str, list[int]] = {}
+    for action in CHORD_ACTION_IDS:
+        if action not in raw:
+            candidate = list(DEFAULT_CHORD_BINDINGS[action])
+        else:
+            norm, err = _normalize_chord_buttons(raw[action])
+            if err is not None or norm is None:
+                candidate = list(DEFAULT_CHORD_BINDINGS[action])
+            else:
+                candidate = norm
+        chord_key = tuple(candidate)
+        if chord_key:
+            if chord_key in used_chords:
+                candidate = []
+            else:
+                used_chords.add(chord_key)
+        result[action] = list(candidate)
+    return result
+
+
+def _validate_chord_bindings(
+    raw, base_bindings: dict | None = None
+) -> tuple[dict[str, list[int]] | None, str | None]:
+    """Strictly validate a gamepad_chord_bindings payload for set_setting."""
+    if not isinstance(raw, dict):
+        return None, "gamepad_chord_bindings must be a dict"
+    for action_key in raw.keys():
+        if action_key not in CHORD_ACTION_IDS:
+            return None, f"Unknown chord action: {action_key}"
+    if base_bindings is not None:
+        merged = _sanitize_chord_bindings(base_bindings)
+    else:
+        merged = {k: list(v) for k, v in DEFAULT_CHORD_BINDINGS.items()}
+    for action_key, raw_btns in raw.items():
+        norm, err = _normalize_chord_buttons(raw_btns)
+        if err is not None or norm is None:
+            return None, err
+        merged[action_key] = norm
+    seen_chords: set[tuple[int, ...]] = set()
+    result: dict[str, list[int]] = {}
+    for action in CHORD_ACTION_IDS:
+        btns = list(merged.get(action, []))
+        chord_key = tuple(btns)
+        if chord_key:
+            if chord_key in seen_chords:
+                return None, "Duplicate chord binding across actions"
+            seen_chords.add(chord_key)
+        result[action] = btns
+    return result, None
+
+
 def _load_settings(settings_file: str | None = None) -> dict:
     target_file = settings_file or SETTINGS_FILE
     default_settings = DEFAULT_SETTINGS
     try:
         with open(target_file, "r") as f:
             saved = json.load(f)
+        if not isinstance(saved, dict):
+            return copy.deepcopy(default_settings)
         for obsolete in ("mix_mode", "crossfade_seconds", "mixed_playlists"):
             saved.pop(obsolete, None)
-        merged = {**default_settings, **saved}
+        merged = {**copy.deepcopy(default_settings), **saved}
         if merged["device_name"] == "Steam Deck" and not saved.get("device_name_customized"):
             merged["device_name"] = ""
         if merged.get("audio_backend") not in VALID_AUDIO_BACKENDS:
@@ -338,10 +451,20 @@ def _load_settings(settings_file: str | None = None) -> dict:
                 merged["resilience_bookmark_expiry_hours"] = max(1, min(24, int(raw_expiry)))
             except (TypeError, ValueError):
                 merged["resilience_bookmark_expiry_hours"] = 12
+        raw_silent_banner = merged.get("silent_banner_enabled", True)
+        if isinstance(raw_silent_banner, bool):
+            merged["silent_banner_enabled"] = raw_silent_banner
+        elif isinstance(raw_silent_banner, int):
+            merged["silent_banner_enabled"] = bool(raw_silent_banner)
+        else:
+            merged["silent_banner_enabled"] = True
+        merged["gamepad_chord_bindings"] = _sanitize_chord_bindings(
+            merged.get("gamepad_chord_bindings")
+        )
         merged["pinned_playlists"] = _sanitize_pinned_playlists(merged.get("pinned_playlists"))
         return merged
     except Exception:
-        return dict(default_settings)
+        return copy.deepcopy(default_settings)
 
 
 _load_settings_impl = _load_settings
