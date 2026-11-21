@@ -1514,4 +1514,42 @@ describe("SettingsTab - Silent HUD Banner & In-Game Quick Chords (Phase 20)", ()
     expect(showToast).toHaveBeenCalledWith("Failed to save chord bindings — try again.");
     expect(refreshStatus).not.toHaveBeenCalled();
   });
+
+  it("renders Notification / Banner Corner 4-button selector even when overlay_enabled is false and saves silent_banner_position", async () => {
+    const tree = SettingsTab({
+      status: {
+        ...mockStatus,
+        settings: {
+          ...mockStatus.settings!,
+          overlay_enabled: false,
+          overlay_position: "top-right",
+          silent_banner_position: "bottom-left",
+        },
+      },
+      refreshStatus,
+      showToast,
+    });
+
+    const notificationsCard = findNodes(
+      tree,
+      (n) => n.type === "div" && findText(n).includes("Notifications & Controller Shortcuts") && !findText(n).includes("Playback Engine")
+    )[0];
+    expect(notificationsCard).toBeDefined();
+    expect(findText(notificationsCard)).toContain("Notification / Banner Corner");
+
+    const cornerRows = findNodes(
+      notificationsCard,
+      (n) =>
+        n.type === InteractiveRow &&
+        ["top left", "top right", "bottom left", "bottom right"].includes(findText(n).trim().toLowerCase())
+    );
+    expect(cornerRows).toHaveLength(4);
+    expect(cornerRows.find((r) => findText(r).trim().toLowerCase() === "bottom left")?.props.active).toBe(true);
+    expect(cornerRows.find((r) => findText(r).trim().toLowerCase() === "top right")?.props.active).toBe(false);
+
+    const topLeftRow = cornerRows.find((r) => findText(r).trim().toLowerCase() === "top left")!;
+    await topLeftRow.props.onClick();
+    expect(mockSetSetting).toHaveBeenCalledWith("silent_banner_position", "top-left");
+    expect(showToast).toHaveBeenCalledWith("Notification corner: top-left");
+  });
 });

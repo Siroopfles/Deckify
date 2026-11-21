@@ -231,6 +231,41 @@ class TestChordSettings(unittest.IsolatedAsyncioTestCase):
                 },
             )
 
+    async def test_silent_banner_position_defaults_load_validation_and_get_status(self):
+        self.assertEqual(common.DEFAULT_SETTINGS["silent_banner_position"], "top-right")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            norm_path = os.path.join(tmpdir, "norm.json")
+            with open(norm_path, "w") as f:
+                json.dump({"silent_banner_position": "bottom_left"}, f)
+            self.assertEqual(common._load_settings(norm_path)["silent_banner_position"], "bottom-left")
+
+            bad_path = os.path.join(tmpdir, "bad.json")
+            with open(bad_path, "w") as f:
+                json.dump({"silent_banner_position": "center"}, f)
+            self.assertEqual(common._load_settings(bad_path)["silent_banner_position"], "top-right")
+
+        plugin = main.Plugin()
+        plugin._settings = copy.deepcopy(common.DEFAULT_SETTINGS)
+
+        with patch.object(main, "_save_settings") as mock_save, patch.object(
+            main.decky, "emit", new_callable=AsyncMock
+        ) as mock_emit:
+            res = await plugin.set_setting("silent_banner_position", "bottom_right")
+            self.assertTrue(res["ok"])
+            self.assertEqual(plugin._settings["silent_banner_position"], "bottom-right")
+            self.assertEqual(res["settings"]["silent_banner_position"], "bottom-right")
+            mock_save.assert_called_once()
+            mock_emit.assert_awaited_once()
+
+            bad_res = await plugin.set_setting("silent_banner_position", "middle")
+            self.assertFalse(bad_res["ok"])
+            self.assertIn("Invalid silent_banner_position", bad_res.get("error", ""))
+            self.assertEqual(plugin._settings["silent_banner_position"], "bottom-right")
+
+        status = await plugin.get_status()
+        self.assertEqual(status["settings"]["silent_banner_position"], "bottom-right")
+
 
 if __name__ == "__main__":
     unittest.main()

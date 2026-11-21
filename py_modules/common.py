@@ -130,6 +130,7 @@ DEFAULT_SETTINGS = {
     "voice_ducking_hold_delay": 1.2,
     "gamepad_chords_enabled": True,
     "silent_banner_enabled": True,
+    "silent_banner_position": "top-right",
     "gamepad_chord_bindings": {k: list(v) for k, v in DEFAULT_CHORD_BINDINGS.items()},
     "toast_enabled": True,
     "toast_sound_enabled": False,
@@ -458,6 +459,14 @@ def _load_settings(settings_file: str | None = None) -> dict:
             merged["silent_banner_enabled"] = bool(raw_silent_banner)
         else:
             merged["silent_banner_enabled"] = True
+        raw_banner_pos = merged.get("silent_banner_position", "top-right")
+        if isinstance(raw_banner_pos, str):
+            norm_banner_pos = raw_banner_pos.strip().lower().replace("_", "-")
+        else:
+            norm_banner_pos = "top-right"
+        if norm_banner_pos not in ("top-left", "top-right", "bottom-left", "bottom-right"):
+            norm_banner_pos = "top-right"
+        merged["silent_banner_position"] = norm_banner_pos
         merged["gamepad_chord_bindings"] = _sanitize_chord_bindings(
             merged.get("gamepad_chord_bindings")
         )

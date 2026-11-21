@@ -612,7 +612,7 @@ class Plugin:
             "normalisation_pregain", "gapless", "autoplay", "playlist_folders",
             "spotify_folder_tree", "game_audio_profiles", "auto_ducking",
             "auto_ducking_volume", "gamepad_chords_enabled", "silent_banner_enabled",
-            "gamepad_chord_bindings", "toast_enabled",
+            "silent_banner_position", "gamepad_chord_bindings", "toast_enabled",
             "toast_sound_enabled", "toast_position", "overlay_enabled", "overlay_position",
             "overlay_autohide", "overlay_show_progress",
             "overlay_lyrics_enabled", "overlay_lyrics_offset_ms",
@@ -827,6 +827,12 @@ class Plugin:
             pos = str(value).strip().lower().replace("_", "-")
             if pos not in valid_positions:
                 return {"ok": False, "error": f"Invalid overlay_position: {value}"}
+            value = pos
+        elif key == "silent_banner_position":
+            valid_positions = {"top-left", "top-right", "bottom-left", "bottom-right"}
+            pos = str(value).strip().lower().replace("_", "-")
+            if pos not in valid_positions:
+                return {"ok": False, "error": f"Invalid silent_banner_position: {value}"}
             value = pos
         elif key == "toast_position":
             pos = str(value).strip().lower().replace("-", "_")

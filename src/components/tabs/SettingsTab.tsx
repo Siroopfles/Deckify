@@ -1490,7 +1490,7 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
         >
           <div>
             <div style={{ fontSize: 13, fontWeight: 600 }}>Notification Sound</div>
-            <div style={{ fontSize: 11, opacity: 0.6 }}>Play Steam notification chime on track change</div>
+            <div style={{ fontSize: 11, opacity: 0.6 }}>Play subtle notification chime on track change (scales with Deckify volume)</div>
           </div>
           <span
             style={{
@@ -1502,6 +1502,37 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
             {(status?.settings?.toast_sound_enabled ?? false) ? "ON" : "OFF"}
           </span>
         </InteractiveRow>
+
+        {/* Notification / Banner Corner */}
+        <div style={{ fontSize: 12, fontWeight: 600, opacity: 0.85, marginTop: 4 }}>
+          Notification / Banner Corner
+        </div>
+        <Focusable flow-children="horizontal" style={{ display: "flex", gap: 6, marginTop: 6, marginBottom: 10 }}>
+          {["top-left", "top-right", "bottom-left", "bottom-right"].map((pos) => (
+            <InteractiveRow
+              key={pos}
+              onClick={async () => {
+                await updateSetting("silent_banner_position", pos);
+                showToast(`Notification corner: ${pos}`);
+              }}
+              active={
+                (localSettings.silent_banner_position ??
+                  status?.settings?.silent_banner_position ??
+                  "top-right") === pos
+              }
+              style={{
+                flex: 1,
+                justifyContent: "center",
+                fontSize: 11,
+                fontWeight: 700,
+                textTransform: "capitalize",
+                padding: "6px",
+              }}
+            >
+              {pos.replace("-", " ")}
+            </InteractiveRow>
+          ))}
+        </Focusable>
 
         {/* Gamepad Quick Chords */}
         <InteractiveRow

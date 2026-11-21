@@ -236,6 +236,7 @@ export interface EngineSettings {
   auto_ducking_volume?: number;
   gamepad_chords_enabled?: boolean;
   silent_banner_enabled?: boolean;
+  silent_banner_position?: string;
   gamepad_chord_bindings?: ChordBindingsMap;
   toast_enabled?: boolean;
   toast_sound_enabled?: boolean;
