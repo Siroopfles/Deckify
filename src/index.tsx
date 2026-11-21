@@ -40,6 +40,7 @@ import { formatMs, focusHalo } from "./components/common/InteractiveRow";
 import { DeckifyImage } from "./components/common/DeckifyImage";
 import { fetchWithQueueAndCache, imgMemoryCache } from "./components/common/imagePipeline";
 import { parseLrc } from "./utils";
+import { playNotificationChime } from "./utils/chime";
 import {
   FaMusic,
   FaSpotify,
@@ -330,13 +331,16 @@ const handleTrackMetadataNotification = async (meta: unknown): Promise<void> => 
   }
   if (toastEnabled === false) return;
   const artwork = parsed.artwork_url || parsed.image_url;
-  if (!toastSoundEnabled && silentBannerEnabled !== false) {
+  if (silentBannerEnabled !== false) {
     emitBanner({
       text: parsed.name,
       secondaryText: parsed.artist || undefined,
       imageUrl: resolveCachedArtworkSync(artwork),
       tone: "accent",
     });
+    if (toastSoundEnabled) {
+      playNotificationChime(cachedVolume);
+    }
     return;
   }
   const resolvedArtwork = await safeRpc(() => resolveProxiedArtworkAsync(artwork));
@@ -1572,7 +1576,8 @@ const DeckifyOverlayWrapper: FC = () => {
 
   const overlayEnabled = Boolean(settings?.overlay_enabled);
   const hudVisible = overlayEnabled && !modalOpen && Boolean(track?.name);
-  const bannerPosition = settings?.overlay_position || settings?.toast_position || "top-right";
+  const bannerPosition =
+    settings?.silent_banner_position || settings?.toast_position || settings?.overlay_position || "top-right";
 
   return (
     <>

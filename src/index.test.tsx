@@ -767,7 +767,11 @@ describe("src/index.tsx DeckifyOverlayWrapper Phase 10 Gating & Modal Suppressio
     const trackMetaHandler = trackMetaCall[1];
 
     mockGetStatus.mockResolvedValue({
-      settings: { toast_enabled: true, toast_sound_enabled: true },
+      settings: {
+        toast_enabled: true,
+        toast_sound_enabled: true,
+        silent_banner_enabled: false,
+      },
     });
     await trackMetaHandler({
       track_id: "trk-toast-1",
@@ -826,6 +830,26 @@ describe("src/index.tsx DeckifyOverlayWrapper Phase 10 Gating & Modal Suppressio
       position: "top-right",
       hudVisible: false,
     });
+
+    // silent_banner_position takes precedence over overlay_position even when overlay_enabled is false
+    mockGetStatus.mockResolvedValue({
+      track: { track_id: "trk-off-2", name: "Hidden HUD Track 2", artist: "Artist" },
+      is_playing: true,
+      settings: {
+        overlay_enabled: false,
+        toast_enabled: true,
+        toast_sound_enabled: false,
+        silent_banner_enabled: true,
+        overlay_position: "top-right",
+        silent_banner_position: "bottom-left",
+      },
+    });
+    renderWrapper();
+    await Promise.resolve();
+    await Promise.resolve();
+    const bannerElCustomPos = findWrapperChild(renderWrapper(), "SilentBanner");
+    expect(bannerElCustomPos).toBeDefined();
+    expect(bannerElCustomPos.props.position).toBe("bottom-left");
 
     plugin.onDismount?.();
   });
@@ -1760,5 +1784,81 @@ describe("Phase 20: Configurable Quick-Chords & Silent Confirmations (CHORD-01)"
     h.pressDown(26);
     expect(h.received).toHaveLength(3);
     h.unsubBanner();
+  });
+
+  it("keeps SilentBanner active and plays volume-scaled Web Audio chime (never toaster.toast) when silent_banner_enabled and toast_sound_enabled are both true (G-20-1)", async () => {
+    mockToasterToast.mockClear();
+    const originalAudioContext = globalThis.AudioContext;
+    const gainCalls: Array<{ value: number; time: number }> = [];
+    class FakeAudioContext {
+      state = "running";
+      currentTime = 5;
+      destination = {};
+      resume = vi.fn().mockResolvedValue(undefined);
+      createOscillator = vi.fn(() => ({
+        type: "sine",
+        frequency: { setValueAtTime: vi.fn() },
+        connect: vi.fn(),
+        start: vi.fn(),
+        stop: vi.fn(),
+      }));
+      createGain = vi.fn(() => ({
+        gain: {
+          setValueAtTime: vi.fn((value: number, time: number) => {
+            gainCalls.push({ value, time });
+          }),
+          exponentialRampToValueAtTime: vi.fn(),
+        },
+        connect: vi.fn(),
+      }));
+    }
+    (globalThis as { AudioContext?: unknown }).AudioContext = FakeAudioContext;
+
+    try {
+      await import("./index");
+      const { addEventListener } = await import("@decky/api");
+      const plugin = capturedPluginFactory!();
+      const received: any[] = [];
+      const unsub = subscribeBanner((b) => received.push(b));
+
+      const trackMetaCall = (addEventListener as any).mock.calls.find(
+        (c: any[]) => c[0] === "track_metadata"
+      );
+      const trackMetaHandler = trackMetaCall[1];
+
+      mockGetStatus.mockResolvedValue({
+        volume: 60,
+        settings: {
+          toast_enabled: true,
+          toast_sound_enabled: true,
+          silent_banner_enabled: true,
+        },
+      });
+
+      await trackMetaHandler({
+        track_id: "trk-chime-1",
+        name: "Chime Song",
+        artist: "Chime Artist",
+      });
+
+      expect(mockToasterToast).not.toHaveBeenCalled();
+      expect(received).toHaveLength(1);
+      expect(received[0]).toMatchObject({
+        text: "Chime Song",
+        secondaryText: "Chime Artist",
+        tone: "accent",
+      });
+      expect(gainCalls.length).toBeGreaterThanOrEqual(2);
+      expect(gainCalls[0].value).toBeCloseTo((60 / 100) * 0.18, 5);
+
+      unsub();
+      plugin.onDismount?.();
+    } finally {
+      if (originalAudioContext === undefined) {
+        delete (globalThis as { AudioContext?: unknown }).AudioContext;
+      } else {
+        globalThis.AudioContext = originalAudioContext;
+      }
+    }
   });
 });
