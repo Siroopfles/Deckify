@@ -5,16 +5,16 @@ milestone_name: Studio, Living Room TV, Offline Travel & Ultimate Immersion (In 
 current_phase: 20
 current_phase_name: 100% Silent HUD Toasts & Extended In-Game Quick-Chords
 status: executing
-stopped_at: Completed 20-01-PLAN.md
-last_updated: "2026-11-21T11:30:07.526Z"
+stopped_at: Completed 20-02-PLAN.md
+last_updated: "2026-11-21T11:51:05.064Z"
 last_activity: 2026-11-21
 last_activity_desc: Phase 20 execution started
-state_head: ef6d543f9ffc0d1cf744e384df1c4ac25eb6e5be
+state_head: 61d72752f5e81df581a8756252e3570337e1b73e
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 8
-  completed_plans: 6
+  completed_plans: 7
   percent: 0
 ---
 
@@ -30,7 +30,7 @@ See: [.planning/PROJECT.md](file:///C:/Users/djdje/Deckify/.planning/PROJECT.md)
 ## Current Position
 
 Phase: 20 (100% Silent HUD Toasts & Extended In-Game Quick-Chords) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-11-21 — Phase 20 execution started
 
@@ -108,6 +108,7 @@ Last activity: 2026-11-21 — Phase 20 execution started
 | Phase 19 P04 | 11min | 2 tasks | 5 files |
 | Phase 19 P05 | 11min | 3 tasks | 11 files |
 | Phase 20 P01 | 12 min | 3 tasks | 9 files |
+| Phase 20 P02 | 17 min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -172,6 +173,7 @@ Recent decisions affecting current work:
 - [Phase 19]: Self-healed empty app_name via QAM display_name propagation and SoundtrackManager._resolve_app_name VDF fallback alongside dedicated full-width SettingsTab Active Game EQ Override banner
 - [Phase 20]: Keep notifyMessage and resetModuleRuntimeState module-internal inside src/index.tsx so @decky/rollup single-default export builds cleanly
 - [Phase 20]: Use atomic ActiveBannerState keyed by monotonic banner id in SilentBanner and copy.deepcopy(default_settings) in py_modules/common.py
+- [Phase 20]: Normalized GAMEPAD_BUTTON.STEAM_QUICK_MENU (28) to 27, corrected default play_pause to OK (1), and kept chord runtime helpers module-internal in src/index.tsx
 
 ### Pending Todos
 
@@ -202,8 +204,8 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-21T11:30:06.801Z
-Stopped at: Completed 20-01-PLAN.md
+Last session: 2026-11-21T11:51:04.181Z
+Stopped at: Completed 20-02-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
