@@ -27,6 +27,14 @@ import { DeckifyExpandedModal } from "./components/DeckifyExpandedModal";
 import { DeckifyOverlay } from "./components/DeckifyOverlay";
 import { SilentBanner } from "./components/SilentBanner";
 import { emitBanner, BannerTone } from "./bannerBus";
+import {
+  CHORD_ACTIONS,
+  DEFAULT_CHORD_BINDINGS,
+  createChordMatcher,
+  isChordRecordingActive,
+  setChordRecordingActive,
+  type ChordMatcher,
+} from "./chords";
 import { usePlaybackClock } from "./hooks/usePlaybackClock";
 import { formatMs, focusHalo } from "./components/common/InteractiveRow";
 import { DeckifyImage } from "./components/common/DeckifyImage";
@@ -51,6 +59,8 @@ import {
 import { QRCodeSVG } from "qrcode.react";
 import type {
   AudioStreamInfo,
+  ChordActionId,
+  ChordBindingsMap,
   DuckingState,
   EngineSettings,
   PinnedPlaylistItem,
@@ -95,10 +105,36 @@ const setActiveGameState = (appId: number | null) => {
   activeGameListeners.forEach((cb) => cb(appId));
 };
 
+interface GamepadInputSourceLike {
+  RegisterForGamepadButtonDown?: (cb: (btn: number) => void) => unknown;
+  RegisterForGamepadButtonUp?: (cb: (btn: number) => void) => unknown;
+}
+
+const cloneDefaultBindings = (): ChordBindingsMap => {
+  const copy: ChordBindingsMap = {};
+  for (const action of CHORD_ACTIONS) {
+    copy[action.id] = [...DEFAULT_CHORD_BINDINGS[action.id]];
+  }
+  return copy;
+};
+
+const mergeChordBindings = (raw?: ChordBindingsMap | null): ChordBindingsMap => {
+  const next = cloneDefaultBindings();
+  if (!raw || typeof raw !== "object") return next;
+  for (const action of CHORD_ACTIONS) {
+    if (Array.isArray(raw[action.id])) {
+      next[action.id] = [...raw[action.id]!];
+    }
+  }
+  return next;
+};
+
 let bigOpen = false;
 const modalOpenListeners = new Set<(open: boolean) => void>();
+let activeChordMatcher: ChordMatcher | null = null;
 const setModalOpenState = (open: boolean) => {
   bigOpen = open;
+  activeChordMatcher?.setSuppressed(open || isChordRecordingActive());
   modalOpenListeners.forEach((cb) => cb(open));
 };
 const openExpandedView = () => {
@@ -116,7 +152,18 @@ const openExpandedView = () => {
 let toastEnabled = true;
 let toastSoundEnabled = false;
 let silentBannerEnabled = true;
+let cachedChordsEnabled = true;
+let cachedBindings: ChordBindingsMap = cloneDefaultBindings();
 let cachedTrackMeta: TrackMeta | null = null;
+let cachedIsLiked = false;
+let cachedIsPlaying = false;
+let cachedVolume = 50;
+let cachedContextUri: string | null = null;
+let cachedPinnedPlaylists: PinnedPlaylistItem[] = [];
+let cachedOverlayLyricsEnabled = false;
+let lastPinnedIndex = -1;
+let likeRequestSeq = 0;
+let pinnedCycleSeq = 0;
 let lastToastTrackId = "";
 
 const syncNotificationSettings = (settings?: Partial<EngineSettings> | null) => {
@@ -129,6 +176,72 @@ const syncNotificationSettings = (settings?: Partial<EngineSettings> | null) => 
   }
   if (typeof settings.silent_banner_enabled === "boolean") {
     silentBannerEnabled = settings.silent_banner_enabled;
+  }
+  if (typeof settings.gamepad_chords_enabled === "boolean") {
+    cachedChordsEnabled = settings.gamepad_chords_enabled;
+  }
+  if (typeof settings.overlay_lyrics_enabled === "boolean") {
+    cachedOverlayLyricsEnabled = settings.overlay_lyrics_enabled;
+  }
+  if (Array.isArray(settings.pinned_playlists)) {
+    cachedPinnedPlaylists = [...settings.pinned_playlists];
+    if (lastPinnedIndex >= cachedPinnedPlaylists.length) {
+      lastPinnedIndex = -1;
+    }
+  }
+  if (settings.gamepad_chord_bindings && typeof settings.gamepad_chord_bindings === "object") {
+    cachedBindings = mergeChordBindings(settings.gamepad_chord_bindings);
+    activeChordMatcher?.setBindings(cachedBindings);
+  }
+};
+
+const syncRuntimeStatus = (
+  status?: StatusResponse | null,
+  options?: { syncLiked?: boolean },
+) => {
+  if (!status || typeof status !== "object") return;
+  if (status.settings) {
+    syncNotificationSettings(status.settings);
+  }
+  const t = status.track || status.track_meta;
+  if (t && typeof t === "object") {
+    cachedTrackMeta = t;
+    const initTrackId = String(t.track_id ?? t.id ?? t.name ?? "");
+    if (!lastToastTrackId && initTrackId) {
+      lastToastTrackId = initTrackId;
+    }
+    if (options?.syncLiked !== false && typeof t.is_liked === "boolean") {
+      cachedIsLiked = t.is_liked;
+    }
+  }
+  if (options?.syncLiked !== false && typeof status.is_liked === "boolean") {
+    cachedIsLiked = status.is_liked;
+  }
+  if (typeof status.is_playing === "boolean") {
+    cachedIsPlaying = status.is_playing;
+  }
+  if (typeof status.volume === "number") {
+    cachedVolume = status.volume;
+  }
+  if (status.context_uri !== undefined) {
+    cachedContextUri = status.context_uri ?? null;
+  }
+};
+
+const syncLibrespotEvent = (ev: unknown): void => {
+  if (!ev || typeof ev !== "object") return;
+  const data = ev as { event?: unknown; volume?: unknown };
+  if (data.event === "playing" || data.event === "started") {
+    cachedIsPlaying = true;
+  } else if (
+    data.event === "paused" ||
+    data.event === "stopped" ||
+    data.event === "session_disconnected"
+  ) {
+    cachedIsPlaying = false;
+  }
+  if (typeof data.volume === "number") {
+    cachedVolume = data.volume;
   }
 };
 
@@ -151,9 +264,255 @@ const resetModuleRuntimeState = () => {
   toastEnabled = true;
   toastSoundEnabled = false;
   silentBannerEnabled = true;
+  cachedChordsEnabled = true;
+  cachedBindings = cloneDefaultBindings();
   cachedTrackMeta = null;
+  cachedIsLiked = false;
+  cachedIsPlaying = false;
+  cachedVolume = 50;
+  cachedContextUri = null;
+  cachedPinnedPlaylists = [];
+  cachedOverlayLyricsEnabled = false;
+  lastPinnedIndex = -1;
+  likeRequestSeq = 0;
+  pinnedCycleSeq = 0;
   lastToastTrackId = "";
+  setChordRecordingActive(false);
   setModalOpenState(false);
+};
+
+const handleVolumeChord = async (delta: number): Promise<void> => {
+  try {
+    const status = await backendGetStatus().catch(() => null);
+    if (status) syncRuntimeStatus(status);
+    const base = typeof status?.volume === "number" ? status.volume : cachedVolume;
+    const nv = delta > 0 ? Math.min(100, base + delta) : Math.max(0, base + delta);
+    cachedVolume = nv;
+    await backendSetVolume(nv).catch(() => {});
+    notifyMessage(`🔊 Volume ${nv}%`, "accent");
+  } catch {}
+};
+
+async function safeRpc<T>(fn: () => Promise<T>): Promise<T | null> {
+  try {
+    return await fn();
+  } catch {
+    return null;
+  }
+}
+
+const syncTrackMetadataCache = (meta: unknown): TrackMeta | null => {
+  if (!meta || typeof meta !== "object") return null;
+  const parsed = meta as TrackMeta;
+  const prevTrackId = String(
+    cachedTrackMeta?.track_id ?? cachedTrackMeta?.id ?? cachedTrackMeta?.name ?? "",
+  );
+  const nextTrackId = String(parsed.track_id ?? parsed.id ?? parsed.name ?? "");
+  cachedTrackMeta = parsed;
+  if (typeof parsed.is_liked === "boolean") {
+    cachedIsLiked = parsed.is_liked;
+  } else if (prevTrackId && nextTrackId && prevTrackId !== nextTrackId) {
+    cachedIsLiked = false;
+  }
+  return parsed;
+};
+
+const handleTrackMetadataNotification = async (meta: unknown): Promise<void> => {
+  const parsed = syncTrackMetadataCache(meta);
+  if (!parsed || !parsed.name) return;
+  const dedupTrackId = String(parsed.track_id ?? parsed.id ?? parsed.name);
+  if (dedupTrackId === lastToastTrackId) return;
+  lastToastTrackId = dedupTrackId;
+  const likeSeqAtStart = likeRequestSeq;
+  const curStatus = await safeRpc(() => backendGetStatus());
+  if (curStatus) {
+    syncRuntimeStatus(curStatus, { syncLiked: likeSeqAtStart === likeRequestSeq });
+  }
+  if (toastEnabled === false) return;
+  const artwork = parsed.artwork_url || parsed.image_url;
+  if (!toastSoundEnabled && silentBannerEnabled !== false) {
+    emitBanner({
+      text: parsed.name,
+      secondaryText: parsed.artist || undefined,
+      imageUrl: resolveCachedArtworkSync(artwork),
+      tone: "accent",
+    });
+    return;
+  }
+  const resolvedArtwork = await safeRpc(() => resolveProxiedArtworkAsync(artwork));
+  showTrackToaster(parsed, resolvedArtwork, toastSoundEnabled);
+};
+
+const handleLikeChord = async (): Promise<void> => {
+  let tid = cachedTrackMeta?.track_id || cachedTrackMeta?.id;
+  if (!tid) {
+    const status = await safeRpc(() => backendGetStatus());
+    if (status) syncRuntimeStatus(status);
+    tid = cachedTrackMeta?.track_id || cachedTrackMeta?.id;
+  }
+  if (!tid) {
+    notifyMessage("Couldn't update Liked Songs — try again", "error");
+    return;
+  }
+  const prevLiked = cachedIsLiked;
+  const nextLiked = !prevLiked;
+  const trackName = cachedTrackMeta?.name || "Track";
+  const seq = ++likeRequestSeq;
+  if (!lastToastTrackId) {
+    lastToastTrackId = String(cachedTrackMeta?.track_id ?? tid);
+  }
+  cachedIsLiked = nextLiked;
+  notifyMessage(
+    nextLiked ? `♥ Liked: ${trackName}` : "♡ Removed from Liked",
+    nextLiked ? "accent" : "neutral",
+  );
+  const res = await safeRpc(() => backendToggleLike(tid, nextLiked));
+  if (seq !== likeRequestSeq) return;
+  if (!res?.ok) {
+    cachedIsLiked = prevLiked;
+    notifyMessage("Couldn't update Liked Songs — try again", "error");
+    return;
+  }
+  cachedIsLiked = typeof res.is_liked === "boolean" ? res.is_liked : nextLiked;
+};
+
+const handlePinnedCycleChord = async (): Promise<void> => {
+  const pinned = cachedPinnedPlaylists;
+  if (pinned.length === 0) {
+    notifyMessage("No pinned playlists", "neutral");
+    return;
+  }
+  let activeIdx = cachedContextUri
+    ? pinned.findIndex((p) => p.uri === cachedContextUri)
+    : -1;
+  if (activeIdx < 0 && lastPinnedIndex >= 0 && lastPinnedIndex < pinned.length) {
+    activeIdx = lastPinnedIndex;
+  }
+  const nextIdx = activeIdx >= 0 ? (activeIdx + 1) % pinned.length : 0;
+  const prevUri = cachedContextUri;
+  const prevIdx = lastPinnedIndex;
+  const seq = ++pinnedCycleSeq;
+  const target = pinned[nextIdx];
+  lastPinnedIndex = nextIdx;
+  cachedContextUri = target.uri;
+  const res = await safeRpc(() => backendQuickPlayPinned(target.uri, target.type));
+  if (seq !== pinnedCycleSeq) return;
+  if (res?.ok) {
+    notifyMessage(`▶ Pinned ${nextIdx + 1}/${pinned.length}: ${target.name}`, "accent");
+    return;
+  }
+  cachedContextUri = prevUri;
+  lastPinnedIndex = prevIdx;
+  notifyMessage("Couldn't start pinned playlist", "error");
+};
+
+const handleToggleLyricsChord = async (): Promise<void> => {
+  const prevLyrics = cachedOverlayLyricsEnabled;
+  const nextLyrics = !prevLyrics;
+  const res = await safeRpc(() => backendSetSetting("overlay_lyrics_enabled", nextLyrics));
+  if (res?.ok) {
+    cachedOverlayLyricsEnabled = nextLyrics;
+    notifyMessage(
+      nextLyrics ? "Lyrics HUD On" : "Lyrics HUD Off",
+      nextLyrics ? "accent" : "neutral",
+    );
+    return;
+  }
+  cachedOverlayLyricsEnabled = prevLyrics;
+  notifyMessage("Couldn't save lyrics setting", "error");
+};
+
+const executeChordAction = async (actionId: ChordActionId): Promise<void> => {
+  switch (actionId) {
+    case "previous":
+      void backendControlPlayback("previous", "").catch(() => {});
+      notifyMessage("⏮ Previous", "accent");
+      break;
+    case "next":
+      void backendControlPlayback("next", "").catch(() => {});
+      notifyMessage("⏭ Next", "accent");
+      break;
+    case "play_pause": {
+      const wasPlaying = cachedIsPlaying;
+      cachedIsPlaying = !wasPlaying;
+      void backendControlPlayback("play_pause", "").catch(() => {});
+      notifyMessage(wasPlaying ? "⏸ Paused" : "⏯ Playing", "accent");
+      break;
+    }
+    case "volume_up":
+      await handleVolumeChord(5);
+      break;
+    case "volume_down":
+      await handleVolumeChord(-5);
+      break;
+    case "toggle_like":
+      await handleLikeChord();
+      break;
+    case "cycle_pinned":
+      await handlePinnedCycleChord();
+      break;
+    case "toggle_lyrics":
+      await handleToggleLyricsChord();
+      break;
+  }
+};
+
+const getInputSource = (): GamepadInputSourceLike | null => {
+  if (typeof window === "undefined") return null;
+  const win = window as unknown as {
+    GamepadNavTree?: { m_context?: { m_controller?: { m_rgGamepadInputSources?: GamepadInputSourceLike[] } } };
+    FocusNavController?: { m_rgGamepadInputSources?: GamepadInputSourceLike[] };
+  };
+  const fc = win?.GamepadNavTree?.m_context?.m_controller || win?.FocusNavController;
+  return fc?.m_rgGamepadInputSources?.[0] ?? null;
+};
+
+const unregisterHandle = (handle: unknown): void => {
+  if (typeof handle === "function") {
+    (handle as () => void)();
+  } else if (handle && typeof (handle as { Unregister?: unknown }).Unregister === "function") {
+    (handle as { Unregister: () => void }).Unregister();
+  }
+};
+
+const setupChordListener = (): (() => void) | null => {
+  try {
+    const src = getInputSource();
+    if (!src?.RegisterForGamepadButtonDown) return null;
+    let disposed = false;
+    const matcher = createChordMatcher(cachedBindings, {
+      onFire: (actionId) => {
+        if (disposed || !cachedChordsEnabled || bigOpen || isChordRecordingActive()) return;
+        void executeChordAction(actionId).catch(() => {});
+      },
+    });
+    activeChordMatcher = matcher;
+    const downHandle = src.RegisterForGamepadButtonDown((btn: number) => {
+      if (disposed || !cachedChordsEnabled || bigOpen || isChordRecordingActive()) {
+        matcher.reset();
+        return;
+      }
+      matcher.onButtonDown(btn);
+    });
+    const upHandle = src.RegisterForGamepadButtonUp
+      ? src.RegisterForGamepadButtonUp((btn: number) => {
+          if (disposed) return;
+          matcher.onButtonUp(btn);
+        })
+      : null;
+    return () => {
+      disposed = true;
+      unregisterHandle(downHandle);
+      unregisterHandle(upHandle);
+      matcher.dispose();
+      if (activeChordMatcher === matcher) {
+        activeChordMatcher = null;
+      }
+    };
+  } catch (e) {
+    console.warn("Deckify: Gamepad chords setup error:", e);
+    return null;
+  }
 };
 
 const resolveCachedArtworkSync = (artwork?: string | null): string | null => {
@@ -322,6 +681,7 @@ const Content: FC = () => {
     try {
       const status = await backendGetStatus();
       if (!status) return;
+      syncRuntimeStatus(status);
       setRunning(Boolean(status.running || status.librespot_running || status.spotify_client_running));
       if (status.settings) {
         setSettings((prev) => ({ ...prev, ...status.settings }));
@@ -536,6 +896,7 @@ const Content: FC = () => {
         });
       } else {
         setContextUri(pill.uri);
+        cachedContextUri = pill.uri;
         setOptimisticContextUri(null);
         refreshStatus();
       }
@@ -607,11 +968,16 @@ const Content: FC = () => {
     const tid = trackMeta?.track_id || trackMeta?.id;
     if (!tid) return;
     const res = await backendToggleLike(tid, null);
-    if (res.ok) setIsLiked(Boolean(res.is_liked));
+    if (res.ok) {
+      const next = Boolean(res.is_liked);
+      setIsLiked(next);
+      cachedIsLiked = next;
+    }
   };
 
   const handleVolumeChange = async (val: number) => {
     setVolume(val);
+    cachedVolume = val;
     await backendSetVolume(val);
   };
 
@@ -773,6 +1139,7 @@ const Content: FC = () => {
                 description="Show live synced lyric line in HUD"
                 checked={Boolean(settings.overlay_lyrics_enabled)}
                 onChange={async (val) => {
+                  cachedOverlayLyricsEnabled = val;
                   setSettings((prev) => ({
                     ...prev,
                     overlay_lyrics_enabled: val,
@@ -1104,6 +1471,7 @@ const DeckifyOverlayWrapper: FC = () => {
 
     const syncStatus = (s: StatusResponse | null) => {
       if (!mounted || !s) return;
+      syncRuntimeStatus(s);
       const t = s.track || s.track_meta || null;
       if (t) setTrack(t);
       if (typeof s.is_playing === "boolean") setIsPlaying(s.is_playing);
@@ -1238,9 +1606,13 @@ const DeckifyOverlayWrapper: FC = () => {
 export default definePlugin(() => {
   console.log("Deckify v0.3.0 native plugin initializing");
   resetModuleRuntimeState();
+  backendGetStatus().then((s) => syncRuntimeStatus(s)).catch(() => {});
 
   const settingsChangedSub = addEventListener<[any]>("settings_changed", (st: any) => {
     syncNotificationSettings(st);
+  });
+  const librespotSub = addEventListener<[any]>("librespot_event", (ev: any) => {
+    syncLibrespotEvent(ev);
   });
 
   // 1. Register native full-screen route
@@ -1271,90 +1643,13 @@ export default definePlugin(() => {
     order: menuOrder,
   });
 
-  // 4. In-Game Gamepad Chords Listener (STEAM + D-Pad Left/Right for Track Skip, STEAM + Up/Down for Volume)
-  let cleanupChords: (() => void) | null = null;
-  try {
-    const win = window as any;
-    const fc = win.FocusNavController;
-    const src = fc?.m_rgGamepadInputSources?.[0];
-    if (src?.RegisterForGamepadButtonDown) {
-      let guideHeld = false;
-      const onDown = (btn: number) => {
-        if (btn === 13 || btn === 14) guideHeld = true;
-        if (guideHeld) {
-          if (btn === 11) {
-            backendControlPlayback("previous", "").catch(() => {});
-            notifyMessage("⏮ Previous", "accent");
-          } else if (btn === 12) {
-            backendControlPlayback("next", "").catch(() => {});
-            notifyMessage("⏭ Next", "accent");
-          } else if (btn === 0) {
-            backendControlPlayback("play_pause", "").catch(() => {});
-            notifyMessage("⏯ Play / Pause", "accent");
-          } else if (btn === 9) {
-            backendGetStatus().then((s) => {
-              if (s) {
-                const nv = Math.min(100, (s.volume ?? 50) + 5);
-                backendSetVolume(nv);
-                notifyMessage(`🔊 Volume ${nv}%`, "accent");
-              }
-            }).catch(() => {});
-          } else if (btn === 10) {
-            backendGetStatus().then((s) => {
-              if (s) {
-                const nv = Math.max(0, (s.volume ?? 50) - 5);
-                backendSetVolume(nv);
-                notifyMessage(`🔊 Volume ${nv}%`, "accent");
-              }
-            }).catch(() => {});
-          }
-        }
-      };
-      const onUp = (btn: number) => {
-        if (btn === 13 || btn === 14) guideHeld = false;
-      };
-      src.RegisterForGamepadButtonDown(onDown);
-      if (src.RegisterForGamepadButtonUp) {
-        src.RegisterForGamepadButtonUp(onUp);
-      }
-      cleanupChords = () => {
-        guideHeld = false;
-      };
-    }
-  } catch (e) {
-    console.warn("Deckify: Gamepad chords setup error:", e);
-  }
+  // 4. In-Game Gamepad Chords Listener (configurable 1-4 button chords + 4s guideHeld expiry)
+  const cleanupChords = setupChordListener();
 
   // 5. In-game track change notification (silent banner by default; Steam toast when sound enabled or silent banner disabled)
-  const trackSub = addEventListener<[any]>("track_metadata", async (meta: any) => {
-    if (meta && typeof meta === "object") {
-      cachedTrackMeta = meta as TrackMeta;
-    }
-    if (!meta || !meta.name) return;
-    const dedupTrackId = String(cachedTrackMeta?.track_id ?? meta.track_id ?? meta.id ?? meta.name);
-    if (dedupTrackId === lastToastTrackId) return;
-    lastToastTrackId = dedupTrackId;
-    try {
-      const curStatus = await backendGetStatus().catch(() => null);
-      if (curStatus?.settings) {
-        syncNotificationSettings(curStatus.settings);
-      }
-      if (toastEnabled === false) return;
-      const artwork = meta.artwork_url || meta.image_url;
-      if (!toastSoundEnabled && silentBannerEnabled !== false) {
-        const cachedArtwork = resolveCachedArtworkSync(artwork);
-        emitBanner({
-          text: meta.name,
-          secondaryText: meta.artist || undefined,
-          imageUrl: cachedArtwork,
-          tone: "accent",
-        });
-        return;
-      }
-      const resolvedArtwork = await resolveProxiedArtworkAsync(artwork);
-      showTrackToaster(meta, resolvedArtwork, toastSoundEnabled);
-    } catch {}
-  });
+  const trackSub = addEventListener<[unknown]>("track_metadata", (meta: unknown) =>
+    handleTrackMetadataNotification(meta),
+  );
 
   // 6. In-game Auto-Ducking & App Lifetime Listener (with per-game profiles)
   let activeGameAppId: number | null = null;
@@ -1420,8 +1715,8 @@ export default definePlugin(() => {
         } catch {}
         removeEventListener("track_metadata", trackSub);
         removeEventListener("settings_changed", settingsChangedSub);
-        const chordsCleaner: any = cleanupChords;
-        if (typeof chordsCleaner === "function") chordsCleaner();
+        removeEventListener("librespot_event", librespotSub);
+        if (typeof cleanupChords === "function") cleanupChords();
         resetModuleRuntimeState();
       } catch (e) {
         console.warn("Deckify dismount cleanup error:", e);

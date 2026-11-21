@@ -14,6 +14,9 @@ const mockSetSetting = vi.fn().mockResolvedValue({ ok: true });
 const mockGetImage = vi.fn().mockResolvedValue({ ok: true, data_url: "data:image/jpeg;base64,MOCKCOVER" });
 const mockRestoreBookmark = vi.fn().mockResolvedValue({ ok: true });
 const mockDismissBookmark = vi.fn().mockResolvedValue({ ok: true });
+const mockControlPlayback = vi.fn().mockResolvedValue({ ok: true });
+const mockSetVolume = vi.fn().mockResolvedValue({ ok: true });
+const mockToggleLike = vi.fn().mockResolvedValue({ ok: true, is_liked: true });
 const mockToasterToast = vi.fn();
 
 let capturedPluginFactory: (() => any) | null = null;
@@ -33,6 +36,9 @@ vi.mock("@decky/api", () => ({
     if (name === "get_image") return (...args: any[]) => mockGetImage(...args);
     if (name === "restore_bookmark") return (...args: any[]) => mockRestoreBookmark(...args);
     if (name === "dismiss_bookmark") return (...args: any[]) => mockDismissBookmark(...args);
+    if (name === "control_playback") return (...args: any[]) => mockControlPlayback(...args);
+    if (name === "set_volume") return (...args: any[]) => mockSetVolume(...args);
+    if (name === "toggle_like_track") return (...args: any[]) => mockToggleLike(...args);
     return vi.fn().mockResolvedValue({ ok: true });
   },
   addEventListener: vi.fn(() => vi.fn()),
@@ -159,6 +165,7 @@ vi.mock("react", () => ({
 }));
 
 import { subscribeBanner, resetBannerBusForTests } from "./bannerBus";
+import { setChordRecordingActive, isChordRecordingActive } from "./chords";
 import { imgMemoryCache } from "./components/common/imagePipeline";
 import { DeckifyOverlay } from "./components/DeckifyOverlay";
 import { SilentBanner } from "./components/SilentBanner";
@@ -1292,5 +1299,466 @@ describe("Phase 17: Event-Driven librespot (--onevent) & QAM Resilience UX", () 
     expect(nodes.some((n) => n.type === "span" && textContent(n) === "DUCKED")).toBe(false);
 
     plugin.onDismount?.();
+  });
+});
+
+async function flushMicrotasks(): Promise<void> {
+  for (let i = 0; i < 6; i += 1) {
+    await Promise.resolve();
+  }
+}
+
+interface ChordHarness {
+  plugin: any;
+  received: any[];
+  unsubBanner: () => void;
+  pressChord: (...btns: number[]) => void;
+  pressDown: (btn: number) => void;
+  releaseUp: (btn: number) => void;
+  unregDown: ReturnType<typeof vi.fn>;
+  unregUp: ReturnType<typeof vi.fn>;
+  renderWrapper: () => any;
+  renderContent: () => any;
+  getHandler: (eventName: string) => ((payload: any) => any);
+}
+
+async function mountChordHarness(initialStatus: any = null): Promise<ChordHarness> {
+  let downCb: ((btn: number) => void) | null = null;
+  let upCb: ((btn: number) => void) | null = null;
+  const unregDown = vi.fn();
+  const unregUp = vi.fn();
+
+  (globalThis as any).window.FocusNavController = {
+    m_rgGamepadInputSources: [
+      {
+        RegisterForGamepadButtonDown: (cb: (btn: number) => void) => {
+          downCb = cb;
+          return unregDown;
+        },
+        RegisterForGamepadButtonUp: (cb: (btn: number) => void) => {
+          upCb = cb;
+          return unregUp;
+        },
+      },
+    ],
+  };
+
+  if (initialStatus !== undefined) {
+    mockGetStatus.mockResolvedValue(initialStatus);
+  }
+
+  await import("./index");
+  const { addEventListener, routerHook } = await import("@decky/api");
+  const plugin = capturedPluginFactory!();
+  await flushMicrotasks();
+
+  const received: any[] = [];
+  const unsubBanner = subscribeBanner((b) => received.push(b));
+  const wrapperFactory = (routerHook.addGlobalComponent as any).mock.calls[0][1];
+
+  const pressDown = (btn: number) => {
+    expect(downCb).toBeTypeOf("function");
+    downCb!(btn);
+  };
+  const releaseUp = (btn: number) => {
+    expect(upCb).toBeTypeOf("function");
+    upCb!(btn);
+  };
+  const pressChord = (...btns: number[]) => {
+    for (const b of btns) pressDown(b);
+    for (let i = btns.length - 1; i >= 0; i -= 1) releaseUp(btns[i]);
+  };
+  const getHandler = (eventName: string) => {
+    const calls = (addEventListener as any).mock.calls.filter((c: any[]) => c[0] === eventName);
+    expect(calls.length).toBeGreaterThan(0);
+    return calls[calls.length - 1][1];
+  };
+
+  return {
+    plugin,
+    received,
+    unsubBanner,
+    pressChord,
+    pressDown,
+    releaseUp,
+    unregDown,
+    unregUp,
+    renderWrapper: () => {
+      hookIdx = 0;
+      const el = wrapperFactory();
+      return el.type(el.props || {});
+    },
+    renderContent: () => {
+      hookIdx = 0;
+      return plugin.content.type({});
+    },
+    getHandler,
+  };
+}
+
+describe("Phase 20: Configurable Quick-Chords & Silent Confirmations (CHORD-01)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useRealTimers();
+    resetHooks();
+    resetBannerBusForTests();
+    setChordRecordingActive(false);
+    mockGetStatus.mockResolvedValue(null);
+    mockControlPlayback.mockResolvedValue({ ok: true });
+    mockSetVolume.mockResolvedValue({ ok: true });
+    mockToggleLike.mockResolvedValue({ ok: true, is_liked: true });
+    mockQuickPlayPinned.mockResolvedValue({ ok: true });
+    mockSetSetting.mockResolvedValue({ ok: true });
+    (globalThis as any).window = {
+      SteamClient: {
+        GameSessions: { RegisterForAppLifetimeNotifications: mockRegisterForAppLifetime },
+        Input: {},
+      },
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    };
+  });
+
+  afterEach(() => {
+    resetBannerBusForTests();
+    setChordRecordingActive(false);
+    vi.useRealTimers();
+  });
+
+  it("dispatches legacy defaults ([27,11], [27,12], [27,1], [27,9], [27,10]) via silent banner without toaster chime", async () => {
+    const h = await mountChordHarness({
+      volume: 50,
+      is_playing: false,
+      settings: { silent_banner_enabled: true, toast_enabled: true },
+    });
+
+    h.pressChord(27, 11);
+    expect(mockControlPlayback).toHaveBeenLastCalledWith("previous", "");
+    expect(h.received[0]).toMatchObject({ text: "⏮ Previous", tone: "accent" });
+
+    h.pressChord(27, 12);
+    expect(mockControlPlayback).toHaveBeenLastCalledWith("next", "");
+    expect(h.received[1]).toMatchObject({ text: "⏭ Next", tone: "accent" });
+
+    h.pressChord(27, 1);
+    expect(mockControlPlayback).toHaveBeenLastCalledWith("play_pause", "");
+    expect(h.received[2]).toMatchObject({ text: "⏯ Playing", tone: "accent" });
+
+    h.pressChord(27, 1);
+    expect(h.received[3]).toMatchObject({ text: "⏸ Paused", tone: "accent" });
+
+    h.pressChord(27, 9);
+    await flushMicrotasks();
+    expect(mockSetVolume).toHaveBeenLastCalledWith(55);
+    expect(h.received[4]).toMatchObject({ text: "🔊 Volume 55%", tone: "accent" });
+
+    mockGetStatus.mockResolvedValue({ volume: 55, settings: { silent_banner_enabled: true } });
+    h.pressChord(27, 10);
+    await flushMicrotasks();
+    expect(mockSetVolume).toHaveBeenLastCalledWith(50);
+    expect(h.received[5]).toMatchObject({ text: "🔊 Volume 50%", tone: "accent" });
+
+    expect(mockToasterToast).not.toHaveBeenCalled();
+    h.unsubBanner();
+    h.plugin.onDismount?.();
+  });
+
+  it("delivers chord banners when toast_enabled is false (D-01/D-11) and falls back to toaster when silent_banner_enabled is false", async () => {
+    const h = await mountChordHarness({
+      settings: {
+        overlay_enabled: false,
+        toast_enabled: false,
+        silent_banner_enabled: true,
+      },
+    });
+
+    const wrapperTree = h.renderWrapper();
+    await flushMicrotasks();
+    const bannerEl = findWrapperChild(h.renderWrapper(), "SilentBanner");
+    expect(wrapperTree).toBeDefined();
+    expect(bannerEl?.props.enabled).toBe(true);
+
+    h.pressChord(27, 12);
+    expect(h.received).toHaveLength(1);
+    expect(h.received[0]).toMatchObject({ text: "⏭ Next", tone: "accent" });
+    expect(mockToasterToast).not.toHaveBeenCalled();
+
+    const settingsHandler = h.getHandler("settings_changed");
+    settingsHandler({ silent_banner_enabled: false });
+    h.pressChord(27, 11);
+    expect(h.received).toHaveLength(1);
+    expect(mockToasterToast).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Deckify", body: "⏮ Previous", playSound: false }),
+    );
+
+    h.unsubBanner();
+    h.plugin.onDismount?.();
+  });
+
+  it("handles toggle_like chord [23,3] with optimistic banner, RPC error/rejection rollback, concurrency guard, and track_metadata sync (D-13)", async () => {
+    const h = await mountChordHarness({
+      track: { track_id: "trk-like-1", name: "Starlight", artist: "Muse" },
+      is_liked: false,
+      settings: {
+        silent_banner_enabled: true,
+        toast_enabled: true,
+        toast_sound_enabled: false,
+        gamepad_chord_bindings: { toggle_like: [23, 3] },
+      },
+    });
+    const trackMetaHandler = h.getHandler("track_metadata");
+
+    // 1. Optimistic like + same-track re-emit from backend must NOT emit duplicate track banner
+    mockToggleLike.mockResolvedValueOnce({ ok: true, is_liked: true });
+    h.pressChord(23, 3);
+    expect(h.received[0]).toMatchObject({ text: "♥ Liked: Starlight", tone: "accent" });
+    expect(mockToggleLike).toHaveBeenCalledWith("trk-like-1", true);
+    await flushMicrotasks();
+
+    await trackMetaHandler({
+      track_id: "trk-like-1",
+      name: "Starlight",
+      artist: "Muse",
+      is_liked: true,
+    });
+    expect(h.received).toHaveLength(1);
+
+    // 2. Unlike succeeds
+    mockToggleLike.mockResolvedValueOnce({ ok: true, is_liked: false });
+    h.pressChord(23, 3);
+    expect(h.received[1]).toMatchObject({ text: "♡ Removed from Liked", tone: "neutral" });
+    await flushMicrotasks();
+
+    // 3. { ok: false } rollback -> reverts cachedIsLiked back to false
+    mockToggleLike.mockResolvedValueOnce({ ok: false, error: "Forbidden" });
+    h.pressChord(23, 3);
+    expect(h.received[2]).toMatchObject({ text: "♥ Liked: Starlight", tone: "accent" });
+    await flushMicrotasks();
+    expect(h.received[3]).toMatchObject({
+      text: "Couldn't update Liked Songs — try again",
+      tone: "error",
+    });
+
+    // 4. Rejected promise rollback -> reverts cachedIsLiked cleanly without unhandled rejection
+    mockToggleLike.mockRejectedValueOnce(new Error("Network down"));
+    h.pressChord(23, 3);
+    expect(h.received[4]).toMatchObject({ text: "♥ Liked: Starlight", tone: "accent" });
+    await flushMicrotasks();
+    expect(h.received[5]).toMatchObject({
+      text: "Couldn't update Liked Songs — try again",
+      tone: "error",
+    });
+
+    // 5. QAM/Modal same-track track_metadata syncs cachedIsLiked=true so next chord unlikes
+    await trackMetaHandler({
+      track_id: "trk-like-1",
+      name: "Starlight",
+      artist: "Muse",
+      is_liked: true,
+    });
+    expect(h.received).toHaveLength(6);
+    mockToggleLike.mockResolvedValueOnce({ ok: true, is_liked: false });
+    h.pressChord(23, 3);
+    expect(h.received[6]).toMatchObject({ text: "♡ Removed from Liked", tone: "neutral" });
+    await flushMicrotasks();
+
+    // 6. Rapid double-toggle concurrency guard: stale first failure ignored
+    let resolveFirst!: (val: any) => void;
+    mockToggleLike
+      .mockImplementationOnce(() => new Promise((r) => { resolveFirst = r; }))
+      .mockResolvedValueOnce({ ok: true, is_liked: false });
+    h.pressChord(23, 3); // seq 1 -> optimistic like
+    h.pressChord(23, 3); // seq 2 -> optimistic unlike
+    resolveFirst({ ok: false });
+    await flushMicrotasks();
+    expect(h.received.slice(7)).toEqual([
+      expect.objectContaining({ text: "♥ Liked: Starlight", tone: "accent" }),
+      expect.objectContaining({ text: "♡ Removed from Liked", tone: "neutral" }),
+    ]);
+
+    h.unsubBanner();
+    h.plugin.onDismount?.();
+  });
+
+  it("handles cycle_pinned [24] empty state, 1..n wrapping, and failure rollback on { ok: false } and rejected promise (D-12)", async () => {
+    const h = await mountChordHarness({
+      settings: {
+        silent_banner_enabled: true,
+        pinned_playlists: [],
+        gamepad_chord_bindings: { cycle_pinned: [24] },
+      },
+    });
+
+    // Empty state
+    h.pressChord(24);
+    expect(h.received[0]).toMatchObject({ text: "No pinned playlists", tone: "neutral" });
+
+    // Seed 2 pinned items via settings_changed
+    const settingsHandler = h.getHandler("settings_changed");
+    settingsHandler({
+      pinned_playlists: [
+        { uri: "spotify:playlist:p1", name: "Synthwave", type: "playlist" },
+        { uri: "spotify:album:a2", name: "Discovery", type: "album" },
+      ],
+    });
+
+    h.pressChord(24);
+    await flushMicrotasks();
+    expect(mockQuickPlayPinned).toHaveBeenLastCalledWith("spotify:playlist:p1", "playlist");
+    expect(h.received[1]).toMatchObject({ text: "▶ Pinned 1/2: Synthwave", tone: "accent" });
+
+    h.pressChord(24);
+    await flushMicrotasks();
+    expect(mockQuickPlayPinned).toHaveBeenLastCalledWith("spotify:album:a2", "album");
+    expect(h.received[2]).toMatchObject({ text: "▶ Pinned 2/2: Discovery", tone: "accent" });
+
+    // Failure { ok: false } on wrap to 1/2 -> reverts state so next trigger retries 1/2
+    mockQuickPlayPinned.mockResolvedValueOnce({ ok: false, error: "Offline" });
+    h.pressChord(24);
+    await flushMicrotasks();
+    expect(mockQuickPlayPinned).toHaveBeenLastCalledWith("spotify:playlist:p1", "playlist");
+    expect(h.received[3]).toMatchObject({ text: "Couldn't start pinned playlist", tone: "error" });
+
+    // Rejected promise on retry of 1/2 -> reverts again cleanly without unhandled rejection
+    mockQuickPlayPinned.mockRejectedValueOnce(new Error("RPC timeout"));
+    h.pressChord(24);
+    await flushMicrotasks();
+    expect(mockQuickPlayPinned).toHaveBeenLastCalledWith("spotify:playlist:p1", "playlist");
+    expect(h.received[4]).toMatchObject({ text: "Couldn't start pinned playlist", tone: "error" });
+
+    // Next attempt succeeds at 1/2
+    h.pressChord(24);
+    await flushMicrotasks();
+    expect(mockQuickPlayPinned).toHaveBeenLastCalledWith("spotify:playlist:p1", "playlist");
+    expect(h.received[5]).toMatchObject({ text: "▶ Pinned 1/2: Synthwave", tone: "accent" });
+
+    h.unsubBanner();
+    h.plugin.onDismount?.();
+  });
+
+  it("handles toggle_lyrics [25] persistence and failure rollback on { ok: false } and rejected promise (D-14)", async () => {
+    const h = await mountChordHarness({
+      settings: {
+        silent_banner_enabled: true,
+        overlay_lyrics_enabled: false,
+        gamepad_chord_bindings: { toggle_lyrics: [25] },
+      },
+    });
+
+    // { ok: false } preserves cachedOverlayLyricsEnabled=false
+    mockSetSetting.mockResolvedValueOnce({ ok: false, error: "Disk error" });
+    h.pressChord(25);
+    await flushMicrotasks();
+    expect(mockSetSetting).toHaveBeenLastCalledWith("overlay_lyrics_enabled", true);
+    expect(h.received[0]).toMatchObject({ text: "Couldn't save lyrics setting", tone: "error" });
+
+    // Rejected promise also preserves cachedOverlayLyricsEnabled=false
+    mockSetSetting.mockRejectedValueOnce(new Error("Pipe broken"));
+    h.pressChord(25);
+    await flushMicrotasks();
+    expect(mockSetSetting).toHaveBeenLastCalledWith("overlay_lyrics_enabled", true);
+    expect(h.received[1]).toMatchObject({ text: "Couldn't save lyrics setting", tone: "error" });
+
+    // Next press flips false -> true cleanly
+    h.pressChord(25);
+    await flushMicrotasks();
+    expect(mockSetSetting).toHaveBeenLastCalledWith("overlay_lyrics_enabled", true);
+    expect(h.received[2]).toMatchObject({ text: "Lyrics HUD On", tone: "accent" });
+
+    // Second press flips true -> false
+    h.pressChord(25);
+    await flushMicrotasks();
+    expect(mockSetSetting).toHaveBeenLastCalledWith("overlay_lyrics_enabled", false);
+    expect(h.received[3]).toMatchObject({ text: "Lyrics HUD Off", tone: "neutral" });
+
+    h.unsubBanner();
+    h.plugin.onDismount?.();
+  });
+
+  it("expires guideHeld after 4000ms for both 27 and legacy 13 (D-09)", async () => {
+    vi.useFakeTimers();
+    const h = await mountChordHarness({ settings: { silent_banner_enabled: true } });
+
+    h.pressDown(27);
+    vi.advanceTimersByTime(4000);
+    h.pressDown(12);
+    expect(h.received).toHaveLength(0);
+    expect(mockControlPlayback).not.toHaveBeenCalled();
+    h.releaseUp(12);
+
+    h.pressDown(13);
+    vi.advanceTimersByTime(3999);
+    h.pressDown(12);
+    expect(h.received).toHaveLength(1);
+    expect(h.received[0]).toMatchObject({ text: "⏭ Next" });
+    h.releaseUp(12);
+    h.releaseUp(13);
+
+    h.pressDown(13);
+    vi.advanceTimersByTime(4000);
+    h.pressDown(11);
+    expect(h.received).toHaveLength(1);
+    h.releaseUp(11);
+
+    h.unsubBanner();
+    h.plugin.onDismount?.();
+  });
+
+  it("suppresses chords when modal open, recording active, or disabled, stays active in QAM, updates on settings_changed, and cleans up on dismount (D-10)", async () => {
+    const h = await mountChordHarness({
+      settings: { silent_banner_enabled: true, gamepad_chords_enabled: true },
+    });
+    const { showModal } = await import("@decky/ui");
+
+    // 1. QAM open does NOT suppress chords
+    const qamNodes = flattenNodes(h.renderContent());
+    h.pressChord(27, 12);
+    expect(h.received).toHaveLength(1);
+
+    // 2. Expanded Modal open suppresses chords until closeModal
+    const openBtn = qamNodes.find(
+      (n) => n.type === "ButtonItem" && textContent(n).includes("Open Deckify (Full Screen)"),
+    );
+    expect(openBtn).toBeDefined();
+    openBtn.props.onClick();
+    expect(showModal).toHaveBeenCalledTimes(1);
+    h.pressChord(27, 11);
+    expect(h.received).toHaveLength(1);
+
+    const modalEl = (showModal as any).mock.calls[0][0];
+    modalEl.props.closeModal();
+    h.pressChord(27, 11);
+    expect(h.received).toHaveLength(2);
+
+    // 3. setChordRecordingActive(true) suppresses chords
+    setChordRecordingActive(true);
+    h.pressChord(27, 12);
+    expect(h.received).toHaveLength(2);
+    setChordRecordingActive(false);
+
+    // 4. gamepad_chords_enabled=false disables chords; settings_changed live-updates bindings
+    const settingsHandler = h.getHandler("settings_changed");
+    settingsHandler({ gamepad_chords_enabled: false });
+    h.pressChord(27, 12);
+    expect(h.received).toHaveLength(2);
+
+    settingsHandler({
+      gamepad_chords_enabled: true,
+      gamepad_chord_bindings: { next: [26] },
+    });
+    h.pressChord(26);
+    expect(h.received).toHaveLength(3);
+    expect(h.received[2]).toMatchObject({ text: "⏭ Next" });
+
+    // 5. onDismount unregisters Down/Up listeners, resets runtime state, and ignores post-dismount presses
+    setChordRecordingActive(true);
+    h.plugin.onDismount?.();
+    expect(h.unregDown).toHaveBeenCalledTimes(1);
+    expect(h.unregUp).toHaveBeenCalledTimes(1);
+    expect(isChordRecordingActive()).toBe(false);
+
+    h.pressDown(26);
+    expect(h.received).toHaveLength(3);
+    h.unsubBanner();
   });
 });
