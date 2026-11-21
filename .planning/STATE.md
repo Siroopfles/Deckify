@@ -4,17 +4,17 @@ milestone: v0.7
 milestone_name: Studio, Living Room TV, Offline Travel & Ultimate Immersion (In Progress)
 current_phase: 20
 current_phase_name: 100% Silent HUD Toasts & Extended In-Game Quick-Chords
-status: executing
-stopped_at: Completed 20-02-PLAN.md
-last_updated: "2026-11-21T11:51:05.064Z"
+status: verifying
+stopped_at: Completed 20-03-PLAN.md
+last_updated: "2026-11-21T12:02:42.518Z"
 last_activity: 2026-11-21
 last_activity_desc: Phase 20 execution started
-state_head: 61d72752f5e81df581a8756252e3570337e1b73e
+state_head: e862ced137c555b10d581250aea42a83b458af9b
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 8
-  completed_plans: 7
+  completed_plans: 8
   percent: 0
 ---
 
@@ -31,7 +31,7 @@ See: [.planning/PROJECT.md](file:///C:/Users/djdje/Deckify/.planning/PROJECT.md)
 
 Phase: 20 (100% Silent HUD Toasts & Extended In-Game Quick-Chords) — EXECUTING
 Plan: 3 of 3
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-11-21 — Phase 20 execution started
 
 
@@ -109,6 +109,7 @@ Last activity: 2026-11-21 — Phase 20 execution started
 | Phase 19 P05 | 11min | 3 tasks | 11 files |
 | Phase 20 P01 | 12 min | 3 tasks | 9 files |
 | Phase 20 P02 | 17 min | 2 tasks | 4 files |
+| Phase 20 P03 | 8 min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -174,6 +175,8 @@ Recent decisions affecting current work:
 - [Phase 20]: Keep notifyMessage and resetModuleRuntimeState module-internal inside src/index.tsx so @decky/rollup single-default export builds cleanly
 - [Phase 20]: Use atomic ActiveBannerState keyed by monotonic banner id in SilentBanner and copy.deepcopy(default_settings) in py_modules/common.py
 - [Phase 20]: Normalized GAMEPAD_BUTTON.STEAM_QUICK_MENU (28) to 27, corrected default play_pause to OK (1), and kept chord runtime helpers module-internal in src/index.tsx
+- [Phase 20]: Mount ChordBindingsCard strictly as JSX in SettingsTab.tsx (never plain-function wrapper) and keep recorder refs in one useRef<RecorderRuntime> for zero-warning teardown
+- [Phase 20]: Apply width: auto and minWidth: auto on every compact inline DialogButton in ChordBindingsCard.tsx to override SteamOS 100% button width
 
 ### Pending Todos
 
@@ -204,8 +207,8 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-21T11:51:04.181Z
-Stopped at: Completed 20-02-PLAN.md
+Last session: 2026-11-21T12:02:25.737Z
+Stopped at: Completed 20-03-PLAN.md
 Resume file: None
 
 ## Operator Next Steps

@@ -11,8 +11,8 @@
 ### In-Game Immersion, Audio Profiles & Quick-Chords
 
 - [x] **GAME-01**: User can bind a per-game 10-band PipeWire EQ preset and target volume/ducking level to any Steam game profile in `SoundtracksTab`, automatically applying an ephemeral override on game launch and restoring the user's global EQ/volume baseline on game exit or crash recovery without overwriting persistent settings or interrupting an active Sleep Timer lock.
-- [ ] **TOAST-01**: When `toast_sound_enabled` is `false`, track-change notifications render as a 100% silent 3.5-second banner inside `DeckifyOverlay` (`pointerEvents: "none"`), completely bypassing Steam's `toaster.toast` UI chime even when the persistent HUD overlay is hidden.
-- [ ] **CHORD-01**: User can trigger configurable in-game controller quick-chords (with a 4-second `guideHeld` expiry guard and no Valve system chord collisions) to Like/Unlike (`♥`) the current track, cycle through the 4 Pinned Playlists, or toggle the Lyrics HUD, receiving instant silent visual confirmation in `DeckifyOverlay`.
+- [x] **TOAST-01**: When `toast_sound_enabled` is `false`, track-change notifications render as a 100% silent 3.5-second banner inside `DeckifyOverlay` (`pointerEvents: "none"`), completely bypassing Steam's `toaster.toast` UI chime even when the persistent HUD overlay is hidden.
+- [x] **CHORD-01**: User can trigger configurable in-game controller quick-chords (with a 4-second `guideHeld` expiry guard and no Valve system chord collisions) to Like/Unlike (`♥`) the current track, cycle through the 4 Pinned Playlists, or toggle the Lyrics HUD, receiving instant silent visual confirmation in `DeckifyOverlay`.
 
 ### Dynamic Album-Art Themes, Battery Eco-Mode & Connect Hub 2.0
 
@@ -79,8 +79,8 @@
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | GAME-01 | Phase 19 | Complete |
-| TOAST-01 | Phase 20 | Pending |
-| CHORD-01 | Phase 20 | Pending |
+| TOAST-01 | Phase 20 | Complete |
+| CHORD-01 | Phase 20 | Complete |
 | THEME-01 | Phase 21 | Pending |
 | ECO-01 | Phase 21 | Pending |
 | CONNECT-01 | Phase 22 | Pending |
