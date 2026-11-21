@@ -26,7 +26,7 @@
     {
       "number": "20",
       "name": "100% Silent HUD Toasts & Extended In-Game Quick-Chords",
-      "status": "pending"
+      "status": "in_progress"
     },
     {
       "number": "21",
@@ -81,8 +81,8 @@
   ],
   "next": {
     "command": "/gsd-progress --next",
-    "label": "Advance to the next step (verify)",
-    "reason": "Phase 1 of 12 · 0% · ready to verify"
+    "label": "Advance to the next step",
+    "reason": "Phase 2 of 12 · 0% · executing"
   },
-  "updated_at": "2026-11-19T17:13:26.044Z"
+  "updated_at": "2026-11-21T11:13:51.924Z"
 }

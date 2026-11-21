@@ -108,8 +108,10 @@ Plans:
 Plans:
 **Wave 1**
 - [ ] 20-01-PLAN.md — Silent HUD banner tracer slice (bannerBus -> SilentBanner -> always-mounted DeckifyOverlayWrapper) and Python settings validation/persistence
+
 **Wave 2** *(blocked on Wave 1 completion)*
 - [ ] 20-02-PLAN.md — Pure Quick-Chord matcher/validator (src/chords.ts) with 4s guideHeld expiry and extended Like/Pinned/Lyrics action wiring
+
 **Wave 3** *(blocked on Wave 2 completion)*
 - [ ] 20-03-PLAN.md — Settings UI ChordBindingsCard (Silent HUD Banner toggle, 1–4 button press-to-record capture, Reset All Chords) and SettingsTab composition
 **UI hint**: yes

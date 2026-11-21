@@ -143,9 +143,9 @@ Steam `toaster.toast` always routes through Steam's toast pipeline (chime) — r
 | A3 | Overlay global component renders above games & is unaffected by pointer events when `pointerEvents:none` | Examples | Banner invisible/obstructive; verify on device |
 | A4 | No Steam chime from plain DOM banner | Summary | Low; DOM has no audio |
 
-## Open Questions
-1. Exact full button-index map for Steam `GamepadInputSource` (A/B/X/Y, bumpers, triggers, L4/R4 etc.) — need on-device log of `onDown` btn values; plan a Wave-0 task or a debug capture in the record UI.
-2. Should track-change banner show artwork? D-decisions silent on it; recommend small 40px proxied image if already cached, text-only otherwise (planner discretion).
+## Open Questions (RESOLVED)
+1. Exact full button-index map for Steam `GamepadInputSource` (A/B/X/Y, bumpers, triggers, L4/R4 etc.) — **RESOLVED:** Verified directly from `@decky/ui` `node_modules/@decky/ui/src/components/FooterLegend.ts:3-33` in `20-PATTERNS.md` (`INVALID=0`, `OK=1`, `CANCEL=2`, `SECONDARY=3`, `OPTIONS=4`, `BUMPER_LEFT=5`, `BUMPER_RIGHT=6`, `TRIGGER_LEFT=7`, `TRIGGER_RIGHT=8`, `DIR_UP=9`..`DIR_RIGHT=12`, `SELECT=13`, `START=14`, `LSTICK_CLICK=15`, `RSTICK_CLICK=16`, `REAR_LEFT_UPPER=23`..`REAR_RIGHT_LOWER=26`, `STEAM_GUIDE=27`, `STEAM_QUICK_MENU=28`). `src/chords.ts` uses these verified `FooterLegend.ts` indices, preserves legacy guide `13/14` compatibility in `GUIDE_BUTTON_IDS = {27, 28, 13, 14}`, and corrects default `play_pause` to `OK=1`.
+2. Should track-change banner show artwork? — **RESOLVED:** Per `20-UI-SPEC.md` (`40px` cached-only artwork contract), track-change banners show an optional `40px` proxied thumbnail ONLY when already synchronously available (`data:`, `http://127.0.0.1`, or `imgMemoryCache.get()`) and collapse to text-only otherwise (never blocking on network fetches); chord confirmation banners are single-line text-only without cover artwork.
 
 ## Environment Availability
 Node/pnpm/Python available on dev machine per project stack; on-device chord testing requires a Steam Deck (manual). No other external deps.
