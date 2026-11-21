@@ -103,7 +103,7 @@ Plans:
   1. When `toast_sound_enabled` is `false`, track-change notifications render as a 100% silent 3.5-second banner inside `DeckifyOverlay` (`pointerEvents: "none"`), completely bypassing Steam's `toaster.toast` audio chime even when the persistent HUD overlay is hidden.
   2. User can trigger configurable in-game controller quick-chords to Like/Unlike (`♥`) the current track, cycle through the 4 Pinned Playlists, or toggle the Lyrics HUD, receiving instant silent visual confirmation inside `DeckifyOverlay`.
   3. Controller chord detection enforces a 4-second `guideHeld` expiry guard and blocks reserved Valve system chords (`STEAM + X/R1/L1`) so chords never misfire or collide with SteamOS system shortcuts.
-**Plans:** 5/7 plans executed
+**Plans:** 6/7 plans executed
 
 Plans:
 **Wave 1**
@@ -122,7 +122,7 @@ Plans:
 - [x] 20-05-PLAN.md — Close UAT gap G-20-2: unbound `[]` chord defaults, STEAM button rejection, `RegisterForControllerInputMessages` in-game capture, and `EUIComposition.Notification` Gamescope overlay composition
 
 **Wave 1 (Gap Closure - G-20-3)**
-- [ ] 20-06-PLAN.md — Close UAT gap G-20-3 (Backend): passive `hidraw`/`evdev` controller input watcher (`py_modules/input_watch.py`) and `main.py` `controller_input` emission
+- [x] 20-06-PLAN.md — Close UAT gap G-20-3 (Backend): passive `hidraw`/`evdev` controller input watcher (`py_modules/input_watch.py`) and `main.py` `controller_input` emission
 
 **Wave 2 (Gap Closure - G-20-3)** *(blocked on 20-06)*
 - [ ] 20-07-PLAN.md — Close UAT gap G-20-3 (Frontend): D-pad `20..23` mappings, dual-signature `RegisterForControllerInputMessages`, `RegisterForControllerStateChanges` fallback, `.unregister()`/`.Unregister()`, `deck_resumed` re-subscribe, and deduplicated `controller_input` listener
@@ -250,7 +250,7 @@ Phases execute in numeric order: 19 → 20 → 21 → 22 → 23 → 24 → 25 �
 | 6–12. In-Game Flow & Music Discovery | v0.5 | 22/22 | Complete | 2026-11-15 |
 | 13–18.1. Audio DSP, Docked Flow & System Resilience | v0.6 | 14/14 | Complete | 2026-11-18 |
 | 19. Per-Game EQ & Volume Profiles | v0.7 | 5/5 | In Progress | - |
-| 20. 100% Silent HUD Toasts & Extended In-Game Quick-Chords | v0.7 | 5/5 | In Progress | - |
+| 20. 100% Silent HUD Toasts & Extended In-Game Quick-Chords | v0.7 | 6/7 | In Progress | - |
 | 21. Dynamic Album-Art Accent Themes & Handheld Battery Eco-Mode | v0.7 | 0/TBD | Not started | - |
 | 22. Spotify Connect Hub 2.0 & Native Crossfade | v0.7 | 0/TBD | Not started | - |
 | 23. Lyrics 2.0 — Offline .lrc Cache, Per-Track Sync Nudge & CJK Romanization | v0.7 | 0/TBD | Not started | - |
