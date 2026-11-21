@@ -30,6 +30,8 @@ import { emitBanner, BannerTone } from "./bannerBus";
 import {
   CHORD_ACTIONS,
   DEFAULT_CHORD_BINDINGS,
+  MAX_BUTTON_ID,
+  MIN_BUTTON_ID,
   createChordMatcher,
   isChordRecordingActive,
   mapControllerInputButton,
@@ -475,20 +477,18 @@ const getInputSource = (): GamepadInputSourceLike | null => {
 const unregisterHandle = (handle: unknown): void => {
   if (typeof handle === "function") {
     (handle as () => void)();
+  } else if (handle && typeof (handle as { unregister?: unknown }).unregister === "function") {
+    (handle as { unregister: () => void }).unregister();
   } else if (handle && typeof (handle as { Unregister?: unknown }).Unregister === "function") {
     (handle as { Unregister: () => void }).Unregister();
   }
 };
 
+const CHORD_EVENT_DEDUP_MS = 50;
+
 const setupChordListener = (): (() => void) | null => {
   try {
     const win = typeof window !== "undefined" ? (window as any) : null;
-    const registerControllerInput = win?.SteamClient?.Input?.RegisterForControllerInputMessages;
-    const src = typeof registerControllerInput === "function" ? null : getInputSource();
-    if (typeof registerControllerInput !== "function" && !src?.RegisterForGamepadButtonDown) {
-      return null;
-    }
-
     let disposed = false;
     const matcher = createChordMatcher(cachedBindings, {
       onFire: (actionId) => {
@@ -498,7 +498,30 @@ const setupChordListener = (): (() => void) | null => {
     });
     activeChordMatcher = matcher;
 
-    const handleButtonEvent = (btn: number, isPressed: boolean) => {
+    // Bounded to at most (MAX_BUTTON_ID - MIN_BUTTON_ID + 1) * 2 <= 58 keys (T-20-17)
+    const lastEventByKey = new Map<string, { ts: number; source: "frontend" | "backend" }>();
+
+    const handleButtonEvent = (
+      btn: number,
+      isPressed: boolean,
+      source: "frontend" | "backend",
+    ) => {
+      if (
+        !Number.isInteger(btn) ||
+        btn < MIN_BUTTON_ID ||
+        btn > MAX_BUTTON_ID ||
+        typeof isPressed !== "boolean"
+      ) {
+        return;
+      }
+      const now = Date.now();
+      const dedupKey = `${btn}:${isPressed ? 1 : 0}`;
+      const prev = lastEventByKey.get(dedupKey);
+      if (prev !== undefined && prev.source !== source && now - prev.ts < CHORD_EVENT_DEDUP_MS) {
+        return;
+      }
+      lastEventByKey.set(dedupKey, { ts: now, source });
+
       if (isPressed) {
         if (disposed || !cachedChordsEnabled || bigOpen || isChordRecordingActive()) {
           matcher.reset();
@@ -510,36 +533,145 @@ const setupChordListener = (): (() => void) | null => {
       }
     };
 
-    if (typeof registerControllerInput === "function") {
-      const inputHandle = registerControllerInput(
-        (_controllerIndex: number, gamepadButton: number, isPressed: boolean) => {
-          const mapped = mapControllerInputButton(gamepadButton);
-          if (mapped === null) return;
-          handleButtonEvent(mapped, Boolean(isPressed));
-        },
-      );
-      return () => {
-        disposed = true;
-        unregisterHandle(inputHandle);
-        matcher.dispose();
-        if (activeChordMatcher === matcher) {
-          activeChordMatcher = null;
-        }
-      };
-    }
+    let frontendHandles: unknown[] = [];
+    const teardownFrontendInput = () => {
+      for (const h of frontendHandles) {
+        unregisterHandle(h);
+      }
+      frontendHandles = [];
+    };
 
-    const downHandle = src!.RegisterForGamepadButtonDown!((btn: number) => {
-      handleButtonEvent(btn, true);
+    const subscribeFrontendInput = () => {
+      teardownFrontendInput();
+      if (disposed) return;
+
+      const registerControllerInput = win?.SteamClient?.Input?.RegisterForControllerInputMessages;
+      if (typeof registerControllerInput === "function") {
+        const inputHandle = registerControllerInput(
+          (arg0: unknown, arg1?: unknown, arg2?: unknown) => {
+            if (Array.isArray(arg0)) {
+              for (const msg of arg0) {
+                if (!msg || typeof msg !== "object") continue;
+                const { nA, bS } = msg as { nA?: unknown; bS?: unknown };
+                if (typeof nA !== "number" || typeof bS !== "boolean") continue;
+                const mapped = mapControllerInputButton(nA);
+                if (mapped === null) continue;
+                handleButtonEvent(mapped, bS, "frontend");
+              }
+              return;
+            }
+            if (typeof arg1 !== "number" || typeof arg2 !== "boolean") return;
+            const mapped = mapControllerInputButton(arg1);
+            if (mapped === null) return;
+            handleButtonEvent(mapped, arg2, "frontend");
+          },
+        );
+        if (inputHandle != null) frontendHandles.push(inputHandle);
+        return;
+      }
+
+      const registerStateChanges = win?.SteamClient?.Input?.RegisterForControllerStateChanges;
+      if (typeof registerStateChanges === "function") {
+        const prevButtonsByController = new Map<number, bigint>();
+        const stateHandle = registerStateChanges((states: unknown) => {
+          const list = Array.isArray(states) ? states : states ? [states] : [];
+          for (const rawState of list) {
+            if (!rawState || typeof rawState !== "object") continue;
+            const state = rawState as {
+              unControllerIndex?: unknown;
+              nControllerIndex?: unknown;
+              ulButtons?: unknown;
+            };
+            const idx =
+              typeof state.unControllerIndex === "number"
+                ? state.unControllerIndex
+                : typeof state.nControllerIndex === "number"
+                  ? state.nControllerIndex
+                  : 0;
+            let curr: bigint;
+            try {
+              const rawButtons = state.ulButtons ?? 0;
+              if (
+                typeof rawButtons !== "number" &&
+                typeof rawButtons !== "bigint" &&
+                typeof rawButtons !== "string"
+              ) {
+                continue;
+              }
+              curr = BigInt(rawButtons);
+            } catch {
+              continue;
+            }
+            const prev = prevButtonsByController.get(idx) ?? 0n;
+            const changed = curr ^ prev;
+            if (changed === 0n) continue;
+            prevButtonsByController.set(idx, curr);
+            for (let btn = 1; btn <= MAX_BUTTON_ID; btn++) {
+              const mask = 1n << BigInt(btn);
+              if ((changed & mask) !== 0n) {
+                handleButtonEvent(btn, (curr & mask) !== 0n, "frontend");
+              }
+            }
+          }
+        });
+        if (stateHandle != null) frontendHandles.push(stateHandle);
+        return;
+      }
+
+      const src = getInputSource();
+      if (src?.RegisterForGamepadButtonDown) {
+        const downHandle = src.RegisterForGamepadButtonDown((btn: number) => {
+          handleButtonEvent(btn, true, "frontend");
+        });
+        const upHandle = src.RegisterForGamepadButtonUp
+          ? src.RegisterForGamepadButtonUp((btn: number) => {
+              handleButtonEvent(btn, false, "frontend");
+            })
+          : null;
+        if (downHandle != null) frontendHandles.push(downHandle);
+        if (upHandle != null) frontendHandles.push(upHandle);
+      }
+    };
+
+    subscribeFrontendInput();
+
+    const backendInputSub = addEventListener<[unknown]>("controller_input", (ev: unknown) => {
+      if (!ev || typeof ev !== "object") return;
+      const { button, pressed } = ev as { button?: unknown; pressed?: unknown };
+      if (
+        typeof button !== "number" ||
+        !Number.isInteger(button) ||
+        button < 1 ||
+        button > MAX_BUTTON_ID ||
+        typeof pressed !== "boolean"
+      ) {
+        return;
+      }
+      handleButtonEvent(button, pressed, "backend");
     });
-    const upHandle = src!.RegisterForGamepadButtonUp
-      ? src!.RegisterForGamepadButtonUp((btn: number) => {
-          handleButtonEvent(btn, false);
-        })
-      : null;
+
+    const resumeEventSub = addEventListener<[unknown]>("deck_resumed", () => {
+      if (disposed) return;
+      matcher.reset();
+      subscribeFrontendInput();
+    });
+
+    const registerOnResume = win?.SteamClient?.System?.RegisterForOnResumeFromSuspend;
+    const steamResumeHandle =
+      typeof registerOnResume === "function"
+        ? registerOnResume(() => {
+            if (disposed) return;
+            matcher.reset();
+            subscribeFrontendInput();
+          })
+        : null;
+
     return () => {
       disposed = true;
-      unregisterHandle(downHandle);
-      unregisterHandle(upHandle);
+      teardownFrontendInput();
+      removeEventListener("controller_input", backendInputSub);
+      removeEventListener("deck_resumed", resumeEventSub);
+      unregisterHandle(steamResumeHandle);
       matcher.dispose();
       if (activeChordMatcher === matcher) {
         activeChordMatcher = null;

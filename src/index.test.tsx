@@ -2028,4 +2028,279 @@ describe("Phase 20: Configurable Quick-Chords & Silent Confirmations (CHORD-01)"
     plugin.onDismount?.();
     expect(unregOverlay).toHaveBeenCalled();
   });
+
+  it("unregisterHandle invokes .unregister() (lowercase), .Unregister() (uppercase), and function handles cleanly (G-20-3)", async () => {
+    const unregLower = vi.fn();
+    (globalThis as any).window = {
+      SteamClient: {
+        GameSessions: { RegisterForAppLifetimeNotifications: mockRegisterForAppLifetime },
+        Input: {
+          RegisterForControllerInputMessages: vi.fn(() => ({ unregister: unregLower })),
+        },
+      },
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    };
+
+    await import("./index");
+    let plugin = capturedPluginFactory!();
+    plugin.onDismount?.();
+    expect(unregLower).toHaveBeenCalledTimes(1);
+
+    const unregUpper = vi.fn();
+    (globalThis as any).window.SteamClient.Input.RegisterForControllerInputMessages = vi.fn(() => ({
+      Unregister: unregUpper,
+    }));
+    plugin = capturedPluginFactory!();
+    plugin.onDismount?.();
+    expect(unregUpper).toHaveBeenCalledTimes(1);
+
+    const unregFn = vi.fn();
+    (globalThis as any).window.SteamClient.Input.RegisterForControllerInputMessages = vi.fn(() => unregFn);
+    plugin = capturedPluginFactory!();
+    plugin.onDismount?.();
+    expect(unregFn).toHaveBeenCalledTimes(1);
+  });
+
+  it("handles RegisterForControllerInputMessages with BOTH Array<{ nA, bS }> and 3-arg signatures (G-20-3)", async () => {
+    let inputCb: ((...args: any[]) => void) | null = null;
+    const unregInput = vi.fn();
+    (globalThis as any).window = {
+      SteamClient: {
+        GameSessions: { RegisterForAppLifetimeNotifications: mockRegisterForAppLifetime },
+        Input: {
+          RegisterForControllerInputMessages: vi.fn((cb: any) => {
+            inputCb = cb;
+            return { unregister: unregInput };
+          }),
+        },
+      },
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    };
+
+    mockGetStatus.mockResolvedValue({
+      track: { track_id: "trk-dual-1", name: "Dual Sig Track", artist: "Artist" },
+      is_liked: false,
+      settings: {
+        silent_banner_enabled: true,
+        gamepad_chords_enabled: true,
+        gamepad_chord_bindings: {
+          toggle_like: [3, 24], // X (3) + L5 (24)
+          next: [3, 23], // X (3) + L4 (23)
+        },
+      },
+    });
+
+    await import("./index");
+    const plugin = capturedPluginFactory!();
+    await flushMicrotasks();
+
+    expect(inputCb).toBeTypeOf("function");
+
+    // Array<{ nA, bS }> signature: 32 -> L5 (24), 2 -> X (3)
+    inputCb!([
+      { nA: 32, bS: true },
+      { nA: 2, bS: true },
+    ]);
+    await flushMicrotasks();
+    expect(mockToggleLike).toHaveBeenCalledWith("trk-dual-1", true);
+
+    inputCb!([
+      { nA: 32, bS: false },
+      { nA: 2, bS: false },
+    ]);
+
+    // 3-arg signature: 44 -> L4 (23), 2 -> X (3)
+    inputCb!(0, 44, true);
+    inputCb!(0, 2, true);
+    await flushMicrotasks();
+    expect(mockControlPlayback).toHaveBeenCalledWith("next", "");
+
+    plugin.onDismount?.();
+    expect(unregInput).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back to SteamClient.Input.RegisterForControllerStateChanges (diffing ulButtons bitmasks) when RegisterForControllerInputMessages is absent (G-20-3)", async () => {
+    let stateCb: ((states: any) => void) | null = null;
+    const unregState = vi.fn();
+    (globalThis as any).window = {
+      SteamClient: {
+        GameSessions: { RegisterForAppLifetimeNotifications: mockRegisterForAppLifetime },
+        Input: {
+          RegisterForControllerStateChanges: vi.fn((cb: any) => {
+            stateCb = cb;
+            return { unregister: unregState };
+          }),
+        },
+      },
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    };
+
+    mockGetStatus.mockResolvedValue({
+      track: { track_id: "trk-state-1", name: "State Track", artist: "Artist" },
+      is_liked: false,
+      settings: {
+        silent_banner_enabled: true,
+        gamepad_chords_enabled: true,
+        gamepad_chord_bindings: {
+          toggle_like: [3, 23], // X (3) + L4 (23)
+        },
+      },
+    });
+
+    await import("./index");
+    const plugin = capturedPluginFactory!();
+    await flushMicrotasks();
+
+    expect(stateCb).toBeTypeOf("function");
+
+    // First packet: L4 (bit 23) + X (bit 3) pressed
+    const mask = (1 << 23) | (1 << 3);
+    stateCb!([{ unControllerIndex: 0, ulButtons: mask }]);
+    await flushMicrotasks();
+    expect(mockToggleLike).toHaveBeenCalledWith("trk-state-1", true);
+
+    // Release X, keep L4
+    mockToggleLike.mockClear();
+    stateCb!([{ unControllerIndex: 0, ulButtons: 1 << 23 }]);
+    await flushMicrotasks();
+    expect(mockToggleLike).not.toHaveBeenCalled();
+
+    // Press X again -> fires again (toggles back to false)
+    stateCb!([{ unControllerIndex: 0, ulButtons: mask }]);
+    await flushMicrotasks();
+    expect(mockToggleLike).toHaveBeenLastCalledWith("trk-state-1", false);
+
+    plugin.onDismount?.();
+    expect(unregState).toHaveBeenCalledTimes(1);
+  });
+
+  it("subscribes to backend controller_input, deduplicates within 50ms, and re-subscribes SteamClient.Input on deck_resumed / RegisterForOnResumeFromSuspend (G-20-3)", async () => {
+    vi.useFakeTimers();
+    let inputCb: ((...args: any[]) => void) | null = null;
+    let resumeCb: (() => void) | null = null;
+    const unregInput1 = vi.fn();
+    const unregInput2 = vi.fn();
+    const unregInput3 = vi.fn();
+    const unregResume = vi.fn();
+    const registerInput = vi
+      .fn()
+      .mockImplementationOnce((cb: any) => {
+        inputCb = cb;
+        return { unregister: unregInput1 };
+      })
+      .mockImplementationOnce((cb: any) => {
+        inputCb = cb;
+        return { unregister: unregInput2 };
+      })
+      .mockImplementationOnce((cb: any) => {
+        inputCb = cb;
+        return { unregister: unregInput3 };
+      });
+
+    (globalThis as any).window = {
+      SteamClient: {
+        GameSessions: { RegisterForAppLifetimeNotifications: mockRegisterForAppLifetime },
+        Input: {
+          RegisterForControllerInputMessages: registerInput,
+        },
+        System: {
+          RegisterForOnResumeFromSuspend: vi.fn((cb: any) => {
+            resumeCb = cb;
+            return { unregister: unregResume };
+          }),
+        },
+      },
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    };
+
+    mockGetStatus.mockResolvedValue({
+      track: { track_id: "trk-backend-1", name: "Backend Input Track", artist: "Artist" },
+      is_liked: false,
+      settings: {
+        silent_banner_enabled: true,
+        gamepad_chords_enabled: true,
+        gamepad_chord_bindings: {
+          next: [23, 24], // L4 (23) + L5 (24)
+          play_pause: [3, 23], // X (3) + L4 (23)
+        },
+      },
+    });
+
+    await import("./index");
+    const { addEventListener, removeEventListener } = await import("@decky/api");
+    const plugin = capturedPluginFactory!();
+    await flushMicrotasks();
+
+    const controllerInputCall = (addEventListener as any).mock.calls.find(
+      (c: any[]) => c[0] === "controller_input",
+    );
+    const deckResumedCall = (addEventListener as any).mock.calls.find(
+      (c: any[]) => c[0] === "deck_resumed",
+    );
+    expect(controllerInputCall).toBeTruthy();
+    expect(deckResumedCall).toBeTruthy();
+    const emitControllerInput = controllerInputCall[1];
+    const emitDeckResumed = deckResumedCall[1];
+
+    // Malformed payloads are ignored
+    emitControllerInput(null);
+    emitControllerInput({ button: 99, pressed: true });
+    emitControllerInput({ button: 23, pressed: "yes" });
+    expect(mockControlPlayback).not.toHaveBeenCalled();
+
+    // Backend controller_input triggers chord (L4 + L5 -> next)
+    emitControllerInput({ button: 23, pressed: true, source: "hidraw" });
+    emitControllerInput({ button: 24, pressed: true, source: "hidraw" });
+    await flushMicrotasks();
+    expect(mockControlPlayback).toHaveBeenCalledTimes(1);
+    expect(mockControlPlayback).toHaveBeenCalledWith("next", "");
+
+    // Release L4 + L5
+    emitControllerInput({ button: 24, pressed: false, source: "hidraw" });
+    emitControllerInput({ button: 23, pressed: false, source: "hidraw" });
+
+    // Deduplication within 50ms: frontend delivers L4+X, backend delivers identical L4+X 10ms later -> fires once
+    vi.advanceTimersByTime(100);
+    mockControlPlayback.mockClear();
+    inputCb!(0, 44, true); // L4 (23)
+    inputCb!(0, 2, true); // X (3)
+    await flushMicrotasks();
+    expect(mockControlPlayback).toHaveBeenCalledTimes(1);
+    expect(mockControlPlayback).toHaveBeenCalledWith("play_pause", "");
+
+    vi.advanceTimersByTime(10);
+    // Releasing then re-pressing within 50ms is deduplicated; or identical down from backend while already held
+    emitControllerInput({ button: 2, pressed: false, source: "hidraw" });
+    emitControllerInput({ button: 23, pressed: false, source: "hidraw" });
+    // Now test identical down from both within 50ms after releasing cleanly (>50ms)
+    vi.advanceTimersByTime(100);
+    mockControlPlayback.mockClear();
+    emitControllerInput({ button: 23, pressed: true, source: "hidraw" });
+    inputCb!(0, 44, true); // duplicate L4 down within 50ms
+    emitControllerInput({ button: 3, pressed: true, source: "hidraw" });
+    await flushMicrotasks();
+    expect(mockControlPlayback).toHaveBeenCalledTimes(1);
+
+    // deck_resumed tears down old frontend handle and re-subscribes
+    expect(registerInput).toHaveBeenCalledTimes(1);
+    emitDeckResumed({});
+    expect(unregInput1).toHaveBeenCalledTimes(1);
+    expect(registerInput).toHaveBeenCalledTimes(2);
+
+    // RegisterForOnResumeFromSuspend also tears down and re-subscribes
+    resumeCb!();
+    expect(unregInput2).toHaveBeenCalledTimes(1);
+    expect(registerInput).toHaveBeenCalledTimes(3);
+
+    // Full cleanup on dismount
+    plugin.onDismount?.();
+    expect(unregInput3).toHaveBeenCalledTimes(1);
+    expect(unregResume).toHaveBeenCalledTimes(1);
+    expect(removeEventListener).toHaveBeenCalledWith("controller_input", expect.anything());
+    expect(removeEventListener).toHaveBeenCalledWith("deck_resumed", expect.anything());
+  });
 });
