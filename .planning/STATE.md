@@ -4,17 +4,17 @@ milestone: v0.7
 milestone_name: Studio, Living Room TV, Offline Travel & Ultimate Immersion (In Progress)
 current_phase: 20
 current_phase_name: 100% Silent HUD Toasts & Extended In-Game Quick-Chords
-status: verifying
-stopped_at: Completed 20-03-PLAN.md
-last_updated: "2026-11-21T12:02:42.518Z"
+status: executing
+stopped_at: Completed 20-04-PLAN.md
+last_updated: "2026-11-21T18:37:41.034Z"
 last_activity: 2026-11-21
 last_activity_desc: Phase 20 execution started
-state_head: e862ced137c555b10d581250aea42a83b458af9b
+state_head: d04904880c50d3122d68ec7ecde2d4a91ff338e5
 progress:
   total_phases: 12
   completed_phases: 0
-  total_plans: 8
-  completed_plans: 8
+  total_plans: 10
+  completed_plans: 9
   percent: 0
 ---
 
@@ -30,8 +30,8 @@ See: [.planning/PROJECT.md](file:///C:/Users/djdje/Deckify/.planning/PROJECT.md)
 ## Current Position
 
 Phase: 20 (100% Silent HUD Toasts & Extended In-Game Quick-Chords) — EXECUTING
-Plan: 3 of 3
-Status: Phase complete — ready for verification
+Plan: 5 of 5
+Status: Ready to execute
 Last activity: 2026-11-21 — Phase 20 execution started
 
 
@@ -110,6 +110,7 @@ Last activity: 2026-11-21 — Phase 20 execution started
 | Phase 20 P01 | 12 min | 3 tasks | 9 files |
 | Phase 20 P02 | 17 min | 2 tasks | 4 files |
 | Phase 20 P03 | 8 min | 2 tasks | 4 files |
+| Phase 20 P04 | 7 min | 2 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -177,6 +178,7 @@ Recent decisions affecting current work:
 - [Phase 20]: Normalized GAMEPAD_BUTTON.STEAM_QUICK_MENU (28) to 27, corrected default play_pause to OK (1), and kept chord runtime helpers module-internal in src/index.tsx
 - [Phase 20]: Mount ChordBindingsCard strictly as JSX in SettingsTab.tsx (never plain-function wrapper) and keep recorder refs in one useRef<RecorderRuntime> for zero-warning teardown
 - [Phase 20]: Apply width: auto and minWidth: auto on every compact inline DialogButton in ChordBindingsCard.tsx to override SteamOS 100% button width
+- [Phase 20]: Gated Steam toaster.toast fallback strictly on silent_banner_enabled === false and added volume-scaled Web Audio chime alongside SilentBanner
 
 ### Pending Todos
 
@@ -207,8 +209,8 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-21T12:02:25.737Z
-Stopped at: Completed 20-03-PLAN.md
+Last session: 2026-11-21T18:37:39.501Z
+Stopped at: Completed 20-04-PLAN.md
 Resume file: None
 
 ## Operator Next Steps

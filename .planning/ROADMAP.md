@@ -103,7 +103,7 @@ Plans:
   1. When `toast_sound_enabled` is `false`, track-change notifications render as a 100% silent 3.5-second banner inside `DeckifyOverlay` (`pointerEvents: "none"`), completely bypassing Steam's `toaster.toast` audio chime even when the persistent HUD overlay is hidden.
   2. User can trigger configurable in-game controller quick-chords to Like/Unlike (`♥`) the current track, cycle through the 4 Pinned Playlists, or toggle the Lyrics HUD, receiving instant silent visual confirmation inside `DeckifyOverlay`.
   3. Controller chord detection enforces a 4-second `guideHeld` expiry guard and blocks reserved Valve system chords (`STEAM + X/R1/L1`) so chords never misfire or collide with SteamOS system shortcuts.
-**Plans:** 3/5 plans executed
+**Plans:** 4/5 plans executed
 
 Plans:
 **Wave 1**
@@ -116,7 +116,7 @@ Plans:
 - [x] 20-03-PLAN.md — Settings UI ChordBindingsCard (Silent HUD Banner toggle, 1–4 button press-to-record capture, Reset All Chords) and SettingsTab composition
 
 **Wave 1 (Gap Closure)**
-- [ ] 20-04-PLAN.md — Close UAT gap G-20-1: independent `silent_banner_position` corner picker & volume-scaled non-Steam Web Audio chime
+- [x] 20-04-PLAN.md — Close UAT gap G-20-1: independent `silent_banner_position` corner picker & volume-scaled non-Steam Web Audio chime
 
 **Wave 2 (Gap Closure)** *(blocked on 20-04)*
 - [ ] 20-05-PLAN.md — Close UAT gap G-20-2: unbound `[]` chord defaults, STEAM button rejection, `RegisterForControllerInputMessages` in-game capture, and `EUIComposition.Notification` Gamescope overlay composition
@@ -244,7 +244,7 @@ Phases execute in numeric order: 19 → 20 → 21 → 22 → 23 → 24 → 25 �
 | 6–12. In-Game Flow & Music Discovery | v0.5 | 22/22 | Complete | 2026-11-15 |
 | 13–18.1. Audio DSP, Docked Flow & System Resilience | v0.6 | 14/14 | Complete | 2026-11-18 |
 | 19. Per-Game EQ & Volume Profiles | v0.7 | 5/5 | In Progress | - |
-| 20. 100% Silent HUD Toasts & Extended In-Game Quick-Chords | v0.7 | 3/3 | In Progress | - |
+| 20. 100% Silent HUD Toasts & Extended In-Game Quick-Chords | v0.7 | 4/5 | In Progress | - |
 | 21. Dynamic Album-Art Accent Themes & Handheld Battery Eco-Mode | v0.7 | 0/TBD | Not started | - |
 | 22. Spotify Connect Hub 2.0 & Native Crossfade | v0.7 | 0/TBD | Not started | - |
 | 23. Lyrics 2.0 — Offline .lrc Cache, Per-Track Sync Nudge & CJK Romanization | v0.7 | 0/TBD | Not started | - |
