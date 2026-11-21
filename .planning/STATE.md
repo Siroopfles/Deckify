@@ -180,7 +180,7 @@ Recent decisions affecting current work:
 
 ### Pending Todos
 
-None yet.
+- [2026-11-21] [general] Investigate Decky Loader breakage after Steam update — [todo file](.planning/todos/pending/2026-11-21-investigate-decky-loader-breakage-after-steam-update.md)
 
 ### Blockers/Concerns
 
