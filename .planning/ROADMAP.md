@@ -103,7 +103,7 @@ Plans:
   1. When `toast_sound_enabled` is `false`, track-change notifications render as a 100% silent 3.5-second banner inside `DeckifyOverlay` (`pointerEvents: "none"`), completely bypassing Steam's `toaster.toast` audio chime even when the persistent HUD overlay is hidden.
   2. User can trigger configurable in-game controller quick-chords to Like/Unlike (`♥`) the current track, cycle through the 4 Pinned Playlists, or toggle the Lyrics HUD, receiving instant silent visual confirmation inside `DeckifyOverlay`.
   3. Controller chord detection enforces a 4-second `guideHeld` expiry guard and blocks reserved Valve system chords (`STEAM + X/R1/L1`) so chords never misfire or collide with SteamOS system shortcuts.
-**Plans:** 3/3 plans executed
+**Plans:** 3/5 plans executed
 
 Plans:
 **Wave 1**
@@ -114,6 +114,12 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 - [x] 20-03-PLAN.md — Settings UI ChordBindingsCard (Silent HUD Banner toggle, 1–4 button press-to-record capture, Reset All Chords) and SettingsTab composition
+
+**Wave 1 (Gap Closure)**
+- [ ] 20-04-PLAN.md — Close UAT gap G-20-1: independent `silent_banner_position` corner picker & volume-scaled non-Steam Web Audio chime
+
+**Wave 2 (Gap Closure)** *(blocked on 20-04)*
+- [ ] 20-05-PLAN.md — Close UAT gap G-20-2: unbound `[]` chord defaults, STEAM button rejection, `RegisterForControllerInputMessages` in-game capture, and `EUIComposition.Notification` Gamescope overlay composition
 **UI hint**: yes
 
 ### Phase 21: Dynamic Album-Art Accent Themes & Handheld Battery Eco-Mode
