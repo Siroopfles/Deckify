@@ -75,15 +75,52 @@ export const CHORD_ACTIONS: ReadonlyArray<ChordActionMeta> = [
 ];
 
 export const DEFAULT_CHORD_BINDINGS: Record<ChordActionId, number[]> = {
-  previous: [GAMEPAD_BUTTON.DIR_LEFT, CANONICAL_GUIDE_ID],
-  next: [GAMEPAD_BUTTON.DIR_RIGHT, CANONICAL_GUIDE_ID],
-  play_pause: [GAMEPAD_BUTTON.OK, CANONICAL_GUIDE_ID],
-  volume_up: [GAMEPAD_BUTTON.DIR_UP, CANONICAL_GUIDE_ID],
-  volume_down: [GAMEPAD_BUTTON.DIR_DOWN, CANONICAL_GUIDE_ID],
+  previous: [],
+  next: [],
+  play_pause: [],
+  volume_up: [],
+  volume_down: [],
   toggle_like: [],
   cycle_pinned: [],
   toggle_lyrics: [],
 };
+
+const CONTROLLER_INPUT_TO_GAMEPAD_BUTTON: Record<number, number> = {
+  0: GAMEPAD_BUTTON.OK,
+  1: GAMEPAD_BUTTON.CANCEL,
+  2: GAMEPAD_BUTTON.SECONDARY,
+  3: GAMEPAD_BUTTON.OPTIONS,
+  4: GAMEPAD_BUTTON.DIR_UP,
+  5: GAMEPAD_BUTTON.DIR_RIGHT,
+  6: GAMEPAD_BUTTON.DIR_DOWN,
+  7: GAMEPAD_BUTTON.DIR_LEFT,
+  8: GAMEPAD_BUTTON.START,
+  9: GAMEPAD_BUTTON.SELECT,
+  25: GAMEPAD_BUTTON.LSTICK_CLICK,
+  28: GAMEPAD_BUTTON.TRIGGER_LEFT,
+  29: GAMEPAD_BUTTON.TRIGGER_RIGHT,
+  30: GAMEPAD_BUTTON.BUMPER_LEFT,
+  31: GAMEPAD_BUTTON.BUMPER_RIGHT,
+  32: GAMEPAD_BUTTON.REAR_LEFT_LOWER,
+  33: GAMEPAD_BUTTON.REAR_RIGHT_LOWER,
+  34: GAMEPAD_BUTTON.STEAM_GUIDE,
+  35: GAMEPAD_BUTTON.SELECT,
+  36: GAMEPAD_BUTTON.START,
+  37: GAMEPAD_BUTTON.LPAD_CLICK,
+  38: GAMEPAD_BUTTON.LPAD_TOUCH,
+  39: GAMEPAD_BUTTON.RPAD_CLICK,
+  40: GAMEPAD_BUTTON.RPAD_TOUCH,
+  41: GAMEPAD_BUTTON.RSTICK_CLICK,
+  42: GAMEPAD_BUTTON.RSTICK_TOUCH,
+  43: GAMEPAD_BUTTON.LSTICK_TOUCH,
+  44: GAMEPAD_BUTTON.REAR_LEFT_UPPER,
+  45: GAMEPAD_BUTTON.REAR_RIGHT_UPPER,
+};
+
+export function mapControllerInputButton(btn: number): number | null {
+  if (!Number.isInteger(btn)) return null;
+  return CONTROLLER_INPUT_TO_GAMEPAD_BUTTON[btn] ?? null;
+}
 
 export type ChordValidationFailureReason = "over_limit" | "reserved" | "duplicate";
 
@@ -193,6 +230,14 @@ export function validateChordBinding(
   const normalized = normalizeChord(rawButtons);
   if (normalized.length > MAX_CHORD_BUTTONS) {
     return { ok: false, reason: "over_limit", message: "Chords support up to 4 buttons." };
+  }
+  if (normalized.some((b) => GUIDE_ID_SET.has(b))) {
+    return {
+      ok: false,
+      reason: "reserved",
+      message:
+        "STEAM / QAM button combos are intercepted by SteamOS and don't work in-game. Use other buttons like L4, R4, L5, or R5.",
+    };
   }
   if (isValveReservedChord(normalized)) {
     return {

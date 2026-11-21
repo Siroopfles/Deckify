@@ -306,7 +306,7 @@ describe("ChordBindingsCard layout, defaults, and SteamOS DialogButton overrides
 
     expect(text).toContain("In-Game Quick Chords");
     expect(text).toContain(
-      "Chords work in-game and while the Quick Access Menu is open. They are paused while the Deckify window is open.",
+      "Chords work in-game and while the Quick Access Menu is open using buttons like L4, R4, L5, or R5 (without the STEAM button). They are paused while the Deckify window is open.",
     );
     const gamepadIcon = findNodes(
       tree,
@@ -338,10 +338,10 @@ describe("ChordBindingsCard layout, defaults, and SteamOS DialogButton overrides
     expect(rows.map((r) => CHORD_ACTIONS.find((a) => findText(r).includes(a.label))?.id)).toEqual(
       CHORD_ACTIONS.map((a) => a.id),
     );
-    expect(findText(rows[0])).toContain("STEAM / QAM");
-    expect(findText(rows[0])).toContain("D-Pad Left");
-    expect(findText(rows[5])).toContain("Unbound");
-    expect(findText(rows[5])).toContain("Press Record Chord, then hold 1–4 buttons together to bind this action.");
+    for (const row of rows) {
+      expect(findText(row)).toContain("Unbound");
+      expect(findText(row)).toContain("Press Record Chord, then hold 1–4 buttons together to bind this action.");
+    }
   });
 
   it("sets width: auto and minWidth: auto on every compact inline DialogButton alongside flex: 1 minWidth: 0 left column", () => {
@@ -459,23 +459,30 @@ describe("ChordBindingsCard press-to-record capture, cancel, and timeout cleanup
 });
 
 describe("ChordBindingsCard validation rejections, Clear/Reset, disabled state, and Reset All", () => {
-  it("rejects Valve reserved combos, duplicates, and >4 buttons without calling onSaveBindings", () => {
+  it("immediately cancels recording and warns on STEAM/QAM button press, and rejects duplicates and >4 buttons without calling onSaveBindings", () => {
+    const steamWarning =
+      "STEAM / QAM button combos are intercepted by SteamOS and don't work in-game. Use other buttons like L4, R4, L5, or R5.";
     const onSaveBindings = vi.fn();
-    const { getTree } = renderCard({ onSaveBindings });
+    const customBindings = {
+      ...cloneDefaultBindings(),
+      previous: [GAMEPAD_BUTTON.DIR_LEFT, GAMEPAD_BUTTON.REAR_LEFT_UPPER],
+    } as ChordBindingsMap;
+    const { getTree } = renderCard({ bindings: customBindings, onSaveBindings });
 
     clickButton(findButton(getTree(), "Record Chord", 5));
-    gamepad.pressChord(GAMEPAD_BUTTON.STEAM_GUIDE, GAMEPAD_BUTTON.SECONDARY);
-    expect(findText(findNodes(getTree(), (n) => n.props.role === "alert")[0])).toBe(
-      "That combination is reserved by Steam. Choose a different one.",
-    );
-    clickButton(findButton(getTree(), "Record Chord", 5));
-    gamepad.pressChord(GAMEPAD_BUTTON.STEAM_QUICK_MENU, GAMEPAD_BUTTON.BUMPER_LEFT);
-    expect(findText(findNodes(getTree(), (n) => n.props.role === "alert")[0])).toBe(
-      "That combination is reserved by Steam. Choose a different one.",
-    );
+    expect(isChordRecordingActive()).toBe(true);
+    gamepad.pressDown(GAMEPAD_BUTTON.STEAM_GUIDE);
+    expect(isChordRecordingActive()).toBe(false);
+    expect(findText(findNodes(getTree(), (n) => n.props.role === "alert")[0])).toBe(steamWarning);
 
     clickButton(findButton(getTree(), "Record Chord", 5));
-    gamepad.pressChord(GAMEPAD_BUTTON.DIR_LEFT, GAMEPAD_BUTTON.STEAM_GUIDE);
+    expect(isChordRecordingActive()).toBe(true);
+    gamepad.pressDown(GAMEPAD_BUTTON.STEAM_QUICK_MENU);
+    expect(isChordRecordingActive()).toBe(false);
+    expect(findText(findNodes(getTree(), (n) => n.props.role === "alert")[0])).toBe(steamWarning);
+
+    clickButton(findButton(getTree(), "Record Chord", 5));
+    gamepad.pressChord(GAMEPAD_BUTTON.DIR_LEFT, GAMEPAD_BUTTON.REAR_LEFT_UPPER);
     expect(findText(findNodes(getTree(), (n) => n.props.role === "alert")[0])).toBe(
       "Already used by Previous Track. Clear that chord first or choose another.",
     );
@@ -495,12 +502,13 @@ describe("ChordBindingsCard validation rejections, Clear/Reset, disabled state, 
 });
 
 describe("ChordBindingsCard Clear/Reset, disabled state, and Reset All", () => {
-  it("handles Clear Chord, per-action Reset Chord with conflict guard, disabled chords, and two-step Reset All", () => {
+  it("handles Clear Chord, per-action Reset Chord to [], disabled chords, and two-step Reset All", () => {
     const onSaveBindings = vi.fn();
     const customBindings = {
       ...cloneDefaultBindings(),
       previous: [],
-      toggle_like: [11, 27],
+      next: [GAMEPAD_BUTTON.DIR_RIGHT, GAMEPAD_BUTTON.REAR_LEFT_UPPER],
+      toggle_like: [GAMEPAD_BUTTON.SECONDARY, GAMEPAD_BUTTON.REAR_RIGHT_UPPER],
     } as ChordBindingsMap;
     const { getTree, rerender } = renderCard({ bindings: customBindings, onSaveBindings });
 
@@ -513,12 +521,13 @@ describe("ChordBindingsCard Clear/Reset, disabled state, and Reset All", () => {
     });
 
     onSaveBindings.mockClear();
-    clickButton(findButton(getTree(), "Reset Chord", 0));
-    expect(onSaveBindings).not.toHaveBeenCalled();
-    expect(findText(findNodes(getTree(), (n) => n.props.role === "alert")[0])).toBe(
-      "Already used by Like / Unlike. Clear that chord first or choose another.",
-    );
+    clickButton(findButton(getTree(), "Reset Chord", 5));
+    expect(onSaveBindings).toHaveBeenCalledWith({
+      ...customBindings,
+      toggle_like: [],
+    });
 
+    onSaveBindings.mockClear();
     clickButton(findButton(getTree(), "Reset All Chords"));
     clickButton(findButton(getTree(), "Keep Chords"));
     expect(onSaveBindings).not.toHaveBeenCalled();
@@ -540,11 +549,11 @@ describe("ChordBindingsCard Clear/Reset, disabled state, and Reset All", () => {
     expect(findButton(getTree(), "Record Chord", 0).props.disabled).toBe(true);
   });
 
-  it("allows L4 + B capture when B is not the first button and restores single-action Reset Chord when free", () => {
+  it("allows L4 + B capture when B is not the first button and restores single-action Reset Chord to []", () => {
     const onSaveBindings = vi.fn();
     const customBindings = {
       ...cloneDefaultBindings(),
-      previous: [],
+      previous: [GAMEPAD_BUTTON.DIR_LEFT, GAMEPAD_BUTTON.REAR_LEFT_UPPER],
     } as ChordBindingsMap;
     const { getTree } = renderCard({ bindings: customBindings, onSaveBindings });
 
@@ -559,7 +568,7 @@ describe("ChordBindingsCard Clear/Reset, disabled state, and Reset All", () => {
     clickButton(findButton(getTree(), "Reset Chord", 0));
     expect(onSaveBindings).toHaveBeenCalledWith({
       ...customBindings,
-      previous: [...DEFAULT_CHORD_BINDINGS.previous],
+      previous: [],
     });
   });
 });

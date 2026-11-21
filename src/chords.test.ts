@@ -13,6 +13,7 @@ import {
   validateChordBinding,
   formatButtonName,
   formatChordChips,
+  mapControllerInputButton,
   createChordMatcher,
   setChordRecordingActive,
   isChordRecordingActive,
@@ -57,15 +58,57 @@ describe("chords schema and defaults", () => {
     ]);
 
     expect(DEFAULT_CHORD_BINDINGS).toEqual({
-      previous: [11, 27],
-      next: [12, 27],
-      play_pause: [1, 27],
-      volume_up: [9, 27],
-      volume_down: [10, 27],
+      previous: [],
+      next: [],
+      play_pause: [],
+      volume_up: [],
+      volume_down: [],
       toggle_like: [],
       cycle_pinned: [],
       toggle_lyrics: [],
     });
+  });
+});
+
+describe("mapControllerInputButton", () => {
+  it("maps SteamClient.Input.ControllerInputGamepadButton indices to GAMEPAD_BUTTON and returns null for unmapped", () => {
+    const expected: Array<[number, number]> = [
+      [0, GAMEPAD_BUTTON.OK],
+      [1, GAMEPAD_BUTTON.CANCEL],
+      [2, GAMEPAD_BUTTON.SECONDARY],
+      [3, GAMEPAD_BUTTON.OPTIONS],
+      [4, GAMEPAD_BUTTON.DIR_UP],
+      [5, GAMEPAD_BUTTON.DIR_RIGHT],
+      [6, GAMEPAD_BUTTON.DIR_DOWN],
+      [7, GAMEPAD_BUTTON.DIR_LEFT],
+      [8, GAMEPAD_BUTTON.START],
+      [9, GAMEPAD_BUTTON.SELECT],
+      [25, GAMEPAD_BUTTON.LSTICK_CLICK],
+      [28, GAMEPAD_BUTTON.TRIGGER_LEFT],
+      [29, GAMEPAD_BUTTON.TRIGGER_RIGHT],
+      [30, GAMEPAD_BUTTON.BUMPER_LEFT],
+      [31, GAMEPAD_BUTTON.BUMPER_RIGHT],
+      [32, GAMEPAD_BUTTON.REAR_LEFT_LOWER],
+      [33, GAMEPAD_BUTTON.REAR_RIGHT_LOWER],
+      [34, GAMEPAD_BUTTON.STEAM_GUIDE],
+      [35, GAMEPAD_BUTTON.SELECT],
+      [36, GAMEPAD_BUTTON.START],
+      [37, GAMEPAD_BUTTON.LPAD_CLICK],
+      [38, GAMEPAD_BUTTON.LPAD_TOUCH],
+      [39, GAMEPAD_BUTTON.RPAD_CLICK],
+      [40, GAMEPAD_BUTTON.RPAD_TOUCH],
+      [41, GAMEPAD_BUTTON.RSTICK_CLICK],
+      [42, GAMEPAD_BUTTON.RSTICK_TOUCH],
+      [43, GAMEPAD_BUTTON.LSTICK_TOUCH],
+      [44, GAMEPAD_BUTTON.REAR_LEFT_UPPER],
+      [45, GAMEPAD_BUTTON.REAR_RIGHT_UPPER],
+    ];
+    for (const [input, mapped] of expected) {
+      expect(mapControllerInputButton(input)).toBe(mapped);
+    }
+    for (const unmapped of [-1, 10, 46, 47, 48, 49, 50, 99, 1.5, NaN]) {
+      expect(mapControllerInputButton(unmapped)).toBeNull();
+    }
   });
 });
 
@@ -96,30 +139,43 @@ describe("normalizeChord and button formatting", () => {
 });
 
 describe("validateChordBinding", () => {
-  it("validates chords: rejects Valve reserved combos, duplicates, and >4 buttons while allowing 1..4 custom buttons and same-action re-save", () => {
-    const reservedCases = [
+  it("validates chords: rejects STEAM/QAM guide combos, duplicates, and >4 buttons while allowing 1..4 custom buttons and same-action re-save", () => {
+    const steamWarning =
+      "STEAM / QAM button combos are intercepted by SteamOS and don't work in-game. Use other buttons like L4, R4, L5, or R5.";
+    const guideCombos = [
+      [27],
+      [28],
+      [13],
+      [14],
       [27, 3],
       [27, 5],
       [27, 6],
       [28, 3],
       [13, 6],
       [14, 5],
+      [27, 11],
+      [27, 3, 4],
     ];
-    for (const combo of reservedCases) {
-      expect(isValveReservedChord(combo)).toBe(true);
+    for (const combo of guideCombos) {
       const res = validateChordBinding("toggle_like", combo, DEFAULT_CHORD_BINDINGS);
       expect(res).toEqual({
         ok: false,
         reason: "reserved",
-        message: "That combination is reserved by Steam. Choose a different one.",
+        message: steamWarning,
       });
     }
 
+    expect(isValveReservedChord([27, 3])).toBe(true);
     expect(isValveReservedChord([3])).toBe(false);
     expect(isValveReservedChord([23, 3])).toBe(false);
     expect(isValveReservedChord([27, 3, 4])).toBe(false);
 
-    const dup = validateChordBinding("toggle_like", [28, 12], DEFAULT_CHORD_BINDINGS);
+    const customBindings: ChordBindingsMap = {
+      ...DEFAULT_CHORD_BINDINGS,
+      next: [12, 23],
+    };
+
+    const dup = validateChordBinding("toggle_like", [23, 12], customBindings);
     expect(dup).toEqual({
       ok: false,
       reason: "duplicate",
@@ -127,24 +183,32 @@ describe("validateChordBinding", () => {
       conflictActionId: "next",
     });
 
-    const over = validateChordBinding("toggle_like", [1, 4, 23, 25, 26], DEFAULT_CHORD_BINDINGS);
+    const over = validateChordBinding("toggle_like", [1, 4, 23, 25, 26], customBindings);
     expect(over).toEqual({
       ok: false,
       reason: "over_limit",
       message: "Chords support up to 4 buttons.",
     });
 
-    expect(validateChordBinding("toggle_like", [4], DEFAULT_CHORD_BINDINGS)).toEqual({
+    expect(validateChordBinding("toggle_like", [4], customBindings)).toEqual({
       ok: true,
       normalized: [4],
     });
-    expect(validateChordBinding("toggle_like", [25, 4, 23, 1], DEFAULT_CHORD_BINDINGS)).toEqual({
+    expect(validateChordBinding("toggle_like", [25, 4, 23, 1], customBindings)).toEqual({
       ok: true,
       normalized: [1, 4, 23, 25],
     });
-    expect(validateChordBinding("next", [12, 27], DEFAULT_CHORD_BINDINGS)).toEqual({
+    expect(validateChordBinding("toggle_like", [23, 3], customBindings)).toEqual({
       ok: true,
-      normalized: [12, 27],
+      normalized: [3, 23],
+    });
+    expect(validateChordBinding("toggle_like", [25], customBindings)).toEqual({
+      ok: true,
+      normalized: [25],
+    });
+    expect(validateChordBinding("next", [12, 23], customBindings)).toEqual({
+      ok: true,
+      normalized: [12, 23],
     });
   });
 });
@@ -154,6 +218,7 @@ describe("createChordMatcher core matching", () => {
     const onFire = vi.fn();
     const bindings: ChordBindingsMap = {
       ...DEFAULT_CHORD_BINDINGS,
+      play_pause: [1, 27],
       toggle_like: [23, 3],
     };
     const matcher = createChordMatcher(bindings, { onFire });
@@ -224,9 +289,10 @@ describe("createChordMatcher guideHeld expiry", () => {
   it("expires guideHeld automatically at 4000ms via timer and timestamp guard across all guide IDs (27, 28, 13, 14)", () => {
     vi.useFakeTimers();
 
+    const guideBindings: ChordBindingsMap = { ...DEFAULT_CHORD_BINDINGS, next: [12, 27] };
     for (const guideId of [27, 28, 13, 14]) {
       const onFire = vi.fn();
-      const matcher = createChordMatcher(DEFAULT_CHORD_BINDINGS, { onFire });
+      const matcher = createChordMatcher(guideBindings, { onFire });
 
       expect(matcher.onButtonDown(guideId)).toBeNull();
       expect(matcher.isGuideHeld()).toBe(true);
@@ -245,7 +311,7 @@ describe("createChordMatcher guideHeld expiry", () => {
 
     let fakeNow = 1000;
     const onFireLazy = vi.fn();
-    const lazyMatcher = createChordMatcher(DEFAULT_CHORD_BINDINGS, {
+    const lazyMatcher = createChordMatcher(guideBindings, {
       getNow: () => fakeNow,
       onFire: onFireLazy,
     });

@@ -28,6 +28,7 @@ export interface DeckifyOverlayProps {
   lyricsOffsetMs?: number;
   syncedLyrics?: SyncedLine[];
   lyricsLoaded?: boolean;
+  onVisibilityChange?: (visible: boolean) => void;
 }
 
 export const DeckifyOverlay: FC<DeckifyOverlayProps> = ({
@@ -44,6 +45,7 @@ export const DeckifyOverlay: FC<DeckifyOverlayProps> = ({
   lyricsOffsetMs = 0,
   syncedLyrics = [],
   lyricsLoaded = false,
+  onVisibilityChange,
 }) => {
   const [isVisible, setIsVisible] = useState<boolean>(
     Boolean(visible && track && track.name && isPlaying)
@@ -63,6 +65,20 @@ export const DeckifyOverlay: FC<DeckifyOverlayProps> = ({
     posMs: positionMs,
     atMs: Date.now(),
   });
+  const onVisibilityChangeRef = useRef(onVisibilityChange);
+  onVisibilityChangeRef.current = onVisibilityChange;
+
+  const effectiveVisible = Boolean(isVisible && visible && track && track.name);
+
+  useEffect(() => {
+    onVisibilityChangeRef.current?.(effectiveVisible);
+  }, [effectiveVisible]);
+
+  useEffect(() => {
+    return () => {
+      onVisibilityChangeRef.current?.(false);
+    };
+  }, []);
 
   const clampedAutoHideMs = Math.min(15000, Math.max(3000, autoHideDurationMs ?? 6000));
 

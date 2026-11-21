@@ -10,6 +10,7 @@ export interface SilentBannerProps {
   position?: string;
   hudVisible?: boolean;
   hudPosition?: string;
+  onVisibilityChange?: (visible: boolean) => void;
 }
 
 type BannerCorner = "top-left" | "top-right" | "bottom-left" | "bottom-right";
@@ -148,10 +149,23 @@ export const SilentBanner: FC<SilentBannerProps> = ({
   position = "top-right",
   hudVisible = false,
   hudPosition,
+  onVisibilityChange,
 }) => {
   const [bannerState, setBannerState] = useState<ActiveBannerState | null>(null);
   const fadeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const onVisibilityChangeRef = useRef(onVisibilityChange);
+  onVisibilityChangeRef.current = onVisibilityChange;
+
+  useEffect(() => {
+    onVisibilityChangeRef.current?.(Boolean(enabled && bannerState));
+  }, [enabled, bannerState]);
+
+  useEffect(() => {
+    return () => {
+      onVisibilityChangeRef.current?.(false);
+    };
+  }, []);
 
   useEffect(() => {
     const clearTimers = () => {

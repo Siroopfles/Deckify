@@ -32,6 +32,7 @@ import {
   DEFAULT_CHORD_BINDINGS,
   createChordMatcher,
   isChordRecordingActive,
+  mapControllerInputButton,
   setChordRecordingActive,
   type ChordMatcher,
 } from "./chords";
@@ -481,8 +482,13 @@ const unregisterHandle = (handle: unknown): void => {
 
 const setupChordListener = (): (() => void) | null => {
   try {
-    const src = getInputSource();
-    if (!src?.RegisterForGamepadButtonDown) return null;
+    const win = typeof window !== "undefined" ? (window as any) : null;
+    const registerControllerInput = win?.SteamClient?.Input?.RegisterForControllerInputMessages;
+    const src = typeof registerControllerInput === "function" ? null : getInputSource();
+    if (typeof registerControllerInput !== "function" && !src?.RegisterForGamepadButtonDown) {
+      return null;
+    }
+
     let disposed = false;
     const matcher = createChordMatcher(cachedBindings, {
       onFire: (actionId) => {
@@ -491,17 +497,43 @@ const setupChordListener = (): (() => void) | null => {
       },
     });
     activeChordMatcher = matcher;
-    const downHandle = src.RegisterForGamepadButtonDown((btn: number) => {
-      if (disposed || !cachedChordsEnabled || bigOpen || isChordRecordingActive()) {
-        matcher.reset();
-        return;
+
+    const handleButtonEvent = (btn: number, isPressed: boolean) => {
+      if (isPressed) {
+        if (disposed || !cachedChordsEnabled || bigOpen || isChordRecordingActive()) {
+          matcher.reset();
+          return;
+        }
+        matcher.onButtonDown(btn);
+      } else if (!disposed) {
+        matcher.onButtonUp(btn);
       }
-      matcher.onButtonDown(btn);
+    };
+
+    if (typeof registerControllerInput === "function") {
+      const inputHandle = registerControllerInput(
+        (_controllerIndex: number, gamepadButton: number, isPressed: boolean) => {
+          const mapped = mapControllerInputButton(gamepadButton);
+          if (mapped === null) return;
+          handleButtonEvent(mapped, Boolean(isPressed));
+        },
+      );
+      return () => {
+        disposed = true;
+        unregisterHandle(inputHandle);
+        matcher.dispose();
+        if (activeChordMatcher === matcher) {
+          activeChordMatcher = null;
+        }
+      };
+    }
+
+    const downHandle = src!.RegisterForGamepadButtonDown!((btn: number) => {
+      handleButtonEvent(btn, true);
     });
-    const upHandle = src.RegisterForGamepadButtonUp
-      ? src.RegisterForGamepadButtonUp((btn: number) => {
-          if (disposed) return;
-          matcher.onButtonUp(btn);
+    const upHandle = src!.RegisterForGamepadButtonUp
+      ? src!.RegisterForGamepadButtonUp((btn: number) => {
+          handleButtonEvent(btn, false);
         })
       : null;
     return () => {
@@ -1449,6 +1481,61 @@ const DeckifyRouteOpener: FC = () => {
   return null;
 };
 
+const setGamescopeComposition = (mode: number): void => {
+  try {
+    const win = typeof window !== "undefined" ? (window as any) : null;
+    win?.SteamClient?.Window?.SetComposition?.(mode, [], 0);
+  } catch {}
+};
+
+const useGamescopeNotificationComposition = (anyHudVisible: boolean): void => {
+  const steamOverlayActiveRef = useRef<boolean>(false);
+  const anyHudVisibleRef = useRef<boolean>(anyHudVisible);
+  anyHudVisibleRef.current = anyHudVisible;
+
+  useEffect(() => {
+    let handle: unknown = null;
+    try {
+      const win = typeof window !== "undefined" ? (window as any) : null;
+      const reg = win?.SteamClient?.Overlay?.RegisterForOverlayActivated;
+      if (typeof reg === "function") {
+        handle = reg((_pid: number, _appId: number, active: boolean) => {
+          steamOverlayActiveRef.current = Boolean(active);
+          if (!active && anyHudVisibleRef.current) {
+            setGamescopeComposition(1);
+          }
+        });
+      }
+    } catch {}
+    return () => {
+      unregisterHandle(handle);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (anyHudVisible) {
+      if (!steamOverlayActiveRef.current) {
+        setGamescopeComposition(1);
+      }
+      const interval = setInterval(() => {
+        if (!steamOverlayActiveRef.current) {
+          setGamescopeComposition(1);
+        }
+      }, 500);
+      return () => {
+        clearInterval(interval);
+        if (!steamOverlayActiveRef.current) {
+          setGamescopeComposition(0);
+        }
+      };
+    }
+    if (!steamOverlayActiveRef.current) {
+      setGamescopeComposition(0);
+    }
+    return undefined;
+  }, [anyHudVisible]);
+};
+
 const DeckifyOverlayWrapper: FC = () => {
   const [track, setTrack] = useState<TrackMeta | null>(null);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
@@ -1458,6 +1545,8 @@ const DeckifyOverlayWrapper: FC = () => {
   const [modalOpen, setModalOpen] = useState<boolean>(bigOpen);
   const [syncedLyrics, setSyncedLyrics] = useState<SyncedLine[]>([]);
   const [lyricsLoaded, setLyricsLoaded] = useState<boolean>(false);
+  const [bannerVisible, setBannerVisible] = useState<boolean>(false);
+  const [overlayVisible, setOverlayVisible] = useState<boolean>(false);
   const lastFetchedTrackKeyRef = useRef<string>("");
   const currentTrackKeyRef = useRef<string>("");
 
@@ -1578,6 +1667,9 @@ const DeckifyOverlayWrapper: FC = () => {
   const hudVisible = overlayEnabled && !modalOpen && Boolean(track?.name);
   const bannerPosition =
     settings?.silent_banner_position || settings?.toast_position || settings?.overlay_position || "top-right";
+  const anyHudVisible = (bannerVisible || (overlayEnabled && overlayVisible)) && !modalOpen;
+
+  useGamescopeNotificationComposition(anyHudVisible);
 
   return (
     <>
@@ -1596,6 +1688,7 @@ const DeckifyOverlayWrapper: FC = () => {
           lyricsOffsetMs={settings?.overlay_lyrics_offset_ms ?? 0}
           syncedLyrics={syncedLyrics}
           lyricsLoaded={lyricsLoaded}
+          onVisibilityChange={setOverlayVisible}
         />
       ) : null}
       <SilentBanner
@@ -1603,6 +1696,7 @@ const DeckifyOverlayWrapper: FC = () => {
         position={bannerPosition}
         hudVisible={hudVisible}
         hudPosition={settings?.overlay_position || "top-right"}
+        onVisibilityChange={setBannerVisible}
       />
     </>
   );

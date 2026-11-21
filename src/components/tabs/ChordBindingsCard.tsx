@@ -6,6 +6,7 @@ import {
   ChordActionMeta,
   DEFAULT_CHORD_BINDINGS,
   GAMEPAD_BUTTON,
+  GUIDE_BUTTON_IDS,
   MAX_BUTTON_ID,
   MAX_CHORD_BUTTONS,
   MIN_BUTTON_ID,
@@ -129,6 +130,14 @@ function handleRecordedButtonDown(btn: number, ctx: AttachCallbacks): void {
   const { actionId, runtime, stopRecording, setLiveButtons, setInlineError } = ctx;
   if (runtime.recordingAction !== actionId) return;
   if (!Number.isInteger(btn) || btn < MIN_BUTTON_ID || btn > MAX_BUTTON_ID) return;
+  if ((GUIDE_BUTTON_IDS as readonly number[]).includes(btn)) {
+    stopRecording();
+    setInlineError(
+      actionId,
+      "STEAM / QAM button combos are intercepted by SteamOS and don't work in-game. Use other buttons like L4, R4, L5, or R5.",
+    );
+    return;
+  }
   if (btn === GAMEPAD_BUTTON.CANCEL && runtime.peakSet.size === 0) {
     stopRecording();
     return;
@@ -598,7 +607,7 @@ function renderCardHeader(opts: {
         </h4>
       </div>
       <div style={{ fontSize: 14, fontWeight: 400, lineHeight: 1.5, opacity: 0.75, marginBottom: 10 }}>
-        Chords work in-game and while the Quick Access Menu is open. They are paused while the Deckify window is open.
+        Chords work in-game and while the Quick Access Menu is open using buttons like L4, R4, L5, or R5 (without the STEAM button). They are paused while the Deckify window is open.
       </div>
       <ToggleField
         label="Silent HUD Banner"

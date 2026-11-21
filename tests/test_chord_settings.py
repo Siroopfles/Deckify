@@ -34,11 +34,11 @@ class TestChordSettings(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             bindings,
             {
-                "previous": [11, 27],
-                "next": [12, 27],
-                "play_pause": [1, 27],
-                "volume_up": [9, 27],
-                "volume_down": [10, 27],
+                "previous": [],
+                "next": [],
+                "play_pause": [],
+                "volume_up": [],
+                "volume_down": [],
                 "toggle_like": [],
                 "cycle_pinned": [],
                 "toggle_lyrics": [],
@@ -62,22 +62,22 @@ class TestChordSettings(unittest.IsolatedAsyncioTestCase):
                 loaded["eq_custom_bands"][0] = 9.0
                 loaded["pinned_playlists"].append({"uri": "x"})
 
-                self.assertEqual(common.DEFAULT_CHORD_BINDINGS["previous"], [11, 27])
+                self.assertEqual(common.DEFAULT_CHORD_BINDINGS["previous"], [])
                 self.assertEqual(common.DEFAULT_CHORD_BINDINGS["toggle_like"], [])
-                self.assertEqual(common.DEFAULT_SETTINGS["gamepad_chord_bindings"]["previous"], [11, 27])
+                self.assertEqual(common.DEFAULT_SETTINGS["gamepad_chord_bindings"]["previous"], [])
                 self.assertEqual(common.DEFAULT_SETTINGS["gamepad_chord_bindings"]["toggle_like"], [])
                 self.assertEqual(common.DEFAULT_SETTINGS["eq_custom_bands"], [0.0] * 10)
                 self.assertEqual(common.DEFAULT_SETTINGS["pinned_playlists"], [])
 
         sanitized = common._sanitize_chord_bindings(None)
         sanitized["next"].append(99)
-        self.assertEqual(common.DEFAULT_CHORD_BINDINGS["next"], [12, 27])
+        self.assertEqual(common.DEFAULT_CHORD_BINDINGS["next"], [])
 
         validated, err = common._validate_chord_bindings({"toggle_like": [4]})
         self.assertIsNone(err)
         validated["previous"].append(99)
         validated["toggle_like"].append(88)
-        self.assertEqual(common.DEFAULT_CHORD_BINDINGS["previous"], [11, 27])
+        self.assertEqual(common.DEFAULT_CHORD_BINDINGS["previous"], [])
 
     async def test_get_status_exposes_silent_banner_and_chord_bindings(self):
         plugin = main.Plugin()
@@ -114,17 +114,19 @@ class TestChordSettings(unittest.IsolatedAsyncioTestCase):
     async def test_set_setting_gamepad_chord_bindings_accepts_normalizes_and_preserves_partial(self):
         plugin = main.Plugin()
         plugin._settings = copy.deepcopy(common.DEFAULT_SETTINGS)
+        plugin._settings["gamepad_chord_bindings"]["previous"] = [11, 23]
+        plugin._settings["gamepad_chord_bindings"]["volume_down"] = [10, 23]
 
         with patch.object(main, "_save_settings") as mock_save, patch.object(
             main.decky, "emit", new_callable=AsyncMock
         ) as mock_emit:
-            # Partial update with bare button, 4-button chord, 28->27 normalization + dedupe/sort, and unbind []
+            # Partial update with bare button, 4-button chord, dedupe/sort, and unbind []
             res = await plugin.set_setting(
                 "gamepad_chord_bindings",
                 {
                     "toggle_like": [4],
                     "cycle_pinned": [25, 23, 4, 1],
-                    "toggle_lyrics": [28, 4, 27, 4],
+                    "toggle_lyrics": [24, 4, 24],
                     "volume_down": [],
                 },
             )
@@ -132,13 +134,13 @@ class TestChordSettings(unittest.IsolatedAsyncioTestCase):
             saved = plugin._settings["gamepad_chord_bindings"]
             self.assertEqual(saved["toggle_like"], [4])
             self.assertEqual(saved["cycle_pinned"], [1, 4, 23, 25])
-            self.assertEqual(saved["toggle_lyrics"], [4, 27])
+            self.assertEqual(saved["toggle_lyrics"], [4, 24])
             self.assertEqual(saved["volume_down"], [])
             # Omitted keys preserved from existing settings
-            self.assertEqual(saved["previous"], [11, 27])
-            self.assertEqual(saved["next"], [12, 27])
-            self.assertEqual(saved["play_pause"], [1, 27])
-            self.assertEqual(saved["volume_up"], [9, 27])
+            self.assertEqual(saved["previous"], [11, 23])
+            self.assertEqual(saved["next"], [])
+            self.assertEqual(saved["play_pause"], [])
+            self.assertEqual(saved["volume_up"], [])
             mock_save.assert_called_once()
             mock_emit.assert_awaited_once()
             self.assertEqual(mock_emit.await_args.args[0], "settings_changed")
@@ -146,6 +148,7 @@ class TestChordSettings(unittest.IsolatedAsyncioTestCase):
     async def test_set_setting_gamepad_chord_bindings_rejects_invalid_and_reserved_without_mutation(self):
         plugin = main.Plugin()
         plugin._settings = copy.deepcopy(common.DEFAULT_SETTINGS)
+        plugin._settings["gamepad_chord_bindings"]["previous"] = [11, 23]
         original_snapshot = copy.deepcopy(plugin._settings)
 
         invalid_payloads = [
@@ -159,13 +162,18 @@ class TestChordSettings(unittest.IsolatedAsyncioTestCase):
             {"toggle_like": [-1]},
             {"toggle_like": [29]},
             {"toggle_like": [1, 2, 4, 23, 24]},
+            {"toggle_like": [27]},
+            {"toggle_like": [28]},
+            {"toggle_like": [13]},
+            {"toggle_like": [14]},
             {"toggle_like": [27, 3]},
             {"toggle_like": [28, 6]},
             {"toggle_like": [13, 5]},
             {"toggle_like": [14, 3]},
             {"toggle_like": [27, 5]},
-            {"toggle_like": [11, 27]},  # duplicates existing previous
-            {"toggle_like": [28, 1]},   # normalizes to [1, 27], duplicates play_pause
+            {"toggle_like": [11, 27]},
+            {"toggle_like": [28, 1]},
+            {"toggle_like": [23, 11]},  # duplicates existing previous [11, 23]
             {"toggle_like": [23], "cycle_pinned": [23]},  # cross-action duplicate in payload
         ]
 
@@ -197,18 +205,18 @@ class TestChordSettings(unittest.IsolatedAsyncioTestCase):
             self.assertIs(loaded["silent_banner_enabled"], True)
             self.assertEqual(loaded["gamepad_chord_bindings"], common.DEFAULT_CHORD_BINDINGS)
 
-            # Corrupt entries, bool entries, reserved chords, and cross-action duplicates
+            # Corrupt entries, bool entries, legacy STEAM/guide chords, and cross-action duplicates
             with open(settings_path, "w") as f:
                 json.dump(
                     {
                         "silent_banner_enabled": False,
                         "gamepad_chord_bindings": {
-                            "previous": [True, 11],       # bool -> fallback default [11, 27]
-                            "next": [27, 3],              # reserved -> fallback default [12, 27]
-                            "play_pause": [28, 1],        # valid, normalizes -> [1, 27]
-                            "volume_up": [1, 27],         # duplicates play_pause -> reset []
-                            "volume_down": [1, 2, 3, 4, 5],  # >4 -> fallback default [10, 27]
-                            "toggle_like": [13, 5],       # reserved -> fallback default []
+                            "previous": [True, 11],       # bool -> fallback default []
+                            "next": [27, 3],              # guide -> fallback default []
+                            "play_pause": [28, 1],        # legacy STEAM+A -> migrates cleanly to []
+                            "volume_up": [23, 3],         # valid non-guide -> [3, 23]
+                            "volume_down": [3, 23],       # duplicates volume_up -> reset []
+                            "toggle_like": [13, 5],       # guide -> fallback default []
                             "cycle_pinned": ["X"],        # non-int -> fallback default []
                             "toggle_lyrics": [24],        # valid bare button -> [24]
                         },
@@ -220,11 +228,11 @@ class TestChordSettings(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(
                 loaded2["gamepad_chord_bindings"],
                 {
-                    "previous": [11, 27],
-                    "next": [12, 27],
-                    "play_pause": [1, 27],
-                    "volume_up": [],
-                    "volume_down": [10, 27],
+                    "previous": [],
+                    "next": [],
+                    "play_pause": [],
+                    "volume_up": [3, 23],
+                    "volume_down": [],
                     "toggle_like": [],
                     "cycle_pinned": [],
                     "toggle_lyrics": [24],

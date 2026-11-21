@@ -950,6 +950,7 @@ describe("src/index.tsx DeckifyOverlayWrapper Phase 10 Gating & Modal Suppressio
         toast_enabled: false,
         toast_sound_enabled: false,
         silent_banner_enabled: true,
+        gamepad_chord_bindings: { next: [23, 12] },
       },
     });
 
@@ -975,7 +976,7 @@ describe("src/index.tsx DeckifyOverlayWrapper Phase 10 Gating & Modal Suppressio
     expect(mockToasterToast).not.toHaveBeenCalled();
 
     expect(onButtonDown).toBeTypeOf("function");
-    onButtonDown!(13);
+    onButtonDown!(23);
     onButtonDown!(12);
     expect(received).toHaveLength(1);
     expect(received[0]).toMatchObject({
@@ -1449,35 +1450,45 @@ describe("Phase 20: Configurable Quick-Chords & Silent Confirmations (CHORD-01)"
     vi.useRealTimers();
   });
 
-  it("dispatches legacy defaults ([27,11], [27,12], [27,1], [27,9], [27,10]) via silent banner without toaster chime", async () => {
+  it("dispatches configured chords ([23,11], [23,12], [23,1], [23,9], [23,10]) via silent banner without toaster chime", async () => {
     const h = await mountChordHarness({
       volume: 50,
       is_playing: false,
-      settings: { silent_banner_enabled: true, toast_enabled: true },
+      settings: {
+        silent_banner_enabled: true,
+        toast_enabled: true,
+        gamepad_chord_bindings: {
+          previous: [23, 11],
+          next: [23, 12],
+          play_pause: [23, 1],
+          volume_up: [23, 9],
+          volume_down: [23, 10],
+        },
+      },
     });
 
-    h.pressChord(27, 11);
+    h.pressChord(23, 11);
     expect(mockControlPlayback).toHaveBeenLastCalledWith("previous", "");
     expect(h.received[0]).toMatchObject({ text: "⏮ Previous", tone: "accent" });
 
-    h.pressChord(27, 12);
+    h.pressChord(23, 12);
     expect(mockControlPlayback).toHaveBeenLastCalledWith("next", "");
     expect(h.received[1]).toMatchObject({ text: "⏭ Next", tone: "accent" });
 
-    h.pressChord(27, 1);
+    h.pressChord(23, 1);
     expect(mockControlPlayback).toHaveBeenLastCalledWith("play_pause", "");
     expect(h.received[2]).toMatchObject({ text: "⏯ Playing", tone: "accent" });
 
-    h.pressChord(27, 1);
+    h.pressChord(23, 1);
     expect(h.received[3]).toMatchObject({ text: "⏸ Paused", tone: "accent" });
 
-    h.pressChord(27, 9);
+    h.pressChord(23, 9);
     await flushMicrotasks();
     expect(mockSetVolume).toHaveBeenLastCalledWith(55);
     expect(h.received[4]).toMatchObject({ text: "🔊 Volume 55%", tone: "accent" });
 
     mockGetStatus.mockResolvedValue({ volume: 55, settings: { silent_banner_enabled: true } });
-    h.pressChord(27, 10);
+    h.pressChord(23, 10);
     await flushMicrotasks();
     expect(mockSetVolume).toHaveBeenLastCalledWith(50);
     expect(h.received[5]).toMatchObject({ text: "🔊 Volume 50%", tone: "accent" });
@@ -1493,6 +1504,10 @@ describe("Phase 20: Configurable Quick-Chords & Silent Confirmations (CHORD-01)"
         overlay_enabled: false,
         toast_enabled: false,
         silent_banner_enabled: true,
+        gamepad_chord_bindings: {
+          previous: [23, 11],
+          next: [23, 12],
+        },
       },
     });
 
@@ -1502,14 +1517,14 @@ describe("Phase 20: Configurable Quick-Chords & Silent Confirmations (CHORD-01)"
     expect(wrapperTree).toBeDefined();
     expect(bannerEl?.props.enabled).toBe(true);
 
-    h.pressChord(27, 12);
+    h.pressChord(23, 12);
     expect(h.received).toHaveLength(1);
     expect(h.received[0]).toMatchObject({ text: "⏭ Next", tone: "accent" });
     expect(mockToasterToast).not.toHaveBeenCalled();
 
     const settingsHandler = h.getHandler("settings_changed");
     settingsHandler({ silent_banner_enabled: false });
-    h.pressChord(27, 11);
+    h.pressChord(23, 11);
     expect(h.received).toHaveLength(1);
     expect(mockToasterToast).toHaveBeenCalledWith(
       expect.objectContaining({ title: "Deckify", body: "⏮ Previous", playSound: false }),
@@ -1701,7 +1716,12 @@ describe("Phase 20: Configurable Quick-Chords & Silent Confirmations (CHORD-01)"
 
   it("expires guideHeld after 4000ms for both 27 and legacy 13 (D-09)", async () => {
     vi.useFakeTimers();
-    const h = await mountChordHarness({ settings: { silent_banner_enabled: true } });
+    const h = await mountChordHarness({
+      settings: {
+        silent_banner_enabled: true,
+        gamepad_chord_bindings: { next: [12, 27], previous: [11, 27] },
+      },
+    });
 
     h.pressDown(27);
     vi.advanceTimersByTime(4000);
@@ -1730,13 +1750,17 @@ describe("Phase 20: Configurable Quick-Chords & Silent Confirmations (CHORD-01)"
 
   it("suppresses chords when modal open, recording active, or disabled, stays active in QAM, updates on settings_changed, and cleans up on dismount (D-10)", async () => {
     const h = await mountChordHarness({
-      settings: { silent_banner_enabled: true, gamepad_chords_enabled: true },
+      settings: {
+        silent_banner_enabled: true,
+        gamepad_chords_enabled: true,
+        gamepad_chord_bindings: { next: [23, 12], previous: [23, 11] },
+      },
     });
     const { showModal } = await import("@decky/ui");
 
     // 1. QAM open does NOT suppress chords
     const qamNodes = flattenNodes(h.renderContent());
-    h.pressChord(27, 12);
+    h.pressChord(23, 12);
     expect(h.received).toHaveLength(1);
 
     // 2. Expanded Modal open suppresses chords until closeModal
@@ -1746,24 +1770,24 @@ describe("Phase 20: Configurable Quick-Chords & Silent Confirmations (CHORD-01)"
     expect(openBtn).toBeDefined();
     openBtn.props.onClick();
     expect(showModal).toHaveBeenCalledTimes(1);
-    h.pressChord(27, 11);
+    h.pressChord(23, 11);
     expect(h.received).toHaveLength(1);
 
     const modalEl = (showModal as any).mock.calls[0][0];
     modalEl.props.closeModal();
-    h.pressChord(27, 11);
+    h.pressChord(23, 11);
     expect(h.received).toHaveLength(2);
 
     // 3. setChordRecordingActive(true) suppresses chords
     setChordRecordingActive(true);
-    h.pressChord(27, 12);
+    h.pressChord(23, 12);
     expect(h.received).toHaveLength(2);
     setChordRecordingActive(false);
 
     // 4. gamepad_chords_enabled=false disables chords; settings_changed live-updates bindings
     const settingsHandler = h.getHandler("settings_changed");
     settingsHandler({ gamepad_chords_enabled: false });
-    h.pressChord(27, 12);
+    h.pressChord(23, 12);
     expect(h.received).toHaveLength(2);
 
     settingsHandler({
@@ -1860,5 +1884,148 @@ describe("Phase 20: Configurable Quick-Chords & Silent Confirmations (CHORD-01)"
         globalThis.AudioContext = originalAudioContext;
       }
     }
+  });
+
+  it("captures in-game chords via SteamClient.Input.RegisterForControllerInputMessages (mapped with mapControllerInputButton) and unregisters on dismount (G-20-2)", async () => {
+    let inputCb: ((controllerIndex: number, gamepadButton: number, isPressed: boolean) => void) | null = null;
+    const unregInput = vi.fn(() => {
+      inputCb = null;
+    });
+    (globalThis as any).window = {
+      SteamClient: {
+        GameSessions: { RegisterForAppLifetimeNotifications: mockRegisterForAppLifetime },
+        Input: {
+          RegisterForControllerInputMessages: vi.fn((cb: any) => {
+            inputCb = cb;
+            return { Unregister: unregInput };
+          }),
+        },
+      },
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    };
+
+    mockGetStatus.mockResolvedValue({
+      track: { track_id: "trk-ingame-1", name: "In-Game Track", artist: "Artist" },
+      is_liked: false,
+      settings: {
+        silent_banner_enabled: true,
+        gamepad_chords_enabled: true,
+        gamepad_chord_bindings: { toggle_like: [3, 23] },
+      },
+    });
+
+    await import("./index");
+    const plugin = capturedPluginFactory!();
+    await flushMicrotasks();
+
+    const received: any[] = [];
+    const unsub = subscribeBanner((b) => received.push(b));
+
+    expect(inputCb).toBeTypeOf("function");
+    // Unmapped analog index (47) is ignored cleanly
+    inputCb!(0, 47, true);
+    inputCb!(0, 47, false);
+    expect(mockToggleLike).not.toHaveBeenCalled();
+
+    // ControllerInputGamepadButton 44 (L4 -> 23) + 2 (X -> 3) triggers toggle_like even with no FocusNavController
+    inputCb!(0, 44, true);
+    inputCb!(0, 2, true);
+    await flushMicrotasks();
+    expect(mockToggleLike).toHaveBeenCalledWith("trk-ingame-1", true);
+    expect(received[0]).toMatchObject({ text: "♥ Liked: In-Game Track" });
+
+    inputCb!(0, 2, false);
+    inputCb!(0, 44, false);
+
+    plugin.onDismount?.();
+    expect(unregInput).toHaveBeenCalledTimes(1);
+    unsub();
+  });
+
+  it("manages Gamescope EUIComposition.Notification (1) in DeckifyOverlayWrapper when SilentBanner or DeckifyOverlay is visible and resets to 0 when hidden (G-20-2)", async () => {
+    vi.useFakeTimers();
+    let overlayCb: ((pid: number, appId: number, active: boolean) => void) | null = null;
+    const mockSetComposition = vi.fn();
+    const unregOverlay = vi.fn();
+    (globalThis as any).window = {
+      SteamClient: {
+        GameSessions: { RegisterForAppLifetimeNotifications: mockRegisterForAppLifetime },
+        Input: {},
+        Window: { SetComposition: mockSetComposition },
+        Overlay: {
+          RegisterForOverlayActivated: vi.fn((cb: any) => {
+            overlayCb = cb;
+            return { Unregister: unregOverlay };
+          }),
+        },
+      },
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    };
+
+    mockGetStatus.mockResolvedValue({
+      track: { track_id: "trk-comp-1", name: "Overlay Song", artist: "Artist" },
+      is_playing: true,
+      settings: {
+        overlay_enabled: false,
+        silent_banner_enabled: true,
+      },
+    });
+
+    await import("./index");
+    const { routerHook } = await import("@decky/api");
+    const plugin = capturedPluginFactory!();
+    const wrapperFactory = (routerHook.addGlobalComponent as any).mock.calls[0]?.[1];
+    const renderWrapper = () => {
+      hookIdx = 0;
+      const el = wrapperFactory();
+      return el.type(el.props || {});
+    };
+
+    renderWrapper();
+    await flushMicrotasks();
+
+    // Initially nothing visible -> SetComposition(0, [], 0)
+    expect(mockSetComposition).toHaveBeenLastCalledWith(0, [], 0);
+
+    // SilentBanner becomes visible -> SetComposition(1, [], 0)
+    const bannerEl = findWrapperChild(renderWrapper(), "SilentBanner");
+    expect(bannerEl?.props.onVisibilityChange).toBeTypeOf("function");
+    bannerEl.props.onVisibilityChange(true);
+    renderWrapper();
+    expect(mockSetComposition).toHaveBeenLastCalledWith(1, [], 0);
+
+    // Interval re-asserts Notification (1) while visible
+    mockSetComposition.mockClear();
+    vi.advanceTimersByTime(500);
+    expect(mockSetComposition).toHaveBeenCalledWith(1, [], 0);
+
+    // When Steam Overlay/QAM activates, do NOT downgrade to 0 even if banner hides
+    (overlayCb as ((pid: number, appId: number, active: boolean) => void) | null)?.(0, 0, true);
+    mockSetComposition.mockClear();
+    bannerEl.props.onVisibilityChange(false);
+    renderWrapper();
+    expect(mockSetComposition).not.toHaveBeenCalledWith(0, [], 0);
+
+    // When Steam Overlay closes while nothing is visible, resets to 0; if banner is visible, re-asserts 1
+    (overlayCb as ((pid: number, appId: number, active: boolean) => void) | null)?.(0, 0, false);
+    const overlayEl = findWrapperChild(
+      renderWrapper(),
+      "Overlay",
+    );
+    expect(overlayEl).toBeUndefined();
+    bannerEl.props.onVisibilityChange(true);
+    renderWrapper();
+    expect(mockSetComposition).toHaveBeenLastCalledWith(1, [], 0);
+
+    bannerEl.props.onVisibilityChange(false);
+    renderWrapper();
+    expect(mockSetComposition).toHaveBeenLastCalledWith(0, [], 0);
+
+    for (const cleanup of effectCleanups) cleanup();
+    resetHooks();
+    plugin.onDismount?.();
+    expect(unregOverlay).toHaveBeenCalled();
   });
 });

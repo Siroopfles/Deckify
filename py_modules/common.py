@@ -89,11 +89,11 @@ MIN_BUTTON_ID = 0
 MAX_BUTTON_ID = 28
 
 DEFAULT_CHORD_BINDINGS = {
-    "previous": [11, 27],
-    "next": [12, 27],
-    "play_pause": [1, 27],
-    "volume_up": [9, 27],
-    "volume_down": [10, 27],
+    "previous": [],
+    "next": [],
+    "play_pause": [],
+    "volume_up": [],
+    "volume_down": [],
     "toggle_like": [],
     "cycle_pinned": [],
     "toggle_lyrics": [],
@@ -245,6 +245,11 @@ def _normalize_chord_buttons(raw_btns) -> tuple[list[int] | None, str | None]:
     normalized.sort()
     if len(normalized) > MAX_CHORD_BUTTONS:
         return None, "Chords support up to 4 buttons."
+    if any(b in GUIDE_BUTTON_IDS for b in normalized):
+        return (
+            None,
+            "STEAM / QAM button combos are intercepted by SteamOS and don't work in-game. Use other buttons like L4, R4, L5, or R5.",
+        )
     if (
         len(normalized) == 2
         and any(b in GUIDE_BUTTON_IDS for b in normalized)
