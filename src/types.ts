@@ -206,6 +206,18 @@ export interface PinnedPlaylistItem {
   image_url?: string | null;
 }
 
+export type ChordActionId =
+  | "previous"
+  | "next"
+  | "play_pause"
+  | "volume_up"
+  | "volume_down"
+  | "toggle_like"
+  | "cycle_pinned"
+  | "toggle_lyrics";
+
+export type ChordBindingsMap = Partial<Record<ChordActionId, number[]>>;
+
 export interface EngineSettings {
   device_name?: string;
   audio_backend: AudioBackend;
@@ -223,6 +235,8 @@ export interface EngineSettings {
   auto_ducking?: boolean;
   auto_ducking_volume?: number;
   gamepad_chords_enabled?: boolean;
+  silent_banner_enabled?: boolean;
+  gamepad_chord_bindings?: ChordBindingsMap;
   toast_enabled?: boolean;
   toast_sound_enabled?: boolean;
   toast_position?: string;

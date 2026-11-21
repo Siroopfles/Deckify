@@ -158,6 +158,32 @@ vi.mock("react", () => ({
   useCallback: (fn: any) => fn,
 }));
 
+import { subscribeBanner, resetBannerBusForTests } from "./bannerBus";
+import { imgMemoryCache } from "./components/common/imagePipeline";
+import { DeckifyOverlay } from "./components/DeckifyOverlay";
+import { SilentBanner } from "./components/SilentBanner";
+
+function findWrapperChild(wrapperTree: any, typeTarget: "Overlay" | "SilentBanner"): any {
+  const children = wrapperTree?.props?.children;
+  const list = Array.isArray(children) ? children : children ? [children] : [];
+  for (const child of list) {
+    if (!child || typeof child !== "object") continue;
+    if (
+      typeTarget === "Overlay" &&
+      (child.type === DeckifyOverlay || child.type?.name === "DeckifyOverlay" || child.type === "Overlay")
+    ) {
+      return child;
+    }
+    if (
+      typeTarget === "SilentBanner" &&
+      (child.type === SilentBanner || child.type?.name === "SilentBanner" || child.type === "SilentBanner")
+    ) {
+      return child;
+    }
+  }
+  return undefined;
+}
+
 function flattenNodes(node: any): any[] {
   if (!node || typeof node !== "object") return [];
   if (Array.isArray(node)) return node.flatMap(flattenNodes);
@@ -504,6 +530,8 @@ describe("src/index.tsx DeckifyOverlayWrapper Phase 10 Gating & Modal Suppressio
     vi.clearAllMocks();
     vi.useFakeTimers();
     resetHooks();
+    resetBannerBusForTests();
+    imgMemoryCache.clear();
     mockGetStatus.mockResolvedValue(null);
     mockGetLyrics.mockResolvedValue({ ok: true, synced_lyrics: "[00:01.00]Line one" });
     (globalThis as any).window = {
@@ -519,6 +547,8 @@ describe("src/index.tsx DeckifyOverlayWrapper Phase 10 Gating & Modal Suppressio
   });
 
   afterEach(() => {
+    resetBannerBusForTests();
+    imgMemoryCache.clear();
     vi.useRealTimers();
   });
 
@@ -544,7 +574,7 @@ describe("src/index.tsx DeckifyOverlayWrapper Phase 10 Gating & Modal Suppressio
     renderWrapper();
     await Promise.resolve();
     await Promise.resolve();
-    const overlayOff = renderWrapper();
+    const overlayOff = findWrapperChild(renderWrapper(), "Overlay");
     expect(overlayOff.props.lyricsEnabled).toBe(false);
     expect(mockGetLyrics).not.toHaveBeenCalled();
 
@@ -564,10 +594,10 @@ describe("src/index.tsx DeckifyOverlayWrapper Phase 10 Gating & Modal Suppressio
     renderWrapper();
     await Promise.resolve();
     await Promise.resolve();
-    const overlayOn1 = renderWrapper();
+    const overlayOn1 = findWrapperChild(renderWrapper(), "Overlay");
     await Promise.resolve();
     await Promise.resolve();
-    const overlayOn2 = renderWrapper();
+    const overlayOn2 = findWrapperChild(renderWrapper(), "Overlay");
 
     expect(mockGetLyrics).toHaveBeenCalledTimes(1);
     expect(mockGetLyrics).toHaveBeenCalledWith("Song A", "Artist A", 180000, 0);
@@ -602,7 +632,7 @@ describe("src/index.tsx DeckifyOverlayWrapper Phase 10 Gating & Modal Suppressio
     renderWrapper();
     await Promise.resolve();
     await Promise.resolve();
-    expect(renderWrapper().props.visible).toBe(true);
+    expect(findWrapperChild(renderWrapper(), "Overlay").props.visible).toBe(true);
 
     // Open expanded modal via DeckifyRouteOpener
     const routeCalls = (routerHook.addRoute as any).mock.calls;
@@ -611,12 +641,12 @@ describe("src/index.tsx DeckifyOverlayWrapper Phase 10 Gating & Modal Suppressio
     vi.advanceTimersByTime(100);
 
     expect(showModal).toHaveBeenCalledTimes(1);
-    expect(renderWrapper().props.visible).toBe(false);
+    expect(findWrapperChild(renderWrapper(), "Overlay").props.visible).toBe(false);
 
     // Close modal via closeModal prop passed to DeckifyExpandedModal
     const modalEl = (showModal as any).mock.calls[0][0];
     modalEl.props.closeModal();
-    expect(renderWrapper().props.visible).toBe(true);
+    expect(findWrapperChild(renderWrapper(), "Overlay").props.visible).toBe(true);
 
     plugin.onDismount?.();
   });
@@ -689,11 +719,10 @@ describe("src/index.tsx DeckifyOverlayWrapper Phase 10 Gating & Modal Suppressio
     await Promise.resolve();
     await Promise.resolve();
 
-    const settingsChangedCall = (addEventListener as any).mock.calls.find(
-      (c: any[]) => c[0] === "settings_changed"
-    );
-    expect(settingsChangedCall).toBeDefined();
-    const settingsChangedHandler = settingsChangedCall[1];
+    const settingsChangedHandlers = (addEventListener as any).mock.calls
+      .filter((c: any[]) => c[0] === "settings_changed")
+      .map((c: any[]) => c[1]);
+    expect(settingsChangedHandlers.length).toBeGreaterThan(0);
 
     // Simulate a subsequent 4s poll whose settings payload omits overlay_lyrics_enabled
     mockGetStatus.mockResolvedValue({
@@ -703,14 +732,16 @@ describe("src/index.tsx DeckifyOverlayWrapper Phase 10 Gating & Modal Suppressio
     });
 
     // Simulate settings_changed event enabling overlay_lyrics_enabled
-    settingsChangedHandler({ overlay_enabled: true, overlay_lyrics_enabled: true });
-    expect(renderWrapper().props.lyricsEnabled).toBe(true);
+    settingsChangedHandlers.forEach((handler: any) =>
+      handler({ overlay_enabled: true, overlay_lyrics_enabled: true })
+    );
+    expect(findWrapperChild(renderWrapper(), "Overlay").props.lyricsEnabled).toBe(true);
 
     vi.advanceTimersByTime(4000);
     await Promise.resolve();
     await Promise.resolve();
 
-    expect(renderWrapper().props.lyricsEnabled).toBe(true);
+    expect(findWrapperChild(renderWrapper(), "Overlay").props.lyricsEnabled).toBe(true);
 
     plugin.onDismount?.();
   });
@@ -749,6 +780,180 @@ describe("src/index.tsx DeckifyOverlayWrapper Phase 10 Gating & Modal Suppressio
     expect(toastArg.logo.props.height).toBe(48);
     expect(toastArg.logo.props.style).toMatchObject({ width: 48, height: 48, objectFit: "cover" });
 
+    plugin.onDismount?.();
+  });
+
+  it("always mounts SilentBanner even when overlay_enabled is false while omitting Overlay (TOAST-01, D-01, D-05)", async () => {
+    await import("./index");
+    const { routerHook } = await import("@decky/api");
+    const plugin = capturedPluginFactory!();
+    const wrapperFactory = (routerHook.addGlobalComponent as any).mock.calls[0][1];
+    const renderWrapper = () => {
+      hookIdx = 0;
+      const el = wrapperFactory();
+      return el.type(el.props || {});
+    };
+
+    mockGetStatus.mockResolvedValue({
+      track: { track_id: "trk-off-1", name: "Hidden HUD Track", artist: "Artist" },
+      is_playing: true,
+      settings: {
+        overlay_enabled: false,
+        toast_enabled: true,
+        toast_sound_enabled: false,
+        silent_banner_enabled: true,
+        overlay_position: "top-right",
+      },
+    });
+
+    renderWrapper();
+    await Promise.resolve();
+    await Promise.resolve();
+    const wrapperTree = renderWrapper();
+
+    expect(findWrapperChild(wrapperTree, "Overlay")).toBeUndefined();
+    const bannerEl = findWrapperChild(wrapperTree, "SilentBanner");
+    expect(bannerEl).toBeDefined();
+    expect(bannerEl.props).toMatchObject({
+      enabled: true,
+      position: "top-right",
+      hudVisible: false,
+    });
+
+    plugin.onDismount?.();
+  });
+
+  it("emits silent banner on track_metadata without awaiting get_image or calling toaster.toast when toast_sound_enabled is false (TOAST-01, D-04)", async () => {
+    mockToasterToast.mockClear();
+    mockGetImage.mockClear();
+    await import("./index");
+    const { addEventListener } = await import("@decky/api");
+    const plugin = capturedPluginFactory!();
+
+    const received: any[] = [];
+    const unsub = subscribeBanner((b) => received.push(b));
+
+    const trackMetaCall = (addEventListener as any).mock.calls.find(
+      (c: any[]) => c[0] === "track_metadata"
+    );
+    expect(trackMetaCall).toBeDefined();
+    const trackMetaHandler = trackMetaCall[1];
+
+    mockGetStatus.mockResolvedValue({
+      settings: {
+        toast_enabled: true,
+        toast_sound_enabled: false,
+        silent_banner_enabled: true,
+      },
+    });
+
+    // Uncached cover: get_image stays unresolved; banner still emits immediately with imageUrl: null
+    mockGetImage.mockImplementationOnce(() => new Promise(() => {}));
+    await trackMetaHandler({
+      track_id: "trk-silent-uncached",
+      name: "Silent Uncached Song",
+      artist: "Silent Artist",
+      artwork_url: "https://i.scdn.co/image/silent-uncached",
+    });
+
+    expect(mockToasterToast).not.toHaveBeenCalled();
+    expect(received).toHaveLength(1);
+    expect(received[0]).toMatchObject({
+      text: "Silent Uncached Song",
+      secondaryText: "Silent Artist",
+      tone: "accent",
+      imageUrl: null,
+    });
+
+    // Cached cover in imgMemoryCache: banner emits synchronously with cached data URL
+    imgMemoryCache.set("https://i.scdn.co/image/silent-cached", "data:image/jpeg;base64,CACHED");
+    await trackMetaHandler({
+      track_id: "trk-silent-cached",
+      name: "Silent Cached Song",
+      artist: "Cached Artist",
+      artwork_url: "https://i.scdn.co/image/silent-cached",
+    });
+
+    expect(mockToasterToast).not.toHaveBeenCalled();
+    expect(received).toHaveLength(2);
+    expect(received[1]).toMatchObject({
+      text: "Silent Cached Song",
+      secondaryText: "Cached Artist",
+      tone: "accent",
+      imageUrl: "data:image/jpeg;base64,CACHED",
+    });
+
+    unsub();
+    plugin.onDismount?.();
+  });
+
+  it("keeps SilentBanner mounted for D-11 chord confirmations when toast_enabled is false while suppressing track_metadata notifications (D-01, D-11)", async () => {
+    mockToasterToast.mockClear();
+    let onButtonDown: ((btn: number) => void) | null = null;
+    (globalThis as any).window.FocusNavController = {
+      m_rgGamepadInputSources: [
+        {
+          RegisterForGamepadButtonDown: (cb: (btn: number) => void) => {
+            onButtonDown = cb;
+            return vi.fn();
+          },
+          RegisterForGamepadButtonUp: vi.fn(() => vi.fn()),
+        },
+      ],
+    };
+
+    await import("./index");
+    const { addEventListener, routerHook } = await import("@decky/api");
+    const plugin = capturedPluginFactory!();
+
+    const wrapperFactory = (routerHook.addGlobalComponent as any).mock.calls[0][1];
+    const renderWrapper = () => {
+      hookIdx = 0;
+      const el = wrapperFactory();
+      return el.type(el.props || {});
+    };
+
+    mockGetStatus.mockResolvedValue({
+      settings: {
+        overlay_enabled: false,
+        toast_enabled: false,
+        toast_sound_enabled: false,
+        silent_banner_enabled: true,
+      },
+    });
+
+    renderWrapper();
+    await Promise.resolve();
+    await Promise.resolve();
+    const bannerEl = findWrapperChild(renderWrapper(), "SilentBanner");
+    expect(bannerEl).toBeDefined();
+    expect(bannerEl.props.enabled).toBe(true);
+
+    const received: any[] = [];
+    const unsub = subscribeBanner((b) => received.push(b));
+    const trackMetaCall = (addEventListener as any).mock.calls.find(
+      (c: any[]) => c[0] === "track_metadata"
+    );
+    await trackMetaCall[1]({
+      track_id: "trk-muted-1",
+      name: "Suppressed Track",
+      artist: "Artist",
+    });
+
+    expect(received).toHaveLength(0);
+    expect(mockToasterToast).not.toHaveBeenCalled();
+
+    expect(onButtonDown).toBeTypeOf("function");
+    onButtonDown!(13);
+    onButtonDown!(12);
+    expect(received).toHaveLength(1);
+    expect(received[0]).toMatchObject({
+      text: "⏭ Next",
+      tone: "accent",
+    });
+    expect(mockToasterToast).not.toHaveBeenCalled();
+
+    unsub();
     plugin.onDismount?.();
   });
 });

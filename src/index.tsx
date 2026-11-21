@@ -25,6 +25,8 @@ import {
 import { registerSteamMenu } from "./steamMenu";
 import { DeckifyExpandedModal } from "./components/DeckifyExpandedModal";
 import { DeckifyOverlay } from "./components/DeckifyOverlay";
+import { SilentBanner } from "./components/SilentBanner";
+import { emitBanner, BannerTone } from "./bannerBus";
 import { usePlaybackClock } from "./hooks/usePlaybackClock";
 import { formatMs, focusHalo } from "./components/common/InteractiveRow";
 import { DeckifyImage } from "./components/common/DeckifyImage";
@@ -109,6 +111,89 @@ const openExpandedView = () => {
       }}
     />
   );
+};
+
+let toastEnabled = true;
+let toastSoundEnabled = false;
+let silentBannerEnabled = true;
+let cachedTrackMeta: TrackMeta | null = null;
+let lastToastTrackId = "";
+
+const syncNotificationSettings = (settings?: Partial<EngineSettings> | null) => {
+  if (!settings || typeof settings !== "object") return;
+  if (typeof settings.toast_enabled === "boolean") {
+    toastEnabled = settings.toast_enabled;
+  }
+  if (typeof settings.toast_sound_enabled === "boolean") {
+    toastSoundEnabled = settings.toast_sound_enabled;
+  }
+  if (typeof settings.silent_banner_enabled === "boolean") {
+    silentBannerEnabled = settings.silent_banner_enabled;
+  }
+};
+
+const notifyMessage = (text: string, tone: BannerTone = "accent") => {
+  if (silentBannerEnabled !== false) {
+    emitBanner({ text, tone });
+    return;
+  }
+  try {
+    toaster.toast({
+      title: "Deckify",
+      body: text,
+      duration: 2500,
+      playSound: false,
+    } as any);
+  } catch {}
+};
+
+const resetModuleRuntimeState = () => {
+  toastEnabled = true;
+  toastSoundEnabled = false;
+  silentBannerEnabled = true;
+  cachedTrackMeta = null;
+  lastToastTrackId = "";
+  setModalOpenState(false);
+};
+
+const resolveCachedArtworkSync = (artwork?: string | null): string | null => {
+  if (typeof artwork !== "string" || artwork.length === 0) return null;
+  if (artwork.startsWith("data:") || artwork.startsWith("http://127.0.0.1")) {
+    return artwork;
+  }
+  const cached = imgMemoryCache.get(artwork);
+  if (cached) return cached;
+  void fetchWithQueueAndCache(artwork);
+  return null;
+};
+
+const resolveProxiedArtworkAsync = async (artwork?: string | null): Promise<string | null> => {
+  if (typeof artwork !== "string" || artwork.length === 0) return null;
+  if (artwork.startsWith("data:") || artwork.startsWith("http://127.0.0.1")) {
+    return artwork;
+  }
+  return imgMemoryCache.get(artwork) ?? (await fetchWithQueueAndCache(artwork));
+};
+
+const showTrackToaster = (meta: any, resolvedArtwork: string | null, withSound: boolean) => {
+  toaster.toast({
+    title: meta.name,
+    body: meta.artist ? `${meta.artist}` : "Deckify",
+    duration: 3500,
+    ...(withSound ? { sound: 1 } : {}),
+    playSound: withSound,
+    onClick: openExpandedView,
+    logo: resolvedArtwork ? (
+      <img
+        src={resolvedArtwork}
+        width={48}
+        height={48}
+        style={{ width: 48, height: 48, borderRadius: 6, objectFit: "cover", display: "block" }}
+      />
+    ) : (
+      <FaSpotify color="#1db954" size={32} />
+    ),
+  } as any);
 };
 
 interface PinnedPillProps {
@@ -1022,7 +1107,10 @@ const DeckifyOverlayWrapper: FC = () => {
       const t = s.track || s.track_meta || null;
       if (t) setTrack(t);
       if (typeof s.is_playing === "boolean") setIsPlaying(s.is_playing);
-      if (s.settings) setSettings((prev) => ({ ...(prev ?? ({} as EngineSettings)), ...s.settings }));
+      if (s.settings) {
+        syncNotificationSettings(s.settings);
+        setSettings((prev) => ({ ...(prev ?? ({} as EngineSettings)), ...s.settings }));
+      }
       if (typeof s.position_ms === "number") setPositionMs(s.position_ms);
       if (typeof s.duration_ms === "number") {
         setDurationMs(s.duration_ms || t?.duration_ms || 0);
@@ -1048,7 +1136,10 @@ const DeckifyOverlayWrapper: FC = () => {
       if (typeof ev?.duration_ms === "number") setDurationMs(ev.duration_ms);
     });
     const unsubSettings = addEventListener<[any]>("settings_changed", (st: any) => {
-      if (st) setSettings((prev) => ({ ...(prev ?? ({} as EngineSettings)), ...st }));
+      if (st) {
+        syncNotificationSettings(st);
+        setSettings((prev) => ({ ...(prev ?? ({} as EngineSettings)), ...st }));
+      }
     });
 
     const poll = setInterval(async () => {
@@ -1111,28 +1202,46 @@ const DeckifyOverlayWrapper: FC = () => {
       });
   }, [overlayLyricsEnabled, trackKey, trackTitle, trackArtist, durationMs, track?.duration_ms]);
 
-  if (!settings?.overlay_enabled) return null;
+  const overlayEnabled = Boolean(settings?.overlay_enabled);
+  const hudVisible = overlayEnabled && !modalOpen && Boolean(track?.name);
+  const bannerPosition = settings?.overlay_position || settings?.toast_position || "top-right";
+
   return (
-    <DeckifyOverlay
-      track={track}
-      isPlaying={isPlaying}
-      position={settings.overlay_position || "top-right"}
-      visible={Boolean(settings.overlay_enabled) && !modalOpen}
-      autoHide={Boolean(settings.overlay_autohide)}
-      autoHideDurationMs={(settings.overlay_autohide_duration_s ?? 6) * 1000}
-      showProgress={Boolean(settings.overlay_show_progress)}
-      positionMs={positionMs}
-      durationMs={durationMs}
-      lyricsEnabled={Boolean(settings.overlay_lyrics_enabled)}
-      lyricsOffsetMs={settings.overlay_lyrics_offset_ms ?? 0}
-      syncedLyrics={syncedLyrics}
-      lyricsLoaded={lyricsLoaded}
-    />
+    <>
+      {overlayEnabled ? (
+        <DeckifyOverlay
+          track={track}
+          isPlaying={isPlaying}
+          position={settings?.overlay_position || "top-right"}
+          visible={overlayEnabled && !modalOpen}
+          autoHide={Boolean(settings?.overlay_autohide)}
+          autoHideDurationMs={(settings?.overlay_autohide_duration_s ?? 6) * 1000}
+          showProgress={Boolean(settings?.overlay_show_progress)}
+          positionMs={positionMs}
+          durationMs={durationMs}
+          lyricsEnabled={Boolean(settings?.overlay_lyrics_enabled)}
+          lyricsOffsetMs={settings?.overlay_lyrics_offset_ms ?? 0}
+          syncedLyrics={syncedLyrics}
+          lyricsLoaded={lyricsLoaded}
+        />
+      ) : null}
+      <SilentBanner
+        enabled={settings?.silent_banner_enabled !== false}
+        position={bannerPosition}
+        hudVisible={hudVisible}
+        hudPosition={settings?.overlay_position || "top-right"}
+      />
+    </>
   );
 };
 
 export default definePlugin(() => {
   console.log("Deckify v0.3.0 native plugin initializing");
+  resetModuleRuntimeState();
+
+  const settingsChangedSub = addEventListener<[any]>("settings_changed", (st: any) => {
+    syncNotificationSettings(st);
+  });
 
   // 1. Register native full-screen route
   routerHook.addRoute("/deckify", DeckifyRouteOpener);
@@ -1175,19 +1284,19 @@ export default definePlugin(() => {
         if (guideHeld) {
           if (btn === 11) {
             backendControlPlayback("previous", "").catch(() => {});
-            toaster.toast({ title: "Deckify", body: "⏮ Previous track", duration: 1500 });
+            notifyMessage("⏮ Previous", "accent");
           } else if (btn === 12) {
             backendControlPlayback("next", "").catch(() => {});
-            toaster.toast({ title: "Deckify", body: "⏭ Next track", duration: 1500 });
+            notifyMessage("⏭ Next", "accent");
           } else if (btn === 0) {
             backendControlPlayback("play_pause", "").catch(() => {});
-            toaster.toast({ title: "Deckify", body: "⏯ Play / Pause", duration: 1500 });
+            notifyMessage("⏯ Play / Pause", "accent");
           } else if (btn === 9) {
             backendGetStatus().then((s) => {
               if (s) {
                 const nv = Math.min(100, (s.volume ?? 50) + 5);
                 backendSetVolume(nv);
-                toaster.toast({ title: "Deckify", body: `🔊 Volume: ${nv}%`, duration: 1200 });
+                notifyMessage(`🔊 Volume ${nv}%`, "accent");
               }
             }).catch(() => {});
           } else if (btn === 10) {
@@ -1195,7 +1304,7 @@ export default definePlugin(() => {
               if (s) {
                 const nv = Math.max(0, (s.volume ?? 50) - 5);
                 backendSetVolume(nv);
-                toaster.toast({ title: "Deckify", body: `🔉 Volume: ${nv}%`, duration: 1200 });
+                notifyMessage(`🔊 Volume ${nv}%`, "accent");
               }
             }).catch(() => {});
           }
@@ -1216,42 +1325,34 @@ export default definePlugin(() => {
     console.warn("Deckify: Gamepad chords setup error:", e);
   }
 
-  // 5. In-game track change toast notification (click opens modal)
-  let lastToastTrackId = "";
+  // 5. In-game track change notification (silent banner by default; Steam toast when sound enabled or silent banner disabled)
   const trackSub = addEventListener<[any]>("track_metadata", async (meta: any) => {
-    if (!meta || !meta.name || meta.track_id === lastToastTrackId) return;
-    lastToastTrackId = meta.track_id;
+    if (meta && typeof meta === "object") {
+      cachedTrackMeta = meta as TrackMeta;
+    }
+    if (!meta || !meta.name) return;
+    const dedupTrackId = String(cachedTrackMeta?.track_id ?? meta.track_id ?? meta.id ?? meta.name);
+    if (dedupTrackId === lastToastTrackId) return;
+    lastToastTrackId = dedupTrackId;
     try {
       const curStatus = await backendGetStatus().catch(() => null);
-      if (curStatus?.settings?.toast_enabled === false) return;
-      const soundEnabled = Boolean(curStatus?.settings?.toast_sound_enabled);
-      const artwork = meta.artwork_url || meta.image_url;
-      let resolvedArtwork: string | null = null;
-      if (typeof artwork === "string" && artwork.length > 0) {
-        if (artwork.startsWith("data:") || artwork.startsWith("http://127.0.0.1")) {
-          resolvedArtwork = artwork;
-        } else {
-          resolvedArtwork = imgMemoryCache.get(artwork) ?? (await fetchWithQueueAndCache(artwork));
-        }
+      if (curStatus?.settings) {
+        syncNotificationSettings(curStatus.settings);
       }
-      toaster.toast({
-        title: meta.name,
-        body: meta.artist ? `${meta.artist}` : "Deckify",
-        duration: 3500,
-        ...(soundEnabled ? { sound: 1 } : {}),
-        playSound: soundEnabled,
-        onClick: openExpandedView,
-        logo: resolvedArtwork ? (
-          <img
-            src={resolvedArtwork}
-            width={48}
-            height={48}
-            style={{ width: 48, height: 48, borderRadius: 6, objectFit: "cover", display: "block" }}
-          />
-        ) : (
-          <FaSpotify color="#1db954" size={32} />
-        ),
-      } as any);
+      if (toastEnabled === false) return;
+      const artwork = meta.artwork_url || meta.image_url;
+      if (!toastSoundEnabled && silentBannerEnabled !== false) {
+        const cachedArtwork = resolveCachedArtworkSync(artwork);
+        emitBanner({
+          text: meta.name,
+          secondaryText: meta.artist || undefined,
+          imageUrl: cachedArtwork,
+          tone: "accent",
+        });
+        return;
+      }
+      const resolvedArtwork = await resolveProxiedArtworkAsync(artwork);
+      showTrackToaster(meta, resolvedArtwork, toastSoundEnabled);
     } catch {}
   });
 
@@ -1318,8 +1419,10 @@ export default definePlugin(() => {
           routerHook.removeGlobalComponent("DeckifyOverlay");
         } catch {}
         removeEventListener("track_metadata", trackSub);
+        removeEventListener("settings_changed", settingsChangedSub);
         const chordsCleaner: any = cleanupChords;
         if (typeof chordsCleaner === "function") chordsCleaner();
+        resetModuleRuntimeState();
       } catch (e) {
         console.warn("Deckify dismount cleanup error:", e);
       }
