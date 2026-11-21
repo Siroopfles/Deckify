@@ -103,7 +103,15 @@ Plans:
   1. When `toast_sound_enabled` is `false`, track-change notifications render as a 100% silent 3.5-second banner inside `DeckifyOverlay` (`pointerEvents: "none"`), completely bypassing Steam's `toaster.toast` audio chime even when the persistent HUD overlay is hidden.
   2. User can trigger configurable in-game controller quick-chords to Like/Unlike (`♥`) the current track, cycle through the 4 Pinned Playlists, or toggle the Lyrics HUD, receiving instant silent visual confirmation inside `DeckifyOverlay`.
   3. Controller chord detection enforces a 4-second `guideHeld` expiry guard and blocks reserved Valve system chords (`STEAM + X/R1/L1`) so chords never misfire or collide with SteamOS system shortcuts.
-**Plans**: TBD
+**Plans:** 3 plans
+
+Plans:
+**Wave 1**
+- [ ] 20-01-PLAN.md — Silent HUD banner tracer slice (bannerBus -> SilentBanner -> always-mounted DeckifyOverlayWrapper) and Python settings validation/persistence
+**Wave 2** *(blocked on Wave 1 completion)*
+- [ ] 20-02-PLAN.md — Pure Quick-Chord matcher/validator (src/chords.ts) with 4s guideHeld expiry and extended Like/Pinned/Lyrics action wiring
+**Wave 3** *(blocked on Wave 2 completion)*
+- [ ] 20-03-PLAN.md — Settings UI ChordBindingsCard (Silent HUD Banner toggle, 1–4 button press-to-record capture, Reset All Chords) and SettingsTab composition
 **UI hint**: yes
 
 ### Phase 21: Dynamic Album-Art Accent Themes & Handheld Battery Eco-Mode
@@ -228,7 +236,7 @@ Phases execute in numeric order: 19 → 20 → 21 → 22 → 23 → 24 → 25 �
 | 6–12. In-Game Flow & Music Discovery | v0.5 | 22/22 | Complete | 2026-11-15 |
 | 13–18.1. Audio DSP, Docked Flow & System Resilience | v0.6 | 14/14 | Complete | 2026-11-18 |
 | 19. Per-Game EQ & Volume Profiles | v0.7 | 5/5 | In Progress | - |
-| 20. 100% Silent HUD Toasts & Extended In-Game Quick-Chords | v0.7 | 0/TBD | Not started | - |
+| 20. 100% Silent HUD Toasts & Extended In-Game Quick-Chords | v0.7 | 0/3 | Planned | - |
 | 21. Dynamic Album-Art Accent Themes & Handheld Battery Eco-Mode | v0.7 | 0/TBD | Not started | - |
 | 22. Spotify Connect Hub 2.0 & Native Crossfade | v0.7 | 0/TBD | Not started | - |
 | 23. Lyrics 2.0 — Offline .lrc Cache, Per-Track Sync Nudge & CJK Romanization | v0.7 | 0/TBD | Not started | - |
