@@ -59,6 +59,10 @@ vi.mock("react-icons/fa", () => ({
   FaPowerOff: () => ({ type: "FaPowerOff" }),
   FaPlug: () => ({ type: "FaPlug" }),
   FaBluetooth: () => ({ type: "FaBluetooth" }),
+  FaGamepad: () => ({ type: "FaGamepad" }),
+  FaUndo: () => ({ type: "FaUndo" }),
+  FaTimes: () => ({ type: "FaTimes" }),
+  FaCircle: () => ({ type: "FaCircle" }),
 }));
 
 vi.mock("react/jsx-dev-runtime", () => ({
@@ -98,6 +102,8 @@ vi.mock("react", () => ({
 }));
 
 import { SettingsTab } from "./SettingsTab";
+import { ChordBindingsCard } from "./ChordBindingsCard";
+import { CHORD_ACTIONS, DEFAULT_CHORD_BINDINGS } from "../../chords";
 import { DialogButton, Focusable, SliderField, ToggleField } from "@decky/ui";
 import { InteractiveRow } from "../common/InteractiveRow";
 import { StatusResponse } from "../../types";
@@ -1395,5 +1401,117 @@ describe("SettingsTab - Bluetooth & Media Controls (MPRIS2) UI (Phase 18)", () =
     );
     expect(toggles.find((t) => t.props?.label === "Enable MPRIS2 Media Controls")).toBeDefined();
     expect(toggles.find((t) => t.props?.label === "Auto-Start BlueZ mpris-proxy")).toBeUndefined();
+  });
+});
+
+describe("SettingsTab - Silent HUD Banner & In-Game Quick Chords (Phase 20)", () => {
+  const refreshStatus = vi.fn();
+  const showToast = vi.fn();
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockAudioSinksState = null;
+    mockSetSetting.mockResolvedValue({ ok: true });
+  });
+
+  it("mounts ChordBindingsCard as JSX inside Notifications & Controller Shortcuts with defaults and custom status settings", () => {
+    const defaultTree = SettingsTab({
+      status: mockStatus,
+      refreshStatus,
+      showToast,
+    });
+    const notificationsCard = findNodes(
+      defaultTree,
+      (n) => n.type === "div" && findText(n).includes("Notifications & Controller Shortcuts") && !findText(n).includes("Playback Engine")
+    )[0];
+    expect(notificationsCard).toBeDefined();
+
+    const defaultCard = findNodes(notificationsCard, (n) => n.type === ChordBindingsCard)[0];
+    expect(defaultCard).toBeDefined();
+    expect(defaultCard.props.silentBannerEnabled).toBe(true);
+    expect(defaultCard.props.chordsEnabled).toBe(true);
+    expect(defaultCard.props.bindings).toEqual(DEFAULT_CHORD_BINDINGS);
+
+    const customBindings = {
+      ...DEFAULT_CHORD_BINDINGS,
+      toggle_like: [3, 23],
+      cycle_pinned: [24],
+    };
+    const customTree = SettingsTab({
+      status: {
+        ...mockStatus,
+        settings: {
+          ...mockStatus.settings!,
+          silent_banner_enabled: false,
+          gamepad_chords_enabled: false,
+          gamepad_chord_bindings: customBindings,
+        },
+      },
+      refreshStatus,
+      showToast,
+    });
+    const customCard = findNodes(customTree, (n) => n.type === ChordBindingsCard)[0];
+    expect(customCard.props.silentBannerEnabled).toBe(false);
+    expect(customCard.props.chordsEnabled).toBe(false);
+    expect(customCard.props.bindings).toEqual(customBindings);
+  });
+
+  it("persists silent_banner_enabled and shows toast via ChordBindingsCard onToggleSilentBanner", async () => {
+    const tree = SettingsTab({
+      status: mockStatus,
+      refreshStatus,
+      showToast,
+    });
+    const card = findNodes(tree, (n) => n.type === ChordBindingsCard)[0];
+
+    await card.props.onToggleSilentBanner(false);
+    expect(mockSetSetting).toHaveBeenCalledWith("silent_banner_enabled", false);
+    expect(showToast).toHaveBeenCalledWith("Silent HUD banner disabled");
+    expect(refreshStatus).toHaveBeenCalledTimes(1);
+
+    await card.props.onToggleSilentBanner(true);
+    expect(mockSetSetting).toHaveBeenCalledWith("silent_banner_enabled", true);
+    expect(showToast).toHaveBeenCalledWith("Silent HUD banner enabled");
+  });
+
+  it("saves full 8-action gamepad_chord_bindings map and rolls back with toast on backend failure or rejection", async () => {
+    const tree = SettingsTab({
+      status: mockStatus,
+      refreshStatus,
+      showToast,
+    });
+    const card = findNodes(tree, (n) => n.type === ChordBindingsCard)[0];
+
+    const savedOk = await card.props.onSaveBindings({
+      toggle_like: [3, 23],
+    });
+    expect(savedOk).toBe(true);
+    const savedPayload = mockSetSetting.mock.calls[0]?.[1];
+    expect(mockSetSetting).toHaveBeenCalledWith("gamepad_chord_bindings", expect.any(Object));
+    expect(Object.keys(savedPayload).sort()).toEqual(CHORD_ACTIONS.map((a) => a.id).sort());
+    expect(savedPayload.toggle_like).toEqual([3, 23]);
+    expect(savedPayload.previous).toEqual(DEFAULT_CHORD_BINDINGS.previous);
+    expect(refreshStatus).toHaveBeenCalledTimes(1);
+
+    refreshStatus.mockClear();
+    showToast.mockClear();
+    mockSetSetting.mockResolvedValueOnce({ ok: false, error: "Rejected" });
+    const failedOkFalse = await card.props.onSaveBindings({
+      ...DEFAULT_CHORD_BINDINGS,
+      toggle_like: [4, 24],
+    });
+    expect(failedOkFalse).toBe(false);
+    expect(showToast).toHaveBeenCalledWith("Failed to save chord bindings — try again.");
+    expect(refreshStatus).not.toHaveBeenCalled();
+
+    showToast.mockClear();
+    mockSetSetting.mockRejectedValueOnce(new Error("RPC error"));
+    const failedReject = await card.props.onSaveBindings({
+      ...DEFAULT_CHORD_BINDINGS,
+      toggle_like: [4, 24],
+    });
+    expect(failedReject).toBe(false);
+    expect(showToast).toHaveBeenCalledWith("Failed to save chord bindings — try again.");
+    expect(refreshStatus).not.toHaveBeenCalled();
   });
 });

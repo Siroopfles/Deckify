@@ -5,12 +5,15 @@ import { FaSlidersH, FaClock, FaPowerOff, FaPlug, FaBluetooth } from "react-icon
 import {
   ActiveGameOverrideInfo,
   AudioSinkInfo,
+  ChordBindingsMap,
   EqualizerPreset,
   MprisStatusInfo,
   ResilienceStatusInfo,
   StatusResponse,
   SleepTimerStatus,
 } from "../../types";
+import { CHORD_ACTIONS, DEFAULT_CHORD_BINDINGS } from "../../chords";
+import { ChordBindingsCard } from "./ChordBindingsCard";
 import { InteractiveRow } from "../common/InteractiveRow";
 import {
   EQ_PRESET_CURVES,
@@ -47,6 +50,20 @@ const backendSetSleepTimer = callable<
 >("set_sleep_timer");
 const backendRestoreBookmark = callable<[], { ok: boolean; error?: string }>("restore_bookmark");
 const backendDismissBookmark = callable<[], { ok: boolean }>("dismiss_bookmark");
+
+function buildFullChordBindings(
+  next: ChordBindingsMap,
+  fallback: ChordBindingsMap
+): ChordBindingsMap {
+  const full: ChordBindingsMap = {};
+  for (const action of CHORD_ACTIONS) {
+    const candidate = next[action.id] ?? fallback[action.id] ?? DEFAULT_CHORD_BINDINGS[action.id];
+    full[action.id] = Array.isArray(candidate)
+      ? [...candidate]
+      : [...DEFAULT_CHORD_BINDINGS[action.id]];
+  }
+  return full;
+}
 
 export interface SettingsTabProps {
   status: StatusResponse | null;
@@ -243,6 +260,35 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
       refreshStatus();
     },
     [refreshStatus]
+  );
+
+  const currentChordBindings = (localSettings.gamepad_chord_bindings ??
+    status?.settings?.gamepad_chord_bindings ??
+    DEFAULT_CHORD_BINDINGS) as ChordBindingsMap;
+  const currentChordBindingsRef = useRef<ChordBindingsMap>(currentChordBindings);
+  currentChordBindingsRef.current = currentChordBindings;
+
+  const handleSaveChordBindings = useCallback(
+    async (next: ChordBindingsMap): Promise<boolean> => {
+      const prevBindings = currentChordBindingsRef.current;
+      const fullNext = buildFullChordBindings(next, prevBindings);
+      setLocalSettings((prev) => ({ ...prev, gamepad_chord_bindings: fullNext }));
+      try {
+        const res = await backendSetSetting("gamepad_chord_bindings", fullNext);
+        if (!res?.ok) {
+          setLocalSettings((prev) => ({ ...prev, gamepad_chord_bindings: prevBindings }));
+          showToast("Failed to save chord bindings — try again.");
+          return false;
+        }
+        refreshStatus();
+        return true;
+      } catch {
+        setLocalSettings((prev) => ({ ...prev, gamepad_chord_bindings: prevBindings }));
+        showToast("Failed to save chord bindings — try again.");
+        return false;
+      }
+    },
+    [refreshStatus, showToast]
   );
 
   const audioBackend = status?.settings?.audio_backend || "librespot";
@@ -1482,6 +1528,21 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
             {(status?.settings?.gamepad_chords_enabled ?? true) ? "ON" : "OFF"}
           </span>
         </InteractiveRow>
+
+        <ChordBindingsCard
+          silentBannerEnabled={
+            localSettings.silent_banner_enabled ?? status?.settings?.silent_banner_enabled ?? true
+          }
+          chordsEnabled={
+            localSettings.gamepad_chords_enabled ?? status?.settings?.gamepad_chords_enabled ?? true
+          }
+          bindings={currentChordBindings}
+          onToggleSilentBanner={async (val: boolean) => {
+            showToast(val ? "Silent HUD banner enabled" : "Silent HUD banner disabled");
+            await updateSetting("silent_banner_enabled", val);
+          }}
+          onSaveBindings={handleSaveChordBindings}
+        />
       </div>
 
       {/* Controller & Trigger Navigation */}
