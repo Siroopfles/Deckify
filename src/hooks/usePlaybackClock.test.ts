@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 vi.mock("react", () => ({
-  useState: (initial: any) => [initial, vi.fn()],
-  useRef: (initial: any) => ({ current: initial }),
-  useCallback: (fn: any) => fn,
-  useEffect: (fn: any) => fn(),
+  useState: (initial: unknown) => [initial, vi.fn()],
+  useRef: (initial: unknown) => ({ current: initial }),
+  useCallback: <T>(fn: T) => fn,
+  useEffect: (fn: () => void) => fn(),
 }));
 
 import {
@@ -13,16 +13,15 @@ import {
   usePlaybackClock,
 } from "./usePlaybackClock";
 
-describe("usePlaybackClock & PlaybackClockController", () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-  });
+beforeEach(() => {
+  vi.useFakeTimers();
+});
 
-  afterEach(() => {
-    vi.useRealTimers();
-  });
+afterEach(() => {
+  vi.useRealTimers();
+});
 
-  describe("getScrubStepMs (D-03)", () => {
+describe("getScrubStepMs (D-03)", () => {
     it("returns 5000ms for tracks under 5 minutes (< 300,000ms)", () => {
       expect(getScrubStepMs(0)).toBe(5000);
       expect(getScrubStepMs(180000)).toBe(5000); // 3 minutes
@@ -294,5 +293,78 @@ describe("usePlaybackClock & PlaybackClockController", () => {
     it("exports usePlaybackClock hook function", () => {
       expect(typeof usePlaybackClock).toBe("function");
     });
+  });
+
+  describe("Playback Speed Scaling (D-07, T-24-03)", () => {
+    it("advances clock.positionMs by 2000ms when 1000ms elapses at playbackSpeed 2.0", () => {
+      const clock = new PlaybackClockController({
+        serverPositionMs: 10000,
+        isPlaying: true,
+        durationMs: 60000,
+        playbackSpeed: 2.0,
+      });
+
+      vi.advanceTimersByTime(1000);
+      expect(clock.positionMs).toBe(12000);
+      clock.destroy();
+    });
+
+    it("advances clock.positionMs by 1000ms when 2000ms elapses at playbackSpeed 0.5", () => {
+      const clock = new PlaybackClockController({
+        serverPositionMs: 10000,
+        isPlaying: true,
+        durationMs: 60000,
+        playbackSpeed: 0.5,
+      });
+
+      vi.advanceTimersByTime(2000);
+      expect(clock.positionMs).toBe(11000);
+      clock.destroy();
+    });
+
+    it("re-anchors basePosition and syncTime on mid-playback speed change without jumping", () => {
+      const clock = new PlaybackClockController({
+        serverPositionMs: 10000,
+        isPlaying: true,
+        durationMs: 60000,
+        playbackSpeed: 1.0,
+      });
+
+      vi.advanceTimersByTime(2000);
+      expect(clock.positionMs).toBe(12000);
+
+      clock.updateOptions({
+        serverPositionMs: 11500,
+        isPlaying: true,
+        durationMs: 60000,
+        playbackSpeed: 2.0,
+      });
+      expect(clock.positionMs).toBe(12000);
+
+      vi.advanceTimersByTime(1000);
+      expect(clock.positionMs).toBe(14000);
+      clock.destroy();
+    });
+
+    it("falls back to 1.0x when playbackSpeed is non-positive or NaN", () => {
+      const clock = new PlaybackClockController({
+        serverPositionMs: 10000,
+        isPlaying: true,
+        durationMs: 60000,
+        playbackSpeed: -1,
+      });
+
+      vi.advanceTimersByTime(1000);
+      expect(clock.positionMs).toBe(11000);
+
+      clock.updateOptions({
+        serverPositionMs: 11000,
+        isPlaying: true,
+        durationMs: 60000,
+        playbackSpeed: Number.NaN,
+      });
+      vi.advanceTimersByTime(1000);
+    expect(clock.positionMs).toBe(12000);
+    clock.destroy();
   });
 });
