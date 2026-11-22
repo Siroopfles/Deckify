@@ -136,7 +136,7 @@ class TestCrossfade(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(fader._crossfade_active)
         fader.fade_to.assert_awaited_with(expected_target, 2.0)
 
-    async def test_maybe_trigger_local_crossfade_boundary_and_track_change(self):
+    async def test_maybe_trigger_local_crossfade_never_ducks_librespot(self):
         self.plugin._settings["audio_backend"] = "librespot"
         self.plugin._settings["crossfade_seconds"] = 5
         fader = self.plugin._volume_fader
@@ -151,18 +151,17 @@ class TestCrossfade(unittest.IsolatedAsyncioTestCase):
         await self.plugin._maybe_trigger_local_crossfade("track_a", True, 10000, 180000)
         fader.trigger_crossfade_out.assert_not_awaited()
 
-        # Within 5s of end: triggers fade-out once
+        # Near track end on librespot: never ducks/mutes audio
         await self.plugin._maybe_trigger_local_crossfade("track_a", True, 176500, 180000)
-        fader.trigger_crossfade_out.assert_awaited_once()
-        self.assertEqual(self.plugin._crossfade_out_track_id, "track_a")
+        await self.plugin._maybe_trigger_local_crossfade("track_a", True, 178500, 180000)
+        fader.trigger_crossfade_out.assert_not_awaited()
+        self.assertIsNone(self.plugin._crossfade_out_track_id)
 
-        # Polling again on same track does not re-trigger fade-out
-        await self.plugin._maybe_trigger_local_crossfade("track_a", True, 177500, 180000)
-        fader.trigger_crossfade_out.assert_awaited_once()
-
-        # Track changes while crossfade_active: triggers fade-in
+        # Stale _crossfade_active state is safely restored via trigger_crossfade_in(1.0)
+        fader._crossfade_active = True
+        self.plugin._crossfade_out_track_id = "track_a"
         await self.plugin._maybe_trigger_local_crossfade("track_b", True, 500, 200000)
-        fader.trigger_crossfade_in.assert_awaited_once()
+        fader.trigger_crossfade_in.assert_awaited_once_with(1.0)
         self.assertIsNone(self.plugin._crossfade_out_track_id)
 
 

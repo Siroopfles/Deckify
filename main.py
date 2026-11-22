@@ -1847,38 +1847,13 @@ class Plugin:
         progress_ms: int,
         duration_ms: int,
     ) -> None:
-        """Drive local PipeWire boundary fade-out/fade-in when librespot is active."""
+        """No-op for librespot (single-stream); restore volume if crossfade_active is stale."""
         fader = getattr(self, "_volume_fader", None)
         if fader is None:
             return
-        try:
-            raw_cf = self._settings.get("crossfade_seconds", 0)
-            cf_sec = 0 if isinstance(raw_cf, bool) else max(0, min(12, int(raw_cf or 0)))
-        except (TypeError, ValueError):
-            cf_sec = 0
-        is_librespot = self._settings.get("audio_backend", "librespot") == "librespot"
-
         if getattr(fader, "_crossfade_active", False):
-            out_of_window = duration_ms > 0 and (duration_ms - progress_ms) > (cf_sec * 1000 + 1500)
-            if (
-                not is_librespot
-                or cf_sec <= 0
-                or not track_id
-                or track_id != self._crossfade_out_track_id
-                or out_of_window
-            ):
-                self._crossfade_out_track_id = None
-                await fader.trigger_crossfade_in(min(max(cf_sec, 1) * 0.5, 3.0))
-                return
-
-        if not is_librespot or cf_sec <= 0:
-            return
-
-        if is_playing and duration_ms > 0 and track_id and self._crossfade_out_track_id != track_id:
-            remaining_ms = duration_ms - progress_ms
-            if 0 < remaining_ms <= cf_sec * 1000:
-                self._crossfade_out_track_id = track_id
-                await fader.trigger_crossfade_out(min(float(cf_sec), remaining_ms / 1000.0))
+            self._crossfade_out_track_id = None
+            await fader.trigger_crossfade_in(1.0)
 
     async def _poll_playback(self) -> bool:
         """Poll GET /me/player and emit events. Returns True if API call succeeded."""
