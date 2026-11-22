@@ -178,9 +178,10 @@ def _find_lrc_by_track_id(safe_id: str) -> str | None:
         return None
     suffix = f"[{safe_id}].lrc"
     try:
-        for entry in os.scandir(LYRICS_CACHE_DIR):
-            if entry.is_file() and entry.name.endswith(suffix) and _is_safe_lrc_path(entry.path):
-                return entry.path
+        with os.scandir(LYRICS_CACHE_DIR) as entries:
+            for entry in entries:
+                if entry.is_file() and entry.name.endswith(suffix) and _is_safe_lrc_path(entry.path):
+                    return entry.path
     except Exception:
         return None
     return None
@@ -266,12 +267,13 @@ def _clear_lyrics_cache() -> None:
         _LYRICS_CACHE.clear()
         if os.path.isdir(LYRICS_CACHE_DIR):
             try:
-                for f in os.scandir(LYRICS_CACHE_DIR):
-                    if f.is_file() and (f.name.endswith(".lrc") or f.name.endswith(".json")):
-                        try:
-                            os.remove(f.path)
-                        except OSError:
-                            pass
+                with os.scandir(LYRICS_CACHE_DIR) as entries:
+                    for f in entries:
+                        if f.is_file() and (f.name.endswith(".lrc") or f.name.endswith(".json")):
+                            try:
+                                os.remove(f.path)
+                            except OSError:
+                                pass
             except Exception:
                 pass
 
@@ -327,17 +329,18 @@ def _put_cached_lyrics(
                 return
 
             suffix = f"[{key}].lrc"
-            for entry in os.scandir(LYRICS_CACHE_DIR):
-                if (
-                    entry.is_file()
-                    and entry.name.endswith(suffix)
-                    and entry.path != target
-                    and _is_safe_lrc_path(entry.path)
-                ):
-                    try:
-                        os.remove(entry.path)
-                    except OSError:
-                        pass
+            with os.scandir(LYRICS_CACHE_DIR) as entries:
+                for entry in entries:
+                    if (
+                        entry.is_file()
+                        and entry.name.endswith(suffix)
+                        and entry.path != target
+                        and _is_safe_lrc_path(entry.path)
+                    ):
+                        try:
+                            os.remove(entry.path)
+                        except OSError:
+                            pass
 
             lrc_text = _format_lrc_content(
                 title=title,
