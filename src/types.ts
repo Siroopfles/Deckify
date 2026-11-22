@@ -327,6 +327,18 @@ export interface SpotifyDevice {
   type: string;
   is_active: boolean;
   volume_percent: number | null;
+  is_restricted?: boolean;
+  supports_volume?: boolean;
+}
+
+export interface DevicesResponse {
+  ok: boolean;
+  devices?: SpotifyDevice[];
+  local_device_name?: string;
+  audio_backend?: string;
+  engine_running?: boolean;
+  engine_sleeping?: boolean;
+  error?: string;
 }
 
 export interface SleepTimerStatus {
