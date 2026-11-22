@@ -203,7 +203,7 @@ Plans:
   1. When a podcast episode or audiobook is playing, `NowPlayingTab` and the Quick Access Menu expose `0.75x`–`2.0x` playback speed controls that automatically reset to `1.0x` whenever a standard music track starts playing.
   2. While playing a podcast episode or audiobook, `NowPlayingTab` and L2/R2 controller triggers adapt to perform dedicated `-15s` / `+15s` smart-skip seeks with accurate monotonic clock progression.
   3. User can inspect per-episode resume progress bars and *"Played"* badges (`resume_point`) in `PodcastsTab` and filter show episodes by *All*, *Unplayed*, or *In Progress*.
-**Plans:** 3/5 plans executed
+**Plans:** 4/5 plans executed
 
 Plans:
 **Wave 1**
@@ -212,7 +212,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1)*
 - [x] 24-03-PLAN.md — `NowPlayingTab` `-15s`/`+15s` smart-skip transport, `@decky/ui` `Dropdown` (`0.5x`–`2.0x`), and `NowPlayingTab.test.tsx`
-- [ ] 24-04-PLAN.md — `PodcastsTab` show drill-down, bottom green progress bars, `"Played"`/`"Xm left"` badges, *All*/*Unplayed*/*In Progress* filter pills, and `PodcastsTab.test.tsx`
+- [x] 24-04-PLAN.md — `PodcastsTab` show drill-down, bottom green progress bars, `"Played"`/`"Xm left"` badges, *All*/*Unplayed*/*In Progress* filter pills, and `PodcastsTab.test.tsx`
 
 **Wave 3** *(blocked on Wave 2)*
 - [ ] 24-05-PLAN.md — `DeckifyExpandedModal` `L2`/`R2` 15s smart-skip & `PodcastsTab` show wiring, `QuickAccessMenu` compact speed cycle pill, and full verification suite
@@ -366,7 +366,7 @@ Phases execute in numeric order: 19 → 20 → 21 → 22 → 23 → 24 → 25 �
 | 21. Dynamic Album-Art Accent Themes & Handheld Battery Eco-Mode | v0.7 | 6/6 | Complete    | 2026-11-22 |
 | 22. Spotify Connect Hub 2.0 & Native Crossfade | v0.7 | 5/5 | Complete    | 2026-11-22 |
 | 23. Lyrics 2.0 — Offline .lrc Cache, Per-Track Sync Nudge & CJK Romanization | v0.7 | 5/5 | In Progress |  |
-| 24. Podcast & Audiobook Power Suite | v0.7 | 3/5 | In Progress | - |
+| 24. Podcast & Audiobook Power Suite | v0.7 | 4/5 | In Progress | - |
 | 25. Universal Artist/Album Drill-Down, Instant Radio & Search 2.0 | v0.7 | 0/TBD | Not started | - |
 | 26. Unified CDP Platform Bridge & Deep Discovery 2.0 | v0.7 | 0/TBD | Not started | - |
 | 27. Interactive Queue Studio & Controller Playlist Management | v0.7 | 0/TBD | Not started | - |
