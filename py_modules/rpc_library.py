@@ -1037,6 +1037,8 @@ async def get_lyrics(
     artist_name: str,
     duration_sec: int = 0,
     provider_offset: int = 0,
+    track_id: str = "",
+    force_refresh: bool = False,
 ) -> dict:
     """Fetch synchronized or plain lyrics using 5-tier waterfall with provider offset."""
     try:
@@ -1046,6 +1048,8 @@ async def get_lyrics(
             artist_name,
             duration_sec,
             provider_offset,
+            track_id,
+            bool(force_refresh),
             timeout=12,
         )
     except Exception as e:

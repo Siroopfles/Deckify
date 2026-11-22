@@ -83,6 +83,7 @@ from py_modules import rpc_playback
 from py_modules import rpc_library
 from py_modules import resilience
 from py_modules import mpris
+from py_modules import lyrics_offsets
 
 __all__ = [
     "SETTINGS_FILE",

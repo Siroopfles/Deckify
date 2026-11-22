@@ -9,9 +9,9 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-from py_modules.common import CACHE_DIR, SPOTIFY_API_BASE, SPOTIFY_CDP_PORT, _API_SSL_CTX
+from py_modules.common import DECK_HOME, SPOTIFY_API_BASE, SPOTIFY_CDP_PORT, _API_SSL_CTX
 
-LYRICS_CACHE_DIR = os.path.join(CACHE_DIR, "lyrics")
+LYRICS_CACHE_DIR = os.path.join(DECK_HOME, ".cache", "deckify", "lyrics")
 
 
 class SpotifyRateLimitError(RuntimeError):
@@ -140,61 +140,218 @@ _LYRICS_CACHE: OrderedDict[str, dict] = OrderedDict()
 _CACHE_LOCK = threading.Lock()
 _CACHE_MAX_ENTRIES = 100
 _LRCLIB_USER_AGENT = "Deckify/0.3.0 (https://github.com/Siroopfles/Deckify)"
+_LRC_TIMESTAMP_LINE_RE = re.compile(r"^\s*(?:\[\d{1,3}:\d{2}(?:[.:]\d{1,3})?\])+")
+_LRC_META_TAG_RE = re.compile(r"^\[([a-zA-Z0-9_-]+):(.*)\]$")
+
+
+def _sanitize_lrc_segment(value: str, max_len: int = 60) -> str:
+    """Sanitize artist/title segment for safe cross-platform .lrc filenames."""
+    if not value or not isinstance(value, str):
+        return "Unknown"
+    cleaned = re.sub(r'[<>:"/\\|?*\x00-\x1f\x7f]', " ", value)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip().strip(".")
+    if len(cleaned) > max_len:
+        cleaned = cleaned[:max_len].strip().strip(".")
+    return cleaned or "Unknown"
+
+
+def _sanitize_track_id(track_id: str, artist: str, clean_title: str) -> str:
+    """Restrict track_id to [A-Za-z0-9_-] or fall back to deterministic sha256 prefix."""
+    raw = str(track_id or "").strip()
+    safe = re.sub(r"[^A-Za-z0-9_-]", "", raw)
+    if safe:
+        return safe[:64]
+    digest_input = f"{(artist or '').strip().lower()}::{(clean_title or '').strip().lower()}"
+    return hashlib.sha256(digest_input.encode("utf-8")).hexdigest()[:16]
+
+
+def _is_safe_lrc_path(target: str) -> bool:
+    """Ensure target path resolves strictly inside LYRICS_CACHE_DIR."""
+    real_dir = os.path.realpath(LYRICS_CACHE_DIR)
+    real_target = os.path.realpath(target)
+    return real_target.startswith(real_dir + os.sep)
+
+
+def _find_lrc_by_track_id(safe_id: str) -> str | None:
+    """Locate an existing [{safe_id}].lrc file inside LYRICS_CACHE_DIR."""
+    if not safe_id or not os.path.isdir(LYRICS_CACHE_DIR):
+        return None
+    suffix = f"[{safe_id}].lrc"
+    try:
+        for entry in os.scandir(LYRICS_CACHE_DIR):
+            if entry.is_file() and entry.name.endswith(suffix) and _is_safe_lrc_path(entry.path):
+                return entry.path
+    except Exception:
+        return None
+    return None
+
+
+def _format_lrc_content(
+    title: str,
+    artist: str,
+    source: str,
+    synced_lyrics: str | None,
+    plain_lyrics: str | None,
+) -> str:
+    """Serialize lyrics payload into human-readable .lrc format with metadata tags."""
+    safe_ti = re.sub(r"[\r\n\[\]]", " ", title or "").strip()
+    safe_ar = re.sub(r"[\r\n\[\]]", " ", artist or "").strip()
+    safe_src = re.sub(r"[\r\n\[\]]", " ", source or "Unknown").strip()
+    is_synced = bool(synced_lyrics and synced_lyrics.strip())
+    body = (synced_lyrics if is_synced else plain_lyrics) or ""
+    lines = [
+        f"[ti:{safe_ti}]",
+        f"[ar:{safe_ar}]",
+        f"[deckify-source:{safe_src}]",
+        f"[deckify-synced:{1 if is_synced else 0}]",
+        "",
+        body.rstrip("\r\n"),
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def _parse_lrc_content(raw_text: str) -> dict | None:
+    """Parse an .lrc file back into a Deckify lyrics response dictionary."""
+    if not raw_text or not isinstance(raw_text, str):
+        return None
+    source = "Cached"
+    synced_flag: bool | None = None
+    body_lines: list[str] = []
+
+    for line in raw_text.splitlines():
+        stripped = line.strip()
+        if not body_lines and not stripped:
+            continue
+        meta_match = _LRC_META_TAG_RE.match(stripped)
+        if meta_match and not _LRC_TIMESTAMP_LINE_RE.match(stripped):
+            tag_key = meta_match.group(1).lower()
+            tag_val = meta_match.group(2).strip()
+            if tag_key == "deckify-source" and tag_val:
+                source = tag_val
+            elif tag_key == "deckify-synced":
+                synced_flag = tag_val == "1"
+            continue
+        body_lines.append(line)
+
+    body = "\n".join(body_lines).strip()
+    if not body:
+        return None
+
+    has_timestamps = any(_LRC_TIMESTAMP_LINE_RE.match(ln) for ln in body_lines)
+    is_synced = synced_flag if synced_flag is not None else has_timestamps
+
+    if is_synced:
+        plain_lines = [_LRC_TIMESTAMP_LINE_RE.sub("", ln).strip() for ln in body_lines]
+        plain_text = "\n".join(ln for ln in plain_lines if ln) or None
+        return {
+            "ok": True,
+            "synced_lyrics": body,
+            "plain_lyrics": plain_text,
+            "source": source,
+            "cached": True,
+        }
+    return {
+        "ok": True,
+        "synced_lyrics": None,
+        "plain_lyrics": body,
+        "source": source,
+        "cached": True,
+    }
 
 
 def _clear_lyrics_cache() -> None:
-    """Clear in-memory and on-disk lyrics cache."""
+    """Clear in-memory and on-disk (.lrc and legacy .json) lyrics cache."""
     with _CACHE_LOCK:
         _LYRICS_CACHE.clear()
-    if os.path.isdir(LYRICS_CACHE_DIR):
-        try:
-            for f in os.scandir(LYRICS_CACHE_DIR):
-                if f.is_file() and f.name.endswith(".json"):
-                    try:
-                        os.remove(f.path)
-                    except OSError:
-                        pass
-        except Exception:
-            pass
+        if os.path.isdir(LYRICS_CACHE_DIR):
+            try:
+                for f in os.scandir(LYRICS_CACHE_DIR):
+                    if f.is_file() and (f.name.endswith(".lrc") or f.name.endswith(".json")):
+                        try:
+                            os.remove(f.path)
+                        except OSError:
+                            pass
+            except Exception:
+                pass
 
 
 def _get_cached_lyrics(key: str) -> dict | None:
     with _CACHE_LOCK:
         if key in _LYRICS_CACHE:
             _LYRICS_CACHE.move_to_end(key)
-            return dict(_LYRICS_CACHE[key])
+            hit = dict(_LYRICS_CACHE[key])
+            hit["cached"] = True
+            return hit
 
-    # Check disk cache
-    h = hashlib.sha256(key.encode("utf-8")).hexdigest()
-    disk_file = os.path.join(LYRICS_CACHE_DIR, f"{h}.json")
-    if os.path.isfile(disk_file):
-        try:
-            with open(disk_file, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            with _CACHE_LOCK:
-                _LYRICS_CACHE[key] = dict(data)
-                _LYRICS_CACHE.move_to_end(key)
-            return data
-        except Exception:
-            pass
+        disk_file = _find_lrc_by_track_id(key)
+        if disk_file:
+            try:
+                with open(disk_file, "r", encoding="utf-8") as f:
+                    parsed = _parse_lrc_content(f.read())
+                if parsed:
+                    _LYRICS_CACHE[key] = dict(parsed)
+                    _LYRICS_CACHE.move_to_end(key)
+                    return dict(parsed)
+            except Exception:
+                pass
     return None
 
 
-def _put_cached_lyrics(key: str, data: dict) -> None:
+def _put_cached_lyrics(
+    key: str,
+    data: dict,
+    artist: str = "",
+    title: str = "",
+) -> None:
+    if not isinstance(data, dict) or not data.get("ok"):
+        return
+    if not data.get("synced_lyrics") and not data.get("plain_lyrics"):
+        return
+
     with _CACHE_LOCK:
-        _LYRICS_CACHE[key] = dict(data)
+        stored = dict(data)
+        stored["cached"] = False
+        _LYRICS_CACHE[key] = stored
         _LYRICS_CACHE.move_to_end(key)
         while len(_LYRICS_CACHE) > _CACHE_MAX_ENTRIES:
             _LYRICS_CACHE.popitem(last=False)
 
-    try:
-        os.makedirs(LYRICS_CACHE_DIR, exist_ok=True)
-        h = hashlib.sha256(key.encode("utf-8")).hexdigest()
-        disk_file = os.path.join(LYRICS_CACHE_DIR, f"{h}.json")
-        with open(disk_file, "w", encoding="utf-8") as f:
-            json.dump(data, f)
-    except Exception:
-        pass
+        try:
+            os.makedirs(LYRICS_CACHE_DIR, exist_ok=True)
+            safe_artist = _sanitize_lrc_segment(artist)
+            safe_title = _sanitize_lrc_segment(title)
+            filename = f"{safe_artist} - {safe_title} [{key}].lrc"
+            target = os.path.join(LYRICS_CACHE_DIR, filename)
+            if not _is_safe_lrc_path(target):
+                return
+
+            suffix = f"[{key}].lrc"
+            for entry in os.scandir(LYRICS_CACHE_DIR):
+                if (
+                    entry.is_file()
+                    and entry.name.endswith(suffix)
+                    and entry.path != target
+                    and _is_safe_lrc_path(entry.path)
+                ):
+                    try:
+                        os.remove(entry.path)
+                    except OSError:
+                        pass
+
+            lrc_text = _format_lrc_content(
+                title=title,
+                artist=artist,
+                source=str(data.get("source") or "Unknown"),
+                synced_lyrics=data.get("synced_lyrics"),
+                plain_lyrics=data.get("plain_lyrics"),
+            )
+            tmp_path = f"{target}.{os.getpid()}.tmp"
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                f.write(lrc_text)
+            os.replace(tmp_path, target)
+        except Exception:
+            pass
 
 
 def _sanitize_track_title(title: str) -> str:
@@ -404,10 +561,12 @@ def _fetch_lyrics_sync(
     artist_name: str,
     duration_sec: int = 0,
     provider_offset: int = 0,
+    track_id: str = "",
+    force_refresh: bool = False,
     *args,
     **kwargs,
 ) -> dict:
-    """Multi-source lyrics waterfall with 5 tiers, provider offset, and disk caching."""
+    """Multi-source lyrics waterfall with 5 tiers, provider offset, and .lrc disk caching."""
     t_name = (track_name or "").strip()
     a_name = (artist_name or "").strip()
     if not t_name or not a_name:
@@ -420,12 +579,17 @@ def _fetch_lyrics_sync(
 
     clean_title = _sanitize_track_title(t_name)
     primary_artist = a_name.split(",")[0].strip() if "," in a_name else a_name
+    safe_id = _sanitize_track_id(track_id, a_name, clean_title)
 
-    cache_key = f"{a_name.lower()}::{clean_title.lower()}::{provider_offset}"
-    if provider_offset == 0:
-        cached = _get_cached_lyrics(f"{a_name.lower()}::{clean_title.lower()}::0")
+    if provider_offset == 0 and not force_refresh:
+        cached = _get_cached_lyrics(safe_id)
         if cached is not None:
             return cached
+
+    def _cache_and_return(payload: dict) -> dict:
+        payload["cached"] = False
+        _put_cached_lyrics(safe_id, payload, artist=a_name, title=clean_title)
+        return payload
 
     # Waterfall Providers
     # 0: Spotify CDP
@@ -438,14 +602,12 @@ def _fetch_lyrics_sync(
     if provider_offset <= 0:
         cdp_res = _fetch_spotify_cdp_lyrics()
         if cdp_res and (cdp_res.get("syncedLyrics") or cdp_res.get("plainLyrics")):
-            out = {
+            return _cache_and_return({
                 "ok": True,
                 "synced_lyrics": cdp_res.get("syncedLyrics"),
                 "plain_lyrics": cdp_res.get("plainLyrics"),
                 "source": "Spotify",
-            }
-            _put_cached_lyrics(cache_key, out)
-            return out
+            })
 
     # Step 2: LRCLIB
     if provider_offset <= 1:
@@ -494,14 +656,12 @@ def _fetch_lyrics_sync(
             plain = lrclib_item.get("plainLyrics")
             if not synced and not plain and lrclib_item.get("instrumental"):
                 plain = "♪ Instrumental ♪"
-            out = {
+            return _cache_and_return({
                 "ok": True,
                 "synced_lyrics": synced,
                 "plain_lyrics": plain,
                 "source": "LRCLIB",
-            }
-            _put_cached_lyrics(cache_key, out)
-            return out
+            })
 
     # Step 3: NetEase Cloud Music
     if provider_offset <= 2:
@@ -509,14 +669,12 @@ def _fetch_lyrics_sync(
         if not ne_res and primary_artist != a_name:
             ne_res = _fetch_netease_lyrics(clean_title, primary_artist)
         if ne_res and (ne_res.get("syncedLyrics") or ne_res.get("plainLyrics")):
-            out = {
+            return _cache_and_return({
                 "ok": True,
                 "synced_lyrics": ne_res.get("syncedLyrics"),
                 "plain_lyrics": ne_res.get("plainLyrics"),
                 "source": "NetEase",
-            }
-            _put_cached_lyrics(cache_key, out)
-            return out
+            })
 
     # Step 4: Musixmatch fallback
     if provider_offset <= 3:
@@ -524,25 +682,21 @@ def _fetch_lyrics_sync(
         if not mm_res and primary_artist != a_name:
             mm_res = _fetch_musixmatch_lyrics(clean_title, primary_artist)
         if mm_res and (mm_res.get("syncedLyrics") or mm_res.get("plainLyrics")):
-            out = {
+            return _cache_and_return({
                 "ok": True,
                 "synced_lyrics": mm_res.get("syncedLyrics"),
                 "plain_lyrics": mm_res.get("plainLyrics"),
                 "source": "Musixmatch",
-            }
-            _put_cached_lyrics(cache_key, out)
-            return out
+            })
 
     # Step 5: Plain-text fallback (Lyrics.ovh)
     ovh_res = _fetch_plain_lyrics_fallback(clean_title, primary_artist)
     if ovh_res and ovh_res.get("plainLyrics"):
-        out = {
+        return _cache_and_return({
             "ok": True,
             "synced_lyrics": None,
             "plain_lyrics": ovh_res.get("plainLyrics"),
             "source": "Lyrics.ovh",
-        }
-        _put_cached_lyrics(cache_key, out)
-        return out
+        })
 
     return {"ok": False, "error": "Lyrics not found"}

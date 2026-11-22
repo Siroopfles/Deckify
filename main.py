@@ -56,6 +56,7 @@ from py_modules import dock
 from py_modules import resilience
 from py_modules import mpris
 from py_modules import eco
+from py_modules import lyrics_offsets
 from py_modules import vdf_parser
 from py_modules import input_watch
 
@@ -710,7 +711,9 @@ class Plugin:
             "toast_sound_enabled", "toast_position", "overlay_enabled", "overlay_position",
             "overlay_autohide", "overlay_show_progress",
             "overlay_lyrics_enabled", "overlay_lyrics_offset_ms",
-            "overlay_autohide_duration_s", "eq_preset", "eq_custom_bands",
+            "overlay_autohide_duration_s",
+            "romanize_lyrics_enabled", "romanize_display_style", "romanize_overlay_enabled",
+            "eq_preset", "eq_custom_bands",
             "trigger_nav_enabled", "trigger_seek_seconds",
             "trigger_page_size", "show_controller_hints",
             "duck_fade_down_duration", "duck_fade_up_duration", "ducking_mode",
@@ -877,10 +880,17 @@ class Plugin:
             value = bool(value)
             if not value and hasattr(self, "_volume_fader") and self._volume_fader:
                 asyncio.create_task(self._volume_fader.set_ducking(False, reason="game"))
-        elif key in ("normalisation", "gapless", "autoplay", "bit_perfect_clock", "overlay_enabled", "toast_enabled", "toast_sound_enabled", "gamepad_chords_enabled", "silent_banner_enabled", "overlay_autohide", "overlay_show_progress", "overlay_lyrics_enabled", "voice_ducking_enabled", "sleep_timer_fade_enabled", "dock_auto_switch_enabled", "dock_respect_bluetooth", "dock_pause_on_undock", "dock_toast_enabled", "resilience_auto_resume", "resilience_bookmark_never_expires", "resilience_toast_enabled", "resilience_prompt_held_enabled", "mpris_enabled", "mpris_auto_proxy", "eco_mode_enabled", "eco_sleep_spotify_client"):
+        elif key in ("normalisation", "gapless", "autoplay", "bit_perfect_clock", "overlay_enabled", "toast_enabled", "toast_sound_enabled", "gamepad_chords_enabled", "silent_banner_enabled", "overlay_autohide", "overlay_show_progress", "overlay_lyrics_enabled", "romanize_lyrics_enabled", "romanize_overlay_enabled", "voice_ducking_enabled", "sleep_timer_fade_enabled", "dock_auto_switch_enabled", "dock_respect_bluetooth", "dock_pause_on_undock", "dock_toast_enabled", "resilience_auto_resume", "resilience_bookmark_never_expires", "resilience_toast_enabled", "resilience_prompt_held_enabled", "mpris_enabled", "mpris_auto_proxy", "eco_mode_enabled", "eco_sleep_spotify_client"):
             value = bool(value)
             if key == "gamepad_chords_enabled" and getattr(self, "_input_watcher", None):
                 self._input_watcher.set_enabled(value)
+        elif key == "romanize_display_style":
+            if not isinstance(value, str):
+                return {"ok": False, "error": "romanize_display_style must be a string"}
+            val = value.strip().lower()
+            if val not in ("dual", "romanized_only"):
+                return {"ok": False, "error": "romanize_display_style must be 'dual' or 'romanized_only'"}
+            value = val
         elif key == "accent_theme":
             if not isinstance(value, str):
                 return {"ok": False, "error": "accent_theme must be a string"}
@@ -1404,8 +1414,54 @@ class Plugin:
         artist_name: str,
         duration_sec: int = 0,
         provider_offset: int = 0,
+        track_id: str = "",
+        force_refresh: bool = False,
     ) -> dict:
-        return await rpc_library.get_lyrics(self, track_name, artist_name, duration_sec, provider_offset)
+        return await rpc_library.get_lyrics(
+            self,
+            track_name,
+            artist_name,
+            duration_sec,
+            provider_offset,
+            track_id,
+            force_refresh,
+        )
+
+    async def get_track_lyrics_offset(self, track_id: str) -> dict:
+        if not isinstance(track_id, str) or not track_id.strip():
+            return {"ok": False, "error": "track_id is required", "offset_ms": 0}
+        tid = track_id.strip()
+        try:
+            offset_ms = await _exec(lyrics_offsets.get_track_offset, tid)
+            return {"ok": True, "track_id": tid, "offset_ms": offset_ms}
+        except Exception as e:
+            decky.logger.warning("get_track_lyrics_offset failed: %s", e)
+            return {"ok": False, "error": str(e), "offset_ms": 0}
+
+    async def set_track_lyrics_offset(self, track_id: str, offset_ms: int) -> dict:
+        if not isinstance(track_id, str) or not track_id.strip():
+            return {"ok": False, "error": "track_id is required"}
+        if isinstance(offset_ms, bool):
+            return {"ok": False, "error": "offset_ms must be an integer"}
+        tid = track_id.strip()
+        try:
+            clamped = await _exec(lyrics_offsets.set_track_offset, tid, int(offset_ms))
+            try:
+                await decky.emit("lyrics_offset_changed", {"track_id": tid, "offset_ms": clamped})
+            except Exception:
+                pass
+            return {"ok": True, "track_id": tid, "offset_ms": clamped}
+        except Exception as e:
+            decky.logger.warning("set_track_lyrics_offset failed: %s", e)
+            return {"ok": False, "error": str(e)}
+
+    async def clear_lyrics_cache(self) -> dict:
+        try:
+            await _exec(_clear_lyrics_cache)
+            return {"ok": True}
+        except Exception as e:
+            decky.logger.warning("clear_lyrics_cache failed: %s", e)
+            return {"ok": False, "error": str(e)}
 
     async def get_image(self, url: str) -> dict:
         return await rpc_library.get_image(url)

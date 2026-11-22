@@ -143,6 +143,9 @@ DEFAULT_SETTINGS = {
     "overlay_lyrics_enabled": False,
     "overlay_lyrics_offset_ms": 0,
     "overlay_autohide_duration_s": 6,
+    "romanize_lyrics_enabled": False,
+    "romanize_display_style": "dual",
+    "romanize_overlay_enabled": False,
     "eq_preset": "flat",
     "eq_custom_bands": [0.0] * 10,
     "trigger_nav_enabled": True,
@@ -401,6 +404,12 @@ def _load_settings(settings_file: str | None = None) -> dict:
             merged["overlay_autohide_duration_s"] = max(3, min(15, int(merged.get("overlay_autohide_duration_s", 6))))
         except (TypeError, ValueError):
             merged["overlay_autohide_duration_s"] = 6
+        if not isinstance(merged.get("romanize_lyrics_enabled"), bool):
+            merged["romanize_lyrics_enabled"] = bool(merged.get("romanize_lyrics_enabled", False))
+        if merged.get("romanize_display_style") not in ("dual", "romanized_only"):
+            merged["romanize_display_style"] = "dual"
+        if not isinstance(merged.get("romanize_overlay_enabled"), bool):
+            merged["romanize_overlay_enabled"] = bool(merged.get("romanize_overlay_enabled", False))
         if merged.get("eq_preset") not in ("flat", "bass", "vocal", "gaming", "deck_speakers", "late_night", "custom"):
             merged["eq_preset"] = "flat"
         raw_bands = merged.get("eq_custom_bands")
