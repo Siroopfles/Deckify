@@ -2,7 +2,7 @@ import { FC, useState, useEffect, useRef } from "react";
 import { FaMusic, FaPlay, FaPause } from "react-icons/fa";
 import { DeckifyImage } from "./common/DeckifyImage";
 import { SyncedLine } from "../types";
-import { useAccentTheme } from "../utils/themeBus";
+import { getThemeCssVars, useAccentTheme } from "../utils/themeBus";
 
 export interface OverlayTrack {
   name?: string;
@@ -48,7 +48,7 @@ export const DeckifyOverlay: FC<DeckifyOverlayProps> = ({
   lyricsLoaded = false,
   onVisibilityChange,
 }) => {
-  const { animationsSuspended } = useAccentTheme();
+  const { accent, animationsSuspended } = useAccentTheme();
   const [isVisible, setIsVisible] = useState<boolean>(
     Boolean(visible && track && track.name && isPlaying)
   );
@@ -210,6 +210,7 @@ export const DeckifyOverlay: FC<DeckifyOverlayProps> = ({
   const isLeft = position.includes("left");
 
   const posStyle: React.CSSProperties = {
+    ...getThemeCssVars(accent, animationsSuspended),
     position: "fixed",
     zIndex: 9999,
     pointerEvents: "none",

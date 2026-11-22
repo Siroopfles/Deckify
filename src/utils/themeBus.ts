@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { type CSSProperties, useEffect, useState } from "react";
 import type { AccentThemeMode } from "../types";
 import { fetchWithQueueAndCache, imgMemoryCache } from "../components/common/imagePipeline";
 import {
@@ -112,6 +112,17 @@ export function getAnimationsSuspended(): boolean {
   return currentAnimationsSuspended;
 }
 
+export function getThemeCssVars(
+  accent: AccentColor = currentAccent,
+  suspended: boolean = currentAnimationsSuspended,
+): CSSProperties {
+  return {
+    "--deckify-accent": accent.hex,
+    "--deckify-accent-rgb": accent.rgb,
+    "--deckify-accent-transition": suspended ? "none" : ACCENT_TRANSITION_NORMAL,
+  } as CSSProperties;
+}
+
 export function useAccentTheme(): { accent: AccentColor; animationsSuspended: boolean } {
   const [state, setState] = useState(() => ({
     accent: currentAccent,
@@ -120,9 +131,18 @@ export function useAccentTheme(): { accent: AccentColor; animationsSuspended: bo
 
   useEffect(() => {
     const update = () => {
-      setState({
-        accent: currentAccent,
-        animationsSuspended: currentAnimationsSuspended,
+      setState((prev) => {
+        if (
+          prev.accent.hex === currentAccent.hex &&
+          prev.accent.rgb === currentAccent.rgb &&
+          prev.animationsSuspended === currentAnimationsSuspended
+        ) {
+          return prev;
+        }
+        return {
+          accent: currentAccent,
+          animationsSuspended: currentAnimationsSuspended,
+        };
       });
     };
     subscribers.add(update);

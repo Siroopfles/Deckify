@@ -39,6 +39,7 @@ import { QueueTab } from "./tabs/QueueTab";
 import { DevicesTab } from "./tabs/DevicesTab";
 import { SoundtracksTab } from "./tabs/SoundtracksTab";
 import { SettingsTab } from "./tabs/SettingsTab";
+import { getThemeCssVars, useAccentTheme } from "../utils/themeBus";
 
 // Backward-compatible re-exports
 export { DeckifyImage } from "./common/DeckifyImage";
@@ -952,6 +953,7 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
   }, []);
 
   const audioBackend = status?.audio_backend || status?.settings?.audio_backend || "librespot";
+  const { accent, animationsSuspended } = useAccentTheme();
   const artwork = track?.artwork_url || track?.image_url;
   const showHints = (status?.settings as any)?.show_controller_hints !== false;
   const hintText =
@@ -968,6 +970,7 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
       <div ref={attachNav} style={{ display: "contents" }}>
         <div
           style={{
+            ...getThemeCssVars(accent, animationsSuspended),
             ...FULL_BLEED,
             height: "84vh",
             display: "flex",

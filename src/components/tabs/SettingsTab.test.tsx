@@ -1612,12 +1612,11 @@ describe("SettingsTab - Accent Theme & Handheld Battery Eco-Mode (Phase 21, THEM
     )[0];
     expect(horizontalRow).toBeDefined();
 
-    const pills = findNodes(horizontalRow, (n) => n.type === DialogButton);
+    const pills = findNodes(horizontalRow, (n) => typeof n.type === "function" && n.type.name === "InteractiveRow");
     expect(pills).toHaveLength(3);
     for (const pill of pills) {
       expect(pill.props.style).toMatchObject({
         width: "auto",
-        minWidth: "auto",
         minHeight: 44,
       });
     }

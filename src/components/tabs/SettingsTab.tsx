@@ -90,25 +90,20 @@ function renderAccentThemeCard(
         {ACCENT_THEME_OPTIONS.map((opt) => {
           const selected = accentTheme === opt.id;
           return (
-            <DialogButton
+            <InteractiveRow
               key={opt.id}
+              active={selected}
               onClick={() => onSelectTheme(opt.id)}
               style={{
                 width: "auto",
-                minWidth: "auto",
                 minHeight: 44,
                 padding: "8px 14px",
+                borderRadius: 8,
                 fontSize: 12,
                 fontWeight: 700,
                 display: "inline-flex",
                 alignItems: "center",
                 gap: 8,
-                background: selected
-                  ? "rgba(var(--deckify-accent-rgb, 29, 185, 84), 0.18)"
-                  : "rgba(255,255,255,0.06)",
-                border: selected
-                  ? "1px solid var(--deckify-accent, #1DB954)"
-                  : "1px solid rgba(255,255,255,0.12)",
                 color: selected ? "var(--deckify-accent, #1DB954)" : "#fff",
               }}
             >
@@ -122,7 +117,7 @@ function renderAccentThemeCard(
                 }}
               />
               <span>{opt.label}</span>
-            </DialogButton>
+            </InteractiveRow>
           );
         })}
       </Focusable>
