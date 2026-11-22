@@ -5,16 +5,16 @@ milestone_name: Studio, Living Room TV, Offline Travel & Ultimate Immersion (In 
 current_phase: 22
 current_phase_name: Spotify Connect Hub 2.0 & Native Crossfade
 status: executing
-stopped_at: Completed 22-02-PLAN.md
-last_updated: "2026-11-22T12:35:39.533Z"
+stopped_at: Completed 22-03-PLAN.md
+last_updated: "2026-11-22T15:50:20.083Z"
 last_activity: 2026-11-22
 last_activity_desc: Phase 22 execution started
-state_head: 963d07729714f493bcbaccb52fcc1fe6bdade743
+state_head: f6c0793d1c58606f126060304e71e674f8d0e0aa
 progress:
   total_phases: 12
   completed_phases: 2
-  total_plans: 20
-  completed_plans: 20
+  total_plans: 22
+  completed_plans: 21
   percent: 17
 ---
 
@@ -30,7 +30,7 @@ See: [.planning/PROJECT.md](file:///C:/Users/djdje/Deckify/.planning/PROJECT.md)
 ## Current Position
 
 Phase: 22 (Spotify Connect Hub 2.0 & Native Crossfade) — EXECUTING
-Plan: 2 of 2
+Plan: 4 of 4
 Status: Ready to execute
 Last activity: 2026-11-22 — Phase 22 execution started
 
@@ -120,6 +120,7 @@ Last activity: 2026-11-22 — Phase 22 execution started
 | Phase 21 P05 | 10min | 2 tasks | 4 files |
 | Phase 21 P06 | 4min | 2 tasks | 4 files |
 | Phase 22 P02 | 4m | 2 tasks | 8 files |
+| Phase 22 P03 | 4 min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -190,6 +191,7 @@ Recent decisions affecting current work:
 - [Phase 20]: Gated Steam toaster.toast fallback strictly on silent_banner_enabled === false and added volume-scaled Web Audio chime alongside SilentBanner
 - [Phase 20]: Shipped unbound [] DEFAULT_CHORD_BINDINGS, rejected STEAM/QAM guide buttons (13, 14, 27, 28), wired SteamClient.Input.RegisterForControllerInputMessages, and managed EUIComposition.Notification (1) in DeckifyOverlayWrapper
 - [Phase 21]: Placed useAccentTheme() after existing useState hooks in QAM Content to preserve hook slot indices and added @decky/api mock in SilentBanner.test.tsx
+- [Phase 22]: Default localHardwareLabel to Local Device in DevicesTab and deduplicate local Connect devices case-insensitively against local_device_name, local_hostname, and deckify
 
 ### Pending Todos
 
@@ -220,8 +222,8 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-22T12:35:37.093Z
-Stopped at: Completed 22-02-PLAN.md
+Last session: 2026-11-22T15:50:16.973Z
+Stopped at: Completed 22-03-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
