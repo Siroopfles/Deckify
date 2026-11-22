@@ -178,11 +178,11 @@ Plans:
   1. Synced and plain lyrics are automatically cached as human-readable `.lrc` files in `~/.cache/deckify/lyrics/` for `0ms` repeat loads and offline playback support.
   2. User can nudge lyric synchronization in `-0.5s` / `+0.5s` increments in `LyricsTab`, persisting the offset per `track_id` and immediately updating active lyric line scheduling in both `LyricsTab` and `DeckifyOverlay` without mutating cached `.lrc` timestamps.
   3. User can toggle phonetic romanization in `LyricsTab` (and `TvSplitView`) to display dual-line Romaji (Japanese), Revised Romanization (Korean), or Pinyin (Chinese) beneath CJK lyrics using upstream phonetic data and a zero-dependency pure-Python transliterator.
-**Plans:** 4 plans
+**Plans:** 1/4 plans executed
 
 Plans:
 **Wave 1**
-- [ ] 23-01-PLAN.md — Offline .lrc cache (~/.cache/deckify/lyrics/), lyrics_offsets.json store, romanize settings, and RPC bindings (tracer)
+- [x] 23-01-PLAN.md — Offline .lrc cache (~/.cache/deckify/lyrics/), lyrics_offsets.json store, romanize settings, and RPC bindings (tracer)
 - [ ] 23-02-PLAN.md — Zero-dependency pure-Python CJK romanizer (py_modules/cjk_tables.py, py_modules/romanize.py) and NetEase romalrc aligner
 
 **Wave 2** *(blocked on Wave 1)*
@@ -361,7 +361,7 @@ Phases execute in numeric order: 19 → 20 → 21 → 22 → 23 → 24 → 25 �
 | 20. 100% Silent HUD Toasts & Extended In-Game Quick-Chords | v0.7 | 7/7 | Complete    | 2026-11-22 |
 | 21. Dynamic Album-Art Accent Themes & Handheld Battery Eco-Mode | v0.7 | 6/6 | Complete    | 2026-11-22 |
 | 22. Spotify Connect Hub 2.0 & Native Crossfade | v0.7 | 5/5 | Complete    | 2026-11-22 |
-| 23. Lyrics 2.0 — Offline .lrc Cache, Per-Track Sync Nudge & CJK Romanization | v0.7 | 0/TBD | Not started | - |
+| 23. Lyrics 2.0 — Offline .lrc Cache, Per-Track Sync Nudge & CJK Romanization | v0.7 | 1/4 | In Progress | - |
 | 24. Podcast & Audiobook Power Suite | v0.7 | 0/TBD | Not started | - |
 | 25. Universal Artist/Album Drill-Down, Instant Radio & Search 2.0 | v0.7 | 0/TBD | Not started | - |
 | 26. Unified CDP Platform Bridge & Deep Discovery 2.0 | v0.7 | 0/TBD | Not started | - |

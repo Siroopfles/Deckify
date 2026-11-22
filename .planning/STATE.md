@@ -5,16 +5,16 @@ milestone_name: Studio, Living Room TV, Offline Travel & Ultimate Immersion (In 
 current_phase: 23
 current_phase_name: Lyrics 2.0 — Offline .lrc Cache, Per-Track Sync Nudge & CJK Romanization
 status: executing
-stopped_at: Phase 22 complete, ready to verify Phase 19
-last_updated: "2026-11-22T18:02:20.785Z"
+stopped_at: Completed 23-01-PLAN.md
+last_updated: "2026-11-22T18:09:40.657Z"
 last_activity: 2026-11-22
-last_activity_desc: Phase 22 complete, transitioned to Phase 19
-state_head: cc0bfe40d4b6a58f1f820a4cbc1e59c8def5e1c9
+last_activity_desc: Phase 23 execution started
+state_head: 108c847ba505b4bbfa131fcbc1e8a4b80fa84c50
 progress:
   total_phases: 12
   completed_phases: 3
   total_plans: 27
-  completed_plans: 23
+  completed_plans: 24
   percent: 25
 ---
 
@@ -25,14 +25,14 @@ progress:
 See: [.planning/PROJECT.md](file:///C:/Users/djdje/Deckify/.planning/PROJECT.md) (updated 2026-11-18)
 
 **Core value:** Rock-solid Spotify playback and responsive, reliable controller navigation on Steam Deck without UI lag, broken images, or desynchronized playback states.
-**Current focus:** Phase 22 — Spotify Connect Hub 2.0 & Native Crossfade
+**Current focus:** Phase 23 — Lyrics 2.0 — Offline .lrc Cache, Per-Track Sync Nudge & CJK Romanization
 
 ## Current Position
 
-Phase: 23 (Lyrics 2.0 — Offline .lrc Cache, Per-Track Sync Nudge & CJK Romanization) — READY TO EXECUTE
-Plan: 5
+Phase: 23 (Lyrics 2.0 — Offline .lrc Cache, Per-Track Sync Nudge & CJK Romanization) — EXECUTING
+Plan: 2 of 4
 Status: Ready to execute
-Last activity: 2026-11-22 — Phase 22 complete, transitioned to Phase 19
+Last activity: 2026-11-22 — Phase 23 execution started
 
 
 ## Performance Metrics
@@ -124,6 +124,7 @@ Last activity: 2026-11-22 — Phase 22 complete, transitioned to Phase 19
 | Phase 22 P03 | 4 min | 2 tasks | 6 files |
 | Phase 22 P04 | 4 min | 2 tasks | 4 files |
 | Phase 22 P05 | 4 min | 2 tasks | 4 files |
+| Phase 23 P01 | 6min | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -196,6 +197,8 @@ Recent decisions affecting current work:
 - [Phase 21]: Placed useAccentTheme() after existing useState hooks in QAM Content to preserve hook slot indices and added @decky/api mock in SilentBanner.test.tsx
 - [Phase 22]: Default localHardwareLabel to Local Device in DevicesTab and deduplicate local Connect devices case-insensitively against local_device_name, local_hostname, and deckify
 - [Phase 22]: Removed librespot PipeWire dip-to-silence fallback in _maybe_trigger_local_crossfade (retaining _crossfade_active recovery guard) and disabled CrossfadeSettingRow when audio_backend !== spotify_client
+- [Phase 23]: Key _LYRICS_CACHE by sanitized track_id and store .lrc files as {artist} - {title} [{track_id}].lrc
+- [Phase 23]: Persist per-track sync offsets in ~/.config/deckify/lyrics_offsets.json with 0ms pruning
 
 ### Pending Todos
 
@@ -226,9 +229,9 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-22T17:41:50.738Z
-Stopped at: Phase 22 complete, ready to verify Phase 19
-Resume file: C:/Users/djdje/Deckify/.planning/phases/23-lyrics-2-0-offline-lrc-cache-per-track-sync-nudge-cjk-romani/23-CONTEXT.md
+Last session: 2026-11-22T18:09:37.530Z
+Stopped at: Completed 23-01-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 
