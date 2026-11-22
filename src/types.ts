@@ -57,6 +57,7 @@ export interface TrackMeta {
   is_liked?: boolean;
   artist_id?: string;
   album_id?: string;
+  media_type?: string;
 }
 
 export interface TrackItem {
@@ -72,6 +73,7 @@ export interface TrackItem {
   is_liked?: boolean;
   artist_id?: string;
   album_id?: string;
+  media_type?: string;
 }
 
 export interface PlaylistItem {
@@ -111,6 +113,17 @@ export interface EpisodeItem {
   resume_position_ms?: number;
   fully_played?: boolean;
 }
+
+export interface ShowItem {
+  id: string;
+  name: string;
+  publisher?: string;
+  image_url?: string;
+  total_episodes?: number;
+  uri: string;
+}
+
+export type EpisodeFilter = "all" | "unplayed" | "in_progress";
 
 export interface FolderItem {
   id: string;
@@ -308,6 +321,7 @@ export interface EngineSettings {
   eco_mode_enabled?: boolean;
   eco_timeout_minutes?: number;
   eco_sleep_spotify_client?: boolean;
+  preferred_podcast_speed?: number;
 }
 
 export type DuckingMode = "proportional" | "fixed";
@@ -384,6 +398,7 @@ export interface StatusResponse {
   eco_status?: EcoStatusInfo;
   active_game_app_id?: number | null;
   active_game_override?: ActiveGameOverrideInfo | null;
+  playback_speed?: number;
 }
 
 export interface GameAudioProfile {
