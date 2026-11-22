@@ -27,7 +27,13 @@ except ImportError:
 from py_modules import rpc_playback
 
 
-def _make_supply(root: str, name: str, supply_type: str, status: str | None = None) -> None:
+def _make_supply(
+    root: str,
+    name: str,
+    supply_type: str,
+    status: str | None = None,
+    scope: str | None = None,
+) -> None:
     supply_dir = os.path.join(root, name)
     os.makedirs(supply_dir, exist_ok=True)
     with open(os.path.join(supply_dir, "type"), "w", encoding="utf-8") as f:
@@ -35,6 +41,9 @@ def _make_supply(root: str, name: str, supply_type: str, status: str | None = No
     if status is not None:
         with open(os.path.join(supply_dir, "status"), "w", encoding="utf-8") as f:
             f.write(f"{status}\n")
+    if scope is not None:
+        with open(os.path.join(supply_dir, "scope"), "w", encoding="utf-8") as f:
+            f.write(f"{scope}\n")
 
 
 def _make_plugin(
@@ -91,6 +100,30 @@ class TestReadPowerSupplyState(unittest.TestCase):
             _make_supply(tmp, "ACAD", "Mains", None)
             _make_supply(tmp, "BAT1", "Battery", "Discharging")
             self.assertEqual(eco.read_power_supply_state(tmp), (True, True))
+
+    def test_device_scope_peripheral_battery_is_ignored(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _make_supply(
+                tmp,
+                "corsair-void-1-battery",
+                "Battery",
+                "Discharging",
+                scope="Device",
+            )
+            self.assertEqual(eco.read_power_supply_state(tmp), (False, False))
+
+    def test_system_or_missing_scope_battery_counts_alongside_device_battery(self):
+        for bat_scope in ("System", None):
+            with tempfile.TemporaryDirectory() as tmp:
+                _make_supply(
+                    tmp,
+                    "corsair-void-1-battery",
+                    "Battery",
+                    "Discharging",
+                    scope="Device",
+                )
+                _make_supply(tmp, "BAT1", "Battery", "Charging", scope=bat_scope)
+                self.assertEqual(eco.read_power_supply_state(tmp), (True, False))
 
 
 class TestPowerGovernor(unittest.IsolatedAsyncioTestCase):

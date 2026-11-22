@@ -39,6 +39,9 @@ def read_power_supply_state(
                     supply_type = _read_sysfs_attr(os.path.join(entry.path, "type"))
                     if supply_type != "Battery":
                         continue
+                    scope = _read_sysfs_attr(os.path.join(entry.path, "scope"))
+                    if scope == "Device":
+                        continue
                     has_battery = True
                     status = _read_sysfs_attr(os.path.join(entry.path, "status"))
                     if status == "Discharging":
