@@ -187,6 +187,23 @@ export interface ResilienceStatusInfo {
 
 export type MprisBadgeState = "active" | "proxy_unavailable" | "disabled";
 
+export type AccentThemeMode = "spotify_green" | "dynamic_album" | "steamos_blue";
+export type EcoStatusState = "on_battery_active" | "bypassed" | "engine_sleeping";
+
+export interface EcoStatusInfo {
+  enabled: boolean;
+  has_battery: boolean;
+  on_battery: boolean;
+  is_docked: boolean;
+  is_game_running: boolean;
+  animations_suspended: boolean;
+  engine_sleeping: boolean;
+  sleep_spotify_client: boolean;
+  timeout_minutes: number;
+  paused_seconds: number;
+  status: EcoStatusState;
+}
+
 export interface MprisStatusInfo {
   enabled: boolean;
   bus_registered: boolean;
@@ -282,6 +299,10 @@ export interface EngineSettings {
   resilience_prompt_held_enabled?: boolean;
   mpris_enabled?: boolean;
   mpris_auto_proxy?: boolean;
+  accent_theme?: AccentThemeMode;
+  eco_mode_enabled?: boolean;
+  eco_timeout_minutes?: number;
+  eco_sleep_spotify_client?: boolean;
 }
 
 export type DuckingMode = "proportional" | "fixed";
@@ -341,6 +362,7 @@ export interface StatusResponse {
   dock_status?: DockStatusInfo;
   resilience_status?: ResilienceStatusInfo;
   mpris_status?: MprisStatusInfo;
+  eco_status?: EcoStatusInfo;
   active_game_app_id?: number | null;
   active_game_override?: ActiveGameOverrideInfo | null;
 }
