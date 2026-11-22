@@ -2,19 +2,19 @@
 gsd_state_version: "1.0"
 milestone: v0.7
 milestone_name: Studio, Living Room TV, Offline Travel & Ultimate Immersion (In Progress)
-current_phase: 19
-current_phase_name: Per-Game EQ & Volume Profiles
+current_phase: 21
+current_phase_name: Dynamic Album-Art Accent Themes & Handheld Battery Eco-Mode
 status: verifying
-stopped_at: Phase 21 complete, ready to verify Phase 19
-last_updated: "2026-11-22T11:10:47.256Z"
+stopped_at: Completed 21-06-PLAN.md
+last_updated: "2026-11-22T11:53:11.784Z"
 last_activity: 2026-11-22
-last_activity_desc: Phase 21 complete, transitioned to Phase 19
-state_head: 5dc3201ecd70eceeef1b8af0dd4ff496604a603d
+last_activity_desc: Phase 21 execution started
+state_head: 90b09e226b2192a4509f2e022b2e0ef6e2f9d023
 progress:
   total_phases: 12
   completed_phases: 2
-  total_plans: 17
-  completed_plans: 17
+  total_plans: 18
+  completed_plans: 18
   percent: 17
 ---
 
@@ -29,10 +29,10 @@ See: [.planning/PROJECT.md](file:///C:/Users/djdje/Deckify/.planning/PROJECT.md)
 
 ## Current Position
 
-Phase: 19 — Per-Game EQ & Volume Profiles
-Plan: 5
+Phase: 21 (Dynamic Album-Art Accent Themes & Handheld Battery Eco-Mode) — EXECUTING
+Plan: 6 of 6
 Status: Phase complete — ready for verification
-Last activity: 2026-11-22 — Phase 21 complete, transitioned to Phase 19
+Last activity: 2026-11-22 — Phase 21 execution started
 
 
 ## Performance Metrics
@@ -118,6 +118,7 @@ Last activity: 2026-11-22 — Phase 21 complete, transitioned to Phase 19
 | Phase 20 P07 | 5 min | 2 tasks | 4 files |
 | Phase 21 P03 | 3min | 2 tasks | 11 files |
 | Phase 21 P05 | 10min | 2 tasks | 4 files |
+| Phase 21 P06 | 4min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -187,6 +188,7 @@ Recent decisions affecting current work:
 - [Phase 20]: Apply width: auto and minWidth: auto on every compact inline DialogButton in ChordBindingsCard.tsx to override SteamOS 100% button width
 - [Phase 20]: Gated Steam toaster.toast fallback strictly on silent_banner_enabled === false and added volume-scaled Web Audio chime alongside SilentBanner
 - [Phase 20]: Shipped unbound [] DEFAULT_CHORD_BINDINGS, rejected STEAM/QAM guide buttons (13, 14, 27, 28), wired SteamClient.Input.RegisterForControllerInputMessages, and managed EUIComposition.Notification (1) in DeckifyOverlayWrapper
+- [Phase 21]: Placed useAccentTheme() after existing useState hooks in QAM Content to preserve hook slot indices and added @decky/api mock in SilentBanner.test.tsx
 
 ### Pending Todos
 
@@ -217,8 +219,8 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-22T11:07:51.779Z
-Stopped at: Phase 21 complete, ready to verify Phase 19
+Last session: 2026-11-22T11:53:09.540Z
+Stopped at: Completed 21-06-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
