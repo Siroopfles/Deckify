@@ -178,7 +178,7 @@ Plans:
   1. Synced and plain lyrics are automatically cached as human-readable `.lrc` files in `~/.cache/deckify/lyrics/` for `0ms` repeat loads and offline playback support.
   2. User can nudge lyric synchronization in `-0.5s` / `+0.5s` increments in `LyricsTab`, persisting the offset per `track_id` and immediately updating active lyric line scheduling in both `LyricsTab` and `DeckifyOverlay` without mutating cached `.lrc` timestamps.
   3. User can toggle phonetic romanization in `LyricsTab` (and `TvSplitView`) to display dual-line Romaji (Japanese), Revised Romanization (Korean), or Pinyin (Chinese) beneath CJK lyrics using upstream phonetic data and a zero-dependency pure-Python transliterator.
-**Plans:** 4/5 plans complete
+**Plans:** 5/5 plans executed
 
 Plans:
 **Wave 1**
@@ -192,7 +192,7 @@ Plans:
 - [x] 23-04-PLAN.md — LyricsTab nudge/romanize toolbar & dual-line CJK rendering, DeckifyExpandedModal X/Y shortcuts, and SettingsTab controls
 
 **Wave 1 (Gap Closure)**
-- [ ] 23-05-PLAN.md — Close UAT gap G-23-12: align Lyrics mode controller-hint-bar with X/Y sync nudge shortcuts and remove dead isActiveTrackMode checks
+- [x] 23-05-PLAN.md — Close UAT gap G-23-12: align Lyrics mode controller-hint-bar with X/Y sync nudge shortcuts and remove dead isActiveTrackMode checks
 **UI hint**: yes
 
 ### Phase 24: Podcast & Audiobook Power Suite
@@ -364,7 +364,7 @@ Phases execute in numeric order: 19 → 20 → 21 → 22 → 23 → 24 → 25 �
 | 20. 100% Silent HUD Toasts & Extended In-Game Quick-Chords | v0.7 | 7/7 | Complete    | 2026-11-22 |
 | 21. Dynamic Album-Art Accent Themes & Handheld Battery Eco-Mode | v0.7 | 6/6 | Complete    | 2026-11-22 |
 | 22. Spotify Connect Hub 2.0 & Native Crossfade | v0.7 | 5/5 | Complete    | 2026-11-22 |
-| 23. Lyrics 2.0 — Offline .lrc Cache, Per-Track Sync Nudge & CJK Romanization | v0.7 | 4/4 | Complete    | 2026-11-22 |
+| 23. Lyrics 2.0 — Offline .lrc Cache, Per-Track Sync Nudge & CJK Romanization | v0.7 | 5/5 | In Progress |  |
 | 24. Podcast & Audiobook Power Suite | v0.7 | 0/TBD | Not started | - |
 | 25. Universal Artist/Album Drill-Down, Instant Radio & Search 2.0 | v0.7 | 0/TBD | Not started | - |
 | 26. Unified CDP Platform Bridge & Deep Discovery 2.0 | v0.7 | 0/TBD | Not started | - |
