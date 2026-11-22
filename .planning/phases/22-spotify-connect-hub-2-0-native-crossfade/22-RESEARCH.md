@@ -273,12 +273,11 @@ async def set_device_volume(plugin, device_id: str, volume_percent: int) -> dict
 | A1 | `audio.crossfade.time_v2` in Spotify Desktop `prefs` is stored in milliseconds (`crossfade_seconds * 1000`), and `SettingsAPI` exposes `crossfade` / `crossfadeTime` properties. | Pattern 4 (3-Path Crossfade Sync) | Low — `prefs` boolean `audio.crossfade_v2` still toggles crossfade, and CDP eval is wrapped in `try/catch` with defensive property checks. Verify on hardware during UAT if testing Official Spotify Client. |
 | A2 | Bundled `bin/librespot` does not support a native `--crossfade` CLI flag. | Summary, Pattern 4 | Low — even if a newer `librespot` build adds one, not passing an unknown flag avoids startup crashes, and `VolumeFader` local transition fallback works regardless. |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Exact `SettingsAPI` property name for crossfade in Official Spotify Client CDP**
+1. **RESOLVED: Exact `SettingsAPI` property name for crossfade in Official Spotify Client CDP**
    - What we know: `SettingsAPI` is accessible via React fiber traversal in `_sync_spotify_client_quality_cdp` (`main.py:404-451`) using `s.quality.streamingQuality.setValue(...)`.
-   - What's unclear: Whether Spotify's internal `SettingsAPI.audio` exposes `crossfade` / `crossfadeTime` or `playback.crossfade` in the currently installed Flatpak version.
-   - Recommendation: Probe `s.audio?.crossfade` and `s.playback?.crossfade` defensively in `_sync_spotify_client_crossfade_cdp`, and always persist `audio.crossfade_v2` + `audio.crossfade.time_v2` to `prefs` via `_write_spotify_client_prefs()`.
+   - Resolution: `22-02-PLAN.md` probes `s.audio?.crossfade`, `s.audio?.crossfadeTime`, `s.playback?.crossfade`, and `s.playback?.crossfadeTime` defensively in `_sync_spotify_client_crossfade_cdp` (wrapped in `try/except`), while always persisting `audio.crossfade_v2` and `audio.crossfade.time_v2` to `prefs` via `_update_spotify_prefs_content`.
 
 ## Environment Availability
 
