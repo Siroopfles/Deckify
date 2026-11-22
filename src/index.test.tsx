@@ -103,6 +103,7 @@ vi.mock("react-icons/fa", () => {
     FaCompactDisc: Icon,
     FaChevronDown: Icon,
     FaChevronRight: Icon,
+    FaMoon: Icon,
   };
 });
 vi.mock("qrcode.react", () => ({ QRCodeSVG: () => ({ type: "QRCodeSVG", props: {} }) }));
@@ -380,8 +381,8 @@ describe("src/index.tsx GameSessions AppLifetime & QAM Pinned Playlists", () => 
     const clickPromise = pill.props.onClick();
     nodes = flattenNodes(renderContent());
     pill = nodes.find((n) => n.props?.["data-deckify-pinned-pill"] === "true" && textContent(n) === "Chill");
-    expect(pill.props.style.color).toBe("#1db954");
-    expect(pill.props.style.border).toBe("1px solid #1db954");
+    expect(pill.props.style.color).toBe("var(--deckify-accent, #1DB954)");
+    expect(pill.props.style.border).toBe("1px solid var(--deckify-accent, #1DB954)");
     expect(mockQuickPlayPinned).toHaveBeenCalledWith("spotify:playlist:1", "playlist");
 
     // Reject/fail RPC -> optimistic highlight rolls back and toast is shown
@@ -2355,5 +2356,67 @@ describe("Phase 20: Configurable Quick-Chords & Silent Confirmations (CHORD-01)"
     expect(mockControlPlayback).toHaveBeenCalledWith("next", "");
 
     plugin.onDismount?.();
+  });
+});
+
+describe("Phase 21: QAM Eco-Sleep Active & Wake & Play (ECO-01)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    hookIdx = 0;
+    hookValues.length = 0;
+  });
+
+  it("renders Eco-Sleep Active banner and Wake & Play button when eco_status.engine_sleeping is true and invokes control_playback('play')", async () => {
+    await import("./index");
+    const { addEventListener, removeEventListener } = await import("@decky/api");
+    const plugin = capturedPluginFactory!();
+
+    const renderContent = () => {
+      hookIdx = 0;
+      return plugin.content.type({});
+    };
+
+    // Initial render registers QAM listeners including eco_status_changed
+    let nodes = flattenNodes(renderContent());
+    expect(nodes.find((n) => textContent(n).includes("Eco-Sleep Active"))).toBeUndefined();
+
+    const ecoCalls = (addEventListener as any).mock.calls.filter(
+      (c: any[]) => c[0] === "eco_status_changed"
+    );
+    expect(ecoCalls.length).toBeGreaterThanOrEqual(1);
+    const qamEcoHandler = ecoCalls[ecoCalls.length - 1][1];
+
+    qamEcoHandler({
+      enabled: true,
+      has_battery: true,
+      on_battery: true,
+      is_docked: false,
+      is_game_running: false,
+      animations_suspended: false,
+      engine_sleeping: true,
+      sleep_spotify_client: false,
+      timeout_minutes: 15,
+      paused_seconds: 900,
+      status: "engine_sleeping",
+    });
+
+    nodes = flattenNodes(renderContent());
+    expect(nodes.find((n) => textContent(n).includes("Eco-Sleep Active"))).toBeDefined();
+    expect(nodes.find((n) => textContent(n).includes("Engine paused on battery to save power. Press Play to wake."))).toBeDefined();
+
+    const wakeBtn = nodes.find(
+      (n) => n.type === "DialogButton" && textContent(n).includes("Wake") && textContent(n).includes("Play")
+    );
+    expect(wakeBtn).toBeDefined();
+    expect(wakeBtn.props.style.minHeight).toBe(44);
+
+    await wakeBtn.props.onClick();
+    expect(mockControlPlayback).toHaveBeenCalledWith("play", "");
+
+    nodes = flattenNodes(renderContent());
+    expect(nodes.find((n) => textContent(n).includes("Eco-Sleep Active"))).toBeUndefined();
+
+    plugin.onDismount?.();
+    expect(removeEventListener).toHaveBeenCalledWith("eco_status_changed", expect.anything());
   });
 });

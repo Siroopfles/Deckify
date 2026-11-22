@@ -63,6 +63,8 @@ vi.mock("react-icons/fa", () => ({
   FaUndo: () => ({ type: "FaUndo" }),
   FaTimes: () => ({ type: "FaTimes" }),
   FaCircle: () => ({ type: "FaCircle" }),
+  FaPalette: () => ({ type: "FaPalette" }),
+  FaLeaf: () => ({ type: "FaLeaf" }),
 }));
 
 vi.mock("react/jsx-dev-runtime", () => ({
@@ -1279,7 +1281,7 @@ describe("SettingsTab - Bluetooth & Media Controls (MPRIS2) UI (Phase 18)", () =
     const spans = findNodes(tree, (n) => n.type === "span");
     const badgeSpan = spans.find((s) => findText(s) === "Active (Bluetooth Ready)");
     expect(badgeSpan).toBeDefined();
-    expect(badgeSpan.props.style.color).toBe("#1db954");
+    expect(badgeSpan.props.style.color).toBe("var(--deckify-accent, #1DB954)");
   });
 
   it("displays 'D-Bus Active (mpris-proxy unavailable)' when proxy_running is false and 'Disabled' when mpris_enabled is false", () => {
@@ -1551,5 +1553,178 @@ describe("SettingsTab - Silent HUD Banner & In-Game Quick Chords (Phase 20)", ()
     await topLeftRow.props.onClick();
     expect(mockSetSetting).toHaveBeenCalledWith("silent_banner_position", "top-left");
     expect(showToast).toHaveBeenCalledWith("Notification corner: top-left");
+  });
+});
+
+describe("SettingsTab - Accent Theme & Handheld Battery Eco-Mode (Phase 21, THEME-01 & ECO-01)", () => {
+  let refreshStatus: any;
+  let showToast: any;
+
+  const baseStatus: StatusResponse = {
+    authenticated: true,
+    librespot_running: true,
+    play_state: "playing",
+    track: null,
+    position_ms: 0,
+    is_playing: true,
+    volume: 50,
+    settings: {
+      audio_backend: "librespot",
+      audio_quality: "320",
+      bitrate: 320,
+      normalisation: true,
+      gapless: true,
+      autoplay: true,
+      accent_theme: "spotify_green",
+      eco_mode_enabled: true,
+      eco_timeout_minutes: 15,
+      eco_sleep_spotify_client: false,
+    },
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockAudioSinksState = null;
+    refreshStatus = vi.fn();
+    showToast = vi.fn();
+  });
+
+  it("renders Accent Theme card with 3 horizontal auto-width pills and saves accent_theme", async () => {
+    const tree = SettingsTab({
+      status: {
+        ...baseStatus,
+        settings: { ...baseStatus.settings!, accent_theme: "dynamic_album" },
+      },
+      refreshStatus,
+      showToast,
+    });
+
+    const themeCard = findNodes(
+      tree,
+      (n) => n.type === "div" && findText(n).includes("Accent Theme") && !findText(n).includes("Playback Engine")
+    )[0];
+    expect(themeCard).toBeDefined();
+    expect(findText(themeCard)).toContain("Adapts to the active track's album art");
+
+    const horizontalRow = findNodes(
+      themeCard,
+      (n) => n.type === Focusable && n.props?.["flow-children"] === "horizontal"
+    )[0];
+    expect(horizontalRow).toBeDefined();
+
+    const pills = findNodes(horizontalRow, (n) => n.type === DialogButton);
+    expect(pills).toHaveLength(3);
+    for (const pill of pills) {
+      expect(pill.props.style).toMatchObject({
+        width: "auto",
+        minWidth: "auto",
+        minHeight: 44,
+      });
+    }
+
+    const bluePill = pills.find((p) => findText(p).includes("SteamOS Deck Blue"))!;
+    expect(bluePill).toBeDefined();
+    await bluePill.props.onClick();
+    expect(mockSetSetting).toHaveBeenCalledWith("accent_theme", "steamos_blue");
+  });
+
+  it("renders Handheld Battery Eco-Mode live status badges and persists eco settings", async () => {
+    const onBatteryTree = SettingsTab({
+      status: baseStatus,
+      ecoStatus: {
+        enabled: true,
+        has_battery: true,
+        on_battery: true,
+        is_docked: false,
+        is_game_running: true,
+        animations_suspended: true,
+        engine_sleeping: false,
+        sleep_spotify_client: false,
+        timeout_minutes: 15,
+        paused_seconds: 0,
+        status: "on_battery_active",
+      },
+      refreshStatus,
+      showToast,
+    });
+    expect(findText(onBatteryTree)).toContain("On Battery — Active");
+
+    const sleepingTree = SettingsTab({
+      status: baseStatus,
+      ecoStatus: {
+        enabled: true,
+        has_battery: true,
+        on_battery: true,
+        is_docked: false,
+        is_game_running: false,
+        animations_suspended: false,
+        engine_sleeping: true,
+        sleep_spotify_client: false,
+        timeout_minutes: 15,
+        paused_seconds: 900,
+        status: "engine_sleeping",
+      },
+      refreshStatus,
+      showToast,
+    });
+    expect(findText(sleepingTree)).toContain("Engine Sleeping");
+
+    const bypassedTree = SettingsTab({
+      status: {
+        ...baseStatus,
+        settings: { ...baseStatus.settings!, eco_mode_enabled: false },
+      },
+      ecoStatus: {
+        enabled: false,
+        has_battery: true,
+        on_battery: false,
+        is_docked: true,
+        is_game_running: false,
+        animations_suspended: false,
+        engine_sleeping: false,
+        sleep_spotify_client: false,
+        timeout_minutes: 15,
+        paused_seconds: 0,
+        status: "bypassed",
+      },
+      refreshStatus,
+      showToast,
+    });
+    expect(findText(bypassedTree)).toContain("Bypassed (AC / Docked / Desktop)");
+
+    const ecoCard = findNodes(
+      onBatteryTree,
+      (n) => n.type === "div" && findText(n).includes("Handheld Battery Eco-Mode") && !findText(n).includes("Playback Engine")
+    )[0];
+    const toggles = findNodes(ecoCard, (n) => n.type === ToggleField);
+    const enableToggle = toggles.find((t) => t.props?.label === "Enable Battery Eco-Mode")!;
+    const spotifyClientToggle = toggles.find((t) => t.props?.label === "Sleep Official Spotify Client")!;
+    const timeoutSlider = findNodes(ecoCard, (n) => n.type === SliderField).find(
+      (s) => s.props?.label === "Inactivity Sleep Timeout"
+    )!;
+
+    expect(timeoutSlider.props).toMatchObject({ min: 5, max: 30, step: 5, showValue: true, value: 15 });
+
+    await enableToggle.props.onChange(false);
+    expect(mockSetSetting).toHaveBeenCalledWith("eco_mode_enabled", false);
+
+    await timeoutSlider.props.onChange(20);
+    expect(mockSetSetting).toHaveBeenCalledWith("eco_timeout_minutes", 20);
+
+    await spotifyClientToggle.props.onChange(true);
+    expect(mockSetSetting).toHaveBeenCalledWith("eco_sleep_spotify_client", true);
+
+    const disabledEcoCard = findNodes(
+      bypassedTree,
+      (n) => n.type === "div" && findText(n).includes("Handheld Battery Eco-Mode") && !findText(n).includes("Playback Engine")
+    )[0];
+    const disabledSlider = findNodes(disabledEcoCard, (n) => n.type === SliderField).find(
+      (s) => s.props?.label === "Inactivity Sleep Timeout"
+    )!;
+    const disabledSpotifyToggle = findNodes(disabledEcoCard, (n) => n.type === ToggleField).find(
+      (t) => t.props?.label === "Sleep Official Spotify Client"
+    )!;
+    expect(disabledSlider.props.disabled).toBe(true);
+    expect(disabledSpotifyToggle.props.disabled).toBe(true);
   });
 });

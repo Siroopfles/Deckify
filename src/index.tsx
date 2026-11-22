@@ -1655,7 +1655,7 @@ const Content: FC = () => {
                 {(isDucked || hasGameOverride) && (
                   <span
                     style={{
-                      background: "var(--deckify-accent, #1DB954)",
+                      background: "var(--deckify-accent, #1db954)",
                       color: "#000",
                       fontSize: 10,
                       fontWeight: 800,
@@ -2012,7 +2012,7 @@ export default definePlugin(() => {
       cachedArtworkUrl = m.artwork_url || m.image_url || null;
       applyThemeBusSync();
     }
-    handleTrackMetadataNotification(meta);
+    return handleTrackMetadataNotification(meta);
   });
 
   // 6. In-game Auto-Ducking & App Lifetime Listener (with per-game profiles)
