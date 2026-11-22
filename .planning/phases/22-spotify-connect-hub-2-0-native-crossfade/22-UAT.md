@@ -40,3 +40,20 @@ skipped: 0
 blocked: 0
 
 ## Gaps
+
+- gap_id: G-22-4
+  truth: "Local hardware card displays accurate platform label (Steam Machine on non-Deck desktop/living-room hosts instead of Local Device)."
+  status: failed
+  reason: "User reported: Er staat local device maar het is de steam machine opzich niet heel erg maar het is wel de steam machine Voor de rest werkt het perfect en weet ook niet of we dit moeten fixen"
+  severity: minor
+  test: 3
+  root_cause: "1) Valve Steam Machine DMI product_name/board_name is 'Fremont' (not matched by detect_host_hardware_label in py_modules/rpc_playback.py); 2) read_power_supply_state in py_modules/eco.py treats peripheral batteries with scope='Device' (e.g. corsair-void-1-battery) as system batteries, causing has_battery=True on desktops with wireless headsets/controllers."
+  artifacts:
+    - path: "py_modules/eco.py"
+      issue: "read_power_supply_state counts scope='Device' peripheral batteries as system batteries"
+    - path: "py_modules/rpc_playback.py"
+      issue: "detect_host_hardware_label does not recognize Valve Steam Machine DMI codename 'fremont'"
+  missing:
+    - "Ignore power_supply entries with scope == 'Device' in py_modules/eco.py:read_power_supply_state so wireless peripherals never masquerade as system batteries"
+    - "Recognize 'fremont' alongside 'steam machine' in py_modules/rpc_playback.py:detect_host_hardware_label"
+    - "Add unit tests in tests/test_connect_hub.py (and/or tests/test_eco.py) for Fremont DMI and scope='Device' peripheral battery filtering"
