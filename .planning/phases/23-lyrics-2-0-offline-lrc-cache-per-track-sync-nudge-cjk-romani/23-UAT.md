@@ -1,5 +1,5 @@
 ---
-status: complete
+status: diagnosed
 phase: 23-lyrics-2-0-offline-lrc-cache-per-track-sync-nudge-cjk-romani
 source: 23-01-SUMMARY.md, 23-02-SUMMARY.md, 23-03-SUMMARY.md, 23-04-SUMMARY.md
 started: 2026-11-22T19:36:00+01:00
@@ -113,5 +113,14 @@ skipped: 0
   reason: "User reported: Alleen wat bedoel je met sneltoetsen X en Y ik zie ze namelijk in de onderste bar staan als like en options maar als ik ze indruk doen ze andere dingen"
   severity: major
   test: 12
-  artifacts: []
-  missing: []
+  root_cause: "In src/components/DeckifyExpandedModal.tsx, onAction intercepts X/Y in lyrics mode to call handleNudgeOffset(-500/500), but hintText still groups mode === 'lyrics' with mode === 'now_playing' and renders 'L2/R2 Seek · X Like · Y Options · L1/R1 Tabs' in controller-hint-bar; lines 1002 and 1022 also leave unreachable modeRef.current === 'lyrics' checks in isActiveTrackMode."
+  artifacts:
+    - path: "src/components/DeckifyExpandedModal.tsx"
+      issue: "hintText groups lyrics with now_playing (lines 1087-1094) and isActiveTrackMode has dead lyrics checks (lines 1002, 1022)"
+    - path: "src/components/DeckifyExpandedModal.test.tsx"
+      issue: "controller-hint-bar test (lines 545-581) lacks assertion for mode === 'lyrics'"
+  missing:
+    - "Give mode === 'lyrics' its own hintText branch in DeckifyExpandedModal.tsx ('L2/R2 Seek · X -0.5s · Y +0.5s · L1/R1 Tabs')"
+    - "Remove unreachable modeRef.current === 'lyrics' checks from isActiveTrackMode at lines 1002 and 1022"
+    - "Add lyrics mode assertion to controller-hint-bar test in DeckifyExpandedModal.test.tsx"
+  debug_session: ".planning/debug/lyrics-xy-shortcuts-footer-mismatch.md"
