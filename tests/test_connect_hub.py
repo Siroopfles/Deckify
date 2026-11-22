@@ -231,6 +231,49 @@ class TestConnectHub(unittest.IsolatedAsyncioTestCase):
             "Steam Machine",
         )
 
+    def test_detect_host_hardware_label_fremont_dmi_and_peripheral_battery(self):
+        with tempfile.TemporaryDirectory() as dmi_dir, tempfile.TemporaryDirectory() as sysfs_dir:
+            # Even if a system battery were present, Fremont DMI identifies Steam Machine
+            bat_dir = os.path.join(sysfs_dir, "BAT0")
+            os.makedirs(bat_dir)
+            with open(os.path.join(bat_dir, "type"), "w", encoding="utf-8") as f:
+                f.write("Battery\n")
+            with open(os.path.join(bat_dir, "status"), "w", encoding="utf-8") as f:
+                f.write("Charging\n")
+
+            with open(os.path.join(dmi_dir, "product_name"), "w", encoding="utf-8") as f:
+                f.write("Fremont\n")
+            self.assertEqual(
+                rpc_playback.detect_host_hardware_label(dmi_root=dmi_dir, sysfs_root=sysfs_dir),
+                "Steam Machine",
+            )
+
+            os.remove(os.path.join(dmi_dir, "product_name"))
+            with open(os.path.join(dmi_dir, "board_name"), "w", encoding="utf-8") as f:
+                f.write("Valve Fremont EVT\n")
+            self.assertEqual(
+                rpc_playback.detect_host_hardware_label(dmi_root=dmi_dir, sysfs_root=sysfs_dir),
+                "Steam Machine",
+            )
+
+        # Non-Fremont desktop DMI with only a scope=Device peripheral battery -> Steam Machine
+        with tempfile.TemporaryDirectory() as dmi_dir, tempfile.TemporaryDirectory() as sysfs_dir:
+            with open(os.path.join(dmi_dir, "product_name"), "w", encoding="utf-8") as f:
+                f.write("B650 Desktop\n")
+            headset_dir = os.path.join(sysfs_dir, "corsair-void-1-battery")
+            os.makedirs(headset_dir)
+            with open(os.path.join(headset_dir, "type"), "w", encoding="utf-8") as f:
+                f.write("Battery\n")
+            with open(os.path.join(headset_dir, "scope"), "w", encoding="utf-8") as f:
+                f.write("Device\n")
+            with open(os.path.join(headset_dir, "status"), "w", encoding="utf-8") as f:
+                f.write("Discharging\n")
+
+            self.assertEqual(
+                rpc_playback.detect_host_hardware_label(dmi_root=dmi_dir, sysfs_root=sysfs_dir),
+                "Steam Machine",
+            )
+
     async def test_get_devices_exposes_hardware_label_and_local_hostname(self):
         devices = [{"id": "dev-1", "name": "Bazzite", "is_active": True}]
         plugin = _make_plugin()

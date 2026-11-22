@@ -476,7 +476,7 @@ def detect_host_hardware_label(
 
     if any(token in val for val in dmi_values for token in ("jupiter", "galileo", "steam deck")):
         return "Steam Deck"
-    if any("steam machine" in val for val in dmi_values):
+    if any(token in val for val in dmi_values for token in ("steam machine", "fremont")):
         return "Steam Machine"
 
     try:
