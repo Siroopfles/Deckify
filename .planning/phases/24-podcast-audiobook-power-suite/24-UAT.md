@@ -1,5 +1,5 @@
 ---
-status: complete
+status: diagnosed
 phase: 24-podcast-audiobook-power-suite
 source: [24-01-SUMMARY.md, 24-02-SUMMARY.md, 24-03-SUMMARY.md, 24-04-SUMMARY.md, 24-05-SUMMARY.md, 24-06-SUMMARY.md]
 started: 2026-11-22T20:53:05Z
@@ -39,5 +39,14 @@ blocked: 0
   reason: "User reported: alleen de playbackbar niet sleepbaar is dat is het enige"
   severity: major
   test: 2
-  artifacts: []
-  missing: []
+  root_cause: "ProgressScrubBar (src/components/tabs/NowPlayingTab.tsx:176-252) attaches pointer-drag handlers and touchAction: none directly onto @decky/ui's <Focusable> component with a 12px-tall hit target inside an overflowY: auto scroll container (DeckifyExpandedModal.tsx), without calling e.preventDefault() or using a native <div> hit-target with window-level pointermove/pointerup listeners. In SteamOS GamepadUI CEF, <Focusable>'s internal pointer/focus handling and touch-scroll interception drops pointer-drag tracking."
+  artifacts:
+    - path: "src/components/tabs/NowPlayingTab.tsx"
+      issue: "Pointer-drag handlers attached to <Focusable> with 12px hit area, no e.preventDefault(), element-only move/up listeners, and duplicate onClick commit"
+    - path: "src/components/tabs/NowPlayingTab.test.tsx"
+      issue: "Pointer drag test mocks Focusable and calls prop callbacks directly rather than testing native div hit-target and window pointermove/pointerup listeners"
+  missing:
+    - "Keep <Focusable> for D-pad/keyboard focus and onGamepadDirection Left/Right scrubbing, and place pointer-drag hit target on a native <div> inside it with generous vertical hit padding (e.g. padding: 10px 0), touchAction: none, userSelect: none, pointerEvents: none on visual children, e.preventDefault() on pointerdown, and window-level pointermove/pointerup/pointercancel listeners during active drag"
+    - "Skip duplicate onClick seek commit immediately after a drag"
+    - "Update NowPlayingTab.test.tsx to test native div pointer-drag and window listener cleanup"
+  debug_session: .planning/debug/progress-scrub-bar-not-draggable.md
