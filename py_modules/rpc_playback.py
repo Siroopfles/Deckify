@@ -6,6 +6,7 @@ import urllib.error
 from py_modules.common import (
     ALLOWED_PLAYBACK_SPEEDS,
     _exec,
+    _save_settings,
     decky,
 )
 from py_modules.eco import read_power_supply_state
@@ -678,6 +679,6 @@ async def set_playback_speed(plugin, speed: float) -> dict:
 
     plugin._playback_speed = target_speed
     plugin._settings["preferred_podcast_speed"] = target_speed
-    plugin._save_settings()
+    _save_settings(plugin._settings)
     await decky.emit("playback_speed_changed", {"speed": target_speed})
     return {"ok": True, "speed": target_speed}

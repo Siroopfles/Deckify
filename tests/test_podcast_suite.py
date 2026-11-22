@@ -18,7 +18,6 @@ def make_plugin(audio_backend: str = "spotify_client"):
         _settings=settings,
         _playback_speed=1.0,
         _last_media_is_spoken=False,
-        _save_settings=MagicMock(),
         _ensure_token=AsyncMock(return_value="tok"),
     )
 
@@ -52,7 +51,9 @@ class TestPodcastSpeedTracer(unittest.IsolatedAsyncioTestCase):
 
     async def test_set_playback_speed_spotify_client_success(self):
         plugin = make_plugin("spotify_client")
+        self.assertFalse(hasattr(plugin, "_save_settings"))
         with patch.object(rpc_playback, "_cdp_set_playback_speed", return_value={"ok": True, "speed": 1.5}) as mock_cdp, \
+             patch.object(rpc_playback, "_save_settings") as mock_save, \
              patch.object(rpc_playback.decky, "emit", new_callable=AsyncMock) as mock_emit:
             res = await rpc_playback.set_playback_speed(plugin, 1.5)
 
@@ -61,19 +62,20 @@ class TestPodcastSpeedTracer(unittest.IsolatedAsyncioTestCase):
         mock_cdp.assert_called_once_with(1.5)
         self.assertEqual(plugin._playback_speed, 1.5)
         self.assertEqual(plugin._settings["preferred_podcast_speed"], 1.5)
-        plugin._save_settings.assert_called_once()
+        mock_save.assert_called_once_with(plugin._settings)
         mock_emit.assert_awaited_once_with("playback_speed_changed", {"speed": 1.5})
 
     async def test_set_playback_speed_librespot_unsupported(self):
         plugin = make_plugin("librespot")
-        with patch.object(rpc_playback, "_cdp_set_playback_speed") as mock_cdp:
+        with patch.object(rpc_playback, "_cdp_set_playback_speed") as mock_cdp, \
+             patch.object(rpc_playback, "_save_settings") as mock_save:
             res = await rpc_playback.set_playback_speed(plugin, 1.5)
 
         self.assertFalse(res.get("ok"))
         self.assertTrue(res.get("unsupported_backend"))
         self.assertEqual(plugin._playback_speed, 1.0)
         mock_cdp.assert_not_called()
-        plugin._save_settings.assert_not_called()
+        mock_save.assert_not_called()
 
     async def test_set_playback_speed_rejects_invalid_and_non_numeric(self):
         plugin = make_plugin("spotify_client")
