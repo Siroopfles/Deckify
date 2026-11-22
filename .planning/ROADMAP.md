@@ -162,9 +162,11 @@ Plans:
   1. User can open `DevicesTab` to view distinct device type icons (Steam Deck, Desktop, Smartphone, Speaker/TV) and active engine badges (`librespot` vs `Spotify Client`).
   2. User can select the 1-click *"Pull Playback to Steam Deck"* action in `DevicesTab` to automatically wake a sleeping local Deckify engine and transfer active playback from an external Spotify Connect device, or adjust remote Connect device volume via a debounced slider.
   3. User can configure native track Crossfade (`0–12s`) in `SettingsTab`, synchronizing the transition duration across Official Spotify Client CDP preferences, `librespot` / `spotifyd` engine config, and local playback transitions.
-**Plans**: 2/2 plans executed
+**Plans**: 2/4 plans executed
 - [x] 22-01-PLAN.md
 - [x] 22-02-PLAN.md
+- [ ] 22-03-PLAN.md — Close UAT gaps G-22-1 & G-22-2: host hardware label detection, local device deduplication, and CEF truncation hardening
+- [ ] 22-04-PLAN.md — Close UAT gap G-22-3: scope CrossfadeSettingRow to Official Spotify Client and remove librespot dip-to-silence fallback
 **UI hint**: yes
 
 ### Phase 23: Lyrics 2.0 — Offline .lrc Cache, Per-Track Sync Nudge & CJK Romanization
