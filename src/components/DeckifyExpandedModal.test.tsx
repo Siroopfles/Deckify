@@ -19,6 +19,8 @@ vi.mock("@decky/api", () => ({
     if (name === "get_recently_played") return mockGetRecentlyPlayed;
     return vi.fn().mockResolvedValue({ ok: true });
   },
+  addEventListener: vi.fn(),
+  removeEventListener: vi.fn(),
   toaster: { toast: mockToast },
 }));
 

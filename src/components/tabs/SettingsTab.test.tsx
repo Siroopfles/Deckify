@@ -65,6 +65,7 @@ vi.mock("react-icons/fa", () => ({
   FaCircle: () => ({ type: "FaCircle" }),
   FaPalette: () => ({ type: "FaPalette" }),
   FaLeaf: () => ({ type: "FaLeaf" }),
+  FaTrashAlt: () => ({ type: "FaTrashAlt" }),
 }));
 
 vi.mock("react/jsx-dev-runtime", () => ({

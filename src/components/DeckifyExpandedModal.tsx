@@ -1,6 +1,6 @@
 import { FC, useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Focusable, ModalRoot, NavEntryPositionPreferences } from "@decky/ui";
-import { callable, toaster } from "@decky/api";
+import { addEventListener, callable, removeEventListener, toaster } from "@decky/api";
 // Note: Child views render heart icons: FaHeart, FaRegHeart
 import {
   AlbumItem,
@@ -81,7 +81,21 @@ const backendGetRecentlyPlayed = callable<[number], { ok: boolean; tracks?: Trac
 const backendGetSavedEpisodes = callable<[number], { ok: boolean; episodes?: EpisodeItem[]; total?: number; error?: string }>("get_saved_episodes");
 const backendGetSavedShows = callable<[number], { ok: boolean; shows?: any[]; total?: number; error?: string }>("get_saved_shows");
 const backendGetQueue = callable<[], { ok: boolean; queue?: TrackItem[]; error?: string }>("get_queue");
-const backendGetLyrics = callable<[string, string, number, number?], { ok: boolean; synced_lyrics?: string; plain_lyrics?: string; source?: string; error?: string }>("get_lyrics");
+const backendGetLyrics = callable<
+  [string, string, number, number?, string?, boolean?],
+  {
+    ok: boolean;
+    synced_lyrics?: string;
+    plain_lyrics?: string;
+    source?: string;
+    cached?: boolean;
+    romanized_lines?: SyncedLine[];
+    romanized_plain?: (string | null)[];
+    error?: string;
+  }
+>("get_lyrics");
+const backendGetTrackLyricsOffset = callable<[string], { ok: boolean; offset_ms?: number }>("get_track_lyrics_offset");
+const backendSetTrackLyricsOffset = callable<[string, number], { ok: boolean; offset_ms?: number; error?: string }>("set_track_lyrics_offset");
 const backendSetNativeMix = callable<[string, boolean, boolean], { ok: boolean; error?: string }>("set_native_mix");
 const backendSetSetting = callable<[string, unknown], { ok: boolean; settings?: any; error?: string }>("set_setting");
 
@@ -133,11 +147,18 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
   // Lyrics states
   const [syncedLyrics, setSyncedLyrics] = useState<SyncedLine[]>([]);
   const [plainLyrics, setPlainLyrics] = useState<string | null>(null);
+  const [plainRomanizedLines, setPlainRomanizedLines] = useState<(string | null)[] | null>(null);
   const [lyricsSource, setLyricsSource] = useState<string | null>(null);
+  const [lyricsCached, setLyricsCached] = useState(false);
   const [lyricsOffset, setLyricsOffset] = useState(0);
+  const [trackOffsetMs, setTrackOffsetMs] = useState(0);
   const [loadingLyrics, setLoadingLyrics] = useState(false);
   const [currentLineIndex, setCurrentLineIndex] = useState(-1);
   const activeLineRef = useRef<HTMLDivElement | null>(null);
+  const hasLyricsRef = useRef(false);
+  hasLyricsRef.current = syncedLyrics.length > 0 || Boolean(plainLyrics);
+  const trackOffsetMsRef = useRef(trackOffsetMs);
+  trackOffsetMsRef.current = trackOffsetMs;
 
   // UI state & refs
   const [toastMsg, setToastMsg] = useState<string | null>(null);
@@ -352,52 +373,152 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
   const artistName = track?.artist;
   const durationSec = Math.round((track?.duration_ms || 0) / 1000);
 
-  const fetchLyrics = useCallback(async (offset = 0) => {
+  const romanizeEnabled = Boolean(status?.settings?.romanize_lyrics_enabled);
+  const romanizeDisplayStyle: "dual" | "romanized_only" =
+    status?.settings?.romanize_display_style === "romanized_only" ? "romanized_only" : "dual";
+
+  const fetchLyrics = useCallback(async (offset = 0, forceRefresh = false) => {
     if (!trackName || !artistName) return;
     setLoadingLyrics(true);
+    const keepExistingOnFailure = (forceRefresh || offset > 0) && hasLyricsRef.current;
     try {
-      const res = await backendGetLyrics(trackName, artistName, durationSec, offset);
+      const res = await backendGetLyrics(
+        trackName,
+        artistName,
+        durationSec,
+        offset,
+        activeTrackId || "",
+        forceRefresh,
+      );
       if (res.ok) {
         setLyricsSource(res.source || "Auto");
+        setLyricsCached(Boolean(res.cached));
         if (res.synced_lyrics) {
-          setSyncedLyrics(parseLrc(res.synced_lyrics));
+          const lines =
+            res.romanized_lines && res.romanized_lines.length > 0
+              ? res.romanized_lines
+              : parseLrc(res.synced_lyrics);
+          setSyncedLyrics(lines);
           setPlainLyrics(null);
+          setPlainRomanizedLines(null);
         } else if (res.plain_lyrics) {
           setPlainLyrics(res.plain_lyrics);
+          setPlainRomanizedLines(res.romanized_plain ?? null);
           setSyncedLyrics([]);
+        } else if (keepExistingOnFailure) {
+          showToast("Offline or source unavailable — keeping cached lyrics.");
         } else {
           setSyncedLyrics([]);
-          setPlainLyrics("No lyrics found from this provider.");
+          setPlainLyrics(null);
+          setPlainRomanizedLines(null);
         }
+      } else if (keepExistingOnFailure) {
+        showToast("Offline or source unavailable — keeping cached lyrics.");
       } else {
         setSyncedLyrics([]);
-        setPlainLyrics("Lyrics could not be loaded.");
+        setPlainLyrics(null);
+        setPlainRomanizedLines(null);
+        setLyricsCached(false);
       }
     } catch {
-      setSyncedLyrics([]);
-      setPlainLyrics("Lyrics load error.");
+      if (keepExistingOnFailure) {
+        showToast("Offline or source unavailable — keeping cached lyrics.");
+      } else {
+        setSyncedLyrics([]);
+        setPlainLyrics(null);
+        setPlainRomanizedLines(null);
+        setLyricsCached(false);
+      }
     } finally {
       setLoadingLyrics(false);
     }
-  }, [trackName, artistName, durationSec]);
+  }, [trackName, artistName, durationSec, activeTrackId, showToast]);
 
   useEffect(() => {
     if (mode !== "lyrics") return;
     setLyricsOffset(0);
-    fetchLyrics(0);
-  }, [mode, trackName, artistName, durationSec, fetchLyrics]);
+    fetchLyrics(0, false);
+  }, [mode, trackName, artistName, durationSec, romanizeEnabled, fetchLyrics]);
+
+  useEffect(() => {
+    if (!activeTrackId) {
+      setTrackOffsetMs(0);
+      return;
+    }
+    let cancelled = false;
+    backendGetTrackLyricsOffset(activeTrackId)
+      .then((res) => {
+        if (!cancelled && res.ok && typeof res.offset_ms === "number") {
+          setTrackOffsetMs(Math.max(-10000, Math.min(10000, res.offset_ms)));
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTrackId]);
+
+  useEffect(() => {
+    if (typeof addEventListener !== "function" || typeof removeEventListener !== "function") return;
+    const handler = (payload: { track_id?: string; offset_ms?: number }) => {
+      if (payload?.track_id && payload.track_id === activeTrackId && typeof payload.offset_ms === "number") {
+        setTrackOffsetMs(Math.max(-10000, Math.min(10000, payload.offset_ms)));
+      }
+    };
+    addEventListener("lyrics_offset_changed", handler);
+    return () => {
+      removeEventListener("lyrics_offset_changed", handler);
+    };
+  }, [activeTrackId]);
+
+  const saveTrackOffset = useCallback(
+    async (nextOffset: number) => {
+      const clamped = Math.max(-10000, Math.min(10000, nextOffset));
+      setTrackOffsetMs(clamped);
+      if (!activeTrackId) return;
+      try {
+        const res = await backendSetTrackLyricsOffset(activeTrackId, clamped);
+        if (!res.ok) {
+          showToast("Failed to save lyric sync offset — please try again.");
+        }
+      } catch {
+        showToast("Failed to save lyric sync offset — please try again.");
+      }
+    },
+    [activeTrackId, showToast],
+  );
+
+  const handleNudgeOffset = useCallback(
+    (deltaMs: number) => {
+      saveTrackOffset(trackOffsetMsRef.current + deltaMs);
+    },
+    [saveTrackOffset],
+  );
+
+  const handleResetOffset = useCallback(() => {
+    saveTrackOffset(0);
+  }, [saveTrackOffset]);
+
+  const handleToggleRomanize = useCallback(async () => {
+    try {
+      await backendSetSetting("romanize_lyrics_enabled", !romanizeEnabled);
+      refreshStatus();
+    } catch {
+      showToast("Failed to update romanization setting.");
+    }
+  }, [romanizeEnabled, refreshStatus, showToast]);
 
   const handleNextLyricsSource = useCallback(() => {
     const nextOffset = (lyricsOffset + 1) % 5;
     setLyricsOffset(nextOffset);
-    fetchLyrics(nextOffset);
+    fetchLyrics(nextOffset, true);
     showToast("Trying next lyrics provider...");
   }, [lyricsOffset, fetchLyrics, showToast]);
 
   const handleSelectLyricsSource = useCallback(
     (offset: number, label: string) => {
       setLyricsOffset(offset);
-      fetchLyrics(offset);
+      fetchLyrics(offset, true);
       showToast(`Loading lyrics from ${label}...`);
     },
     [fetchLyrics, showToast]
@@ -405,13 +526,14 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
 
   useEffect(() => {
     if (!syncedLyrics.length) return;
+    const effectivePosMs = currentPositionMs - trackOffsetMs;
     let idx = -1;
     for (let i = 0; i < syncedLyrics.length; i++) {
-      if (currentPositionMs >= syncedLyrics[i].timeMs) idx = i;
+      if (effectivePosMs >= syncedLyrics[i].timeMs) idx = i;
       else break;
     }
     setCurrentLineIndex(idx);
-  }, [currentPositionMs, syncedLyrics]);
+  }, [currentPositionMs, trackOffsetMs, syncedLyrics]);
 
   useEffect(() => {
     if (activeLineRef.current) {
@@ -868,6 +990,12 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
           cycleMode(-1);
         } else if (action === "R1") {
           cycleMode(1);
+        } else if (modeRef.current === "lyrics" && (action === "X" || action === "Y")) {
+          if (e) {
+            e.preventDefault?.();
+            e.stopPropagation?.();
+          }
+          handleNudgeOffset(action === "X" ? -500 : 500);
         } else if (action === "Y") { // Gamepad Y button opens action menu
           if (focusedTrackRef.current || (modeRef.current !== "engine" && modeRef.current !== "devices")) {
             const isActiveTrackMode =
@@ -904,7 +1032,7 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
           }
         }
       },
-      [track, handleToggleLike, cycleMode]
+      [track, handleToggleLike, cycleMode, handleNudgeOffset]
     ),
   });
 
@@ -1080,14 +1208,22 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
                   trackName={trackName}
                   artistName={artistName}
                   lyricsSource={lyricsSource || undefined}
+                  lyricsCached={lyricsCached}
                   handleNextLyricsSource={handleNextLyricsSource}
                   onSelectLyricsSource={handleSelectLyricsSource}
                   loadingLyrics={loadingLyrics}
                   syncedLyrics={syncedLyrics}
                   plainLyrics={plainLyrics}
+                  plainRomanizedLines={plainRomanizedLines}
                   currentLineIndex={currentLineIndex}
                   activeLineRef={activeLineRef}
                   onSeekPlayback={handleSeekPlayback}
+                  trackOffsetMs={trackOffsetMs}
+                  onNudgeOffset={handleNudgeOffset}
+                  onResetOffset={handleResetOffset}
+                  romanizeEnabled={romanizeEnabled}
+                  romanizeDisplayStyle={romanizeDisplayStyle}
+                  onToggleRomanize={handleToggleRomanize}
                 />
               )}
 

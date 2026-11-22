@@ -1,7 +1,7 @@
 import { FC, useState, useEffect, useCallback, useRef } from "react";
 import { DialogButton, Focusable, SliderField, ToggleField } from "@decky/ui";
 import { callable, addEventListener, removeEventListener } from "@decky/api";
-import { FaSlidersH, FaClock, FaPowerOff, FaPlug, FaBluetooth, FaPalette, FaLeaf } from "react-icons/fa";
+import { FaSlidersH, FaClock, FaPowerOff, FaPlug, FaBluetooth, FaPalette, FaLeaf, FaTrashAlt } from "react-icons/fa";
 import {
   AccentThemeMode,
   ActiveGameOverrideInfo,
@@ -41,6 +41,7 @@ const EQ_PRESET_ROWS: Array<Array<{ id: EqualizerPreset; label: string }>> = [
 ];
 
 const backendSetSetting = callable<[string, unknown], { ok: boolean; settings?: any; error?: string }>("set_setting");
+const backendClearLyricsCache = callable<[], { ok: boolean; deleted?: number; error?: string }>("clear_lyrics_cache");
 const backendSetEqBands = callable<[number[]], { ok: boolean; error?: string }>("set_eq_bands");
 const backendGetAudioSinks = callable<[], { ok: boolean; sinks?: AudioSinkInfo[]; error?: string }>("get_audio_sinks");
 const backendSetAudioSink = callable<[string], { ok: boolean; error?: string }>("set_audio_sink");
@@ -1760,6 +1761,111 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, ecoStatus, refreshSt
             />
           </>
         )}
+
+        {/* Romanize CJK Lyrics Toggle */}
+        <InteractiveRow
+          onClick={async () => {
+            const cur = localSettings.romanize_lyrics_enabled ?? status?.settings?.romanize_lyrics_enabled ?? false;
+            showToast(!cur ? "CJK lyric romanization enabled" : "CJK lyric romanization disabled");
+            await updateSetting("romanize_lyrics_enabled", !cur);
+          }}
+          active={localSettings.romanize_lyrics_enabled ?? status?.settings?.romanize_lyrics_enabled}
+          style={{ justifyContent: "space-between", minHeight: 44, marginTop: 8, marginBottom: 4 }}
+        >
+          <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+            <span style={{ fontSize: 13, fontWeight: 600 }}>Romanize CJK Lyrics</span>
+            <span style={{ fontSize: 11, opacity: 0.6 }}>
+              Display Romaji (Japanese), Revised Romanization (Korean), or Pinyin (Chinese) beneath CJK lyrics.
+            </span>
+          </div>
+          <span style={{ fontSize: 12, fontWeight: 700, color: (localSettings.romanize_lyrics_enabled ?? status?.settings?.romanize_lyrics_enabled) ? "var(--deckify-accent, #1DB954)" : "#888" }}>
+            {(localSettings.romanize_lyrics_enabled ?? status?.settings?.romanize_lyrics_enabled) ? "ON" : "OFF"}
+          </span>
+        </InteractiveRow>
+
+        {/* Romanization Display Style */}
+        <div style={{ fontSize: 12, fontWeight: 700, opacity: 0.75, marginTop: 8, marginBottom: 6 }}>
+          Romanization Display
+        </div>
+        <Focusable flow-children="horizontal" style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+          {(
+            [
+              { id: "dual", label: "Dual-Line" },
+              { id: "romanized_only", label: "Romanized Only" },
+            ] as const
+          ).map((opt) => {
+            const curStyle = localSettings.romanize_display_style ?? status?.settings?.romanize_display_style ?? "dual";
+            const isSelected = curStyle === opt.id;
+            return (
+              <InteractiveRow
+                key={opt.id}
+                active={isSelected}
+                onClick={() => updateSetting("romanize_display_style", opt.id)}
+                style={{
+                  minHeight: 36,
+                  padding: "8px 12px",
+                  fontSize: 12,
+                  fontWeight: 700,
+                  borderRadius: 12,
+                  color: isSelected ? "var(--deckify-accent, #1DB954)" : "rgba(255,255,255,0.85)",
+                  background: isSelected ? "rgba(var(--deckify-accent-rgb, 29, 185, 84), 0.2)" : "rgba(255,255,255,0.08)",
+                }}
+              >
+                {opt.label}
+              </InteractiveRow>
+            );
+          })}
+        </Focusable>
+
+        {/* Romanize In-Game Overlay Toggle */}
+        <InteractiveRow
+          onClick={async () => {
+            const cur = localSettings.romanize_overlay_enabled ?? status?.settings?.romanize_overlay_enabled ?? false;
+            showToast(!cur ? "Overlay romanization enabled" : "Overlay romanization disabled");
+            await updateSetting("romanize_overlay_enabled", !cur);
+          }}
+          active={localSettings.romanize_overlay_enabled ?? status?.settings?.romanize_overlay_enabled}
+          style={{ justifyContent: "space-between", minHeight: 44, marginBottom: 8 }}
+        >
+          <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+            <span style={{ fontSize: 13, fontWeight: 600 }}>Romanize In-Game Overlay</span>
+            <span style={{ fontSize: 11, opacity: 0.6 }}>
+              Show romanized lyrics inside the compact in-game HUD overlay.
+            </span>
+          </div>
+          <span style={{ fontSize: 12, fontWeight: 700, color: (localSettings.romanize_overlay_enabled ?? status?.settings?.romanize_overlay_enabled) ? "var(--deckify-accent, #1DB954)" : "#888" }}>
+            {(localSettings.romanize_overlay_enabled ?? status?.settings?.romanize_overlay_enabled) ? "ON" : "OFF"}
+          </span>
+        </InteractiveRow>
+
+        {/* Clear Lyrics Cache */}
+        <DialogButton
+          onClick={async () => {
+            try {
+              const res = await backendClearLyricsCache();
+              if (res.ok) {
+                showToast("Lyrics cache cleared.");
+              } else {
+                showToast("Failed to clear lyrics cache — check filesystem permissions.");
+              }
+            } catch {
+              showToast("Failed to clear lyrics cache — check filesystem permissions.");
+            }
+          }}
+          style={{
+            width: "auto",
+            minWidth: "auto",
+            minHeight: 44,
+            marginTop: 4,
+            padding: "8px 14px",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 8,
+          }}
+        >
+          <FaTrashAlt size={12} />
+          Clear Lyrics Cache
+        </DialogButton>
       </div>
 
       {/* Toasts & Gamepad Quick Chords */}
