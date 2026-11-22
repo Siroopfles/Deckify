@@ -16,7 +16,7 @@
 
 ### Dynamic Album-Art Themes, Battery Eco-Mode & Connect Hub 2.0
 
-- [ ] **THEME-01**: User can switch between *Classic Spotify Green*, *Dynamic Album Glow* (dominant cover-art accent color extracted from proxied artwork and WCAG luminance-clamped to `L >= 55%` for controller focus visibility), and *SteamOS Deck Blue* across the modal and HUD.
+- [x] **THEME-01**: User can switch between *Classic Spotify Green*, *Dynamic Album Glow* (dominant cover-art accent color extracted from proxied artwork and WCAG luminance-clamped to `L >= 55%` for controller focus visibility), and *SteamOS Deck Blue* across the modal and HUD.
 - [ ] **ECO-01**: User can enable Handheld Battery Eco-Mode to automatically suspend background spectrum visualizers/animations during active gameplay on battery and put an idle paused playback engine to sleep after a configurable inactivity timeout (`5–30 min`, disabled when AC-powered/docked).
 - [ ] **CONNECT-01**: User can view device type icons and active engine badges (`librespot` vs `Spotify Client`) in `DevicesTab`, wake the local Deckify engine and pull playback from any external device with a single *"Pull Playback to Steam Deck"* action, and adjust remote Spotify Connect device volume via a debounced slider.
 
@@ -81,7 +81,7 @@
 | GAME-01 | Phase 19 | Complete |
 | TOAST-01 | Phase 20 | Complete |
 | CHORD-01 | Phase 20 | Complete |
-| THEME-01 | Phase 21 | Pending |
+| THEME-01 | Phase 21 | Complete |
 | ECO-01 | Phase 21 | Pending |
 | CONNECT-01 | Phase 22 | Pending |
 | RADIO-02 | Phase 22 | Pending |
