@@ -11,6 +11,7 @@ import {
   FaHeart,
 } from "react-icons/fa";
 import { PlaylistItem, TrackItem, ViewMode } from "../../types";
+import { isSpokenContent } from "../../utils/playback";
 import { DeckifyImage } from "./DeckifyImage";
 import { InteractiveRow } from "./InteractiveRow";
 
@@ -86,6 +87,8 @@ export const TrackActionModal: FC<TrackActionModalProps> = ({
 
   if (!actionTrack) return null;
 
+  const isSpoken = isSpokenContent(actionTrack);
+
   return (
     <>
       {/* Track Actions Modal */}
@@ -139,7 +142,7 @@ export const TrackActionModal: FC<TrackActionModalProps> = ({
 
             <InteractiveRow tabIndex={0} onClick={() => onPlayTrack(actionTrack.uri || "")} style={{ gap: 10 }}>
               <FaPlay size={12} color="var(--deckify-accent, #1DB954)" />
-              <span>Play Track</span>
+              <span>{isSpoken ? "Play Episode" : "Play Track"}</span>
             </InteractiveRow>
 
             <InteractiveRow onClick={() => onAddToQueue(actionTrack)} style={{ gap: 10 }}>
@@ -152,12 +155,14 @@ export const TrackActionModal: FC<TrackActionModalProps> = ({
               <span>Add to Playlist...</span>
             </InteractiveRow>
 
-            <InteractiveRow onClick={() => onStartRadio(actionTrack)} style={{ gap: 10 }}>
-              <FaBroadcastTower size={12} color="var(--deckify-accent, #1DB954)" />
-              <span>Start Track Radio</span>
-            </InteractiveRow>
+            {!isSpoken && (
+              <InteractiveRow onClick={() => onStartRadio(actionTrack)} style={{ gap: 10 }}>
+                <FaBroadcastTower size={12} color="var(--deckify-accent, #1DB954)" />
+                <span>Start Track Radio</span>
+              </InteractiveRow>
+            )}
 
-            {/* Go to Artist */}
+            {/* Go to Artist / Show */}
             {(actionTrack.artist_id || actionTrack.artist) && (
               <InteractiveRow
                 onClick={() => {
@@ -168,12 +173,12 @@ export const TrackActionModal: FC<TrackActionModalProps> = ({
                 style={{ gap: 10 }}
               >
                 <FaUser size={12} />
-                <span>Go to Artist ({actionTrack.artist})</span>
+                <span>{isSpoken ? `Go to Show (${actionTrack.artist})` : `Go to Artist (${actionTrack.artist})`}</span>
               </InteractiveRow>
             )}
 
             {/* Go to Album */}
-            {actionTrack.album_id && (
+            {!isSpoken && actionTrack.album_id && (
               <InteractiveRow
                 onClick={() => {
                   onClose();

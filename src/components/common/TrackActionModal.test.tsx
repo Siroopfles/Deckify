@@ -210,3 +210,74 @@ describe("TrackActionModal focus management (Gap 3)", () => {
     expect(emptyRows[0].props.tabIndex).toBe(0);
   });
 });
+
+function collectText(tree: any): string {
+  if (tree == null || typeof tree === "boolean") return "";
+  if (typeof tree === "string" || typeof tree === "number") return String(tree);
+  if (Array.isArray(tree)) return tree.map(collectText).join(" ");
+  if (typeof tree === "object" && tree.props) return collectText(tree.props.children);
+  return "";
+}
+
+describe("TrackActionModal spoken content labels (G-24-2)", () => {
+  beforeEach(() => {
+    refValues = [];
+    refIdx = 0;
+    effectCleanups = [];
+    (globalThis as any).document = { activeElement: null };
+    (globalThis as any).requestAnimationFrame = vi.fn(() => 1);
+    (globalThis as any).cancelAnimationFrame = vi.fn();
+  });
+
+  it("renders music track labels (Play Track, Start Track Radio, Go to Artist, Go to Album)", () => {
+    const tree = TrackActionModal(
+      makeProps({
+        actionTrack: {
+          id: "trk-1",
+          name: "Song One",
+          artist: "Band Name",
+          artist_id: "art-1",
+          album: "Album Name",
+          album_id: "alb-1",
+          uri: "spotify:track:trk-1",
+          media_type: "track",
+        },
+      })
+    );
+    const text = collectText(tree);
+    expect(text).toContain("Play Track");
+    expect(text).toContain("Start Track Radio");
+    expect(text).toContain("Go to Artist (Band Name)");
+    expect(text).toContain("Go to Album");
+    expect(text).not.toContain("Play Episode");
+    expect(text).not.toContain("Go to Show");
+  });
+
+  it("renders episode/show labels and hides Start Track Radio and Go to Album for podcast episodes and audiobooks", () => {
+    for (const mediaType of ["episode", "audiobook"] as const) {
+      refValues = [];
+      refIdx = 0;
+      const tree = TrackActionModal(
+        makeProps({
+          actionTrack: {
+            id: "ep-1",
+            name: "Episode One",
+            artist: "Podcast Show",
+            artist_id: "show-1",
+            album: "Podcast Show",
+            album_id: "alb-should-hide",
+            uri: `spotify:${mediaType}:ep-1`,
+            media_type: mediaType,
+          },
+        })
+      );
+      const text = collectText(tree);
+      expect(text).toContain("Play Episode");
+      expect(text).toContain("Go to Show (Podcast Show)");
+      expect(text).not.toContain("Play Track");
+      expect(text).not.toContain("Start Track Radio");
+      expect(text).not.toContain("Go to Artist");
+      expect(text).not.toContain("Go to Album");
+    }
+  });
+});
