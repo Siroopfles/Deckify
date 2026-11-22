@@ -44,7 +44,7 @@ Declared values (multiples of 4):
 Exceptions:
 - `46px` / `54px` circular `RoundBtn` transport buttons in `NowPlayingTab` (`-15s`, Play/Pause, `+15s`), matching existing `NowPlayingTab` transport geometry.
 - `44px` minimum focus/touch target height for `PodcastsTab` `InteractiveRow` show/episode rows and `NowPlayingTab` `Dropdown` speed selector.
-- `36px` minimum height (`padding: "4px 12px"`) for `PodcastsTab` filter pills (*All*, *Unplayed*, *In Progress*) and QAM compact speed cycle `DialogButton` (`padding: "4px 10px"`) so controls fit cleanly on the `300px` QAM sidebar and `1280x800` modal viewport.
+- `36px` minimum height (`padding: "4px 16px"`) for `PodcastsTab` filter pills (*All*, *Unplayed*, *In Progress*) and QAM compact speed cycle `DialogButton` (`padding: "4px 8px"`) so controls fit cleanly on the `300px` QAM sidebar and `1280x800` modal viewport.
 
 ---
 
@@ -113,10 +113,10 @@ Accent reserved for:
 
 ### 2. Quick Access Menu (QAM) Compact Speed Cycle (`POD-01`; D-03)
 - Inside `src/index.tsx` QAM's existing `isPodcast` horizontal row (`<Focusable flow-children="horizontal" style={{ display: "flex", justifyContent: "center", gap: 8, marginTop: 4 }}>`):
-  - Left: `-15s` `DialogButton` (`width: "auto"`, `minWidth: "auto"`, `minHeight: 36`, `padding: "4px 10px"`).
-  - Center: Speed Cycle `DialogButton` (`width: "auto"`, `minWidth: "auto"`, `minHeight: 36`, `padding: "4px 10px"`, `fontSize: 12`, `fontWeight: 700`) displaying `{playbackSpeed.toFixed(playbackSpeed % 0.5 === 0 && playbackSpeed % 1 === 0 ? 1 : ...)}` formatted via explicit lookup (`0.5x`, `0.75x`, `1.0x`, `1.25x`, `1.5x`, `1.75x`, `2.0x`).
+  - Left: `-15s` `DialogButton` (`width: "auto"`, `minWidth: "auto"`, `minHeight: 36`, `padding: "4px 8px"`).
+  - Center: Speed Cycle `DialogButton` (`width: "auto"`, `minWidth: "auto"`, `minHeight: 36`, `padding: "4px 8px"`, `fontSize: 12`, `fontWeight: 700`) displaying `{playbackSpeed.toFixed(playbackSpeed % 0.5 === 0 && playbackSpeed % 1 === 0 ? 1 : ...)}` formatted via explicit lookup (`0.5x`, `0.75x`, `1.0x`, `1.25x`, `1.5x`, `1.75x`, `2.0x`).
   - Cycle order (D-03): `1.0x` → `1.25x` → `1.5x` → `1.75x` → `2.0x` → `0.5x` → `0.75x` → `1.0x`.
-  - Right: `+15s` `DialogButton` (`width: "auto"`, `minWidth: "auto"`, `minHeight: 36`, `padding: "4px 10px"`).
+  - Right: `+15s` `DialogButton` (`width: "auto"`, `minWidth: "auto"`, `minHeight: 36`, `padding: "4px 8px"`).
   - Visual emphasis: When `playbackSpeed !== 1.0`, the Speed Cycle button displays `color: "var(--deckify-accent, #1DB954)"` and `border: "1px solid var(--deckify-accent, #1DB954)"`.
 
 ### 3. `DeckifyExpandedModal` `L2`/`R2` Smart-Skip & `usePlaybackClock` Scaling (`POD-01`; D-07)
@@ -127,9 +127,9 @@ Accent reserved for:
 ### 4. `PodcastsTab` Show Drill-Down, Progress Bars, Badges & Filtering (`POD-02`; D-08, D-09)
 - **Show Drill-Down:** Clicking any show row in `Followed Podcasts` opens `ShowEpisodesView` with:
   - Header bar: `Back to Podcasts` `InteractiveRow` (`FaArrowLeft`) + show artwork (`DeckifyImage`, `42x42`) + show title (`Display` `20px`/`700`) + publisher/count (`12px`/`400`, `opacity: 0.6`).
-  - Filter bar (`<Focusable flow-children="horizontal" style={{ display: "flex", gap: 8, marginBottom: 16 }}>`): `All`, `Unplayed`, `In Progress` (`minHeight: 36`, `padding: "4px 12px"`).
+  - Filter bar (`<Focusable flow-children="horizontal" style={{ display: "flex", gap: 8, marginBottom: 16 }}>`): `All`, `Unplayed`, `In Progress` (`minHeight: 36`, `padding: "4px 16px"`).
 - **Saved Episodes Filter Bar:** Identical `<Focusable flow-children="horizontal">` `All` / `Unplayed` / `In Progress` filter pills rendered directly above the `Saved Episodes` list.
-- **Episode Row (`InteractiveRow`, `minHeight: 44`, `gap: 12`):**
+- **Episode Row (`InteractiveRow`, `minHeight: 44`, `gap: 8`):**
   - Left: `DeckifyImage` (`42x42`, `borderRadius: 6`, `flexShrink: 0`) or `FaPodcast` fallback.
   - Body (`flex: 1, minWidth: 0`):
     - Top line: Episode title (`Body` `14px`/`700`, single-line ellipsis).
