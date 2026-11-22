@@ -171,7 +171,10 @@ DEFAULT_SETTINGS = {
     "eco_mode_enabled": True,
     "eco_timeout_minutes": 15,
     "eco_sleep_spotify_client": False,
+    "preferred_podcast_speed": 1.0,
 }
+
+ALLOWED_PLAYBACK_SPEEDS = (0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0)
 
 # PulseAudio socket for processes
 PULSE_SERVER = f"unix:/run/user/{DECK_UID}/pulse/native"
@@ -185,9 +188,10 @@ SPOTIFY_SCOPES = (
     "user-read-currently-playing user-read-playback-state user-modify-playback-state "
     "playlist-read-private playlist-read-collaborative playlist-modify-public "
     "playlist-modify-private user-library-read user-library-modify "
-    "user-follow-read user-read-recently-played user-top-read"
+    "user-follow-read user-read-recently-played user-top-read "
+    "user-read-playback-position"
 )
-CURRENT_SCOPES_VERSION = 7
+CURRENT_SCOPES_VERSION = 8
 OAUTH_SERVER_PORT = 39281
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
 MAX_PINNED_PLAYLISTS = 4

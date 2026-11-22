@@ -7,7 +7,7 @@ import subprocess
 import urllib.parse
 import urllib.request
 
-from py_modules.common import SPOTIFY_CDP_PORT, _build_deck_command, decky
+from py_modules.common import ALLOWED_PLAYBACK_SPEEDS, SPOTIFY_CDP_PORT, _build_deck_command, decky
 
 
 def _update_spotify_prefs_content(
@@ -910,5 +910,63 @@ def _cdp_get_saved_episodes(offset: int = 0, port: int = SPOTIFY_CDP_PORT) -> di
         if isinstance(res, dict):
             return {"ok": False, "error": res.get("error") or "CDP Your Episodes failed"}
         return {"ok": False, "error": "CDP Your Episodes returned no result"}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+def _cdp_set_playback_speed(speed: float, port: int = SPOTIFY_CDP_PORT) -> dict:
+    """Set playback speed via Official Spotify Client CDP PlayerAPI.setSpeed."""
+    if isinstance(speed, bool):
+        return {"ok": False, "error": "Unsupported playback speed"}
+    try:
+        safe_speed = float(speed)
+    except (TypeError, ValueError):
+        return {"ok": False, "error": "Unsupported playback speed"}
+    if safe_speed not in ALLOWED_PLAYBACK_SPEEDS:
+        return {"ok": False, "error": "Unsupported playback speed"}
+
+    expr = f"""
+    (async () => {{
+      try {{
+        const el = document.querySelector('#main');
+        if (!el) return {{ ok: false, error: 'Spotify UI root not found' }};
+        const fk = Object.keys(el).find(k => k.startsWith('__reactFiber$') || k.startsWith('__reactContainer$'));
+        if (!fk) return {{ ok: false, error: 'React fiber root not found' }};
+        const queue = [el[fk]];
+        const visited = new Set();
+        let registry = null;
+        while (queue.length > 0 && !registry && visited.size < 5000) {{
+          const n = queue.shift();
+          if (!n || visited.has(n)) continue;
+          visited.add(n);
+          const val = n.memoizedProps?.value;
+          if (val && val._map instanceof Map) {{ registry = val; break; }}
+          if (val && typeof val.getRegistry === 'function') {{ registry = val.getRegistry(); break; }}
+          if (n.child) queue.push(n.child);
+          if (n.sibling) queue.push(n.sibling);
+        }}
+        if (!registry || !(registry._map instanceof Map)) return {{ ok: false, error: 'Platform registry not found' }};
+        let playerApi = null;
+        for (const [k, v] of registry._map.entries()) {{
+          const d = k?.description || String(k);
+          if (d === 'PlayerAPI') {{ playerApi = v?.instance || v; break; }}
+        }}
+        if (!playerApi || typeof playerApi.setSpeed !== 'function') {{
+          return {{ ok: false, error: 'PlayerAPI.setSpeed unavailable' }};
+        }}
+        await playerApi.setSpeed({safe_speed});
+        return {{ ok: true, speed: {safe_speed} }};
+      }} catch (e) {{
+        return {{ ok: false, error: String(e?.message || e) }};
+      }}
+    }})()
+    """
+    try:
+        res = _cdp_evaluate(expr, port=port, timeout=5.0)
+        if isinstance(res, dict) and res.get("ok"):
+            return res
+        if isinstance(res, dict):
+            return {"ok": False, "error": res.get("error") or "CDP PlayerAPI.setSpeed failed"}
+        return {"ok": False, "error": "CDP PlayerAPI.setSpeed returned no result"}
     except Exception as e:
         return {"ok": False, "error": str(e)}

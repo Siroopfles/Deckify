@@ -96,7 +96,7 @@ class TestDiscoveryTracer(unittest.IsolatedAsyncioTestCase):
         self.plugin = make_plugin()
 
     def test_scopes_version_7_includes_user_top_read(self):
-        self.assertEqual(common.CURRENT_SCOPES_VERSION, 7)
+        self.assertEqual(common.CURRENT_SCOPES_VERSION, 8)
         self.assertIn("user-top-read", common.SPOTIFY_SCOPES.split())
 
     def test_circuit_breaker_opens_fast_fails_and_resets(self):

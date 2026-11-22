@@ -4,11 +4,12 @@ import socket
 import time
 import urllib.error
 from py_modules.common import (
+    ALLOWED_PLAYBACK_SPEEDS,
     _exec,
     decky,
 )
 from py_modules.eco import read_power_supply_state
-from py_modules.engine import _cdp_toggle_like_track
+from py_modules.engine import _cdp_set_playback_speed, _cdp_toggle_like_track
 from py_modules.images import _image_url
 from py_modules.spotify import (
     _spotify_api_request,
@@ -646,3 +647,37 @@ async def quick_play_pinned(plugin, uri: str, item_type: str = "playlist") -> di
         plugin._poll_play_state = "playing"
         plugin._context_uri = uri
     return res
+
+
+async def set_playback_speed(plugin, speed: float) -> dict:
+    """Validate and apply podcast/audiobook playback speed via Official Spotify Client CDP."""
+    if isinstance(speed, bool):
+        return {"ok": False, "error": "Unsupported playback speed"}
+    try:
+        target_speed = float(speed)
+    except (TypeError, ValueError):
+        return {"ok": False, "error": "Unsupported playback speed"}
+    if target_speed not in ALLOWED_PLAYBACK_SPEEDS:
+        return {"ok": False, "error": "Unsupported playback speed"}
+
+    if plugin._settings.get("audio_backend") != "spotify_client":
+        return {
+            "ok": False,
+            "unsupported_backend": True,
+            "error": "Playback speed requires the Official Spotify Client engine.",
+        }
+
+    try:
+        res = await _exec(_cdp_set_playback_speed, target_speed)
+    except Exception as e:
+        decky.logger.error("set_playback_speed(%s) failed: %s", target_speed, e)
+        return {"ok": False, "error": str(e)}
+
+    if not isinstance(res, dict) or not res.get("ok"):
+        return res if isinstance(res, dict) else {"ok": False, "error": "CDP setSpeed failed"}
+
+    plugin._playback_speed = target_speed
+    plugin._settings["preferred_podcast_speed"] = target_speed
+    plugin._save_settings()
+    await decky.emit("playback_speed_changed", {"speed": target_speed})
+    return {"ok": True, "speed": target_speed}
