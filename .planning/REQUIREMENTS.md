@@ -30,7 +30,7 @@
 ### Universal Drill-Down, Instant Radio, Crossfade & Search 2.0
 
 - [ ] **RADIO-01**: User can select *"Start Song Radio"*, *"Go to Artist"*, or *"Go to Album"* from any track (`TrackActionModal`, `NowPlayingTab`, `QueueTab`, `SearchTab`), using a 3-tier radio waterfall (CDP station → Web API → Top-Tracks/Search synthesis fallback) and a breadcrumb backstack (`navigationHistoryRef`) that restores the exact originating tab on `B`.
-- [ ] **RADIO-02**: User can configure native track Crossfade (`0–12s`) in `SettingsTab`, synchronized across Official Spotify Client CDP preferences, `librespot` / `spotifyd` engine config, and smooth transition handling.
+- [x] **RADIO-02**: User can configure native track Crossfade (`0–12s`) in `SettingsTab`, synchronized across Official Spotify Client CDP preferences, `librespot` / `spotifyd` engine config, and smooth transition handling.
 - [ ] **SEARCH-01**: When the search query in `SearchTab` is empty, user can select from recent search history pills (with individual/all clear) or 12 controller-friendly Gaming & Mood genre browse tiles without opening the virtual keyboard.
 - [ ] **SEARCH-02**: User can search and filter specifically by `Podcasts` (`show`) and `Episodes` (`episode`) in `SearchTab` alongside Tracks, Artists, Albums, and Playlists.
 
@@ -84,7 +84,7 @@
 | THEME-01 | Phase 21 | Complete |
 | ECO-01 | Phase 21 | Complete |
 | CONNECT-01 | Phase 22 | Pending |
-| RADIO-02 | Phase 22 | Pending |
+| RADIO-02 | Phase 22 | Complete |
 | LYRICS-01 | Phase 23 | Pending |
 | LYRICS-02 | Phase 23 | Pending |
 | POD-01 | Phase 24 | Pending |
