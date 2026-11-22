@@ -1741,8 +1741,10 @@ describe("Native Crossfade (RADIO-02)", () => {
     const tree = SettingsTab({
       status: {
         ...mockStatus,
+        audio_backend: "spotify_client",
         settings: {
           ...mockStatus.settings!,
+          audio_backend: "spotify_client",
           crossfade_seconds: 5,
         },
       },
@@ -1759,12 +1761,15 @@ describe("Native Crossfade (RADIO-02)", () => {
     const rowNode = findNodes(playbackCard, (n) => n.type === CrossfadeSettingRow)[0];
     expect(rowNode).toBeDefined();
     expect(rowNode.props.initialValue).toBe(5);
+    expect(rowNode.props.audioBackend).toBe("spotify_client");
 
     const rowTree = CrossfadeSettingRow(rowNode.props);
     const slider = findNodes(rowTree, (n) => n.type === SliderField || n.type === "SliderField")[0];
     expect(slider).toBeDefined();
     expect(slider.props).toMatchObject({
       label: "Crossfade",
+      description: "Smoothly blend between tracks (0s = Off). Syncs live with Official Spotify Client.",
+      disabled: false,
       min: 0,
       max: 12,
       step: 1,
@@ -1774,11 +1779,37 @@ describe("Native Crossfade (RADIO-02)", () => {
     });
   });
 
+  it("disables CrossfadeSettingRow with Official Spotify Client explanation when audioBackend is librespot", async () => {
+    vi.useFakeTimers();
+    try {
+      const rowTree = CrossfadeSettingRow({
+        initialValue: 4,
+        audioBackend: "librespot",
+        showToast,
+        refreshStatus,
+      });
+      expect((rowTree as any).props.style).toMatchObject({ opacity: 0.6 });
+      const slider = findNodes(rowTree, (n) => n.type === SliderField || n.type === "SliderField")[0];
+      expect(slider).toBeDefined();
+      expect(slider.props.disabled).toBe(true);
+      expect(slider.props.description).toBe(
+        "Requires Official Spotify Client. librespot streams a single track at a time and does not support overlapping crossfade."
+      );
+
+      slider.props.onChange(8);
+      await vi.advanceTimersByTimeAsync(300);
+      expect(mockSetSetting).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("debounces set_setting('crossfade_seconds', clamped) by 300ms and shows error toast on failure", async () => {
     vi.useFakeTimers();
     try {
       const rowTree = CrossfadeSettingRow({
         initialValue: 0,
+        audioBackend: "spotify_client",
         showToast,
         refreshStatus,
       });

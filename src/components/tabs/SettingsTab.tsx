@@ -5,6 +5,7 @@ import { FaSlidersH, FaClock, FaPowerOff, FaPlug, FaBluetooth, FaPalette, FaLeaf
 import {
   AccentThemeMode,
   ActiveGameOverrideInfo,
+  AudioBackend,
   AudioSinkInfo,
   ChordBindingsMap,
   EcoStatusInfo,
@@ -240,11 +241,13 @@ export interface SettingsTabProps {
 
 export const CrossfadeSettingRow: FC<{
   initialValue: number;
+  audioBackend?: AudioBackend;
   showToast: (msg: string) => void;
   refreshStatus: () => void;
-}> = ({ initialValue, showToast, refreshStatus }) => {
+}> = ({ initialValue, audioBackend = "librespot", showToast, refreshStatus }) => {
   const [localCrossfade, setLocalCrossfade] = useState<number>(initialValue);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isSpotifyClient = audioBackend === "spotify_client";
 
   useEffect(() => {
     setLocalCrossfade(initialValue);
@@ -259,10 +262,15 @@ export const CrossfadeSettingRow: FC<{
   }, []);
 
   return (
-    <div style={{ marginTop: 10 }}>
+    <div style={{ marginTop: 10, opacity: isSpotifyClient ? 1 : 0.6 }}>
       <SliderField
         label="Crossfade"
-        description="Smoothly blend between tracks (0s = Off). Syncs with Official Spotify Client and provides local PipeWire transition fallback for librespot."
+        description={
+          isSpotifyClient
+            ? "Smoothly blend between tracks (0s = Off). Syncs live with Official Spotify Client."
+            : "Requires Official Spotify Client. librespot streams a single track at a time and does not support overlapping crossfade."
+        }
+        disabled={!isSpotifyClient}
         min={0}
         max={12}
         step={1}
@@ -270,6 +278,9 @@ export const CrossfadeSettingRow: FC<{
         valueSuffix="s"
         value={localCrossfade}
         onChange={(val: number) => {
+          if (!isSpotifyClient) {
+            return;
+          }
           const clamped = Math.min(12, Math.max(0, Math.round(val)));
           setLocalCrossfade(clamped);
           if (timerRef.current) {
@@ -808,6 +819,7 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, ecoStatus, refreshSt
 
         <CrossfadeSettingRow
           initialValue={status?.settings?.crossfade_seconds ?? 0}
+          audioBackend={status?.audio_backend ?? audioBackend}
           showToast={showToast}
           refreshStatus={refreshStatus}
         />
