@@ -87,7 +87,7 @@ export const SearchTab: FC<SearchTabProps> = ({
       {/* Results: Tracks */}
       {(searchTab === "all" || searchTab === "tracks") && searchResults.tracks && searchResults.tracks.length > 0 && (
         <div style={{ marginTop: 10, marginBottom: 16 }}>
-          <h3 style={{ fontSize: 14, fontWeight: 700, color: "#1db954", marginBottom: 8 }}>Tracks</h3>
+          <h3 style={{ fontSize: 14, fontWeight: 700, color: "var(--deckify-accent, #1DB954)", marginBottom: 8 }}>Tracks</h3>
           <Focusable flow-children="column" style={{ display: "flex", flexDirection: "column", gap: 3 }}>
             {searchResults.tracks.map((t, idx) => (
               <TrackRowItem
@@ -107,7 +107,7 @@ export const SearchTab: FC<SearchTabProps> = ({
       {/* Results: Playlists */}
       {(searchTab === "all" || searchTab === "playlists") && searchResults.playlists && searchResults.playlists.length > 0 && (
         <div style={{ marginTop: 10, marginBottom: 16 }}>
-          <h3 style={{ fontSize: 14, fontWeight: 700, color: "#1db954", marginBottom: 8 }}>Playlists</h3>
+          <h3 style={{ fontSize: 14, fontWeight: 700, color: "var(--deckify-accent, #1DB954)", marginBottom: 8 }}>Playlists</h3>
           <Focusable flow-children="column" style={{ display: "flex", flexDirection: "column", gap: 3 }}>
             {searchResults.playlists.map((pl) => (
               <InteractiveRow
@@ -120,7 +120,7 @@ export const SearchTab: FC<SearchTabProps> = ({
                 {pl.image_url ? (
                   <DeckifyImage src={pl.image_url} width={30} height={30} style={{ borderRadius: 4 }} />
                 ) : (
-                  <FaFolder size={16} color="#1db954" />
+                  <FaFolder size={16} color="var(--deckify-accent, #1DB954)" />
                 )}
                 <div style={{ flex: 1, overflow: "hidden" }}>
                   <div style={{ fontSize: 13, fontWeight: 600 }}>{pl.name}</div>
@@ -135,7 +135,7 @@ export const SearchTab: FC<SearchTabProps> = ({
       {/* Results: Artists */}
       {(searchTab === "all" || searchTab === "artists") && searchResults.artists && searchResults.artists.length > 0 && (
         <div style={{ marginTop: 10, marginBottom: 16 }}>
-          <h3 style={{ fontSize: 14, fontWeight: 700, color: "#1db954", marginBottom: 8 }}>Artists</h3>
+          <h3 style={{ fontSize: 14, fontWeight: 700, color: "var(--deckify-accent, #1DB954)", marginBottom: 8 }}>Artists</h3>
           <Focusable flow-children="column" style={{ display: "flex", flexDirection: "column", gap: 3 }}>
             {searchResults.artists.map((art) => (
               <InteractiveRow
@@ -156,7 +156,7 @@ export const SearchTab: FC<SearchTabProps> = ({
       {/* Results: Albums */}
       {(searchTab === "all" || searchTab === "albums") && searchResults.albums && searchResults.albums.length > 0 && (
         <div style={{ marginTop: 10, marginBottom: 16 }}>
-          <h3 style={{ fontSize: 14, fontWeight: 700, color: "#1db954", marginBottom: 8 }}>Albums</h3>
+          <h3 style={{ fontSize: 14, fontWeight: 700, color: "var(--deckify-accent, #1DB954)", marginBottom: 8 }}>Albums</h3>
           <Focusable flow-children="column" style={{ display: "flex", flexDirection: "column", gap: 3 }}>
             {searchResults.albums.map((alb) => (
               <InteractiveRow

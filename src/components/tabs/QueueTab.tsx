@@ -60,7 +60,7 @@ export const QueueTab: FC<QueueTabProps> = ({
                 flexShrink: 0,
               }}
             >
-              <FaSpotify size={24} color="#1db954" />
+              <FaSpotify size={24} color="var(--deckify-accent, #1DB954)" />
             </div>
           )}
           <div style={{ flex: 1, minWidth: 0, overflow: "hidden" }}>
@@ -71,7 +71,7 @@ export const QueueTab: FC<QueueTabProps> = ({
                 fontWeight: 700,
                 textTransform: "uppercase",
                 letterSpacing: 0.5,
-                color: isPlaying ? "#1db954" : "#999",
+                color: isPlaying ? "var(--deckify-accent, #1DB954)" : "#999",
                 marginBottom: 2,
               }}
             >
@@ -173,7 +173,7 @@ export const QueueTab: FC<QueueTabProps> = ({
                 }}
                 style={{ cursor: "pointer", padding: "4px 6px" }}
               >
-                {t.is_liked ? <FaHeart size={13} color="#1db954" /> : <FaRegHeart size={13} color="#777" />}
+                {t.is_liked ? <FaHeart size={13} color="var(--deckify-accent, #1DB954)" /> : <FaRegHeart size={13} color="#777" />}
               </span>
               <span style={{ fontSize: 12, opacity: 0.5 }}>{formatMs(t.duration_ms || 0)}</span>
             </InteractiveRow>

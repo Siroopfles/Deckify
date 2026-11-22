@@ -44,6 +44,7 @@ import { DeckifyImage } from "./components/common/DeckifyImage";
 import { fetchWithQueueAndCache, imgMemoryCache } from "./components/common/imagePipeline";
 import { parseLrc } from "./utils";
 import { playNotificationChime } from "./utils/chime";
+import { syncThemeFromState } from "./utils/themeBus";
 import {
   FaMusic,
   FaSpotify,
@@ -59,13 +60,16 @@ import {
   FaCompactDisc,
   FaChevronDown,
   FaChevronRight,
+  FaMoon,
 } from "react-icons/fa";
 import { QRCodeSVG } from "qrcode.react";
 import type {
+  AccentThemeMode,
   AudioStreamInfo,
   ChordActionId,
   ChordBindingsMap,
   DuckingState,
+  EcoStatusInfo,
   EngineSettings,
   PinnedPlaylistItem,
   ResilienceStatusInfo,
@@ -165,10 +169,21 @@ let cachedVolume = 50;
 let cachedContextUri: string | null = null;
 let cachedPinnedPlaylists: PinnedPlaylistItem[] = [];
 let cachedOverlayLyricsEnabled = false;
+let cachedAccentTheme: AccentThemeMode = "spotify_green";
+let cachedArtworkUrl: string | null = null;
+let cachedAnimationsSuspended = false;
 let lastPinnedIndex = -1;
 let likeRequestSeq = 0;
 let pinnedCycleSeq = 0;
 let lastToastTrackId = "";
+
+const applyThemeBusSync = () => {
+  void syncThemeFromState({
+    accentTheme: cachedAccentTheme,
+    artworkUrl: cachedArtworkUrl,
+    animationsSuspended: cachedAnimationsSuspended,
+  });
+};
 
 const syncNotificationSettings = (settings?: Partial<EngineSettings> | null) => {
   if (!settings || typeof settings !== "object") return;
@@ -193,6 +208,9 @@ const syncNotificationSettings = (settings?: Partial<EngineSettings> | null) => 
       lastPinnedIndex = -1;
     }
   }
+  if (settings.accent_theme === "spotify_green" || settings.accent_theme === "dynamic_album" || settings.accent_theme === "steamos_blue") {
+    cachedAccentTheme = settings.accent_theme;
+  }
   if (settings.gamepad_chord_bindings && typeof settings.gamepad_chord_bindings === "object") {
     cachedBindings = mergeChordBindings(settings.gamepad_chord_bindings);
     activeChordMatcher?.setBindings(cachedBindings);
@@ -210,6 +228,7 @@ const syncRuntimeStatus = (
   const t = status.track || status.track_meta;
   if (t && typeof t === "object") {
     cachedTrackMeta = t;
+    cachedArtworkUrl = t.artwork_url || t.image_url || null;
     const initTrackId = String(t.track_id ?? t.id ?? t.name ?? "");
     if (!lastToastTrackId && initTrackId) {
       lastToastTrackId = initTrackId;
@@ -217,6 +236,11 @@ const syncRuntimeStatus = (
     if (options?.syncLiked !== false && typeof t.is_liked === "boolean") {
       cachedIsLiked = t.is_liked;
     }
+  } else if (status.track === null) {
+    cachedArtworkUrl = null;
+  }
+  if (status.eco_status && typeof status.eco_status === "object") {
+    cachedAnimationsSuspended = Boolean(status.eco_status.animations_suspended);
   }
   if (options?.syncLiked !== false && typeof status.is_liked === "boolean") {
     cachedIsLiked = status.is_liked;
@@ -230,6 +254,7 @@ const syncRuntimeStatus = (
   if (status.context_uri !== undefined) {
     cachedContextUri = status.context_uri ?? null;
   }
+  applyThemeBusSync();
 };
 
 const syncLibrespotEvent = (ev: unknown): void => {
@@ -277,6 +302,9 @@ const resetModuleRuntimeState = () => {
   cachedContextUri = null;
   cachedPinnedPlaylists = [];
   cachedOverlayLyricsEnabled = false;
+  cachedAccentTheme = "spotify_green";
+  cachedArtworkUrl = null;
+  cachedAnimationsSuspended = false;
   lastPinnedIndex = -1;
   likeRequestSeq = 0;
   pinnedCycleSeq = 0;
@@ -734,7 +762,7 @@ const showTrackToaster = (meta: any, resolvedArtwork: string | null, withSound: 
         style={{ width: 48, height: 48, borderRadius: 6, objectFit: "cover", display: "block" }}
       />
     ) : (
-      <FaSpotify color="#1db954" size={32} />
+      <FaSpotify color="var(--deckify-accent, #1DB954)" size={32} />
     ),
   } as any);
 };
@@ -775,16 +803,16 @@ const PinnedPill: FC<PinnedPillProps> = ({ pill, isActive, fallbackIcon, onClick
         border: focused
           ? "1px solid #fff"
           : isActive
-          ? "1px solid #1db954"
+          ? "1px solid var(--deckify-accent, #1DB954)"
           : "1px solid rgba(255,255,255,0.12)",
         background: focused
           ? isActive
-            ? "rgba(29, 185, 84, 0.28)"
+            ? "rgba(var(--deckify-accent-rgb, 29, 185, 84), 0.28)"
             : "rgba(255, 255, 255, 0.18)"
           : isActive
-          ? "rgba(29, 185, 84, 0.16)"
+          ? "rgba(var(--deckify-accent-rgb, 29, 185, 84), 0.16)"
           : "rgba(255, 255, 255, 0.08)",
-        color: isActive ? "#1db954" : "#fff",
+        color: isActive ? "var(--deckify-accent, #1DB954)" : "#fff",
       }}
     >
       <DeckifyImage
@@ -846,6 +874,7 @@ const Content: FC = () => {
   const dockToastEnabledRef = useRef<boolean | undefined>(settings.dock_toast_enabled);
   dockToastEnabledRef.current = settings.dock_toast_enabled;
   const [resilienceStatus, setResilienceStatus] = useState<ResilienceStatusInfo | null>(null);
+  const [ecoStatus, setEcoStatus] = useState<EcoStatusInfo | null>(null);
   const resilienceToastEnabledRef = useRef<boolean | undefined>(settings.resilience_toast_enabled);
   resilienceToastEnabledRef.current = settings.resilience_toast_enabled;
 
@@ -883,6 +912,9 @@ const Content: FC = () => {
       setAudioStreamInfo(status.audio_stream_info || null);
       if (status.resilience_status !== undefined) {
         setResilienceStatus(status.resilience_status ?? null);
+      }
+      if (status.eco_status !== undefined) {
+        setEcoStatus(status.eco_status ?? null);
       }
       if (status.active_device?.id) setActiveDeviceId(status.active_device.id);
 
@@ -1005,6 +1037,15 @@ const Content: FC = () => {
       }
     });
 
+    const unsubEco = addEventListener<[unknown]>("eco_status_changed", (data: unknown) => {
+      if (data && typeof data === "object") {
+        const nextEco = data as EcoStatusInfo;
+        setEcoStatus(nextEco);
+        cachedAnimationsSuspended = Boolean(nextEco.animations_suspended);
+        applyThemeBusSync();
+      }
+    });
+
     const unsubRestored = addEventListener<[any]>("session_restored", (data: any) => {
       try {
         if (!data || data.toast_enabled === false || resilienceToastEnabledRef.current === false) {
@@ -1029,6 +1070,7 @@ const Content: FC = () => {
       removeEventListener("librespot_event", unsubLibre);
       removeEventListener("track_metadata", unsubTrackMeta);
       removeEventListener("resilience_status", unsubResilience);
+      removeEventListener("eco_status_changed", unsubEco);
       removeEventListener("session_restored", unsubRestored);
     };
   }, []);
@@ -1044,6 +1086,28 @@ const Content: FC = () => {
       }
     } catch {
       toaster.toast({ title: "Deckify", body: "Failed to restore bookmark", duration: 3000 });
+    }
+  };
+
+  const handleWakeAndPlay = async () => {
+    try {
+      const res = await backendControlPlayback("play", "");
+      if (res?.ok === false) {
+        toaster.toast({
+          title: "Deckify",
+          body: "Could not wake playback engine — open Settings to check engine status.",
+          duration: 3500,
+        });
+      } else {
+        setEcoStatus((prev) => (prev ? { ...prev, engine_sleeping: false } : prev));
+        await refreshStatus();
+      }
+    } catch {
+      toaster.toast({
+        title: "Deckify",
+        body: "Could not wake playback engine — open Settings to check engine status.",
+        duration: 3500,
+      });
     }
   };
 
@@ -1222,7 +1286,7 @@ const Content: FC = () => {
               alignItems: "center",
               justifyContent: "center",
               gap: 8,
-              color: "#1db954",
+              color: "var(--deckify-accent, #1DB954)",
               fontSize: 12,
               fontWeight: 700,
             }}
@@ -1385,6 +1449,47 @@ const Content: FC = () => {
           </PanelSectionRow>
         )}
 
+        {/* Eco-Sleep Active Banner (ECO-01) */}
+        {ecoStatus?.engine_sleeping && (
+          <PanelSectionRow>
+            <div
+              style={{
+                padding: "12px 16px",
+                borderRadius: 8,
+                background: "rgba(255, 255, 255, 0.06)",
+                border: "1px solid rgba(255, 193, 7, 0.35)",
+                display: "flex",
+                flexDirection: "column",
+                gap: 8,
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 16, fontWeight: 700, color: "#FFD54F" }}>
+                <FaMoon size={14} />
+                <span>Eco-Sleep Active</span>
+              </div>
+              <div style={{ fontSize: 14, opacity: 0.8, lineHeight: 1.4 }}>
+                Engine paused on battery to save power. Press Play to wake.
+              </div>
+              <DialogButton
+                onClick={handleWakeAndPlay}
+                style={{
+                  minHeight: 44,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 8,
+                  fontSize: 12,
+                  fontWeight: 700,
+                  color: "var(--deckify-accent, #1DB954)",
+                }}
+              >
+                <FaPlay size={12} />
+                <span>Wake &amp; Play</span>
+              </DialogButton>
+            </div>
+          </PanelSectionRow>
+        )}
+
         {/* Primary Top Zone: Compact Mini-Player */}
         {trackMeta?.name && (
           <>
@@ -1401,11 +1506,11 @@ const Content: FC = () => {
                       style={{ borderRadius: 4, objectFit: "cover" }}
                     />
                   ) : (
-                    <FaMusic size={24} color="#1db954" />
+                    <FaMusic size={24} color="var(--deckify-accent, #1DB954)" />
                   )
                 }
               >
-                <span style={{ fontSize: 11, color: isPlaying ? "#1db954" : "#888" }}>
+                <span style={{ fontSize: 11, color: isPlaying ? "var(--deckify-accent, #1DB954)" : "#888" }}>
                   {isPlaying ? "Playing" : "Paused"}
                 </span>
               </Field>
@@ -1443,7 +1548,7 @@ const Content: FC = () => {
                 flow-children="right"
               >
                 <DialogButton
-                  style={{ minWidth: "auto", padding: "8px 11px", color: shuffleState ? "#1DB954" : undefined }}
+                  style={{ minWidth: "auto", padding: "8px 11px", color: shuffleState ? "var(--deckify-accent, #1DB954)" : undefined }}
                   onClick={(e: any) => {
                     e?.currentTarget?.blur?.();
                     handleToggleShuffle();
@@ -1461,7 +1566,7 @@ const Content: FC = () => {
                   <FaStepBackward />
                 </DialogButton>
                 <DialogButton
-                  style={{ minWidth: "auto", padding: "10px 18px", color: "#1db954" }}
+                  style={{ minWidth: "auto", padding: "10px 18px", color: "var(--deckify-accent, #1DB954)" }}
                   onClick={(e: any) => {
                     e?.currentTarget?.blur?.();
                     handlePlayPause();
@@ -1479,7 +1584,7 @@ const Content: FC = () => {
                   <FaStepForward />
                 </DialogButton>
                 <DialogButton
-                  style={{ minWidth: "auto", padding: "8px 11px", color: repeatState !== "off" ? "#1DB954" : undefined }}
+                  style={{ minWidth: "auto", padding: "8px 11px", color: repeatState !== "off" ? "var(--deckify-accent, #1DB954)" : undefined }}
                   onClick={(e: any) => {
                     e?.currentTarget?.blur?.();
                     handleCycleRepeat();
@@ -1489,7 +1594,7 @@ const Content: FC = () => {
                   {repeatState === "track" && <span style={{ fontSize: 9, fontWeight: 700, marginLeft: 2 }}>1</span>}
                 </DialogButton>
                 <DialogButton
-                  style={{ minWidth: "auto", padding: "8px 11px", color: isLiked ? "#1DB954" : undefined }}
+                  style={{ minWidth: "auto", padding: "8px 11px", color: isLiked ? "var(--deckify-accent, #1DB954)" : undefined }}
                   onClick={(e: any) => {
                     e?.currentTarget?.blur?.();
                     handleToggleLike();
@@ -1520,7 +1625,7 @@ const Content: FC = () => {
                 const isActive = activeContextUri === pill.uri;
                 const fallbackIcon =
                   pill.type === "liked_songs" ? (
-                    <FaHeart size={12} color="#1db954" />
+                    <FaHeart size={12} color="var(--deckify-accent, #1DB954)" />
                   ) : pill.type === "album" ? (
                     <FaCompactDisc size={12} color="rgba(255,255,255,0.6)" />
                   ) : (
@@ -1550,7 +1655,7 @@ const Content: FC = () => {
                 {(isDucked || hasGameOverride) && (
                   <span
                     style={{
-                      background: "#1db954",
+                      background: "var(--deckify-accent, #1DB954)",
                       color: "#000",
                       fontSize: 10,
                       fontWeight: 800,
@@ -1857,9 +1962,16 @@ export default definePlugin(() => {
 
   const settingsChangedSub = addEventListener<[any]>("settings_changed", (st: any) => {
     syncNotificationSettings(st);
+    applyThemeBusSync();
   });
   const librespotSub = addEventListener<[any]>("librespot_event", (ev: any) => {
     syncLibrespotEvent(ev);
+  });
+  const ecoStatusSub = addEventListener<[unknown]>("eco_status_changed", (ev: unknown) => {
+    if (ev && typeof ev === "object") {
+      cachedAnimationsSuspended = Boolean((ev as EcoStatusInfo).animations_suspended);
+      applyThemeBusSync();
+    }
   });
 
   // 1. Register native full-screen route
@@ -1886,7 +1998,7 @@ export default definePlugin(() => {
     id: "deckify",
     label: "Spotify",
     route: "/deckify",
-    icon: <FaSpotify size={18} color="#1db954" />,
+    icon: <FaSpotify size={18} color="var(--deckify-accent, #1DB954)" />,
     order: menuOrder,
   });
 
@@ -1894,9 +2006,14 @@ export default definePlugin(() => {
   const cleanupChords = setupChordListener();
 
   // 5. In-game track change notification (silent banner by default; Steam toast when sound enabled or silent banner disabled)
-  const trackSub = addEventListener<[unknown]>("track_metadata", (meta: unknown) =>
-    handleTrackMetadataNotification(meta),
-  );
+  const trackSub = addEventListener<[unknown]>("track_metadata", (meta: unknown) => {
+    if (meta && typeof meta === "object") {
+      const m = meta as TrackMeta;
+      cachedArtworkUrl = m.artwork_url || m.image_url || null;
+      applyThemeBusSync();
+    }
+    handleTrackMetadataNotification(meta);
+  });
 
   // 6. In-game Auto-Ducking & App Lifetime Listener (with per-game profiles)
   let activeGameAppId: number | null = null;
@@ -1963,6 +2080,7 @@ export default definePlugin(() => {
         removeEventListener("track_metadata", trackSub);
         removeEventListener("settings_changed", settingsChangedSub);
         removeEventListener("librespot_event", librespotSub);
+        removeEventListener("eco_status_changed", ecoStatusSub);
         if (typeof cleanupChords === "function") cleanupChords();
         resetModuleRuntimeState();
       } catch (e) {

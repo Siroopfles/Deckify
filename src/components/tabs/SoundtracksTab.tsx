@@ -163,7 +163,7 @@ function renderTabHeader() {
             gap: 8,
           }}
         >
-          <FaGamepad size={18} color="#1DB954" />
+          <FaGamepad size={18} color="var(--deckify-accent, #1DB954)" />
           <span>Game Soundtracks</span>
         </h2>
         <div style={{ fontSize: 14, fontWeight: 400, lineHeight: 1.5, opacity: 0.65, marginTop: 4 }}>
@@ -258,8 +258,8 @@ function renderGameBadges(isRunning: boolean, isNonSteam?: boolean) {
       <span
         key="running"
         style={{
-          background: "rgba(29, 185, 84, 0.2)",
-          color: "#1db954",
+          background: "rgba(var(--deckify-accent-rgb, 29, 185, 84), 0.2)",
+          color: "var(--deckify-accent, #1DB954)",
           fontSize: 12,
           fontWeight: 700,
           lineHeight: 1.3,
@@ -359,7 +359,7 @@ function renderPlaylistSection(opts: {
           {pl.image ? (
             <DeckifyImage src={pl.image} width={22} height={22} style={{ borderRadius: 3 }} />
           ) : (
-            <FaMusic size={12} color="#1db954" />
+            <FaMusic size={12} color="var(--deckify-accent, #1DB954)" />
           )}
           <span style={{ fontSize: 12, fontWeight: 700 }}>{pl.name}</span>
           <DialogButton
@@ -736,8 +736,8 @@ function renderGameCard(opts: {
       key={game.app_id}
       flow-children="column"
       style={{
-        background: isRunning ? "rgba(29, 185, 84, 0.08)" : "rgba(255,255,255,0.04)",
-        border: isRunning ? "1px solid rgba(29, 185, 84, 0.35)" : "1px solid rgba(255,255,255,0.08)",
+        background: isRunning ? "rgba(var(--deckify-accent-rgb, 29, 185, 84), 0.08)" : "rgba(255,255,255,0.04)",
+        border: isRunning ? "1px solid rgba(var(--deckify-accent-rgb, 29, 185, 84), 0.35)" : "1px solid rgba(255,255,255,0.08)",
         borderRadius: 10,
         padding: 12,
         display: "flex",

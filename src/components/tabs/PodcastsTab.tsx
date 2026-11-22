@@ -23,7 +23,7 @@ export const PodcastsTab: FC<PodcastsTabProps> = ({
       {/* Followed Shows */}
       {savedShows.length > 0 && (
         <div style={{ marginBottom: 24 }}>
-          <h3 style={{ fontSize: 14, fontWeight: 700, color: "#1db954", marginBottom: 10 }}>
+          <h3 style={{ fontSize: 14, fontWeight: 700, color: "var(--deckify-accent, #1DB954)", marginBottom: 10 }}>
             Followed Podcasts ({savedShows.length})
           </h3>
           <Focusable flow-children="column" style={{ display: "flex", flexDirection: "column", gap: 4 }}>
@@ -56,7 +56,7 @@ export const PodcastsTab: FC<PodcastsTabProps> = ({
 
       {/* Saved Episodes */}
       <div>
-        <h3 style={{ fontSize: 14, fontWeight: 700, color: "#1db954", marginBottom: 10 }}>
+        <h3 style={{ fontSize: 14, fontWeight: 700, color: "var(--deckify-accent, #1DB954)", marginBottom: 10 }}>
           Saved Episodes ({savedEpisodes.length})
         </h3>
         {savedEpisodes.length === 0 && savedShows.length === 0 ? (
@@ -91,9 +91,9 @@ export const PodcastsTab: FC<PodcastsTabProps> = ({
                     {resumeMs > 0 && (
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                         <div style={{ flex: 1, height: 4, background: "rgba(255,255,255,0.15)", borderRadius: 2, overflow: "hidden" }}>
-                          <div style={{ width: `${pct}%`, height: "100%", background: "#1db954" }} />
+                          <div style={{ width: `${pct}%`, height: "100%", background: "var(--deckify-accent, #1DB954)" }} />
                         </div>
-                        <span style={{ fontSize: 10, color: "#1db954", fontWeight: 700 }}>
+                        <span style={{ fontSize: 10, color: "var(--deckify-accent, #1DB954)", fontWeight: 700 }}>
                           Resume {formatMs(resumeMs)}
                         </span>
                       </div>

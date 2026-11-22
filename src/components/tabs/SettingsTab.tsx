@@ -1,17 +1,20 @@
 import { FC, useState, useEffect, useCallback, useRef } from "react";
 import { DialogButton, Focusable, SliderField, ToggleField } from "@decky/ui";
 import { callable, addEventListener, removeEventListener } from "@decky/api";
-import { FaSlidersH, FaClock, FaPowerOff, FaPlug, FaBluetooth } from "react-icons/fa";
+import { FaSlidersH, FaClock, FaPowerOff, FaPlug, FaBluetooth, FaPalette, FaLeaf } from "react-icons/fa";
 import {
+  AccentThemeMode,
   ActiveGameOverrideInfo,
   AudioSinkInfo,
   ChordBindingsMap,
+  EcoStatusInfo,
   EqualizerPreset,
   MprisStatusInfo,
   ResilienceStatusInfo,
   StatusResponse,
   SleepTimerStatus,
 } from "../../types";
+import { syncThemeFromState } from "../../utils/themeBus";
 import { CHORD_ACTIONS, DEFAULT_CHORD_BINDINGS } from "../../chords";
 import { ChordBindingsCard } from "./ChordBindingsCard";
 import { InteractiveRow } from "../common/InteractiveRow";
@@ -65,13 +68,182 @@ function buildFullChordBindings(
   return full;
 }
 
+const ACCENT_THEME_OPTIONS: Array<{ id: AccentThemeMode; label: string; dotColor: string }> = [
+  { id: "spotify_green", label: "Classic Spotify Green", dotColor: "#1DB954" },
+  { id: "dynamic_album", label: "Dynamic Album Glow", dotColor: "var(--deckify-accent, #1DB954)" },
+  { id: "steamos_blue", label: "SteamOS Deck Blue", dotColor: "#1A9FFF" },
+];
+
+function renderAccentThemeCard(
+  accentTheme: AccentThemeMode,
+  onSelectTheme: (mode: AccentThemeMode) => void
+) {
+  return (
+    <div style={{ marginBottom: 20, padding: "12px 16px", borderRadius: 10, background: "rgba(255,255,255,0.04)" }}>
+      <h3 style={{ fontSize: 16, fontWeight: 700, color: "var(--deckify-accent, #1DB954)", display: "flex", alignItems: "center", gap: 8, margin: "0 0 6px 0" }}>
+        <FaPalette /> Accent Theme
+      </h3>
+      <p style={{ fontSize: 14, opacity: 0.72, margin: "0 0 12px 0", lineHeight: 1.5 }}>
+        Customize the accent color for focus halos, buttons, progress bars, and ambient glow across the modal and HUD.
+      </p>
+      <Focusable flow-children="horizontal" style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+        {ACCENT_THEME_OPTIONS.map((opt) => {
+          const selected = accentTheme === opt.id;
+          return (
+            <DialogButton
+              key={opt.id}
+              onClick={() => onSelectTheme(opt.id)}
+              style={{
+                width: "auto",
+                minWidth: "auto",
+                minHeight: 44,
+                padding: "8px 14px",
+                fontSize: 12,
+                fontWeight: 700,
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 8,
+                background: selected
+                  ? "rgba(var(--deckify-accent-rgb, 29, 185, 84), 0.18)"
+                  : "rgba(255,255,255,0.06)",
+                border: selected
+                  ? "1px solid var(--deckify-accent, #1DB954)"
+                  : "1px solid rgba(255,255,255,0.12)",
+                color: selected ? "var(--deckify-accent, #1DB954)" : "#fff",
+              }}
+            >
+              <span
+                style={{
+                  width: 10,
+                  height: 10,
+                  borderRadius: "50%",
+                  background: opt.dotColor,
+                  flexShrink: 0,
+                }}
+              />
+              <span>{opt.label}</span>
+            </DialogButton>
+          );
+        })}
+      </Focusable>
+      {accentTheme === "dynamic_album" && (
+        <p style={{ fontSize: 12, opacity: 0.7, margin: "8px 0 0 0", lineHeight: 1.4 }}>
+          Adapts to the active track&apos;s album art (WCAG luminance clamped for readability; falls back to Spotify Green when idle or grayscale).
+        </p>
+      )}
+    </div>
+  );
+}
+
+function getEcoBadgeInfo(ecoStatus: EcoStatusInfo | null): {
+  label: string;
+  background: string;
+  border: string;
+  color: string;
+} {
+  if (ecoStatus?.engine_sleeping || ecoStatus?.status === "engine_sleeping") {
+    return {
+      label: "Engine Sleeping",
+      background: "rgba(255, 193, 7, 0.16)",
+      border: "1px solid rgba(255, 193, 7, 0.45)",
+      color: "#FFD54F",
+    };
+  }
+  if (ecoStatus?.status === "on_battery_active" || (ecoStatus?.enabled && ecoStatus?.on_battery && !ecoStatus?.is_docked)) {
+    return {
+      label: "On Battery — Active",
+      background: "rgba(var(--deckify-accent-rgb, 29, 185, 84), 0.16)",
+      border: "1px solid rgba(var(--deckify-accent-rgb, 29, 185, 84), 0.45)",
+      color: "var(--deckify-accent, #1DB954)",
+    };
+  }
+  return {
+    label: "Bypassed (AC / Docked / Desktop)",
+    background: "rgba(255, 255, 255, 0.08)",
+    border: "1px solid rgba(255, 255, 255, 0.16)",
+    color: "rgba(255, 255, 255, 0.72)",
+  };
+}
+
+interface EcoModeCardProps {
+  ecoStatus: EcoStatusInfo | null;
+  ecoEnabled: boolean;
+  timeoutMinutes: number;
+  sleepSpotifyClient: boolean;
+  onUpdateSetting: (key: string, value: unknown) => void;
+}
+
+function renderEcoModeCard({
+  ecoStatus,
+  ecoEnabled,
+  timeoutMinutes,
+  sleepSpotifyClient,
+  onUpdateSetting,
+}: EcoModeCardProps) {
+  const badge = getEcoBadgeInfo(ecoStatus);
+  return (
+    <div style={{ marginBottom: 20, padding: "12px 16px", borderRadius: 10, background: "rgba(255,255,255,0.04)" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 6 }}>
+        <h3 style={{ fontSize: 16, fontWeight: 700, color: "var(--deckify-accent, #1DB954)", display: "flex", alignItems: "center", gap: 8, margin: 0 }}>
+          <FaLeaf /> Handheld Battery Eco-Mode
+        </h3>
+        <span
+          style={{
+            fontSize: 12,
+            fontWeight: 700,
+            padding: "4px 8px",
+            borderRadius: 6,
+            background: badge.background,
+            border: badge.border,
+            color: badge.color,
+            flexShrink: 0,
+          }}
+        >
+          {badge.label}
+        </span>
+      </div>
+      <p style={{ fontSize: 14, opacity: 0.72, margin: "0 0 10px 0", lineHeight: 1.5 }}>
+        Conserve battery during handheld gameplay by suspending background animations and sleeping idle paused engines.
+      </p>
+      <Focusable flow-children="column" style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+        <ToggleField
+          label="Enable Battery Eco-Mode"
+          description="Suspend non-essential animations during gameplay on battery and sleep idle paused engines."
+          checked={ecoEnabled}
+          onChange={(v: boolean) => onUpdateSetting("eco_mode_enabled", v)}
+        />
+        <SliderField
+          label="Inactivity Sleep Timeout"
+          description="Put the paused engine to sleep after this duration on battery."
+          min={5}
+          max={30}
+          step={5}
+          showValue
+          valueSuffix=" min"
+          value={timeoutMinutes}
+          disabled={!ecoEnabled}
+          onChange={(v: number) => onUpdateSetting("eco_timeout_minutes", Math.min(30, Math.max(5, v)))}
+        />
+        <ToggleField
+          label="Sleep Official Spotify Client"
+          description="Also allow Eco-Mode to sleep the Official Spotify Client (by default only Deckify-managed librespot/spotifyd sleeps)."
+          checked={sleepSpotifyClient}
+          disabled={!ecoEnabled}
+          onChange={(v: boolean) => onUpdateSetting("eco_sleep_spotify_client", v)}
+        />
+      </Focusable>
+    </div>
+  );
+}
+
 export interface SettingsTabProps {
   status: StatusResponse | null;
+  ecoStatus?: EcoStatusInfo | null;
   refreshStatus: () => void;
   showToast: (msg: string) => void;
 }
 
-export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showToast }) => {
+export const SettingsTab: FC<SettingsTabProps> = ({ status, ecoStatus, refreshStatus, showToast }) => {
   const [audioSinks, setAudioSinks] = useState<AudioSinkInfo[]>([]);
   const [officialClientStatus, setOfficialClientStatus] = useState<{ running: boolean; logged_in: boolean } | null>(null);
   const [localSettings, setLocalSettings] = useState<Record<string, any>>(() => status?.settings || {});
@@ -80,6 +252,9 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
   );
   const [liveMprisStatus, setLiveMprisStatus] = useState<MprisStatusInfo | null>(
     () => status?.mpris_status ?? null
+  );
+  const [liveEcoStatus, setLiveEcoStatus] = useState<EcoStatusInfo | null>(
+    () => ecoStatus ?? status?.eco_status ?? null
   );
   const [liveGameOverride, setLiveGameOverride] = useState<ActiveGameOverrideInfo | null>(
     () => status?.active_game_override ?? null
@@ -253,6 +428,26 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
     };
   }, [refreshStatus]);
 
+  useEffect(() => {
+    const next = ecoStatus ?? status?.eco_status;
+    if (next !== undefined) {
+      setLiveEcoStatus(next ?? null);
+    }
+  }, [ecoStatus, status?.eco_status]);
+
+  useEffect(() => {
+    const handler = (data: unknown) => {
+      if (data && typeof data === "object") {
+        setLiveEcoStatus(data as EcoStatusInfo);
+      }
+      refreshStatus();
+    };
+    const listener = addEventListener<[unknown]>("eco_status_changed", handler);
+    return () => {
+      removeEventListener("eco_status_changed", listener);
+    };
+  }, [refreshStatus]);
+
   const updateSetting = useCallback(
     async (key: string, value: unknown) => {
       setLocalSettings((prev) => ({ ...prev, [key]: value }));
@@ -260,6 +455,39 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
       refreshStatus();
     },
     [refreshStatus]
+  );
+
+  const effectiveEcoStatus = ecoStatus ?? liveEcoStatus ?? status?.eco_status ?? null;
+  const activeTrack = status?.track || status?.track_meta || null;
+  const activeArtworkUrl = activeTrack?.artwork_url || activeTrack?.image_url || null;
+
+  const handlePhase21Setting = useCallback(
+    async (key: string, value: unknown) => {
+      setLocalSettings((prev) => ({ ...prev, [key]: value }));
+      try {
+        const res = await backendSetSetting(key, value);
+        if (res && res.ok === false) {
+          showToast("Failed to save setting — please try again.");
+          return;
+        }
+        refreshStatus();
+      } catch {
+        showToast("Failed to save setting — please try again.");
+      }
+    },
+    [refreshStatus, showToast]
+  );
+
+  const handleSelectAccentTheme = useCallback(
+    (mode: AccentThemeMode) => {
+      void syncThemeFromState({
+        accentTheme: mode,
+        artworkUrl: activeArtworkUrl,
+        animationsSuspended: Boolean(effectiveEcoStatus?.animations_suspended),
+      });
+      void handlePhase21Setting("accent_theme", mode);
+    },
+    [activeArtworkUrl, effectiveEcoStatus?.animations_suspended, handlePhase21Setting]
   );
 
   const currentChordBindings = (localSettings.gamepad_chord_bindings ??
@@ -300,7 +528,7 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
 
       {/* Backend & Quality */}
       <div style={{ marginBottom: 20, padding: 14, borderRadius: 10, background: "rgba(255,255,255,0.04)" }}>
-        <h3 style={{ fontSize: 14, fontWeight: 700, color: "#1db954", marginBottom: 8 }}>Playback Engine</h3>
+        <h3 style={{ fontSize: 14, fontWeight: 700, color: "var(--deckify-accent, #1DB954)", marginBottom: 8 }}>Playback Engine</h3>
         <Focusable flow-children="horizontal" style={{ display: "flex", gap: 10, marginBottom: 14 }}>
           <InteractiveRow
             onClick={async () => {
@@ -353,14 +581,14 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
             </div>
             <InteractiveRow
               onClick={checkOfficialClient}
-              style={{ padding: "5px 12px", fontSize: 11, background: "#1db954", color: "#000", fontWeight: 700 }}
+              style={{ padding: "5px 12px", fontSize: 11, background: "var(--deckify-accent, #1DB954)", color: "#000", fontWeight: 700 }}
             >
               Check Status
             </InteractiveRow>
           </div>
         )}
 
-        <h3 style={{ fontSize: 14, fontWeight: 700, color: "#1db954", marginBottom: 8 }}>Audio Quality</h3>
+        <h3 style={{ fontSize: 14, fontWeight: 700, color: "var(--deckify-accent, #1DB954)", marginBottom: 8 }}>Audio Quality</h3>
         <Focusable flow-children="horizontal" style={{ display: "flex", gap: 8 }}>
           {["96", "160", "320", "lossless"].map((q) => {
             const active = audioQuality === q;
@@ -393,7 +621,7 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
 
       {/* Advanced Playback Settings (Bit-Perfect, Gapless, Normalisation, Autoplay) */}
       <div style={{ marginBottom: 20, padding: 14, borderRadius: 10, background: "rgba(255,255,255,0.04)" }}>
-        <h3 style={{ fontSize: 14, fontWeight: 700, color: "#1db954", marginBottom: 10 }}>
+        <h3 style={{ fontSize: 14, fontWeight: 700, color: "var(--deckify-accent, #1DB954)", marginBottom: 10 }}>
           Playback & Audiophile Features
         </h3>
 
@@ -416,7 +644,7 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
             style={{
               fontSize: 12,
               fontWeight: 700,
-              color: (status?.settings?.bit_perfect_clock ?? true) ? "#1db954" : "#888",
+              color: (status?.settings?.bit_perfect_clock ?? true) ? "var(--deckify-accent, #1DB954)" : "#888",
             }}
           >
             {(status?.settings?.bit_perfect_clock ?? true) ? "ON" : "OFF"}
@@ -442,7 +670,7 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
             style={{
               fontSize: 12,
               fontWeight: 700,
-              color: (status?.settings?.gapless ?? true) ? "#1db954" : "#888",
+              color: (status?.settings?.gapless ?? true) ? "var(--deckify-accent, #1DB954)" : "#888",
             }}
           >
             {(status?.settings?.gapless ?? true) ? "ON" : "OFF"}
@@ -468,7 +696,7 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
             style={{
               fontSize: 12,
               fontWeight: 700,
-              color: (status?.settings?.autoplay ?? true) ? "#1db954" : "#888",
+              color: (status?.settings?.autoplay ?? true) ? "var(--deckify-accent, #1DB954)" : "#888",
             }}
           >
             {(status?.settings?.autoplay ?? true) ? "ON" : "OFF"}
@@ -497,7 +725,7 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
             style={{
               fontSize: 12,
               fontWeight: 700,
-              color: (status?.settings?.normalisation ?? true) ? "#1db954" : "#888",
+              color: (status?.settings?.normalisation ?? true) ? "var(--deckify-accent, #1DB954)" : "#888",
             }}
           >
             {(status?.settings?.normalisation ?? true) ? "ON" : "OFF"}
@@ -505,7 +733,7 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
         </InteractiveRow>
 
         {(status?.settings?.normalisation ?? true) && (
-          <div style={{ paddingLeft: 12, borderLeft: "2px solid rgba(29, 185, 84, 0.4)", marginTop: 6 }}>
+          <div style={{ paddingLeft: 12, borderLeft: "2px solid rgba(var(--deckify-accent-rgb, 29, 185, 84), 0.4)", marginTop: 6 }}>
             <div style={{ fontSize: 11, opacity: 0.7, marginBottom: 6 }}>Normalisation Pre-Gain:</div>
             <Focusable flow-children="horizontal" style={{ display: "flex", gap: 6 }}>
               {[-5.0, 0.0, 3.0, 6.0].map((gain) => (
@@ -542,7 +770,7 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
             style={{
               fontSize: 14,
               fontWeight: 700,
-              color: "#1db954",
+              color: "var(--deckify-accent, #1DB954)",
               margin: 0,
               display: "flex",
               alignItems: "center",
@@ -555,7 +783,7 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
           {localEqPreset === "flat" ? (
             <span style={{ fontSize: 12, fontWeight: 700, opacity: 0.6, flexShrink: 0 }}>Bypass (0.0 dB)</span>
           ) : (
-            <span style={{ fontSize: 12, fontWeight: 700, color: "#1db954", flexShrink: 0 }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: "var(--deckify-accent, #1DB954)", flexShrink: 0 }}>
               {`Preamp: ${(Math.max(0, ...localBands) > 0 ? -Math.max(0, ...localBands) : 0).toFixed(1)} dB`}
             </span>
           )}
@@ -572,8 +800,8 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
               marginBottom: 6,
               padding: "4px 10px",
               borderRadius: 6,
-              background: "rgba(29, 185, 84, 0.16)",
-              color: "#1DB954",
+              background: "rgba(var(--deckify-accent-rgb, 29, 185, 84), 0.16)",
+              color: "var(--deckify-accent, #1DB954)",
               fontSize: 12,
               fontWeight: 700,
               lineHeight: 1.3,
@@ -642,7 +870,7 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
       {/* PipeWire Audio Output Sink Selector */}
       {audioSinks.length > 0 && (
         <div style={{ marginBottom: 20, padding: 14, borderRadius: 10, background: "rgba(255,255,255,0.04)" }}>
-          <h3 style={{ fontSize: 14, fontWeight: 700, color: "#1db954", marginBottom: 8 }}>
+          <h3 style={{ fontSize: 14, fontWeight: 700, color: "var(--deckify-accent, #1DB954)", marginBottom: 8 }}>
             Audio Output Sink (PipeWire)
           </h3>
           <Focusable flow-children="column" style={{ display: "flex", flexDirection: "column", gap: 4 }}>
@@ -667,7 +895,7 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
                   <span style={{ fontSize: 12, fontWeight: 600 }}>{s.description || s.name}</span>
                   <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
                     {s.is_default && <span style={{ fontSize: 11, opacity: 0.6, fontWeight: 600 }}>Default</span>}
-                    {isActive && <span style={{ fontSize: 11, color: "#1db954", fontWeight: 700 }}>Active</span>}
+                    {isActive && <span style={{ fontSize: 11, color: "var(--deckify-accent, #1DB954)", fontWeight: 700 }}>Active</span>}
                   </span>
                 </InteractiveRow>
               );
@@ -698,7 +926,7 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
           badgeStyle = { opacity: 0.6 };
         } else if (dockStatus?.status === "docked") {
           badgeLabel = `Docked: ${dockStatus.active_sink_label || dockStatus.active_sink || "External"}`;
-          badgeStyle = { color: "#1db954" };
+          badgeStyle = { color: "var(--deckify-accent, #1DB954)" };
         } else if (dockStatus?.status === "bluetooth_held") {
           badgeLabel = "Bluetooth Held";
           badgeStyle = { opacity: 0.8 };
@@ -710,7 +938,7 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
         return (
           <div style={{ marginBottom: 20, padding: 14, borderRadius: 10, background: "rgba(255,255,255,0.04)" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 8 }}>
-              <h3 style={{ fontSize: 14, fontWeight: 700, color: "#1db954", display: "flex", alignItems: "center", gap: 8, margin: 0 }}>
+              <h3 style={{ fontSize: 14, fontWeight: 700, color: "var(--deckify-accent, #1DB954)", display: "flex", alignItems: "center", gap: 8, margin: 0 }}>
                 <FaPlug /> Docked Audio-Switching
               </h3>
               <span
@@ -785,7 +1013,7 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
                 <span style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
                   <span style={{ fontSize: 12, opacity: 0.6 }}>USB-DAC &gt; HDMI</span>
                   {dockTargetSink === "auto" && (
-                    <span style={{ fontSize: 12, color: "#1db954", fontWeight: 700 }}>Active</span>
+                    <span style={{ fontSize: 12, color: "var(--deckify-accent, #1DB954)", fontWeight: 700 }}>Active</span>
                   )}
                 </span>
               </InteractiveRow>
@@ -812,7 +1040,7 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
                     {s.description || s.name}
                   </span>
                   {dockTargetSink === s.name && (
-                    <span style={{ fontSize: 12, color: "#1db954", fontWeight: 700, flexShrink: 0 }}>
+                    <span style={{ fontSize: 12, color: "var(--deckify-accent, #1DB954)", fontWeight: 700, flexShrink: 0 }}>
                       Active
                     </span>
                   )}
@@ -865,7 +1093,7 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
           Boolean(resilienceStatus?.onevent_healthy) && resilienceStatus?.polling_mode === "onevent";
         const badgeLabel = isOneventLive ? "--onevent Live (20s poll)" : "Fallback Poll (3s)";
         const badgeStyle: Record<string, any> = isOneventLive
-          ? { color: "#1db954" }
+          ? { color: "var(--deckify-accent, #1DB954)" }
           : { opacity: 0.7 };
         const heldBookmark = resilienceStatus?.held_bookmark ?? null;
         const heldReasonLabel =
@@ -876,7 +1104,7 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
         return (
           <div style={{ marginBottom: 20, padding: 14, borderRadius: 10, background: "rgba(255,255,255,0.04)" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 8 }}>
-              <h3 style={{ fontSize: 14, fontWeight: 700, color: "#1db954", display: "flex", alignItems: "center", gap: 8, margin: 0 }}>
+              <h3 style={{ fontSize: 14, fontWeight: 700, color: "var(--deckify-accent, #1DB954)", display: "flex", alignItems: "center", gap: 8, margin: 0 }}>
                 Playback Resilience
               </h3>
               <span
@@ -950,11 +1178,11 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
                   marginTop: 12,
                   padding: 10,
                   borderRadius: 8,
-                  background: "rgba(29, 185, 84, 0.08)",
-                  border: "1px solid rgba(29, 185, 84, 0.25)",
+                  background: "rgba(var(--deckify-accent-rgb, 29, 185, 84), 0.08)",
+                  border: "1px solid rgba(var(--deckify-accent-rgb, 29, 185, 84), 0.25)",
                 }}
               >
-                <div style={{ fontSize: 12, fontWeight: 700, color: "#1db954", marginBottom: 4 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: "var(--deckify-accent, #1DB954)", marginBottom: 4 }}>
                   Held Session Bookmark:{" "}
                   {heldBookmark.track_name
                     ? `${heldBookmark.track_name}${heldBookmark.artist ? ` — ${heldBookmark.artist}` : ""}`
@@ -965,7 +1193,7 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
                 </div>
                 <Focusable flow-children="horizontal" style={{ display: "flex", gap: 8 }}>
                   <DialogButton
-                    style={{ minWidth: "auto", padding: "6px 12px", fontSize: 12, color: "#1db954" }}
+                    style={{ minWidth: "auto", padding: "6px 12px", fontSize: 12, color: "var(--deckify-accent, #1DB954)" }}
                     onClick={async () => {
                       const res = await backendRestoreBookmark();
                       if (res?.ok) {
@@ -1017,7 +1245,7 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
           badgeStyle = { opacity: 0.6 };
         } else if (mprisStatus?.bus_registered && mprisStatus?.proxy_running) {
           badgeLabel = "Active (Bluetooth Ready)";
-          badgeStyle = { color: "#1db954" };
+          badgeStyle = { color: "var(--deckify-accent, #1DB954)" };
         } else {
           badgeLabel = "D-Bus Active (mpris-proxy unavailable)";
           badgeStyle = { opacity: 0.8 };
@@ -1026,7 +1254,7 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
         return (
           <div style={{ marginBottom: 20, padding: 14, borderRadius: 10, background: "rgba(255,255,255,0.04)" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 8 }}>
-              <h3 style={{ fontSize: 14, fontWeight: 700, color: "#1db954", display: "flex", alignItems: "center", gap: 8, margin: 0 }}>
+              <h3 style={{ fontSize: 14, fontWeight: 700, color: "var(--deckify-accent, #1DB954)", display: "flex", alignItems: "center", gap: 8, margin: 0 }}>
                 <FaBluetooth /> Bluetooth & Media Controls (MPRIS2)
               </h3>
               <span
@@ -1072,13 +1300,13 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
 
       {/* Backend Sleep Timer */}
       <div style={{ marginBottom: 20, padding: 14, borderRadius: 10, background: "rgba(255,255,255,0.04)" }}>
-        <h3 style={{ fontSize: 14, fontWeight: 700, color: "#1db954", marginBottom: 6, display: "flex", alignItems: "center", gap: 8 }}>
+        <h3 style={{ fontSize: 14, fontWeight: 700, color: "var(--deckify-accent, #1DB954)", marginBottom: 6, display: "flex", alignItems: "center", gap: 8 }}>
           <FaClock /> Backend Sleep Timer
         </h3>
         <p style={{ fontSize: 12, opacity: 0.6, marginBottom: 10 }}>
           Timer runs reliably in Python background even if Steam Deck goes into sleep/standby.
           {status?.sleep_timer?.active && (
-            <b style={{ color: "#1db954", marginLeft: 6 }}>
+            <b style={{ color: "var(--deckify-accent, #1DB954)", marginLeft: 6 }}>
               {status.sleep_timer.fading
                 ? "Fading out..."
                 : `Remaining: ${Math.ceil((status.sleep_timer.remaining_seconds || 0) / 60)} min`}
@@ -1134,10 +1362,10 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
           style={{ justifyContent: "space-between", marginTop: 8 }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <FaPowerOff color={status?.sleep_timer?.shutdown_on_finish ? "#1db954" : "#888"} />
+            <FaPowerOff color={status?.sleep_timer?.shutdown_on_finish ? "var(--deckify-accent, #1DB954)" : "#888"} />
             <span style={{ fontSize: 13, fontWeight: 600 }}>Power off Steam Deck when timer finishes</span>
           </div>
-          <span style={{ fontSize: 12, fontWeight: 700, color: status?.sleep_timer?.shutdown_on_finish ? "#1db954" : "#888" }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: status?.sleep_timer?.shutdown_on_finish ? "var(--deckify-accent, #1DB954)" : "#888" }}>
             {status?.sleep_timer?.shutdown_on_finish ? "ON" : "OFF"}
           </span>
         </InteractiveRow>
@@ -1171,7 +1399,7 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
 
       {/* Smooth Audio Ducking Engine */}
       <div style={{ marginBottom: 20, padding: 14, borderRadius: 10, background: "rgba(255,255,255,0.04)" }}>
-        <h3 style={{ fontSize: 14, fontWeight: 700, color: "#1db954", marginBottom: 6 }}>
+        <h3 style={{ fontSize: 14, fontWeight: 700, color: "var(--deckify-accent, #1DB954)", marginBottom: 6 }}>
           Smooth Audio Ducking Engine
         </h3>
         <p style={{ fontSize: 12, opacity: 0.6, marginBottom: 12 }}>
@@ -1188,7 +1416,7 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
           style={{ justifyContent: "space-between", marginBottom: (status?.settings?.auto_ducking ?? true) ? 14 : 0 }}
         >
           <span style={{ fontSize: 13, fontWeight: 600 }}>Game Audio Ducking</span>
-          <span style={{ fontSize: 12, fontWeight: 700, color: (status?.settings?.auto_ducking ?? true) ? "#1db954" : "#888" }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: (status?.settings?.auto_ducking ?? true) ? "var(--deckify-accent, #1DB954)" : "#888" }}>
             {(status?.settings?.auto_ducking ?? true) ? "ON" : "OFF"}
           </span>
         </InteractiveRow>
@@ -1295,7 +1523,7 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
               style={{ justifyContent: "space-between" }}
             >
               <span style={{ fontSize: 13, fontWeight: 600 }}>Voice Chat Ducking (Discord / Steam Voice)</span>
-              <span style={{ fontSize: 12, fontWeight: 700, color: (status?.settings?.voice_ducking_enabled ?? true) ? "#1db954" : "#888" }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: (status?.settings?.voice_ducking_enabled ?? true) ? "var(--deckify-accent, #1DB954)" : "#888" }}>
                 {(status?.settings?.voice_ducking_enabled ?? true) ? "ON" : "OFF"}
               </span>
             </InteractiveRow>
@@ -1319,9 +1547,28 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
         )}
       </div>
 
+      {/* Accent Theme (THEME-01) */}
+      {renderAccentThemeCard(
+        (localSettings.accent_theme ?? status?.settings?.accent_theme ?? "spotify_green") as AccentThemeMode,
+        handleSelectAccentTheme
+      )}
+
+      {/* Handheld Battery Eco-Mode (ECO-01) */}
+      {renderEcoModeCard({
+        ecoStatus: effectiveEcoStatus,
+        ecoEnabled: Boolean(localSettings.eco_mode_enabled ?? status?.settings?.eco_mode_enabled ?? true),
+        timeoutMinutes: Number(localSettings.eco_timeout_minutes ?? status?.settings?.eco_timeout_minutes ?? 15),
+        sleepSpotifyClient: Boolean(
+          localSettings.eco_sleep_spotify_client ?? status?.settings?.eco_sleep_spotify_client ?? false
+        ),
+        onUpdateSetting: (key, val) => {
+          void handlePhase21Setting(key, val);
+        },
+      })}
+
       {/* In-Game Mini Overlay HUD */}
       <div style={{ marginBottom: 20, padding: 14, borderRadius: 10, background: "rgba(255,255,255,0.04)" }}>
-        <h3 style={{ fontSize: 14, fontWeight: 700, color: "#1db954", marginBottom: 6 }}>
+        <h3 style={{ fontSize: 14, fontWeight: 700, color: "var(--deckify-accent, #1DB954)", marginBottom: 6 }}>
           In-Game Mini Overlay (HUD)
         </h3>
         <p style={{ fontSize: 12, opacity: 0.6, marginBottom: 10 }}>
@@ -1338,7 +1585,7 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
           style={{ justifyContent: "space-between", marginBottom: status?.settings?.overlay_enabled ? 10 : 0 }}
         >
           <span style={{ fontSize: 13, fontWeight: 600 }}>Mini Overlay HUD</span>
-          <span style={{ fontSize: 12, fontWeight: 700, color: status?.settings?.overlay_enabled ? "#1db954" : "#888" }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: status?.settings?.overlay_enabled ? "var(--deckify-accent, #1DB954)" : "#888" }}>
             {status?.settings?.overlay_enabled ? "ON" : "OFF"}
           </span>
         </InteractiveRow>
@@ -1376,7 +1623,7 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
               <span style={{ fontSize: 13, fontWeight: 600 }}>
                 Auto-Hide Overlay ({status?.settings?.overlay_autohide_duration_s ?? 6}s)
               </span>
-              <span style={{ fontSize: 12, fontWeight: 700, color: status?.settings?.overlay_autohide ? "#1db954" : "#888" }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: status?.settings?.overlay_autohide ? "var(--deckify-accent, #1DB954)" : "#888" }}>
                 {status?.settings?.overlay_autohide ? "ON" : "OFF"}
               </span>
             </InteractiveRow>
@@ -1393,7 +1640,7 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
               style={{ justifyContent: "space-between", marginTop: 8 }}
             >
               <span style={{ fontSize: 13, fontWeight: 600 }}>Show Progress Bar (2px)</span>
-              <span style={{ fontSize: 12, fontWeight: 700, color: status?.settings?.overlay_show_progress ? "#1db954" : "#888" }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: status?.settings?.overlay_show_progress ? "var(--deckify-accent, #1DB954)" : "#888" }}>
                 {status?.settings?.overlay_show_progress ? "ON" : "OFF"}
               </span>
             </InteractiveRow>
@@ -1409,7 +1656,7 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
               style={{ justifyContent: "space-between", marginTop: 8, marginBottom: 8 }}
             >
               <span style={{ fontSize: 13, fontWeight: 600 }}>Overlay Lyrics</span>
-              <span style={{ fontSize: 12, fontWeight: 700, color: (localSettings.overlay_lyrics_enabled ?? status?.settings?.overlay_lyrics_enabled) ? "#1db954" : "#888" }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: (localSettings.overlay_lyrics_enabled ?? status?.settings?.overlay_lyrics_enabled) ? "var(--deckify-accent, #1DB954)" : "#888" }}>
                 {(localSettings.overlay_lyrics_enabled ?? status?.settings?.overlay_lyrics_enabled) ? "ON" : "OFF"}
               </span>
             </InteractiveRow>
@@ -1447,7 +1694,7 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
 
       {/* Toasts & Gamepad Quick Chords */}
       <div style={{ marginBottom: 20, padding: 14, borderRadius: 10, background: "rgba(255,255,255,0.04)" }}>
-        <h3 style={{ fontSize: 14, fontWeight: 700, color: "#1db954", marginBottom: 6 }}>
+        <h3 style={{ fontSize: 14, fontWeight: 700, color: "var(--deckify-accent, #1DB954)", marginBottom: 6 }}>
           Notifications & Controller Shortcuts
         </h3>
 
@@ -1470,7 +1717,7 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
             style={{
               fontSize: 12,
               fontWeight: 700,
-              color: (status?.settings?.toast_enabled ?? true) ? "#1db954" : "#888",
+              color: (status?.settings?.toast_enabled ?? true) ? "var(--deckify-accent, #1DB954)" : "#888",
             }}
           >
             {(status?.settings?.toast_enabled ?? true) ? "ON" : "OFF"}
@@ -1496,7 +1743,7 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
             style={{
               fontSize: 12,
               fontWeight: 700,
-              color: (status?.settings?.toast_sound_enabled ?? false) ? "#1db954" : "#888",
+              color: (status?.settings?.toast_sound_enabled ?? false) ? "var(--deckify-accent, #1DB954)" : "#888",
             }}
           >
             {(status?.settings?.toast_sound_enabled ?? false) ? "ON" : "OFF"}
@@ -1553,7 +1800,7 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
             style={{
               fontSize: 12,
               fontWeight: 700,
-              color: (status?.settings?.gamepad_chords_enabled ?? true) ? "#1db954" : "#888",
+              color: (status?.settings?.gamepad_chords_enabled ?? true) ? "var(--deckify-accent, #1DB954)" : "#888",
             }}
           >
             {(status?.settings?.gamepad_chords_enabled ?? true) ? "ON" : "OFF"}
@@ -1578,7 +1825,7 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
 
       {/* Controller & Trigger Navigation */}
       <div style={{ marginBottom: 20, padding: 14, borderRadius: 10, background: "rgba(255,255,255,0.04)" }}>
-        <h3 style={{ fontSize: 14, fontWeight: 700, color: "#1db954", marginBottom: 6 }}>
+        <h3 style={{ fontSize: 14, fontWeight: 700, color: "var(--deckify-accent, #1DB954)", marginBottom: 6 }}>
           Controller & Trigger Navigation
         </h3>
         <ToggleField
@@ -1626,7 +1873,7 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, refreshStatus, showT
 
       {/* Steam Menu Position */}
       <div style={{ marginBottom: 20, padding: 14, borderRadius: 10, background: "rgba(255,255,255,0.04)" }}>
-        <h3 style={{ fontSize: 14, fontWeight: 700, color: "#1db954", marginBottom: 6 }}>
+        <h3 style={{ fontSize: 14, fontWeight: 700, color: "var(--deckify-accent, #1DB954)", marginBottom: 6 }}>
           Steam Main Menu Position
         </h3>
         <p style={{ fontSize: 12, opacity: 0.6, marginBottom: 10 }}>
