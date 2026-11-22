@@ -58,7 +58,7 @@ export const TrackRowItem: FC<TrackRowItemProps> = ({
         }}
         style={{ cursor: "pointer", padding: "4px 6px" }}
       >
-        {track.is_liked ? <FaHeart size={13} color="#1db954" /> : <FaRegHeart size={13} color="#777" />}
+        {track.is_liked ? <FaHeart size={13} color="var(--deckify-accent, #1DB954)" /> : <FaRegHeart size={13} color="#777" />}
       </span>
       <span style={{ fontSize: 12, opacity: 0.5 }}>{formatMs(track.duration_ms || 0)}</span>
 

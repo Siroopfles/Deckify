@@ -126,7 +126,7 @@ function renderSliderTrack(
           height: `${fillHeight}%`,
           width: 4,
           borderRadius: 2,
-          background: "#1db954",
+          background: "var(--deckify-accent, #1DB954)",
         }}
       />
       <div
@@ -136,8 +136,8 @@ function renderSliderTrack(
           width: 12,
           height: 12,
           borderRadius: "50%",
-          background: gain !== 0 ? "#1db954" : "#ffffff",
-          boxShadow: "0 0 6px rgba(29,185,84,0.45)",
+          background: gain !== 0 ? "var(--deckify-accent, #1DB954)" : "#ffffff",
+          boxShadow: "0 0 6px rgba(var(--deckify-accent-rgb, 29, 185, 84), 0.45)",
           pointerEvents: "none",
         }}
       />
@@ -172,7 +172,7 @@ function renderSingleEqBand(
           fontSize: 10,
           fontWeight: 700,
           fontVariantNumeric: "tabular-nums",
-          color: gain !== 0 ? "#1db954" : "rgba(255,255,255,0.55)",
+          color: gain !== 0 ? "var(--deckify-accent, #1DB954)" : "rgba(255,255,255,0.55)",
           lineHeight: 1.2,
         }}
       >

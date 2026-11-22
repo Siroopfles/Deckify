@@ -63,7 +63,7 @@ export const CollectionActionModal: FC<CollectionActionModalProps> = ({
       return <FaCompactDisc size={18} color="#b3b3b3" />;
     }
     if (collection.type === "liked_songs") {
-      return <FaHeart size={18} color="#1db954" />;
+      return <FaHeart size={18} color="var(--deckify-accent, #1DB954)" />;
     }
     return <FaListUl size={18} color="#b3b3b3" />;
   };
@@ -149,7 +149,7 @@ export const CollectionActionModal: FC<CollectionActionModalProps> = ({
           }}
           style={{ gap: 10 }}
         >
-          <FaPlay size={12} color="#1db954" />
+          <FaPlay size={12} color="var(--deckify-accent, #1DB954)" />
           <span>Play</span>
         </InteractiveRow>
 
@@ -160,10 +160,10 @@ export const CollectionActionModal: FC<CollectionActionModalProps> = ({
           }}
           style={{
             gap: 10,
-            color: isPinned ? "#1db954" : atLimit ? "rgba(255,255,255,0.55)" : "#fff",
+            color: isPinned ? "var(--deckify-accent, #1DB954)" : atLimit ? "rgba(255,255,255,0.55)" : "#fff",
           }}
         >
-          <FaThumbtack size={12} color={isPinned ? "#1db954" : undefined} />
+          <FaThumbtack size={12} color={isPinned ? "var(--deckify-accent, #1DB954)" : undefined} />
           <span>{pinLabel}</span>
         </InteractiveRow>
 

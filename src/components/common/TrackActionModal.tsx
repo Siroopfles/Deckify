@@ -138,7 +138,7 @@ export const TrackActionModal: FC<TrackActionModalProps> = ({
             </div>
 
             <InteractiveRow tabIndex={0} onClick={() => onPlayTrack(actionTrack.uri || "")} style={{ gap: 10 }}>
-              <FaPlay size={12} color="#1db954" />
+              <FaPlay size={12} color="var(--deckify-accent, #1DB954)" />
               <span>Play Track</span>
             </InteractiveRow>
 
@@ -153,7 +153,7 @@ export const TrackActionModal: FC<TrackActionModalProps> = ({
             </InteractiveRow>
 
             <InteractiveRow onClick={() => onStartRadio(actionTrack)} style={{ gap: 10 }}>
-              <FaBroadcastTower size={12} color="#1db954" />
+              <FaBroadcastTower size={12} color="var(--deckify-accent, #1DB954)" />
               <span>Start Track Radio</span>
             </InteractiveRow>
 
@@ -201,7 +201,7 @@ export const TrackActionModal: FC<TrackActionModalProps> = ({
             )}
 
             <InteractiveRow onClick={() => onToggleLike(actionTrack.id)} style={{ gap: 10 }}>
-              <FaHeart size={12} color="#1db954" />
+              <FaHeart size={12} color="var(--deckify-accent, #1DB954)" />
               <span>Toggle Favorite (Like)</span>
             </InteractiveRow>
 
@@ -255,7 +255,7 @@ export const TrackActionModal: FC<TrackActionModalProps> = ({
                   onClick={() => onAddTrackToPlaylist(pl.id, pl.name)}
                   style={{ gap: 10 }}
                 >
-                  <FaFolder size={12} color="#1db954" />
+                  <FaFolder size={12} color="var(--deckify-accent, #1DB954)" />
                   <span style={{ fontSize: 13, fontWeight: 600 }}>{pl.name}</span>
                 </InteractiveRow>
               ))}

@@ -52,7 +52,7 @@ export function SidebarBtn({
         borderRadius: 8,
         marginBottom: 2,
         background: active
-          ? "#1db954"
+          ? "var(--deckify-accent, #1DB954)"
           : focused
           ? "rgba(255,255,255,0.18)"
           : "transparent",
@@ -106,7 +106,7 @@ export const Sidebar: FC<SidebarProps> = ({
     >
       {/* Brand Header */}
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, flexShrink: 0 }}>
-        <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#1db954" }} />
+        <div style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--deckify-accent, #1DB954)" }} />
         <span style={{ fontSize: 15, fontWeight: 800, letterSpacing: 0.5 }}>Deckify</span>
         <span style={{ fontSize: 9, opacity: 0.4, marginLeft: "auto", background: "rgba(255,255,255,0.1)", padding: "2px 5px", borderRadius: 4 }}>
           L1/R1
