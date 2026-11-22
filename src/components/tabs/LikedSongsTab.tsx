@@ -43,7 +43,7 @@ export const LikedSongsTab: FC<LikedSongsTabProps> = ({
           {likedTracks.length > 0 && (
             <InteractiveRow
               onClick={() => onPlayTrack("", undefined, likedTracks.map((t) => t.uri).filter(Boolean) as string[], 0)}
-              style={{ background: "#1db954", color: "#000", fontWeight: 700, padding: "8px 16px", borderRadius: 20, gap: 8 }}
+              style={{ background: "var(--deckify-accent, #1DB954)", color: "#000", fontWeight: 700, padding: "8px 16px", borderRadius: 20, gap: 8 }}
             >
               <FaPlay size={11} /> Play All
             </InteractiveRow>
@@ -62,8 +62,8 @@ export const LikedSongsTab: FC<LikedSongsTabProps> = ({
               padding: "8px 12px",
               borderRadius: 20,
               gap: 6,
-              background: isPinned ? "rgba(29, 185, 84, 0.16)" : "rgba(255,255,255,0.08)",
-              color: isPinned ? "#1db954" : "#fff",
+              background: isPinned ? "rgba(var(--deckify-accent-rgb, 29, 185, 84), 0.16)" : "rgba(255,255,255,0.08)",
+              color: isPinned ? "var(--deckify-accent, #1DB954)" : "#fff",
             }}
           >
             <FaThumbtack size={12} />

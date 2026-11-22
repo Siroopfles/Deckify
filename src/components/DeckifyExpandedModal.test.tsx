@@ -1116,8 +1116,8 @@ describe("useTriggerNavigation & DeckifyExpandedModal controller dispatch", () =
     const lrclibPill = pillRows.find((p) => p.props.children === "LRCLIB");
     const neteasePill = pillRows.find((p) => p.props.children === "NetEase");
     expect(lrclibPill.props.active).toBe(true);
-    expect(lrclibPill.props.style.color).toBe("#1db954");
-    expect(lrclibPill.props.style.background).toBe("rgba(29, 185, 84, 0.2)");
+    expect(lrclibPill.props.style.color).toBe("var(--deckify-accent, #1DB954)");
+    expect(lrclibPill.props.style.background).toBe("rgba(var(--deckify-accent-rgb, 29, 185, 84), 0.2)");
     expect(neteasePill.props.active).toBe(false);
     expect(neteasePill.props.style.background).toBe("rgba(255, 255, 255, 0.08)");
 

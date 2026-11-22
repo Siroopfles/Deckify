@@ -95,7 +95,7 @@ export const NowPlayingTab: FC<NowPlayingTabProps> = ({
               justifyContent: "center",
             }}
           >
-            <FaSpotify size={70} color="#1db954" />
+            <FaSpotify size={70} color="var(--deckify-accent, #1DB954)" />
           </div>
         )}
 
@@ -107,8 +107,8 @@ export const NowPlayingTab: FC<NowPlayingTabProps> = ({
               top: 10,
               right: 10,
               background: "rgba(0,0,0,0.8)",
-              border: "1px solid #1db954",
-              color: "#1db954",
+              border: "1px solid var(--deckify-accent, #1DB954)",
+              color: "var(--deckify-accent, #1DB954)",
               padding: "3px 8px",
               borderRadius: 6,
               fontSize: 10,
@@ -192,7 +192,7 @@ export const NowPlayingTab: FC<NowPlayingTabProps> = ({
               style={{
                 width: `${progressPercent}%`,
                 height: "100%",
-                background: "#1db954",
+                background: "var(--deckify-accent, #1DB954)",
                 borderRadius: 6,
                 position: "relative",
               }}
@@ -208,7 +208,7 @@ export const NowPlayingTab: FC<NowPlayingTabProps> = ({
                   borderRadius: "50%",
                   background: "#fff",
                   boxShadow: isFocused
-                    ? "0 0 0 2px #1db954, 0 2px 8px rgba(0,0,0,0.8)"
+                    ? "0 0 0 2px var(--deckify-accent, #1DB954), 0 2px 8px rgba(0,0,0,0.8)"
                     : "0 2px 6px rgba(0,0,0,0.6)",
                   transition: "width 0.1s ease, height 0.1s ease, top 0.1s ease, box-shadow 0.1s ease",
                 }}
@@ -290,7 +290,7 @@ export const NowPlayingTab: FC<NowPlayingTabProps> = ({
           }}
           style={{ flex: 1, height: 10, background: "rgba(255,255,255,0.15)", borderRadius: 5, padding: 0, overflow: "hidden" }}
         >
-          <div style={{ width: `${status?.volume || 50}%`, height: "100%", background: "#1db954" }} />
+          <div style={{ width: `${status?.volume || 50}%`, height: "100%", background: "var(--deckify-accent, #1DB954)" }} />
         </InteractiveRow>
         <RoundBtn onClick={() => handleVolumeDelta(5)} size={32}>
           <FaVolumeUp size={12} />

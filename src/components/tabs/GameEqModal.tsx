@@ -119,7 +119,7 @@ function renderModalHeader(
           whiteSpace: "nowrap",
         }}
       >
-        <FaSlidersH size={14} color="#1DB954" style={{ flexShrink: 0 }} />
+        <FaSlidersH size={14} color="var(--deckify-accent, #1DB954)" style={{ flexShrink: 0 }} />
         <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           {`${gameName} — Custom Game EQ`}
         </span>
@@ -131,7 +131,7 @@ function renderModalHeader(
           lineHeight: 1.3,
           flexShrink: 0,
           whiteSpace: "nowrap",
-          color: preamp.isBypass ? "rgba(255,255,255,0.6)" : "#1DB954",
+          color: preamp.isBypass ? "rgba(255,255,255,0.6)" : "var(--deckify-accent, #1DB954)",
         }}
       >
         {preamp.text}
@@ -300,7 +300,7 @@ function renderModalFooter(onDiscard: () => void, onSave: () => void) {
           padding: "8px 16px",
           fontSize: 12,
           fontWeight: 700,
-          background: "#1DB954",
+          background: "var(--deckify-accent, #1DB954)",
           color: "#000",
         }}
       >

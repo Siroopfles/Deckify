@@ -43,14 +43,14 @@ export const LyricsTab: FC<LyricsTabProps> = ({
     <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <FaMicrophone size={18} color="#1db954" />
+          <FaMicrophone size={18} color="var(--deckify-accent, #1DB954)" />
           <div>
             <h2 style={{ fontSize: 20, fontWeight: 800, margin: 0 }}>Lyrics</h2>
             <span style={{ fontSize: 12, opacity: 0.6 }}>{trackName} — {artistName}</span>
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ fontSize: 11, background: "rgba(29, 185, 84, 0.2)", color: "#1db954", padding: "4px 10px", borderRadius: 12, fontWeight: 700 }}>
+          <span style={{ fontSize: 11, background: "rgba(var(--deckify-accent-rgb, 29, 185, 84), 0.2)", color: "var(--deckify-accent, #1DB954)", padding: "4px 10px", borderRadius: 12, fontWeight: 700 }}>
             Source: {lyricsSource || "Auto"}
           </span>
           <InteractiveRow
@@ -78,8 +78,8 @@ export const LyricsTab: FC<LyricsTabProps> = ({
                 padding: "4px 10px",
                 fontSize: 11,
                 fontWeight: isActive ? 700 : 400,
-                color: isActive ? "#1db954" : "rgba(255, 255, 255, 0.85)",
-                background: isActive ? "rgba(29, 185, 84, 0.2)" : "rgba(255, 255, 255, 0.08)",
+                color: isActive ? "var(--deckify-accent, #1DB954)" : "rgba(255, 255, 255, 0.85)",
+                background: isActive ? "rgba(var(--deckify-accent-rgb, 29, 185, 84), 0.2)" : "rgba(255, 255, 255, 0.08)",
                 borderRadius: 12,
               }}
             >
@@ -106,8 +106,8 @@ export const LyricsTab: FC<LyricsTabProps> = ({
                   style={{
                     fontSize: isCurrent ? 20 : 15,
                     fontWeight: isCurrent ? 800 : 500,
-                    color: isCurrent ? "#1db954" : "rgba(255,255,255,0.45)",
-                    background: isCurrent ? "rgba(29, 185, 84, 0.15)" : "transparent",
+                    color: isCurrent ? "var(--deckify-accent, #1DB954)" : "rgba(255,255,255,0.45)",
+                    background: isCurrent ? "rgba(var(--deckify-accent-rgb, 29, 185, 84), 0.15)" : "transparent",
                     padding: "6px 12px",
                   }}
                 >

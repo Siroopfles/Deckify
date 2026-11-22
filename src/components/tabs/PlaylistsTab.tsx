@@ -108,7 +108,7 @@ export const PlaylistsTab: FC<PlaylistsTabProps> = ({
           onClick={() => toggleFolder(folder.id)}
           style={{ marginBottom: 2 }}
         >
-          {isOpen ? <FaFolderOpen color="#1db954" size={14} /> : <FaFolder color="#aaa" size={14} />}
+          {isOpen ? <FaFolderOpen color="var(--deckify-accent, #1DB954)" size={14} /> : <FaFolder color="#aaa" size={14} />}
           {isRenaming ? (
             <div
               style={{ display: "flex", gap: 6, alignItems: "center", marginLeft: 8 }}
@@ -117,7 +117,7 @@ export const PlaylistsTab: FC<PlaylistsTabProps> = ({
               <input
                 value={renameFolderName}
                 onChange={(e) => setRenameFolderName(e.target.value)}
-                style={{ background: "#222", border: "1px solid #1db954", color: "#fff", padding: "2px 6px", borderRadius: 4, fontSize: 12 }}
+                style={{ background: "#222", border: "1px solid var(--deckify-accent, #1DB954)", color: "#fff", padding: "2px 6px", borderRadius: 4, fontSize: 12 }}
                 autoFocus
               />
               <span
@@ -127,7 +127,7 @@ export const PlaylistsTab: FC<PlaylistsTabProps> = ({
                   }
                   setRenamingFolderId(null);
                 }}
-                style={{ cursor: "pointer", color: "#1db954" }}
+                style={{ cursor: "pointer", color: "var(--deckify-accent, #1DB954)" }}
               >
                 <FaCheck size={12} />
               </span>
@@ -193,10 +193,10 @@ export const PlaylistsTab: FC<PlaylistsTabProps> = ({
                   {pl.name}
                 </span>
                 {pinnedUris?.has(pl.uri) && (
-                  <FaThumbtack size={12} color="#1db954" style={{ marginLeft: 8, flexShrink: 0 }} title="Pinned to QAM" />
+                  <FaThumbtack size={12} color="var(--deckify-accent, #1DB954)" style={{ marginLeft: 8, flexShrink: 0 }} title="Pinned to QAM" />
                 )}
                 {pl.is_mixed && (
-                  <span style={{ fontSize: 10, background: "#1db954", color: "#000", padding: "1px 5px", borderRadius: 4, fontWeight: 700, marginLeft: "auto" }}>
+                  <span style={{ fontSize: 10, background: "var(--deckify-accent, #1DB954)", color: "#000", padding: "1px 5px", borderRadius: 4, fontWeight: 700, marginLeft: "auto" }}>
                     MIX
                   </span>
                 )}
@@ -217,7 +217,7 @@ export const PlaylistsTab: FC<PlaylistsTabProps> = ({
             <div style={{ display: "flex", gap: 8 }}>
               <InteractiveRow
                 onClick={() => setCreatingPlaylist(!creatingPlaylist)}
-                style={{ padding: "6px 12px", background: "#1db954", color: "#000", fontWeight: 700, fontSize: 12, gap: 6 }}
+                style={{ padding: "6px 12px", background: "var(--deckify-accent, #1DB954)", color: "#000", fontWeight: 700, fontSize: 12, gap: 6 }}
               >
                 <FaPlus size={10} /> New Playlist
               </InteractiveRow>
@@ -245,7 +245,7 @@ export const PlaylistsTab: FC<PlaylistsTabProps> = ({
                     setCreatingPlaylist(false);
                   }
                 }}
-                style={{ background: "#1db954", color: "#000", fontWeight: 700, padding: "8px 14px" }}
+                style={{ background: "var(--deckify-accent, #1DB954)", color: "#000", fontWeight: 700, padding: "8px 14px" }}
               >
                 Create
               </InteractiveRow>
@@ -270,7 +270,7 @@ export const PlaylistsTab: FC<PlaylistsTabProps> = ({
                     setCreatingFolder(false);
                   }
                 }}
-                style={{ background: "#1db954", color: "#000", fontWeight: 700, padding: "8px 14px" }}
+                style={{ background: "var(--deckify-accent, #1DB954)", color: "#000", fontWeight: 700, padding: "8px 14px" }}
               >
                 Save
               </InteractiveRow>
@@ -312,7 +312,7 @@ export const PlaylistsTab: FC<PlaylistsTabProps> = ({
                     )}
                     <span style={{ fontSize: 13, fontWeight: 600 }}>{pl.name}</span>
                     {pinnedUris?.has(pl.uri) && (
-                      <FaThumbtack size={12} color="#1db954" style={{ marginLeft: 8, flexShrink: 0 }} title="Pinned to QAM" />
+                      <FaThumbtack size={12} color="var(--deckify-accent, #1DB954)" style={{ marginLeft: 8, flexShrink: 0 }} title="Pinned to QAM" />
                     )}
                     <span style={{ fontSize: 11, opacity: 0.5, marginLeft: "auto" }}>
                       {pl.track_count || 0} tracks
@@ -352,7 +352,7 @@ export const PlaylistsTab: FC<PlaylistsTabProps> = ({
               onClick={() => onPlayTrack("", playlistUri)}
               style={{
                 marginLeft: "auto",
-                background: "#1db954",
+                background: "var(--deckify-accent, #1DB954)",
                 color: "#000",
                 fontWeight: 700,
                 padding: "8px 16px",
@@ -380,9 +380,9 @@ export const PlaylistsTab: FC<PlaylistsTabProps> = ({
                 gap: 6,
                 flexShrink: 0,
                 background: pinnedUris?.has(playlistUri)
-                  ? "rgba(29, 185, 84, 0.16)"
+                  ? "rgba(var(--deckify-accent-rgb, 29, 185, 84), 0.16)"
                   : "rgba(255,255,255,0.08)",
-                color: pinnedUris?.has(playlistUri) ? "#1db954" : "#fff",
+                color: pinnedUris?.has(playlistUri) ? "var(--deckify-accent, #1DB954)" : "#fff",
               }}
             >
               <FaThumbtack size={12} />
@@ -392,7 +392,7 @@ export const PlaylistsTab: FC<PlaylistsTabProps> = ({
               <InteractiveRow
                 onClick={onToggleMix}
                 style={{
-                  background: activePlaylist.is_mixed ? "#1db954" : "rgba(255,255,255,0.1)",
+                  background: activePlaylist.is_mixed ? "var(--deckify-accent, #1DB954)" : "rgba(255,255,255,0.1)",
                   color: activePlaylist.is_mixed ? "#000" : "#fff",
                   fontWeight: 700,
                   padding: "8px 14px",
