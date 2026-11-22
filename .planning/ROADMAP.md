@@ -57,7 +57,7 @@
 
 - [ ] **Phase 19: Per-Game EQ & Volume Profiles** - Bind per-game 10-band PipeWire EQ presets and target volume/ducking overrides in `SoundtracksTab` with automatic launch activation and crash-resilient baseline restoration.
 - [x] **Phase 20: 100% Silent HUD Toasts & Extended In-Game Quick-Chords** - Route silent 3.5s track-change notifications directly through `DeckifyOverlay` (`pointerEvents: "none"`) and trigger configurable in-game quick-chords (`Like ♥`, `Cycle Pinned Playlists`, `Toggle Lyrics HUD`). (completed 2026-11-22)
-- [ ] **Phase 21: Dynamic Album-Art Accent Themes & Handheld Battery Eco-Mode** - Extract WCAG-clamped (`L >= 55%`) cover-art accent colors across modal and HUD, and automatically suspend background visualizers and idle paused engines during battery gameplay.
+- [x] **Phase 21: Dynamic Album-Art Accent Themes & Handheld Battery Eco-Mode** - Extract WCAG-clamped (`L >= 55%`) cover-art accent colors across modal and HUD, and automatically suspend background visualizers and idle paused engines during battery gameplay. (completed 2026-11-22)
 - [ ] **Phase 22: Spotify Connect Hub 2.0 & Native Crossfade** - Upgrade `DevicesTab` with 1-click auto-waking *"Pull Playback to Steam Deck"*, device icons, engine badges, and remote volume control alongside configurable `0–12s` native crossfade.
 - [ ] **Phase 23: Lyrics 2.0 — Offline .lrc Cache, Per-Track Sync Nudge & CJK Romanization** - Cache `.lrc` lyrics locally for instant/offline loads, persist per-track `-0.5s`/`+0.5s` sync offset nudges synced live with `DeckifyOverlay`, and render dual-line Romaji/Pinyin/Korean romanization.
 - [ ] **Phase 24: Podcast & Audiobook Power Suite** - Expose `0.75x`–`2.0x` episode playback speed (auto-resetting to `1.0x` on music), `-15s`/`+15s` smart-skip transport & trigger controls, episode resume progress bars, and *Unplayed*/*In Progress* filters.
@@ -136,7 +136,7 @@ Plans:
   1. User can switch between *Classic Spotify Green*, *Dynamic Album Glow* (dominant cover-art accent extracted from proxied artwork and WCAG luminance-clamped to `L >= 55%` for readable controller focus halos), and *SteamOS Deck Blue* across the Expanded Modal and in-game HUD.
   2. When Handheld Battery Eco-Mode is enabled and the Steam Deck is running on battery during active gameplay, background spectrum visualizers and non-essential animations are automatically suspended.
   3. When playback remains paused on battery beyond the user's configured Eco-Mode inactivity timeout (`5–30 min`), the background playback engine automatically enters idle sleep and wakes transparently on the next play command (with Eco-Mode sleep automatically bypassed when AC-powered or docked).
-**Plans:** 5/5 plans executed
+**Plans:** 5/5 plans complete
 
 Plans:
 **Wave 1**
@@ -263,7 +263,7 @@ Phases execute in numeric order: 19 → 20 → 21 → 22 → 23 → 24 → 25 �
 | 13–18.1. Audio DSP, Docked Flow & System Resilience | v0.6 | 14/14 | Complete | 2026-11-18 |
 | 19. Per-Game EQ & Volume Profiles | v0.7 | 5/5 | In Progress | - |
 | 20. 100% Silent HUD Toasts & Extended In-Game Quick-Chords | v0.7 | 7/7 | Complete    | 2026-11-22 |
-| 21. Dynamic Album-Art Accent Themes & Handheld Battery Eco-Mode | v0.7 | 5/5 | In Progress | - |
+| 21. Dynamic Album-Art Accent Themes & Handheld Battery Eco-Mode | v0.7 | 5/5 | Complete    | 2026-11-22 |
 | 22. Spotify Connect Hub 2.0 & Native Crossfade | v0.7 | 0/TBD | Not started | - |
 | 23. Lyrics 2.0 — Offline .lrc Cache, Per-Track Sync Nudge & CJK Romanization | v0.7 | 0/TBD | Not started | - |
 | 24. Podcast & Audiobook Power Suite | v0.7 | 0/TBD | Not started | - |
