@@ -1,6 +1,7 @@
 import io
 import os
 import sys
+import tempfile
 import unittest
 import urllib.error
 from types import SimpleNamespace
@@ -167,6 +168,81 @@ class TestConnectHub(unittest.IsolatedAsyncioTestCase):
 
         self.assertFalse(res_err["ok"])
         self.assertIn("Volume control restricted", res_err["error"])
+
+    def test_detect_host_hardware_label_steam_deck_dmi(self):
+        with tempfile.TemporaryDirectory() as dmi_dir, tempfile.TemporaryDirectory() as sysfs_dir:
+            with open(os.path.join(dmi_dir, "product_name"), "w", encoding="utf-8") as f:
+                f.write("Jupiter\n")
+            self.assertEqual(
+                rpc_playback.detect_host_hardware_label(dmi_root=dmi_dir, sysfs_root=sysfs_dir),
+                "Steam Deck",
+            )
+
+            os.remove(os.path.join(dmi_dir, "product_name"))
+            with open(os.path.join(dmi_dir, "board_name"), "w", encoding="utf-8") as f:
+                f.write("Galileo\n")
+            self.assertEqual(
+                rpc_playback.detect_host_hardware_label(dmi_root=dmi_dir, sysfs_root=sysfs_dir),
+                "Steam Deck",
+            )
+
+            with open(os.path.join(dmi_dir, "board_name"), "w", encoding="utf-8") as f:
+                f.write("Valve steam deck OLED\n")
+            self.assertEqual(
+                rpc_playback.detect_host_hardware_label(dmi_root=dmi_dir, sysfs_root=sysfs_dir),
+                "Steam Deck",
+            )
+
+    def test_detect_host_hardware_label_steam_machine_and_local_device(self):
+        with tempfile.TemporaryDirectory() as dmi_dir, tempfile.TemporaryDirectory() as sysfs_dir:
+            with open(os.path.join(dmi_dir, "product_name"), "w", encoding="utf-8") as f:
+                f.write("Custom Steam Machine\n")
+            self.assertEqual(
+                rpc_playback.detect_host_hardware_label(dmi_root=dmi_dir, sysfs_root=sysfs_dir),
+                "Steam Machine",
+            )
+
+            with open(os.path.join(dmi_dir, "product_name"), "w", encoding="utf-8") as f:
+                f.write("B650 Desktop\n")
+            # No battery in sysfs -> Steam Machine
+            self.assertEqual(
+                rpc_playback.detect_host_hardware_label(dmi_root=dmi_dir, sysfs_root=sysfs_dir),
+                "Steam Machine",
+            )
+
+            # Battery present in sysfs -> Local Device
+            bat_dir = os.path.join(sysfs_dir, "BAT0")
+            os.makedirs(bat_dir)
+            with open(os.path.join(bat_dir, "type"), "w", encoding="utf-8") as f:
+                f.write("Battery\n")
+            with open(os.path.join(bat_dir, "status"), "w", encoding="utf-8") as f:
+                f.write("Charging\n")
+            self.assertEqual(
+                rpc_playback.detect_host_hardware_label(dmi_root=dmi_dir, sysfs_root=sysfs_dir),
+                "Local Device",
+            )
+
+        # Missing DMI/sysfs roots fall back cleanly without raising
+        self.assertEqual(
+            rpc_playback.detect_host_hardware_label(
+                dmi_root="/nonexistent/dmi/path",
+                sysfs_root="/nonexistent/sysfs/path",
+            ),
+            "Steam Machine",
+        )
+
+    async def test_get_devices_exposes_hardware_label_and_local_hostname(self):
+        devices = [{"id": "dev-1", "name": "Bazzite", "is_active": True}]
+        plugin = _make_plugin()
+
+        with patch("socket.gethostname", return_value="bazzite"), \
+             patch.object(rpc_playback, "detect_host_hardware_label", return_value="Steam Machine"), \
+             patch.object(rpc_playback, "_exec", AsyncMock(return_value={"devices": devices})):
+            res = await rpc_playback.get_devices(plugin)
+
+        self.assertTrue(res["ok"])
+        self.assertEqual(res["local_hardware_label"], "Steam Machine")
+        self.assertEqual(res["local_hostname"], "bazzite")
 
 
 if __name__ == "__main__":

@@ -1,4 +1,5 @@
 import asyncio
+import os
 import socket
 import time
 import urllib.error
@@ -6,6 +7,7 @@ from py_modules.common import (
     _exec,
     decky,
 )
+from py_modules.eco import read_power_supply_state
 from py_modules.engine import _cdp_toggle_like_track
 from py_modules.images import _image_url
 from py_modules.spotify import (
@@ -454,6 +456,37 @@ async def play_tracks(
         return {"ok": False, "error": str(e)}
 
 
+def _read_dmi_attr(dmi_root: str, attr: str) -> str:
+    """Safely read a DMI sysfs attribute, returning empty string on OSError."""
+    try:
+        with open(os.path.join(dmi_root, attr), "r", encoding="utf-8") as f:
+            return f.read().strip().lower()
+    except OSError:
+        return ""
+
+
+def detect_host_hardware_label(
+    dmi_root: str = "/sys/devices/virtual/dmi/id",
+    sysfs_root: str = "/sys/class/power_supply",
+) -> str:
+    """Detect user-facing hardware label ('Steam Deck', 'Steam Machine', or 'Local Device')."""
+    product_name = _read_dmi_attr(dmi_root, "product_name")
+    board_name = _read_dmi_attr(dmi_root, "board_name")
+    dmi_values = (product_name, board_name)
+
+    if any(token in val for val in dmi_values for token in ("jupiter", "galileo", "steam deck")):
+        return "Steam Deck"
+    if any("steam machine" in val for val in dmi_values):
+        return "Steam Machine"
+
+    try:
+        has_battery, _ = read_power_supply_state(sysfs_root)
+    except OSError:
+        return "Local Device"
+
+    return "Steam Machine" if not has_battery else "Local Device"
+
+
 async def get_devices(plugin) -> dict:
     """Retrieve list of available Spotify Connect devices enriched with local engine metadata."""
     token = await plugin._ensure_token()
@@ -463,7 +496,8 @@ async def get_devices(plugin) -> dict:
         data = await _exec(_spotify_api_request, "me/player/devices", token)
         devices = data.get("devices", []) if data else []
         settings = getattr(plugin, "_settings", {}) or {}
-        local_device_name = settings.get("device_name") or socket.gethostname()
+        local_hostname = socket.gethostname()
+        local_device_name = settings.get("device_name") or local_hostname
         audio_backend = settings.get("audio_backend", "librespot")
         engine_running = plugin._is_engine_running() if hasattr(plugin, "_is_engine_running") else False
         power_gov = getattr(plugin, "_power_governor", None)
@@ -472,6 +506,8 @@ async def get_devices(plugin) -> dict:
             "ok": True,
             "devices": devices,
             "local_device_name": local_device_name,
+            "local_hostname": local_hostname,
+            "local_hardware_label": detect_host_hardware_label(),
             "audio_backend": audio_backend,
             "engine_running": engine_running,
             "engine_sleeping": engine_sleeping,
