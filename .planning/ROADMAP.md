@@ -178,7 +178,7 @@ Plans:
   1. Synced and plain lyrics are automatically cached as human-readable `.lrc` files in `~/.cache/deckify/lyrics/` for `0ms` repeat loads and offline playback support.
   2. User can nudge lyric synchronization in `-0.5s` / `+0.5s` increments in `LyricsTab`, persisting the offset per `track_id` and immediately updating active lyric line scheduling in both `LyricsTab` and `DeckifyOverlay` without mutating cached `.lrc` timestamps.
   3. User can toggle phonetic romanization in `LyricsTab` (and `TvSplitView`) to display dual-line Romaji (Japanese), Revised Romanization (Korean), or Pinyin (Chinese) beneath CJK lyrics using upstream phonetic data and a zero-dependency pure-Python transliterator.
-**Plans:** 4/4 plans complete
+**Plans:** 4/5 plans complete
 
 Plans:
 **Wave 1**
@@ -190,6 +190,9 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2)*
 - [x] 23-04-PLAN.md — LyricsTab nudge/romanize toolbar & dual-line CJK rendering, DeckifyExpandedModal X/Y shortcuts, and SettingsTab controls
+
+**Wave 1 (Gap Closure)**
+- [ ] 23-05-PLAN.md — Close UAT gap G-23-12: align Lyrics mode controller-hint-bar with X/Y sync nudge shortcuts and remove dead isActiveTrackMode checks
 **UI hint**: yes
 
 ### Phase 24: Podcast & Audiobook Power Suite
