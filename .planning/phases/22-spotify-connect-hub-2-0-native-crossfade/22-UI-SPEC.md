@@ -33,7 +33,7 @@ Declared values (multiples of 4):
 
 | Token | Value | Usage |
 |-------|-------|-------|
-| xs | 4px | Gap between icon and badge text, inline pill padding (`2px 8px` / `4px 8px`) |
+| xs | 4px | Gap between icon and badge text, inline pill padding (`4px 8px`) |
 | sm | 8px | Gap between device rows (`gap: 8`), gap between `Wake Local Engine` and `Refresh` buttons, icon-to-title gap |
 | md | 16px | Card padding (`16px`), section spacing below header (`marginBottom: 16`), gap between pinned local card and remote list |
 | lg | 24px | Major section breaks in `SettingsTab` and `DevicesTab` |
