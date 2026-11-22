@@ -555,6 +555,14 @@ describe("useTriggerNavigation & DeckifyExpandedModal controller dispatch", () =
     let hintBar = findNodes(tree, (n) => n.props?.["data-testid"] === "controller-hint-bar")[0];
     expect(hintBar.props.children).toBe("L2/R2 Seek · X Like · Y Options · L1/R1 Tabs");
 
+    // lyrics -> Seek + X/Y sync nudge hint
+    stateValues[0] = "lyrics";
+    stateIdx = 0;
+    refIdx = 0;
+    tree = DeckifyExpandedModal({ closeModal });
+    hintBar = findNodes(tree, (n) => n.props?.["data-testid"] === "controller-hint-bar")[0];
+    expect(hintBar.props.children).toBe("L2/R2 Seek · X -0.5s · Y +0.5s · L1/R1 Tabs");
+
     // playlists -> Page hint
     stateValues[0] = "playlists";
     stateIdx = 0;

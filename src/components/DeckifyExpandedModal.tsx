@@ -998,8 +998,7 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
           handleNudgeOffset(action === "X" ? -500 : 500);
         } else if (action === "Y") { // Gamepad Y button opens action menu
           if (focusedTrackRef.current || (modeRef.current !== "engine" && modeRef.current !== "devices")) {
-            const isActiveTrackMode =
-              modeRef.current === "now_playing" || modeRef.current === "lyrics";
+            const isActiveTrackMode = modeRef.current === "now_playing";
             const candidate =
               focusedTrackRef.current || (isActiveTrackMode ? (track as any) : null);
             if (candidate && (candidate.id || candidate.track_id || candidate.uri)) {
@@ -1018,8 +1017,7 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
           }
         } else if (action === "X") { // Gamepad X button toggles track like status
           if (focusedTrackRef.current || (modeRef.current !== "engine" && modeRef.current !== "devices")) {
-            const isActiveTrackMode =
-              modeRef.current === "now_playing" || modeRef.current === "lyrics";
+            const isActiveTrackMode = modeRef.current === "now_playing";
             const t = (focusedTrackRef.current ||
               (isActiveTrackMode ? track : null)) as any;
             if (t?.id || t?.track_id) {
@@ -1085,8 +1083,10 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
   const artwork = track?.artwork_url || track?.image_url;
   const showHints = (status?.settings as any)?.show_controller_hints !== false;
   const hintText =
-    mode === "now_playing" || mode === "lyrics"
+    mode === "now_playing"
       ? "L2/R2 Seek · X Like · Y Options · L1/R1 Tabs"
+      : mode === "lyrics"
+      ? "L2/R2 Seek · X -0.5s · Y +0.5s · L1/R1 Tabs"
       : mode === "discovery"
       ? "A Play/Open · Y Options · L1/R1 Tabs"
       : mode === "devices" || mode === "engine"
