@@ -62,6 +62,16 @@ VALVE_B1_BITS: dict[int, int] = {
     18: 28, # QAM
 }
 
+# Steam Controller 2026 / Triton (0x1304/0x1305) report 0x42 buttons_0 bit index -> GAMEPAD_BUTTON ID.
+# Note: in 0x42, bytes 8..9 (bits 16..31 of b1) carry analog data, so b1 is not decoded via VALVE_B1_BITS.
+TRITON_0X42_B0_BITS: dict[int, int] = {
+    **VALVE_B0_BITS,
+    7: 25,   # R4
+    8: 26,   # R5
+    17: 23,  # L4
+    18: 24,  # L5
+}
+
 # Linux evdev EV_KEY code -> Deckify GAMEPAD_BUTTON ID (1..28)
 EVDEV_KEY_MAP: dict[int, int] = {
     304: 1,   # BTN_SOUTH (A)
@@ -124,18 +134,21 @@ def diff_valve_button_masks(
     prev_b1: int,
     curr_b0: int,
     curr_b1: int,
+    report_id: int | None = None,
 ) -> list[tuple[int, bool]]:
     """Compute (button_id, pressed) transitions between two Valve button bitmasks."""
+    b0_map = TRITON_0X42_B0_BITS if report_id == 0x42 else VALVE_B0_BITS
+    b1_map = {} if report_id == 0x42 else VALVE_B1_BITS
     transitions: list[tuple[int, bool]] = []
     changed_b0 = prev_b0 ^ curr_b0
     if changed_b0:
-        for bit, btn_id in VALVE_B0_BITS.items():
+        for bit, btn_id in b0_map.items():
             mask = 1 << bit
             if changed_b0 & mask:
                 transitions.append((btn_id, bool(curr_b0 & mask)))
     changed_b1 = prev_b1 ^ curr_b1
-    if changed_b1:
-        for bit, btn_id in VALVE_B1_BITS.items():
+    if changed_b1 and b1_map:
+        for bit, btn_id in b1_map.items():
             mask = 1 << bit
             if changed_b1 & mask:
                 transitions.append((btn_id, bool(curr_b1 & mask)))
@@ -378,7 +391,9 @@ class ControllerInputWatcher:
                     if masks is not None:
                         b0, b1 = masks
                         transitions.extend(
-                            diff_valve_button_masks(dev.prev_b0, dev.prev_b1, b0, b1)
+                            diff_valve_button_masks(
+                                dev.prev_b0, dev.prev_b1, b0, b1, report_id=data[0]
+                            )
                         )
                         dev.prev_b0 = b0
                         dev.prev_b1 = b1

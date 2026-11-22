@@ -43,14 +43,17 @@ class TestInputWatchParsing(unittest.TestCase):
                 (1 << 4, 1 << 10),
             )
 
-        # Report 0x42 (Triton BLE/short): buttons at offset 2
+        # Report 0x42 (Triton BLE/short): buttons at offset 2, rear paddles at b0 bits 18/8/17/7
         ble_report = bytearray(16)
         ble_report[0] = 0x42
-        struct.pack_into("<II", ble_report, 2, 1 << 5, 1 << 18)  # B (2), QAM (28)
+        struct.pack_into("<II", ble_report, 2, (1 << 5) | (1 << 18) | (1 << 8) | (1 << 17) | (1 << 7), 1 << 18)
+        parsed_42 = input_watch.parse_valve_hidraw_report(bytes(ble_report))
         self.assertEqual(
-            input_watch.parse_valve_hidraw_report(bytes(ble_report)),
-            (1 << 5, 1 << 18),
+            parsed_42,
+            ((1 << 5) | (1 << 18) | (1 << 8) | (1 << 17) | (1 << 7), 1 << 18),
         )
+        tr_42 = input_watch.diff_valve_button_masks(0, 0, parsed_42[0], parsed_42[1], report_id=0x42)
+        self.assertEqual({btn for btn, pressed in tr_42 if pressed}, {2, 23, 24, 25, 26})
 
         # Short or unknown report IDs return None without raising
         self.assertIsNone(input_watch.parse_valve_hidraw_report(b""))

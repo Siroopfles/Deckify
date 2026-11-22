@@ -2303,4 +2303,57 @@ describe("Phase 20: Configurable Quick-Chords & Silent Confirmations (CHORD-01)"
     expect(removeEventListener).toHaveBeenCalledWith("controller_input", expect.anything());
     expect(removeEventListener).toHaveBeenCalledWith("deck_resumed", expect.anything());
   });
+
+  it("falls through cleanly and still subscribes to controller_input when SteamClient.Input proxy throws Unknown method", async () => {
+    const win = window as any;
+    win.SteamClient = {
+      ...(win.SteamClient || {}),
+      Input: {
+        RegisterForControllerInputMessages: vi.fn(() => {
+          throw new Error("Unknown method");
+        }),
+        RegisterForControllerStateChanges: vi.fn(() => {
+          throw new Error("Unknown method");
+        }),
+      },
+      System: {
+        RegisterForOnResumeFromSuspend: vi.fn(() => {
+          throw new Error("Unknown method");
+        }),
+      },
+    };
+    mockGetStatus.mockResolvedValueOnce({
+      settings: {
+        gamepad_chords_enabled: true,
+        silent_banner_enabled: true,
+        gamepad_chord_bindings: {
+          previous: [23, 24],
+          next: [25, 26],
+          play_pause: [24, 26],
+          volume_up: [],
+          volume_down: [],
+          toggle_like: [],
+          cycle_pinned: [],
+          toggle_lyrics: [],
+        },
+      },
+    });
+
+    const { addEventListener } = await import("@decky/api");
+    const plugin = capturedPluginFactory!();
+    await flushMicrotasks();
+
+    const controllerInputCall = (addEventListener as any).mock.calls.find(
+      (c: any[]) => c[0] === "controller_input",
+    );
+    expect(controllerInputCall).toBeTruthy();
+
+    const emitControllerInput = controllerInputCall[1];
+    emitControllerInput({ button: 25, pressed: true, source: "hidraw" });
+    emitControllerInput({ button: 26, pressed: true, source: "hidraw" });
+    await flushMicrotasks();
+    expect(mockControlPlayback).toHaveBeenCalledWith("next", "");
+
+    plugin.onDismount?.();
+  });
 });

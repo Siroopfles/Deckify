@@ -547,89 +547,101 @@ const setupChordListener = (): (() => void) | null => {
 
       const registerControllerInput = win?.SteamClient?.Input?.RegisterForControllerInputMessages;
       if (typeof registerControllerInput === "function") {
-        const inputHandle = registerControllerInput(
-          (arg0: unknown, arg1?: unknown, arg2?: unknown) => {
-            if (Array.isArray(arg0)) {
-              for (const msg of arg0) {
-                if (!msg || typeof msg !== "object") continue;
-                const { nA, bS } = msg as { nA?: unknown; bS?: unknown };
-                if (typeof nA !== "number" || typeof bS !== "boolean") continue;
-                const mapped = mapControllerInputButton(nA);
-                if (mapped === null) continue;
-                handleButtonEvent(mapped, bS, "frontend");
+        try {
+          const inputHandle = registerControllerInput(
+            (arg0: unknown, arg1?: unknown, arg2?: unknown) => {
+              if (Array.isArray(arg0)) {
+                for (const msg of arg0) {
+                  if (!msg || typeof msg !== "object") continue;
+                  const { nA, bS } = msg as { nA?: unknown; bS?: unknown };
+                  if (typeof nA !== "number" || typeof bS !== "boolean") continue;
+                  const mapped = mapControllerInputButton(nA);
+                  if (mapped === null) continue;
+                  handleButtonEvent(mapped, bS, "frontend");
+                }
+                return;
               }
-              return;
-            }
-            if (typeof arg1 !== "number" || typeof arg2 !== "boolean") return;
-            const mapped = mapControllerInputButton(arg1);
-            if (mapped === null) return;
-            handleButtonEvent(mapped, arg2, "frontend");
-          },
-        );
-        if (inputHandle != null) frontendHandles.push(inputHandle);
-        return;
+              if (typeof arg1 !== "number" || typeof arg2 !== "boolean") return;
+              const mapped = mapControllerInputButton(arg1);
+              if (mapped === null) return;
+              handleButtonEvent(mapped, arg2, "frontend");
+            },
+          );
+          if (inputHandle != null) frontendHandles.push(inputHandle);
+          return;
+        } catch (err) {
+          console.debug("Deckify: RegisterForControllerInputMessages unavailable:", err);
+        }
       }
 
       const registerStateChanges = win?.SteamClient?.Input?.RegisterForControllerStateChanges;
       if (typeof registerStateChanges === "function") {
-        const prevButtonsByController = new Map<number, bigint>();
-        const stateHandle = registerStateChanges((states: unknown) => {
-          const list = Array.isArray(states) ? states : states ? [states] : [];
-          for (const rawState of list) {
-            if (!rawState || typeof rawState !== "object") continue;
-            const state = rawState as {
-              unControllerIndex?: unknown;
-              nControllerIndex?: unknown;
-              ulButtons?: unknown;
-            };
-            const idx =
-              typeof state.unControllerIndex === "number"
-                ? state.unControllerIndex
-                : typeof state.nControllerIndex === "number"
-                  ? state.nControllerIndex
-                  : 0;
-            let curr: bigint;
-            try {
-              const rawButtons = state.ulButtons ?? 0;
-              if (
-                typeof rawButtons !== "number" &&
-                typeof rawButtons !== "bigint" &&
-                typeof rawButtons !== "string"
-              ) {
+        try {
+          const prevButtonsByController = new Map<number, bigint>();
+          const stateHandle = registerStateChanges((states: unknown) => {
+            const list = Array.isArray(states) ? states : states ? [states] : [];
+            for (const rawState of list) {
+              if (!rawState || typeof rawState !== "object") continue;
+              const state = rawState as {
+                unControllerIndex?: unknown;
+                nControllerIndex?: unknown;
+                ulButtons?: unknown;
+              };
+              const idx =
+                typeof state.unControllerIndex === "number"
+                  ? state.unControllerIndex
+                  : typeof state.nControllerIndex === "number"
+                    ? state.nControllerIndex
+                    : 0;
+              let curr: bigint;
+              try {
+                const rawButtons = state.ulButtons ?? 0;
+                if (
+                  typeof rawButtons !== "number" &&
+                  typeof rawButtons !== "bigint" &&
+                  typeof rawButtons !== "string"
+                ) {
+                  continue;
+                }
+                curr = BigInt(rawButtons);
+              } catch {
                 continue;
               }
-              curr = BigInt(rawButtons);
-            } catch {
-              continue;
-            }
-            const prev = prevButtonsByController.get(idx) ?? 0n;
-            const changed = curr ^ prev;
-            if (changed === 0n) continue;
-            prevButtonsByController.set(idx, curr);
-            for (let btn = 1; btn <= MAX_BUTTON_ID; btn++) {
-              const mask = 1n << BigInt(btn);
-              if ((changed & mask) !== 0n) {
-                handleButtonEvent(btn, (curr & mask) !== 0n, "frontend");
+              const prev = prevButtonsByController.get(idx) ?? 0n;
+              const changed = curr ^ prev;
+              if (changed === 0n) continue;
+              prevButtonsByController.set(idx, curr);
+              for (let btn = 1; btn <= MAX_BUTTON_ID; btn++) {
+                const mask = 1n << BigInt(btn);
+                if ((changed & mask) !== 0n) {
+                  handleButtonEvent(btn, (curr & mask) !== 0n, "frontend");
+                }
               }
             }
-          }
-        });
-        if (stateHandle != null) frontendHandles.push(stateHandle);
-        return;
+          });
+          if (stateHandle != null) frontendHandles.push(stateHandle);
+          return;
+        } catch (err) {
+          console.debug("Deckify: RegisterForControllerStateChanges unavailable:", err);
+        }
       }
 
-      const src = getInputSource();
-      if (src?.RegisterForGamepadButtonDown) {
-        const downHandle = src.RegisterForGamepadButtonDown((btn: number) => {
-          handleButtonEvent(btn, true, "frontend");
-        });
-        const upHandle = src.RegisterForGamepadButtonUp
-          ? src.RegisterForGamepadButtonUp((btn: number) => {
-              handleButtonEvent(btn, false, "frontend");
-            })
-          : null;
-        if (downHandle != null) frontendHandles.push(downHandle);
-        if (upHandle != null) frontendHandles.push(upHandle);
+      try {
+        const src = getInputSource();
+        if (src?.RegisterForGamepadButtonDown) {
+          const downHandle = src.RegisterForGamepadButtonDown((btn: number) => {
+            handleButtonEvent(btn, true, "frontend");
+          });
+          const upHandle = src.RegisterForGamepadButtonUp
+            ? src.RegisterForGamepadButtonUp((btn: number) => {
+                handleButtonEvent(btn, false, "frontend");
+              })
+            : null;
+          if (downHandle != null) frontendHandles.push(downHandle);
+          if (upHandle != null) frontendHandles.push(upHandle);
+        }
+      } catch (err) {
+        console.debug("Deckify: FocusNavController input unavailable:", err);
       }
     };
 
@@ -657,14 +669,18 @@ const setupChordListener = (): (() => void) | null => {
     });
 
     const registerOnResume = win?.SteamClient?.System?.RegisterForOnResumeFromSuspend;
-    const steamResumeHandle =
-      typeof registerOnResume === "function"
-        ? registerOnResume(() => {
-            if (disposed) return;
-            matcher.reset();
-            subscribeFrontendInput();
-          })
-        : null;
+    let steamResumeHandle: unknown = null;
+    if (typeof registerOnResume === "function") {
+      try {
+        steamResumeHandle = registerOnResume(() => {
+          if (disposed) return;
+          matcher.reset();
+          subscribeFrontendInput();
+        });
+      } catch (err) {
+        console.debug("Deckify: RegisterForOnResumeFromSuspend unavailable:", err);
+      }
+    }
 
     return () => {
       disposed = true;
