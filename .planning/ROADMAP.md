@@ -203,18 +203,19 @@ Plans:
   1. When a podcast episode or audiobook is playing, `NowPlayingTab` and the Quick Access Menu expose `0.75x`–`2.0x` playback speed controls that automatically reset to `1.0x` whenever a standard music track starts playing.
   2. While playing a podcast episode or audiobook, `NowPlayingTab` and L2/R2 controller triggers adapt to perform dedicated `-15s` / `+15s` smart-skip seeks with accurate monotonic clock progression.
   3. User can inspect per-episode resume progress bars and *"Played"* badges (`resume_point`) in `PodcastsTab` and filter show episodes by *All*, *Unplayed*, or *In Progress*.
-**Plans:** 4 plans
+**Plans:** 5 plans
 
 Plans:
 **Wave 1**
-- [ ] 23-01-PLAN.md — Offline .lrc cache (~/.cache/deckify/lyrics/), lyrics_offsets.json store, romanize settings, and RPC bindings (tracer)
-- [ ] 23-02-PLAN.md — Zero-dependency pure-Python CJK romanizer (py_modules/cjk_tables.py, py_modules/romanize.py) and NetEase romalrc aligner
+- [ ] 24-01-PLAN.md — Backend speed RPC (`0.5x`–`2.0x` CDP `PlayerAPI.setSpeed` + `librespot` fallback), `media_type` & music `1.0x` auto-reset, `user-read-playback-position` scope, `get_show_episodes`, and `tests/test_podcast_suite.py` (tracer)
+- [ ] 24-02-PLAN.md — Shared Phase 24 types, `src/utils/playback.ts` helpers, and `playbackSpeed`-scaled `usePlaybackClock` + `usePlaybackStatus`
 
 **Wave 2** *(blocked on Wave 1)*
-- [ ] 23-03-PLAN.md — NetEase rv=-1 & romanize.py integration in spotify.py, types, and live DeckifyOverlay / DeckifyOverlayWrapper sync
+- [ ] 24-03-PLAN.md — `NowPlayingTab` `-15s`/`+15s` smart-skip transport, `@decky/ui` `Dropdown` (`0.5x`–`2.0x`), and `NowPlayingTab.test.tsx`
+- [ ] 24-04-PLAN.md — `PodcastsTab` show drill-down, bottom green progress bars, `"Played"`/`"Xm left"` badges, *All*/*Unplayed*/*In Progress* filter pills, and `PodcastsTab.test.tsx`
 
 **Wave 3** *(blocked on Wave 2)*
-- [ ] 23-04-PLAN.md — LyricsTab nudge/romanize toolbar & dual-line CJK rendering, DeckifyExpandedModal X/Y shortcuts, and SettingsTab controls
+- [ ] 24-05-PLAN.md — `DeckifyExpandedModal` `L2`/`R2` 15s smart-skip & `PodcastsTab` show wiring, `QuickAccessMenu` compact speed cycle pill, and full verification suite
 **UI hint**: yes
 
 ### Phase 25: Universal Artist/Album Drill-Down, Instant Radio & Search 2.0
