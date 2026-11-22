@@ -45,6 +45,32 @@ async def set_volume(plugin, volume_percent: int) -> dict:
         return {"ok": False, "error": str(e)}
 
 
+async def set_device_volume(plugin, device_id: str, volume_percent: int) -> dict:
+    """Set volume (0-100%) on a specific Spotify Connect device."""
+    token = await plugin._ensure_token()
+    if not token:
+        return {"ok": False, "error": "Not authenticated"}
+
+    if isinstance(volume_percent, bool) or not isinstance(volume_percent, (int, float)):
+        return {"ok": False, "error": "Invalid volume_percent"}
+
+    vol = max(0, min(100, int(volume_percent)))
+    params: dict = {"volume_percent": vol}
+    if isinstance(device_id, str) and device_id.strip():
+        params["device_id"] = device_id.strip()
+
+    try:
+        await _exec(_spotify_api_request, "me/player/volume", token, "PUT", params)
+        return {"ok": True, "volume_percent": vol}
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return {"ok": False, "error": "No active device found"}
+        return {"ok": False, "error": _parse_spotify_error(e)}
+    except Exception as e:
+        decky.logger.error("set_device_volume(%s, %d) failed: %s", device_id, vol, e)
+        return {"ok": False, "error": str(e)}
+
+
 async def set_pa_volume_percent(plugin, percent: int) -> bool:
     """Set librespot's PulseAudio sink-input volume percentage."""
     if not plugin._process:

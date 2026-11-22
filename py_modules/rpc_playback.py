@@ -1,4 +1,5 @@
 import asyncio
+import socket
 import time
 import urllib.error
 from py_modules.common import (
@@ -454,16 +455,92 @@ async def play_tracks(
 
 
 async def get_devices(plugin) -> dict:
-    """Retrieve list of available Spotify Connect devices."""
+    """Retrieve list of available Spotify Connect devices enriched with local engine metadata."""
     token = await plugin._ensure_token()
     if not token:
         return {"ok": False, "error": "Not authenticated"}
     try:
         data = await _exec(_spotify_api_request, "me/player/devices", token)
         devices = data.get("devices", []) if data else []
-        return {"ok": True, "devices": devices}
+        settings = getattr(plugin, "_settings", {}) or {}
+        local_device_name = settings.get("device_name") or socket.gethostname()
+        audio_backend = settings.get("audio_backend", "librespot")
+        engine_running = plugin._is_engine_running() if hasattr(plugin, "_is_engine_running") else False
+        power_gov = getattr(plugin, "_power_governor", None)
+        engine_sleeping = bool(getattr(power_gov, "engine_sleeping", False))
+        return {
+            "ok": True,
+            "devices": devices,
+            "local_device_name": local_device_name,
+            "audio_backend": audio_backend,
+            "engine_running": engine_running,
+            "engine_sleeping": engine_sleeping,
+        }
     except Exception as e:
         decky.logger.error("get_devices failed: %s", e)
+        return {"ok": False, "error": str(e)}
+
+
+def _match_local_device(devices: list, local_device_name: str) -> dict | None:
+    """Find the local Steam Deck device in a Spotify Connect device list."""
+    candidates = {
+        c.strip().lower()
+        for c in (local_device_name, "deckify", socket.gethostname())
+        if isinstance(c, str) and c.strip()
+    }
+    for dev in devices:
+        if not isinstance(dev, dict):
+            continue
+        name = (dev.get("name") or "").strip().lower()
+        if name and name in candidates and dev.get("id"):
+            return dev
+    return None
+
+
+async def pull_playback_to_deck(plugin) -> dict:
+    """Wake local engine if needed, wait for Spotify Connect registration, and transfer playback."""
+    token = await plugin._ensure_token()
+    if not token:
+        return {"ok": False, "error": "Not authenticated"}
+
+    settings = getattr(plugin, "_settings", {}) or {}
+    local_name = settings.get("device_name") or socket.gethostname()
+    power_gov = getattr(plugin, "_power_governor", None)
+    is_running = plugin._is_engine_running() if hasattr(plugin, "_is_engine_running") else False
+
+    if power_gov is not None and (getattr(power_gov, "engine_sleeping", False) or not is_running):
+        await power_gov.wake_for_playback()
+    elif not is_running:
+        await plugin.start_librespot()
+
+    matched = None
+    for attempt in range(10):
+        if attempt > 0:
+            await asyncio.sleep(0.4)
+        dev_res = await get_devices(plugin)
+        if not dev_res.get("ok"):
+            continue
+        matched = _match_local_device(dev_res.get("devices") or [], local_name)
+        if matched is not None:
+            break
+
+    if matched is None:
+        return {"ok": False, "error": "Local Steam Deck device did not register on Spotify Connect"}
+
+    try:
+        await _exec(
+            _spotify_api_request,
+            "me/player",
+            token,
+            "PUT",
+            None,
+            {"device_ids": [matched["id"]], "play": True},
+        )
+        return {"ok": True, "device": matched}
+    except urllib.error.HTTPError as e:
+        return {"ok": False, "error": _parse_spotify_error(e)}
+    except Exception as e:
+        decky.logger.error("pull_playback_to_deck failed: %s", e)
         return {"ok": False, "error": str(e)}
 
 

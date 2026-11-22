@@ -1353,6 +1353,12 @@ class Plugin:
     async def transfer_playback(self, device_id: str) -> dict:
         return await rpc_playback.transfer_playback(self, device_id)
 
+    async def pull_playback_to_deck(self) -> dict:
+        return await rpc_playback.pull_playback_to_deck(self)
+
+    async def set_device_volume(self, device_id: str, volume_percent: int) -> dict:
+        return await volume.set_device_volume(self, device_id, volume_percent)
+
     async def quick_play_pinned(self, uri: str, item_type: str = "playlist") -> dict:
         return await rpc_playback.quick_play_pinned(self, uri, item_type)
 
