@@ -1848,16 +1848,30 @@ class Plugin:
         duration_ms: int,
     ) -> None:
         """Drive local PipeWire boundary fade-out/fade-in when librespot is active."""
-        if self._settings.get("audio_backend", "librespot") != "librespot":
-            return
-        cf_sec = int(self._settings.get("crossfade_seconds", 0) or 0)
         fader = getattr(self, "_volume_fader", None)
-        if cf_sec <= 0 or fader is None:
+        if fader is None:
             return
+        try:
+            raw_cf = self._settings.get("crossfade_seconds", 0)
+            cf_sec = 0 if isinstance(raw_cf, bool) else max(0, min(12, int(raw_cf or 0)))
+        except (TypeError, ValueError):
+            cf_sec = 0
+        is_librespot = self._settings.get("audio_backend", "librespot") == "librespot"
 
-        if getattr(fader, "_crossfade_active", False) and track_id and track_id != self._crossfade_out_track_id:
-            self._crossfade_out_track_id = None
-            await fader.trigger_crossfade_in(min(cf_sec * 0.5, 3.0))
+        if getattr(fader, "_crossfade_active", False):
+            out_of_window = duration_ms > 0 and (duration_ms - progress_ms) > (cf_sec * 1000 + 1500)
+            if (
+                not is_librespot
+                or cf_sec <= 0
+                or not track_id
+                or track_id != self._crossfade_out_track_id
+                or out_of_window
+            ):
+                self._crossfade_out_track_id = None
+                await fader.trigger_crossfade_in(min(max(cf_sec, 1) * 0.5, 3.0))
+                return
+
+        if not is_librespot or cf_sec <= 0:
             return
 
         if is_playing and duration_ms > 0 and track_id and self._crossfade_out_track_id != track_id:
@@ -1891,6 +1905,10 @@ class Plugin:
 
         # 204 No Content → no active playback
         if data is None:
+            fader = getattr(self, "_volume_fader", None)
+            if fader is not None and getattr(fader, "_crossfade_active", False):
+                self._crossfade_out_track_id = None
+                await fader.trigger_crossfade_in(0.3)
             if self._poll_play_state is not None:
                 self._poll_play_state = None
                 self._poll_track_id = None

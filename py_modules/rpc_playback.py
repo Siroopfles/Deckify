@@ -511,7 +511,10 @@ async def pull_playback_to_deck(plugin) -> dict:
     if power_gov is not None and (getattr(power_gov, "engine_sleeping", False) or not is_running):
         await power_gov.wake_for_playback()
     elif not is_running:
-        await plugin.start_librespot()
+        if settings.get("audio_backend", "librespot") == "spotify_client" and hasattr(plugin, "start_spotify_client"):
+            await plugin.start_spotify_client()
+        else:
+            await plugin.start_librespot()
 
     matched = None
     for attempt in range(10):

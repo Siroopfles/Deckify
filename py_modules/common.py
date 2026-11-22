@@ -331,6 +331,14 @@ def _load_settings(settings_file: str | None = None) -> dict:
         for obsolete in ("mix_mode", "mixed_playlists"):
             saved.pop(obsolete, None)
         merged = {**copy.deepcopy(default_settings), **saved}
+        raw_cf = merged.get("crossfade_seconds", 0)
+        if isinstance(raw_cf, bool):
+            merged["crossfade_seconds"] = 0
+        else:
+            try:
+                merged["crossfade_seconds"] = max(0, min(12, int(raw_cf)))
+            except (TypeError, ValueError):
+                merged["crossfade_seconds"] = 0
         if merged["device_name"] == "Steam Deck" and not saved.get("device_name_customized"):
             merged["device_name"] = ""
         if merged.get("audio_backend") not in VALID_AUDIO_BACKENDS:

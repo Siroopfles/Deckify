@@ -25,6 +25,7 @@ const backendSetDeviceVolume = callable<[string, number], { ok: boolean; volume_
   "set_device_volume",
 );
 const backendStartLibrespot = callable<[], { ok: boolean; error?: string }>("start_librespot");
+const backendStartSpotifyClient = callable<[], { ok: boolean; error?: string }>("start_spotify_client");
 
 export interface DevicesTabProps {
   showToast: (msg: string) => void;
@@ -50,8 +51,8 @@ export function getEngineBadgeLabel(audioBackend?: string): string {
 }
 
 export function isLocalDevice(device: SpotifyDevice, localName: string): boolean {
-  const norm = device.name.trim().toLowerCase();
-  const target = localName.trim().toLowerCase();
+  const norm = (device.name ?? "").trim().toLowerCase();
+  const target = (localName ?? "").trim().toLowerCase();
   return (target.length > 0 && norm === target) || norm === "deckify";
 }
 
@@ -303,27 +304,30 @@ function computeEngineStatus(
 
 function useDebouncedDeviceVolume(showToast: (msg: string) => void) {
   const [optimisticVolumes, setOptimisticVolumes] = useState<Record<string, number>>({});
-  const volumeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const volumeTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
   useEffect(() => {
+    const timers = volumeTimersRef.current;
     return () => {
-      if (volumeTimerRef.current) clearTimeout(volumeTimerRef.current);
+      Object.values(timers).forEach(clearTimeout);
     };
   }, []);
 
   const handleVolumeChange = (device: SpotifyDevice, val: number) => {
-    const prev = optimisticVolumes[device.id] ?? device.volume_percent ?? 50;
+    const fallbackVol = device.volume_percent ?? 50;
     setOptimisticVolumes((cur) => ({ ...cur, [device.id]: val }));
-    if (volumeTimerRef.current) clearTimeout(volumeTimerRef.current);
-    volumeTimerRef.current = setTimeout(async () => {
+    const existingTimer = volumeTimersRef.current[device.id];
+    if (existingTimer) clearTimeout(existingTimer);
+    volumeTimersRef.current[device.id] = setTimeout(async () => {
+      delete volumeTimersRef.current[device.id];
       try {
         const res = await backendSetDeviceVolume(device.id, val);
         if (!res.ok) {
-          setOptimisticVolumes((cur) => ({ ...cur, [device.id]: prev }));
+          setOptimisticVolumes((cur) => ({ ...cur, [device.id]: fallbackVol }));
           showToast("Failed to adjust device volume — the device may be offline or restricted.");
         }
       } catch {
-        setOptimisticVolumes((cur) => ({ ...cur, [device.id]: prev }));
+        setOptimisticVolumes((cur) => ({ ...cur, [device.id]: fallbackVol }));
         showToast("Failed to adjust device volume — the device may be offline or restricted.");
       }
     }, 300);
@@ -386,7 +390,7 @@ function useDevicesHub(showToast: (msg: string) => void) {
 
   const handleWakeEngine = async () => {
     try {
-      const res = await backendStartLibrespot();
+      const res = audioBackend === "spotify_client" ? await backendStartSpotifyClient() : await backendStartLibrespot();
       if (!res.ok) showToast(res.error || "Failed to wake local engine");
       await loadDevices();
     } catch {
@@ -462,9 +466,13 @@ export const DevicesTab: FC<DevicesTabProps> = ({ showToast }) => {
               engineLabel={engineLabel}
               onSelect={async () => {
                 setSelectedDeviceId(d.id);
-                const res = await backendTransferPlayback(d.id);
-                showToast(res.ok ? `Transferred to ${d.name}` : res.error || `Failed to transfer to ${d.name}`);
-                loadDevices();
+                try {
+                  const res = await backendTransferPlayback(d.id);
+                  showToast(res.ok ? `Transferred to ${d.name}` : res.error || `Failed to transfer to ${d.name}`);
+                  loadDevices();
+                } catch {
+                  showToast(`Failed to transfer to ${d.name}`);
+                }
               }}
             />
           ))}
