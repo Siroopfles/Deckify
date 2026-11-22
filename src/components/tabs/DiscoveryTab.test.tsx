@@ -189,7 +189,7 @@ describe("DiscoveryTab", () => {
     expect(textOf(pill4w)).toBe("4 Weeks");
     expect(textOf(pill6m)).toBe("6 Months");
     expect(textOf(pillAll)).toBe("All Time");
-    expect(pill6m.props.style.background).toBe("#1DB954");
+    expect(pill6m.props.style.background).toBe("var(--deckify-accent, #1DB954)");
     expect(pill4w.props.style.background).toBe("#1C1C1C");
 
     // Clicking 4 Weeks updates timeRange and fetches short_term without force_refresh

@@ -72,7 +72,7 @@ export const ArtistsTab: FC<ArtistsTabProps> = ({
             <h2 style={{ fontSize: 22, fontWeight: 800, margin: 0 }}>{activeArtist.name}</h2>
           </Focusable>
 
-          <h3 style={{ fontSize: 14, fontWeight: 700, color: "#1db954", marginBottom: 10 }}>Top Tracks</h3>
+          <h3 style={{ fontSize: 14, fontWeight: 700, color: "var(--deckify-accent, #1DB954)", marginBottom: 10 }}>Top Tracks</h3>
           <Focusable flow-children="column" style={{ display: "flex", flexDirection: "column", gap: 3, marginBottom: 20 }}>
             {artistTopTracks.map((t, idx) => (
               <TrackRowItem
@@ -88,7 +88,7 @@ export const ArtistsTab: FC<ArtistsTabProps> = ({
             ))}
           </Focusable>
 
-          <h3 style={{ fontSize: 14, fontWeight: 700, color: "#1db954", marginBottom: 10 }}>Albums & Singles</h3>
+          <h3 style={{ fontSize: 14, fontWeight: 700, color: "var(--deckify-accent, #1DB954)", marginBottom: 10 }}>Albums & Singles</h3>
           <Focusable flow-children="column" style={{ display: "flex", flexDirection: "column", gap: 3 }}>
             {artistAlbums.map((alb) => (
               <InteractiveRow

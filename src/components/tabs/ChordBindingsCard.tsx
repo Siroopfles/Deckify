@@ -323,8 +323,8 @@ function renderChordChipStrip(opts: {
               lineHeight: 1.3,
               padding: "3px 8px",
               borderRadius: 4,
-              background: showingLive ? "rgba(29, 185, 84, 0.2)" : "#1E1E1E",
-              border: showingLive ? "1px solid #1DB954" : "1px solid rgba(255,255,255,0.16)",
+              background: showingLive ? "rgba(var(--deckify-accent-rgb, 29, 185, 84), 0.2)" : "#1E1E1E",
+              border: showingLive ? "1px solid var(--deckify-accent, #1DB954)" : "1px solid rgba(255,255,255,0.16)",
               color: "#fff",
             }}
           >
@@ -384,10 +384,10 @@ function renderRowLeftColumn(opts: {
               fontSize: 12,
               fontWeight: 700,
               lineHeight: 1.3,
-              color: "#1DB954",
+              color: "var(--deckify-accent, #1DB954)",
             }}
           >
-            <FaCircle size={8} color="#1DB954" />
+            <FaCircle size={8} color="var(--deckify-accent, #1DB954)" />
             <span>Recording…</span>
           </span>
         ) : null}
@@ -503,8 +503,8 @@ function renderActionRow(opts: ActionRowRenderOpts) {
           padding: "10px 12px",
           borderRadius: 8,
           opacity: chordsEnabled ? 1 : 0.5,
-          background: isRecording ? "rgba(29, 185, 84, 0.12)" : "rgba(255,255,255,0.04)",
-          boxShadow: isRecording ? "0 0 0 2px #1DB954" : undefined,
+          background: isRecording ? "rgba(var(--deckify-accent-rgb, 29, 185, 84), 0.12)" : "rgba(255,255,255,0.04)",
+          boxShadow: isRecording ? "0 0 0 2px var(--deckify-accent, #1DB954)" : undefined,
         }}
       >
         {renderRowLeftColumn({

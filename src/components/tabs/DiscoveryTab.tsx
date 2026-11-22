@@ -162,7 +162,7 @@ const TimeRangePill: FC<{
         minHeight: 32,
         padding: "8px 16px",
         borderRadius: 16,
-        background: active ? "#1DB954" : "#1C1C1C",
+        background: active ? "var(--deckify-accent, #1DB954)" : "#1C1C1C",
         color: active ? "#000" : "#fff",
         fontSize: 11,
         fontWeight: 600,
@@ -194,7 +194,7 @@ const ReauthCard: FC<{ onReauthenticate?: () => void }> = ({ onReauthenticate })
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
-        <FaLock size={16} style={{ color: "#1DB954", flexShrink: 0 }} />
+        <FaLock size={16} style={{ color: "var(--deckify-accent, #1DB954)", flexShrink: 0 }} />
         <div style={{ fontSize: 13, fontWeight: 400, lineHeight: 1.5, color: "#fff" }}>
           Re-authenticate to unlock Top Tracks &amp; Top Artists
         </div>
@@ -215,7 +215,7 @@ const ReauthCard: FC<{ onReauthenticate?: () => void }> = ({ onReauthenticate })
           minHeight: 32,
           padding: "8px 16px",
           borderRadius: 16,
-          background: "#1DB954",
+          background: "var(--deckify-accent, #1DB954)",
           color: "#000",
           fontSize: 11,
           fontWeight: 600,
@@ -426,7 +426,7 @@ export const DiscoveryTab: FC<DiscoveryTabProps> = ({
           }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 16, fontWeight: 600, lineHeight: 1.2 }}>
-            <FaCompass size={16} style={{ color: "#1DB954" }} />
+            <FaCompass size={16} style={{ color: "var(--deckify-accent, #1DB954)" }} />
             <span>
               {feed.rate_limited
                 ? "Rate limited"

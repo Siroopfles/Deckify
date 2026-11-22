@@ -76,7 +76,7 @@ export const AlbumsTab: FC<AlbumsTabProps> = ({
                     </div>
                   </div>
                   {pinnedUris?.has(alb.uri) && (
-                    <FaThumbtack size={12} color="#1db954" style={{ flexShrink: 0 }} title="Pinned to QAM" />
+                    <FaThumbtack size={12} color="var(--deckify-accent, #1DB954)" style={{ flexShrink: 0 }} title="Pinned to QAM" />
                   )}
                 </InteractiveRow>
               ))}
@@ -95,7 +95,7 @@ export const AlbumsTab: FC<AlbumsTabProps> = ({
             </div>
             <InteractiveRow
               onClick={() => onPlayTrack("", activeAlbum.uri)}
-              style={{ marginLeft: "auto", background: "#1db954", color: "#000", fontWeight: 700, padding: "8px 16px", borderRadius: 20, gap: 8 }}
+              style={{ marginLeft: "auto", background: "var(--deckify-accent, #1DB954)", color: "#000", fontWeight: 700, padding: "8px 16px", borderRadius: 20, gap: 8 }}
             >
               <FaPlay size={11} /> Play Album
             </InteractiveRow>
@@ -114,9 +114,9 @@ export const AlbumsTab: FC<AlbumsTabProps> = ({
                 borderRadius: 20,
                 gap: 6,
                 background: pinnedUris?.has(activeAlbum.uri)
-                  ? "rgba(29, 185, 84, 0.16)"
+                  ? "rgba(var(--deckify-accent-rgb, 29, 185, 84), 0.16)"
                   : "rgba(255,255,255,0.08)",
-                color: pinnedUris?.has(activeAlbum.uri) ? "#1db954" : "#fff",
+                color: pinnedUris?.has(activeAlbum.uri) ? "var(--deckify-accent, #1DB954)" : "#fff",
               }}
             >
               <FaThumbtack size={12} />

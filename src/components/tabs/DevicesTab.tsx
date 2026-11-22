@@ -41,12 +41,12 @@ export const DevicesTab: FC<DevicesTabProps> = ({ showToast }) => {
             style={{ justifyContent: "space-between", padding: "12px 16px" }}
           >
             <div>
-              <div style={{ fontSize: 14, fontWeight: 700, color: d.is_active ? "#1db954" : "#fff" }}>{d.name}</div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: d.is_active ? "var(--deckify-accent, #1DB954)" : "#fff" }}>{d.name}</div>
               <div style={{ fontSize: 11, opacity: 0.5 }}>
                 {d.type} {d.is_active ? "· Active" : ""}
               </div>
             </div>
-            {d.is_active && <span style={{ fontSize: 12, color: "#1db954", fontWeight: 700 }}>Active</span>}
+            {d.is_active && <span style={{ fontSize: 12, color: "var(--deckify-accent, #1DB954)", fontWeight: 700 }}>Active</span>}
           </InteractiveRow>
         ))}
       </Focusable>
