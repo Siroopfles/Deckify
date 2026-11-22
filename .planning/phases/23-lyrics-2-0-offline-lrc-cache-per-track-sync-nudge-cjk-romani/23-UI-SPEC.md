@@ -1,7 +1,8 @@
 ---
 phase: "23"
 slug: "lyrics-2-0-offline-lrc-cache-per-track-sync-nudge-cjk-romani"
-status: draft
+status: approved
+reviewed_at: "2026-11-22T18:56:00+01:00"
 shadcn_initialized: false
 preset: none
 created: "2026-11-22"

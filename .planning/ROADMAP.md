@@ -178,7 +178,18 @@ Plans:
   1. Synced and plain lyrics are automatically cached as human-readable `.lrc` files in `~/.cache/deckify/lyrics/` for `0ms` repeat loads and offline playback support.
   2. User can nudge lyric synchronization in `-0.5s` / `+0.5s` increments in `LyricsTab`, persisting the offset per `track_id` and immediately updating active lyric line scheduling in both `LyricsTab` and `DeckifyOverlay` without mutating cached `.lrc` timestamps.
   3. User can toggle phonetic romanization in `LyricsTab` (and `TvSplitView`) to display dual-line Romaji (Japanese), Revised Romanization (Korean), or Pinyin (Chinese) beneath CJK lyrics using upstream phonetic data and a zero-dependency pure-Python transliterator.
-**Plans**: TBD
+**Plans:** 4 plans
+
+Plans:
+**Wave 1**
+- [ ] 23-01-PLAN.md — Offline .lrc cache (~/.cache/deckify/lyrics/), lyrics_offsets.json store, romanize settings, and RPC bindings (tracer)
+- [ ] 23-02-PLAN.md — Zero-dependency pure-Python CJK romanizer (py_modules/cjk_tables.py, py_modules/romanize.py) and NetEase romalrc aligner
+
+**Wave 2** *(blocked on Wave 1)*
+- [ ] 23-03-PLAN.md — NetEase rv=-1 & romanize.py integration in spotify.py, types, and live DeckifyOverlay / DeckifyOverlayWrapper sync
+
+**Wave 3** *(blocked on Wave 2)*
+- [ ] 23-04-PLAN.md — LyricsTab nudge/romanize toolbar & dual-line CJK rendering, DeckifyExpandedModal X/Y shortcuts, and SettingsTab controls
 **UI hint**: yes
 
 ### Phase 24: Podcast & Audiobook Power Suite
@@ -189,7 +200,18 @@ Plans:
   1. When a podcast episode or audiobook is playing, `NowPlayingTab` and the Quick Access Menu expose `0.75x`–`2.0x` playback speed controls that automatically reset to `1.0x` whenever a standard music track starts playing.
   2. While playing a podcast episode or audiobook, `NowPlayingTab` and L2/R2 controller triggers adapt to perform dedicated `-15s` / `+15s` smart-skip seeks with accurate monotonic clock progression.
   3. User can inspect per-episode resume progress bars and *"Played"* badges (`resume_point`) in `PodcastsTab` and filter show episodes by *All*, *Unplayed*, or *In Progress*.
-**Plans**: TBD
+**Plans:** 4 plans
+
+Plans:
+**Wave 1**
+- [ ] 23-01-PLAN.md — Offline .lrc cache (~/.cache/deckify/lyrics/), lyrics_offsets.json store, romanize settings, and RPC bindings (tracer)
+- [ ] 23-02-PLAN.md — Zero-dependency pure-Python CJK romanizer (py_modules/cjk_tables.py, py_modules/romanize.py) and NetEase romalrc aligner
+
+**Wave 2** *(blocked on Wave 1)*
+- [ ] 23-03-PLAN.md — NetEase rv=-1 & romanize.py integration in spotify.py, types, and live DeckifyOverlay / DeckifyOverlayWrapper sync
+
+**Wave 3** *(blocked on Wave 2)*
+- [ ] 23-04-PLAN.md — LyricsTab nudge/romanize toolbar & dual-line CJK rendering, DeckifyExpandedModal X/Y shortcuts, and SettingsTab controls
 **UI hint**: yes
 
 ### Phase 25: Universal Artist/Album Drill-Down, Instant Radio & Search 2.0
@@ -201,7 +223,18 @@ Plans:
   2. Selecting *"Start Song Radio"* or *"Start Artist Radio"* generates and starts a continuous radio queue on both `spotify_client` and `librespot` via the 3-tier radio waterfall (CDP station → Web API recommendations → Top-Tracks/Search synthesis fallback).
   3. When the search query in `SearchTab` is empty, user can launch searches from recent search history pills (with individual and clear-all options) or select from 12 controller-friendly Gaming & Mood browse tiles without opening the virtual keyboard.
   4. User can filter and browse search results specifically by `Podcasts` (`show`) and `Episodes` (`episode`) in `SearchTab` alongside Tracks, Artists, Albums, and Playlists.
-**Plans**: TBD
+**Plans:** 4 plans
+
+Plans:
+**Wave 1**
+- [ ] 23-01-PLAN.md — Offline .lrc cache (~/.cache/deckify/lyrics/), lyrics_offsets.json store, romanize settings, and RPC bindings (tracer)
+- [ ] 23-02-PLAN.md — Zero-dependency pure-Python CJK romanizer (py_modules/cjk_tables.py, py_modules/romanize.py) and NetEase romalrc aligner
+
+**Wave 2** *(blocked on Wave 1)*
+- [ ] 23-03-PLAN.md — NetEase rv=-1 & romanize.py integration in spotify.py, types, and live DeckifyOverlay / DeckifyOverlayWrapper sync
+
+**Wave 3** *(blocked on Wave 2)*
+- [ ] 23-04-PLAN.md — LyricsTab nudge/romanize toolbar & dual-line CJK rendering, DeckifyExpandedModal X/Y shortcuts, and SettingsTab controls
 **UI hint**: yes
 
 ### Phase 26: Unified CDP Platform Bridge & Deep Discovery 2.0
@@ -212,7 +245,18 @@ Plans:
   1. Backend `py_modules/cdp_bridge.py` dynamically resolves and caches the Official Spotify Client's internal React Fiber `Platform.Registry` on `window.__deckifyRegistry` over port `9229` with a 4.0-second timeout and clean error fallback.
   2. `DiscoveryTab` populates the *Made For You* section with the user's personalized algorithmic mixes (*Daylist*, *Discover Weekly*, *Release Radar*, *Daily Mix 1–6*) via the CDP Pathfinder/Rootlist bridge, bypassing Spotify Web API Development Mode `HTTP 403/404` blocks.
   3. Resolved algorithmic mix metadata and track URI lists are cached locally on disk so users can browse and play those mixes even after switching their active playback engine to `librespot`.
-**Plans**: TBD
+**Plans:** 4 plans
+
+Plans:
+**Wave 1**
+- [ ] 23-01-PLAN.md — Offline .lrc cache (~/.cache/deckify/lyrics/), lyrics_offsets.json store, romanize settings, and RPC bindings (tracer)
+- [ ] 23-02-PLAN.md — Zero-dependency pure-Python CJK romanizer (py_modules/cjk_tables.py, py_modules/romanize.py) and NetEase romalrc aligner
+
+**Wave 2** *(blocked on Wave 1)*
+- [ ] 23-03-PLAN.md — NetEase rv=-1 & romanize.py integration in spotify.py, types, and live DeckifyOverlay / DeckifyOverlayWrapper sync
+
+**Wave 3** *(blocked on Wave 2)*
+- [ ] 23-04-PLAN.md — LyricsTab nudge/romanize toolbar & dual-line CJK rendering, DeckifyExpandedModal X/Y shortcuts, and SettingsTab controls
 **UI hint**: yes
 
 ### Phase 27: Interactive Queue Studio & Controller Playlist Management
@@ -223,7 +267,18 @@ Plans:
   1. User can press `A` / *"Move in Queue"* on any upcoming track in `QueueTab` to enter controller Grab/Move Mode, move the track up or down with `D-Pad Up/Down` while focus remains locked via stable `_rowKey` IDs, and press `A` to commit the new order in a single batched update.
   2. User can remove individual upcoming tracks or clear the upcoming queue in `QueueTab`, executing natively via CDP `PlayerAPI` when `spotify_client` is active and automatically falling back to virtual URI-slice playback mutation when `librespot` is active.
   3. User can create new playlists, rename or edit playlist descriptions, delete or unfollow playlists with a confirmation modal, and reorder or remove tracks inside user-owned playlists directly from the controller in `PlaylistsTab`.
-**Plans**: TBD
+**Plans:** 4 plans
+
+Plans:
+**Wave 1**
+- [ ] 23-01-PLAN.md — Offline .lrc cache (~/.cache/deckify/lyrics/), lyrics_offsets.json store, romanize settings, and RPC bindings (tracer)
+- [ ] 23-02-PLAN.md — Zero-dependency pure-Python CJK romanizer (py_modules/cjk_tables.py, py_modules/romanize.py) and NetEase romalrc aligner
+
+**Wave 2** *(blocked on Wave 1)*
+- [ ] 23-03-PLAN.md — NetEase rv=-1 & romanize.py integration in spotify.py, types, and live DeckifyOverlay / DeckifyOverlayWrapper sync
+
+**Wave 3** *(blocked on Wave 2)*
+- [ ] 23-04-PLAN.md — LyricsTab nudge/romanize toolbar & dual-line CJK rendering, DeckifyExpandedModal X/Y shortcuts, and SettingsTab controls
 **UI hint**: yes
 
 ### Phase 28: CDP Offline Downloads, Wi-Fi Travel Mode & Living Room Spotify Jam
@@ -234,7 +289,18 @@ Plans:
   1. User can toggle *"Download for Offline"* on playlists, albums, and podcast episodes via Official Spotify Client CDP `OfflineAPI` (with a 1-click engine switch prompt when on `librespot`), viewing live `0–100%` download progress and green offline badges while protected by an `os.statvfs` 3.0 GB minimum free-space disk guardrail.
   2. User can manually toggle **Offline / Travel Mode** or have it activate automatically upon sustained Wi-Fi disconnect (after the 10-second wake-from-suspend grace window) to filter library views strictly to locally downloaded content and cached `.lrc` lyrics.
   3. User can start or share a Spotify Jam / group session from `NowPlayingTab`, `DevicesTab`, or `TvSplitView`, rendering a high-contrast scannable `QRCodeSVG` modal/card for living-room guests (with a shareable track/playlist deep-link QR fallback when `librespot` is active).
-**Plans**: TBD
+**Plans:** 4 plans
+
+Plans:
+**Wave 1**
+- [ ] 23-01-PLAN.md — Offline .lrc cache (~/.cache/deckify/lyrics/), lyrics_offsets.json store, romanize settings, and RPC bindings (tracer)
+- [ ] 23-02-PLAN.md — Zero-dependency pure-Python CJK romanizer (py_modules/cjk_tables.py, py_modules/romanize.py) and NetEase romalrc aligner
+
+**Wave 2** *(blocked on Wave 1)*
+- [ ] 23-03-PLAN.md — NetEase rv=-1 & romanize.py integration in spotify.py, types, and live DeckifyOverlay / DeckifyOverlayWrapper sync
+
+**Wave 3** *(blocked on Wave 2)*
+- [ ] 23-04-PLAN.md — LyricsTab nudge/romanize toolbar & dual-line CJK rendering, DeckifyExpandedModal X/Y shortcuts, and SettingsTab controls
 **UI hint**: yes
 
 ### Phase 29: 10-Foot Docked TV Split-View Mode & PipeWire Spectrum Visualizer
@@ -245,7 +311,18 @@ Plans:
   1. User can manually toggle the **10-Foot Docked TV Split-View Mode** (`TvSplitView.tsx` — large cover art + dynamic accent glow on the left, 10-foot dual-line romanized karaoke lyrics + Up Next queue preview + optional Jam QR badge on the right) or have it auto-activate when `DockAudioSwitcher` detects an external HDMI/USB-DAC dock.
   2. When `TvSplitView` is open and actively playing, an optional 16-band real-time PipeWire audio spectrum visualizer (`parec --monitor-stream` tapped strictly to Deckify's audio stream at 15 Hz via `resolve_spotify_sink_input_ids()` with zero game or voice bleed) animates smoothly via GPU-composited CSS `scaleY` transforms.
   3. Closing `TvSplitView`, pausing playback, or activating Handheld Battery Eco-Mode terminates the `parec` spectrum subprocess within `<100ms` so zero background DSP overhead runs during gameplay.
-**Plans**: TBD
+**Plans:** 4 plans
+
+Plans:
+**Wave 1**
+- [ ] 23-01-PLAN.md — Offline .lrc cache (~/.cache/deckify/lyrics/), lyrics_offsets.json store, romanize settings, and RPC bindings (tracer)
+- [ ] 23-02-PLAN.md — Zero-dependency pure-Python CJK romanizer (py_modules/cjk_tables.py, py_modules/romanize.py) and NetEase romalrc aligner
+
+**Wave 2** *(blocked on Wave 1)*
+- [ ] 23-03-PLAN.md — NetEase rv=-1 & romanize.py integration in spotify.py, types, and live DeckifyOverlay / DeckifyOverlayWrapper sync
+
+**Wave 3** *(blocked on Wave 2)*
+- [ ] 23-04-PLAN.md — LyricsTab nudge/romanize toolbar & dual-line CJK rendering, DeckifyExpandedModal X/Y shortcuts, and SettingsTab controls
 **UI hint**: yes
 
 ### Phase 30: "Deck Wrapped" Listening Stats, Last.fm / ListenBrainz Scrobbling & Profile Backup
@@ -256,7 +333,18 @@ Plans:
   1. User can open the dedicated *"Deck Wrapped" / Listening Stats* view (`StatsTab.tsx`) to inspect total listening time, top tracks and artists on Steam Deck, and **Top Game + Soundtrack Pairings** recorded via monotonic wall-clock playback duration (`accumulated_play_ms`) correlated with `active_game_app_id`.
   2. User can enable built-in **Last.fm** and/or **ListenBrainz** scrobbling that enforces the standard 50% / 240-second actual-play-time rule (immune to seek-bar scrubbing) and persists scrobbles in an offline retry queue when disconnected from Wi-Fi.
   3. User can export or import a secret-redacted 1-click JSON profile backup (`~/.config/deckify/backups/`) containing all Deckify settings, game soundtrack & per-game EQ profiles, custom 10-band EQ presets, per-track lyric offsets, and pinned playlists without exposing OAuth or scrobbler tokens.
-**Plans**: TBD
+**Plans:** 4 plans
+
+Plans:
+**Wave 1**
+- [ ] 23-01-PLAN.md — Offline .lrc cache (~/.cache/deckify/lyrics/), lyrics_offsets.json store, romanize settings, and RPC bindings (tracer)
+- [ ] 23-02-PLAN.md — Zero-dependency pure-Python CJK romanizer (py_modules/cjk_tables.py, py_modules/romanize.py) and NetEase romalrc aligner
+
+**Wave 2** *(blocked on Wave 1)*
+- [ ] 23-03-PLAN.md — NetEase rv=-1 & romanize.py integration in spotify.py, types, and live DeckifyOverlay / DeckifyOverlayWrapper sync
+
+**Wave 3** *(blocked on Wave 2)*
+- [ ] 23-04-PLAN.md — LyricsTab nudge/romanize toolbar & dual-line CJK rendering, DeckifyExpandedModal X/Y shortcuts, and SettingsTab controls
 **UI hint**: yes
 
 ## Progress
