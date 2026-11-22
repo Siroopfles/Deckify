@@ -41,12 +41,12 @@
     {
       "number": "23",
       "name": "Lyrics 2.0 — Offline .lrc Cache, Per-Track Sync Nudge & CJK Romanization",
-      "status": "pending"
+      "status": "in_progress"
     },
     {
       "number": "24",
       "name": "Podcast & Audiobook Power Suite",
-      "status": "pending"
+      "status": "in_progress"
     },
     {
       "number": "25",
@@ -82,7 +82,7 @@
   "next": {
     "command": "/gsd-progress --next",
     "label": "Advance to the next step (verify)",
-    "reason": "Phase 1 of 12 · 25% · ready to verify"
+    "reason": "Phase 6 of 12 · 33% · ready to verify"
   },
-  "updated_at": "2026-11-22T17:48:09.154Z"
+  "updated_at": "2026-11-22T20:41:04.035Z"
 }
