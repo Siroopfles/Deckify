@@ -1,5 +1,5 @@
 ---
-status: complete
+status: diagnosed
 phase: 21-dynamic-album-art-accent-themes-handheld-battery-eco-mode
 source: 21-01-SUMMARY.md, 21-02-SUMMARY.md, 21-03-SUMMARY.md, 21-04-SUMMARY.md, 21-05-SUMMARY.md
 started: 2026-11-22T12:20:00+01:00
@@ -46,13 +46,25 @@ blocked: 0
   reason: "User reported: Yess ze werken bijna overal maar niet in de QAM dat is de enige plek waar ze nog niet werken"
   severity: major
   test: 1
-  artifacts: []
-  missing: []
+  root_cause: "QAM Content component in src/index.tsx does not subscribe to useAccentTheme() or spread getThemeCssVars(accent, animationsSuspended) onto a root wrapper element; in Decky Loader's multi-window CEF architecture, themeBus.ts only sets CSS variables on SharedJSContext documentElement, so QAM falls back to #1DB954."
+  artifacts:
+    - path: "src/index.tsx"
+      issue: "Content component omits useAccentTheme() and getThemeCssVars(accent, animationsSuspended) root wrapper; DeckifyOverlayWrapper/SilentBanner also lacks getThemeCssVars()"
+  missing:
+    - "Import useAccentTheme and getThemeCssVars from ./utils/themeBus in src/index.tsx"
+    - "Call useAccentTheme() inside Content and wrap PanelSection in a root element spreading getThemeCssVars(accent, animationsSuspended)"
+    - "Ensure SilentBanner in DeckifyOverlayWrapper also receives theme CSS variables"
+  debug_session: .planning/debug/qam-accent-theme-not-applied.md
 - gap_id: G-21-2
   truth: "With Dynamic Album Glow selected, accent colors adapt smoothly to album art in the QAM as well as Expanded Modal and HUD"
   status: failed
   reason: "User reported: Werkt top en goed maar ook in QAM"
   severity: major
   test: 2
-  artifacts: []
-  missing: []
+  root_cause: "Same root cause as G-21-1: QAM Content component in src/index.tsx does not subscribe to useAccentTheme() or spread getThemeCssVars(accent, animationsSuspended) onto a root wrapper, so dynamic album-art CSS variables from themeBus never reach the QAM CEF window."
+  artifacts:
+    - path: "src/index.tsx"
+      issue: "Content component does not subscribe to useAccentTheme() or apply getThemeCssVars(accent, animationsSuspended)"
+  missing:
+    - "Subscribe to useAccentTheme() in QAM Content and apply getThemeCssVars(accent, animationsSuspended) on a root wrapper"
+  debug_session: .planning/debug/qam-accent-theme-not-applied.md
