@@ -39,6 +39,7 @@ for _dir in [
 from py_modules import *
 from py_modules import common
 from py_modules.common import (
+    ALLOWED_PLAYBACK_SPEEDS,
     CHORD_ACTION_IDS,
     DEFAULT_CHORD_BINDINGS,
     MAX_PINNED_PLAYLISTS,
@@ -46,6 +47,7 @@ from py_modules.common import (
     _sanitize_pinned_playlists,
     _validate_chord_bindings,
 )
+from py_modules.engine import _cdp_set_playback_speed
 from py_modules import volume
 from py_modules import system
 from py_modules import equalizer
@@ -136,6 +138,8 @@ class Plugin:
     _is_liked: bool = False
     _context_uri: str = ""
     _audio_stream_info: dict | None = None
+    _playback_speed: float = 1.0
+    _last_media_is_spoken: bool = False
     # Token refresh lock (initialized in _main)
     _token_refresh_lock: asyncio.Lock | None = None
     # Crash auto-restart state
@@ -173,6 +177,8 @@ class Plugin:
         self._mpris_bridge = mpris.MprisBridge(self)
         self._poll_wake_event = None
         self._crossfade_out_track_id = None
+        self._playback_speed = 1.0
+        self._last_media_is_spoken = False
 
     # ── Lifecycle ──────────────────────────────────────────────
 
@@ -729,6 +735,7 @@ class Plugin:
             "mpris_enabled", "mpris_auto_proxy",
             "accent_theme", "eco_mode_enabled",
             "eco_timeout_minutes", "eco_sleep_spotify_client",
+            "preferred_podcast_speed",
         )
         eq_mgr = getattr(self, "_equalizer_manager", None)
         raw_app_id = getattr(getattr(self, "_soundtrack_manager", None), "_active_game_app_id", None)
@@ -768,6 +775,7 @@ class Plugin:
             "is_liked": self._is_liked,
             "context_uri": self._context_uri,
             "audio_stream_info": self._audio_stream_info,
+            "playback_speed": getattr(self, "_playback_speed", 1.0),
             "sleep_timer": self.get_sleep_timer_status(),
             "dock_status": (
                 self._dock_switcher.get_status_dict()
@@ -1074,6 +1082,9 @@ class Plugin:
             manager.record_manual_pause()
         return await rpc_playback.control_playback(self, action, device_id)
 
+    async def set_playback_speed(self, speed: float) -> dict:
+        return await rpc_playback.set_playback_speed(self, speed)
+
     # ── Game soundtrack callable methods ───────────────────────
 
     def _get_soundtrack_manager(self) -> soundtrack.SoundtrackManager:
@@ -1370,6 +1381,9 @@ class Plugin:
 
     async def get_saved_shows(self, offset: int = 0) -> dict:
         return await rpc_library.get_saved_shows(self, offset)
+
+    async def get_show_episodes(self, show_id: str, offset: int = 0) -> dict:
+        return await rpc_library.get_show_episodes(self, show_id, offset)
 
     async def get_saved_albums(self, offset: int = 0) -> dict:
         return await rpc_library.get_saved_albums(self, offset)
@@ -1976,14 +1990,19 @@ class Plugin:
 
         if track_id != self._poll_track_id:
             self._poll_track_id = track_id
+            media_type = item.get("type") or data.get("currently_playing_type") or "track"
+            is_spoken = media_type in ("episode", "chapter", "audiobook") or str(
+                item.get("uri", "")
+            ).startswith(("spotify:episode:", "spotify:chapter:"))
+
             is_liked = False
-            if track_id and item.get("type") != "episode":
+            if track_id and not is_spoken:
                 checked = await self._check_tracks_liked(token, [track_id])
                 is_liked = bool(checked.get(track_id, False))
             self._is_liked = is_liked
 
-            if item.get("type") == "episode":
-                show = item.get("show") or {}
+            if is_spoken:
+                show = item.get("show") or item.get("audiobook") or {}
                 artist = show.get("name") or "Unknown"
                 album_name = ""
                 images = item.get("images") or show.get("images") or []
@@ -1993,8 +2012,8 @@ class Plugin:
                 album_name = album.get("name", "")
                 images = album.get("images") or []
             artwork_url = _image_url(images)
-            artist_id = (item.get("artists") or [{}])[0].get("id", "") if item.get("type") != "episode" else ""
-            album_id = (item.get("album") or {}).get("id", "") if item.get("type") != "episode" else ""
+            artist_id = (item.get("artists") or [{}])[0].get("id", "") if not is_spoken else ""
+            album_id = (item.get("album") or {}).get("id", "") if not is_spoken else ""
             meta = {
                 "track_id": track_id,
                 "id": track_id,
@@ -2008,9 +2027,37 @@ class Plugin:
                 "duration_ms": duration_ms,
                 "uri": item.get("uri", ""),
                 "is_liked": is_liked,
+                "media_type": media_type,
             }
             self._track_meta = meta
             await decky.emit("track_metadata", meta)
+
+            last_spoken = getattr(self, "_last_media_is_spoken", False)
+            cur_speed = getattr(self, "_playback_speed", 1.0)
+            if (last_spoken and not is_spoken) or (not is_spoken and cur_speed != 1.0):
+                self._playback_speed = 1.0
+                if self._settings.get("audio_backend") == "spotify_client":
+                    try:
+                        await _exec(_cdp_set_playback_speed, 1.0)
+                    except Exception as e:
+                        decky.logger.warning("Auto-reset playback speed failed: %s", e)
+                await decky.emit("playback_speed_changed", {"speed": 1.0})
+            elif is_spoken:
+                try:
+                    preferred = float(self._settings.get("preferred_podcast_speed", 1.0))
+                except (TypeError, ValueError):
+                    preferred = 1.0
+                if preferred not in ALLOWED_PLAYBACK_SPEEDS:
+                    preferred = 1.0
+                if preferred != cur_speed or (not last_spoken and preferred != 1.0):
+                    self._playback_speed = preferred
+                    if self._settings.get("audio_backend") == "spotify_client":
+                        try:
+                            await _exec(_cdp_set_playback_speed, preferred)
+                        except Exception as e:
+                            decky.logger.warning("Restore podcast playback speed failed: %s", e)
+                    await decky.emit("playback_speed_changed", {"speed": preferred})
+            self._last_media_is_spoken = is_spoken
 
         new_state = "playing" if is_playing else "paused"
         if is_playing:

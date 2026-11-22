@@ -3,6 +3,7 @@ import json
 import secrets
 import time
 import urllib.error
+import urllib.parse
 from py_modules.common import (
     SPOTIFY_CDP_PORT,
     _exec,
@@ -750,6 +751,71 @@ async def get_album_tracks(plugin, album_id: str, offset: int = 0) -> dict:
         return {"ok": True, "tracks": tracks, "total": total, "offset": offset}
     except Exception as e:
         decky.logger.error("get_album_tracks failed: %s", e)
+        return {"ok": False, "error": str(e)}
+
+
+async def get_show_episodes(plugin, show_id: str, offset: int = 0) -> dict:
+    """Fetch episodes for a specified podcast show ID with resume metadata."""
+    if not isinstance(show_id, str) or not show_id.strip():
+        return {"ok": False, "error": "Invalid show_id"}
+    token = await plugin._ensure_token()
+    if not token:
+        return {"ok": False, "error": "Not authenticated"}
+    safe_id = urllib.parse.quote(show_id.strip(), safe="")
+    try:
+        safe_offset = max(0, int(offset))
+    except (TypeError, ValueError):
+        safe_offset = 0
+    try:
+        show_name = ""
+        show_images: list = []
+        try:
+            show_data = await _exec(
+                _spotify_api_request, f"shows/{safe_id}", token, "GET", {"market": "from_token"}
+            )
+            if isinstance(show_data, dict):
+                show_name = show_data.get("name", "") or ""
+                show_images = show_data.get("images") or []
+        except Exception:
+            pass
+
+        data = await _exec(
+            _spotify_api_request,
+            f"shows/{safe_id}/episodes",
+            token,
+            "GET",
+            {"limit": 50, "offset": safe_offset, "market": "from_token"},
+        )
+        items = data.get("items", []) if isinstance(data, dict) else []
+        episodes = []
+        for ep in items:
+            if not isinstance(ep, dict):
+                continue
+            ep_id = ep.get("id")
+            ep_name = ep.get("name") or ""
+            if not ep_id and not ep_name:
+                continue
+            images = ep.get("images") or show_images
+            img_url = _image_url(images)
+            resume_point = ep.get("resume_point") or {}
+            if not isinstance(resume_point, dict):
+                resume_point = {}
+            episodes.append({
+                "id": ep_id,
+                "name": ep_name,
+                "show_name": show_name or (ep.get("show") or {}).get("name", ""),
+                "uri": ep.get("uri", ""),
+                "duration_ms": int(ep.get("duration_ms") or 0),
+                "release_date": ep.get("release_date", ""),
+                "image_url": img_url,
+                "artwork_url": img_url,
+                "resume_position_ms": int(resume_point.get("resume_position_ms") or 0),
+                "fully_played": bool(resume_point.get("fully_played", False)),
+            })
+        total = data.get("total", len(episodes)) if isinstance(data, dict) else len(episodes)
+        return {"ok": True, "episodes": episodes, "total": total, "offset": safe_offset}
+    except Exception as e:
+        decky.logger.error("get_show_episodes failed: %s", e)
         return {"ok": False, "error": str(e)}
 
 
