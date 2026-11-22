@@ -9,6 +9,7 @@ import {
   FolderItem,
   PinnedPlaylistItem,
   PlaylistItem,
+  ShowItem,
   SyncedLine,
   TrackItem,
   TrackMeta,
@@ -18,6 +19,7 @@ import {
 } from "../types";
 import { parseLrc } from "../utils";
 import { computeListJump } from "../utils/listNavigation";
+import { isSpokenContent } from "../utils/playback";
 import { usePlaybackStatus } from "../hooks/usePlaybackStatus";
 import { useTriggerNavigation } from "../hooks/useTriggerNavigation";
 import { Sidebar } from "./common/Sidebar";
@@ -98,6 +100,8 @@ const backendGetTrackLyricsOffset = callable<[string], { ok: boolean; offset_ms?
 const backendSetTrackLyricsOffset = callable<[string, number], { ok: boolean; offset_ms?: number; error?: string }>("set_track_lyrics_offset");
 const backendSetNativeMix = callable<[string, boolean, boolean], { ok: boolean; error?: string }>("set_native_mix");
 const backendSetSetting = callable<[string, unknown], { ok: boolean; settings?: any; error?: string }>("set_setting");
+const backendSetPlaybackSpeed = callable<[number], { ok: boolean; speed?: number; unsupported_backend?: boolean; error?: string }>("set_playback_speed");
+const backendGetShowEpisodes = callable<[string, number], { ok: boolean; episodes?: EpisodeItem[]; total?: number; error?: string }>("get_show_episodes");
 
 export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeModal }) => {
   const closeModalRef = useRef(closeModal);
@@ -164,6 +168,9 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const toastTimer = useRef<any>(null);
   const [pillMsg, setPillMsg] = useState<string | null>(null);
+  const [activeShow, setActiveShow] = useState<ShowItem | null>(null);
+  const [showEpisodes, setShowEpisodes] = useState<EpisodeItem[]>([]);
+  const [loadingShowEpisodes, setLoadingShowEpisodes] = useState(false);
   const pillTimerRef = useRef<any>(null);
   const pendingSeekDeltaSecRef = useRef(0);
   const seekDebounceTimerRef = useRef<any>(null);
@@ -176,6 +183,9 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
   activeAlbumRef.current = activeAlbum;
   const activeArtistRef = useRef<ArtistItem | null>(null);
   activeArtistRef.current = activeArtist;
+  const activeShowRef = useRef<ShowItem | null>(null);
+  activeShowRef.current = activeShow;
+  const isSpokenRef = useRef(false);
   const actionTrackRef = useRef<TrackItem | null>(null);
   actionTrackRef.current = actionTrack;
   const actionCollectionRef = useRef<PinnedPlaylistItem | null>(null);
@@ -345,8 +355,43 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
     setLoadingContent(false);
   }, []);
 
+  const handleOpenShow = useCallback(async (show: ShowItem) => {
+    focusedCollectionRef.current = null;
+    setActiveShow(show);
+    setShowEpisodes([]);
+    setMode("episodes");
+    setLoadingShowEpisodes(true);
+    try {
+      const res = await backendGetShowEpisodes(show.id, 0);
+      if (res.ok && res.episodes) {
+        setShowEpisodes(res.episodes);
+      } else {
+        showToast(res?.error || "Failed to load show episodes — check your connection and try again.");
+      }
+    } catch {
+      showToast("Failed to load show episodes — check your connection and try again.");
+    }
+    setLoadingShowEpisodes(false);
+  }, [showToast]);
+
+  const handleSetPlaybackSpeed = useCallback(async (speed: number) => {
+    try {
+      const res = await backendSetPlaybackSpeed(speed);
+      if (res?.ok) {
+        refreshStatus();
+      } else if (res?.unsupported_backend) {
+        showToast("Playback speed requires the Official Spotify Client engine.");
+      } else {
+        showToast(res?.error || "Failed to change playback speed — please try again.");
+      }
+    } catch {
+      showToast("Failed to change playback speed — please try again.");
+    }
+  }, [refreshStatus, showToast]);
+
   // Lyrics Loader
   const track = status?.track_meta || status?.track;
+  isSpokenRef.current = isSpokenContent(track);
   const activeTrackId = track?.track_id || track?.id || "";
   const lastRecentTrackIdRef = useRef<string>(activeTrackId);
 
@@ -879,10 +924,12 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
           const durationMs = (status as any)?.duration_ms || track?.duration_ms || 0;
           if (!track || durationMs <= 0) return;
 
-          const seekStepSec = Math.min(
-            30,
-            Math.max(5, Number((status?.settings as any)?.trigger_seek_seconds ?? 10))
-          );
+          const seekStepSec = isSpokenRef.current
+            ? 15
+            : Math.min(
+                30,
+                Math.max(5, Number((status?.settings as any)?.trigger_seek_seconds ?? 10))
+              );
 
           if (pendingSeekDeltaSecRef.current === 0) {
             seekBaseMsRef.current = currentPositionMsRef.current;
@@ -1075,6 +1122,13 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
         setActivePlaylist(null);
         return;
       }
+      if (activeShowRef.current) {
+        e.preventDefault();
+        e.stopPropagation();
+        (e as any).stopImmediatePropagation?.();
+        setActiveShow(null);
+        return;
+      }
     }, false);
   }, []);
 
@@ -1200,6 +1254,8 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
                   onSetShuffle={handleSetShuffle}
                   onSeekPlayback={handleSeekPlayback}
                   onOpenActions={setActionTrack}
+                  playbackSpeed={status?.playback_speed ?? 1.0}
+                  onSetPlaybackSpeed={handleSetPlaybackSpeed}
                 />
               )}
 
@@ -1345,6 +1401,11 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
                 <PodcastsTab
                   savedShows={savedShows}
                   savedEpisodes={savedEpisodes}
+                  activeShow={activeShow}
+                  showEpisodes={showEpisodes}
+                  loadingShowEpisodes={loadingShowEpisodes}
+                  onOpenShow={handleOpenShow}
+                  onCloseShow={() => setActiveShow(null)}
                   onPlayTrack={handlePlayTrack}
                 />
               )}
