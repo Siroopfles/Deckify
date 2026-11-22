@@ -15,10 +15,12 @@ def _update_spotify_prefs_content(
     audio_quality: str,
     gapless: bool = True,
     normalisation: bool = True,
+    crossfade_seconds: int = 0,
 ) -> str:
-    """Update Spotify Desktop Client prefs text with quality, lossless, gapless, and normalization settings."""
+    """Update Spotify Desktop Client prefs text with quality, lossless, gapless, normalization, and crossfade settings."""
     enum_map = {"96": 2, "160": 3, "320": 4, "lossless": 5}
     q_enum = enum_map.get(str(audio_quality).lower(), 4)
+    cf_sec = max(0, min(12, int(crossfade_seconds)))
     desired = {
         "audio.play_bitrate_enumeration": str(q_enum),
         "audio.play_bitrate_non_metered_enumeration": str(q_enum),
@@ -27,6 +29,8 @@ def _update_spotify_prefs_content(
         "audio.hifi_upgraded": "true" if str(audio_quality).lower() == "lossless" else "false",
         "audio.gapless_v2": "true" if gapless else "false",
         "audio.normalize_v2": "true" if normalisation else "false",
+        "audio.crossfade_v2": "true" if cf_sec > 0 else "false",
+        "audio.crossfade.time_v2": str(cf_sec * 1000),
     }
     lines = existing_text.splitlines() if existing_text else []
     seen: set[str] = set()

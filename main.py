@@ -124,6 +124,7 @@ class Plugin:
     # Playback poll state
     _poll_play_state: str | None = None   # "playing" | "paused" | None
     _poll_track_id: str | None = None
+    _crossfade_out_track_id: str | None = None
     _poll_progress_ms: int = 0
     _poll_duration_ms: int = 0
     _poll_updated_at: float = 0.0
@@ -170,6 +171,7 @@ class Plugin:
         self._bookmark_manager = resilience.SessionBookmarkManager(self)
         self._mpris_bridge = mpris.MprisBridge(self)
         self._poll_wake_event = None
+        self._crossfade_out_track_id = None
 
     # ── Lifecycle ──────────────────────────────────────────────
 
@@ -373,6 +375,7 @@ class Plugin:
             quality = str(self._settings.get("audio_quality", "320")).lower()
             gapless = bool(self._settings.get("gapless", True))
             normalisation = bool(self._settings.get("normalisation", True))
+            crossfade_seconds = int(self._settings.get("crossfade_seconds", 0) or 0)
 
             target_files = [os.path.join(SPOTIFY_CLIENT_CONFIG_DIR, "prefs")]
             users_dir = os.path.join(SPOTIFY_CLIENT_CONFIG_DIR, "Users")
@@ -390,7 +393,9 @@ class Plugin:
                             existing = f.read()
                     except Exception:
                         pass
-                updated = _update_spotify_prefs_content(existing, quality, gapless, normalisation)
+                updated = _update_spotify_prefs_content(
+                    existing, quality, gapless, normalisation, crossfade_seconds=crossfade_seconds
+                )
                 with open(pfile, "w", encoding="utf-8") as f:
                     f.write(updated)
                 if hasattr(os, "chown") and hasattr(os, "geteuid") and os.geteuid() == 0:
@@ -449,6 +454,68 @@ class Plugin:
             await _exec(_cdp_evaluate, expr, SPOTIFY_CDP_PORT, None, 4.0, timeout=5)
         except Exception as e:
             decky.logger.debug("CDP quality sync failed: %s", e)
+
+    async def _sync_spotify_client_crossfade_cdp(self, crossfade_seconds: int) -> None:
+        """Apply crossfade duration live inside the running Official Spotify Client via SettingsAPI."""
+        if not self._spotify_client_process or self._spotify_client_process.poll() is not None:
+            return
+        cf_sec = max(0, min(12, int(crossfade_seconds)))
+        cf_enabled = "true" if cf_sec > 0 else "false"
+        cf_ms = cf_sec * 1000
+        expr = f"""
+        (async () => {{
+          const mainEl = document.getElementById('main');
+          if (!mainEl) return false;
+          const rk = Object.keys(mainEl).find(k => k.startsWith('__reactContainer'));
+          const q = [mainEl[rk]];
+          const visited = new Set();
+          let reg = null;
+          while (q.length > 0 && visited.size < 1000) {{
+            const curr = q.shift();
+            if (!curr || visited.has(curr)) continue;
+            visited.add(curr);
+            let m = curr.memoizedState;
+            while (m) {{
+              if (m.memoizedState && typeof m.memoizedState === 'object') {{
+                const val = m.memoizedState;
+                if (val._map && val._map instanceof Map) {{ reg = val._map; break; }}
+                if (val.value && typeof val.value.getRegistry === 'function') {{ reg = val.value.getRegistry()._map; break; }}
+              }}
+              m = m.next;
+            }}
+            if (reg) break;
+            if (curr.child) q.push(curr.child);
+            if (curr.sibling) q.push(curr.sibling);
+          }}
+          if (!reg) return false;
+          for (const [k, v] of reg.entries()) {{
+            if (String(k.description) === 'SettingsAPI') {{
+              const s = v.instance;
+              try {{
+                if (s.audio?.crossfade && typeof s.audio.crossfade.setValue === 'function') {{
+                  await s.audio.crossfade.setValue({cf_enabled});
+                }}
+              }} catch (_) {{}}
+              try {{
+                if (s.audio?.crossfadeTime && typeof s.audio.crossfadeTime.setValue === 'function') {{
+                  await s.audio.crossfadeTime.setValue({cf_ms});
+                }}
+              }} catch (_) {{}}
+              try {{
+                if (s.playback?.crossfade && typeof s.playback.crossfade.setValue === 'function') {{
+                  await s.playback.crossfade.setValue({cf_sec});
+                }}
+              }} catch (_) {{}}
+              return true;
+            }}
+          }}
+          return false;
+        }})()
+        """
+        try:
+            await _exec(_cdp_evaluate, expr, SPOTIFY_CDP_PORT, None, 4.0, timeout=5)
+        except Exception as e:
+            decky.logger.debug("CDP crossfade sync failed: %s", e)
 
     async def start_spotify_client(self) -> dict:
         """Start the Official Spotify Linux Client headless in the background (stopping librespot first)."""
@@ -636,7 +703,7 @@ class Plugin:
         public_keys = (
             "device_name", "audio_backend", "audio_quality", "bitrate",
             "bit_perfect_clock", "spotify_client_id", "normalisation",
-            "normalisation_pregain", "gapless", "autoplay", "playlist_folders",
+            "normalisation_pregain", "gapless", "crossfade_seconds", "autoplay", "playlist_folders",
             "spotify_folder_tree", "game_audio_profiles", "auto_ducking",
             "auto_ducking_volume", "gamepad_chords_enabled", "silent_banner_enabled",
             "silent_banner_position", "gamepad_chord_bindings", "toast_enabled",
@@ -830,6 +897,14 @@ class Plugin:
                 return {"ok": False, "error": "eco_timeout_minutes must be an integer between 5 and 30"}
             clamped = max(5, min(30, raw_int))
             value = int(round(clamped / 5.0) * 5)
+        elif key == "crossfade_seconds":
+            if isinstance(value, bool):
+                return {"ok": False, "error": "crossfade_seconds must be an integer between 0 and 12"}
+            try:
+                raw_int = int(value)
+            except (TypeError, ValueError):
+                return {"ok": False, "error": "crossfade_seconds must be an integer between 0 and 12"}
+            value = max(0, min(12, raw_int))
         elif key == "gamepad_chord_bindings":
             validated, err = _validate_chord_bindings(
                 value, self._settings.get("gamepad_chord_bindings")
@@ -969,6 +1044,9 @@ class Plugin:
                 self._settings.get("audio_quality") == "lossless"
                 and bool(self._settings.get("bit_perfect_clock", True))
             )
+        elif key == "crossfade_seconds" and self._settings.get("audio_backend") == "spotify_client":
+            self._write_spotify_client_prefs()
+            await self._sync_spotify_client_crossfade_cdp(int(value))
 
         public_settings = self._public_settings_payload()
         try:
@@ -1762,6 +1840,32 @@ class Plugin:
                 decky.logger.error("Token refresh failed: %s", e)
                 return None
 
+    async def _maybe_trigger_local_crossfade(
+        self,
+        track_id: str,
+        is_playing: bool,
+        progress_ms: int,
+        duration_ms: int,
+    ) -> None:
+        """Drive local PipeWire boundary fade-out/fade-in when librespot is active."""
+        if self._settings.get("audio_backend", "librespot") != "librespot":
+            return
+        cf_sec = int(self._settings.get("crossfade_seconds", 0) or 0)
+        fader = getattr(self, "_volume_fader", None)
+        if cf_sec <= 0 or fader is None:
+            return
+
+        if getattr(fader, "_crossfade_active", False) and track_id and track_id != self._crossfade_out_track_id:
+            self._crossfade_out_track_id = None
+            await fader.trigger_crossfade_in(min(cf_sec * 0.5, 3.0))
+            return
+
+        if is_playing and duration_ms > 0 and track_id and self._crossfade_out_track_id != track_id:
+            remaining_ms = duration_ms - progress_ms
+            if 0 < remaining_ms <= cf_sec * 1000:
+                self._crossfade_out_track_id = track_id
+                await fader.trigger_crossfade_out(min(float(cf_sec), remaining_ms / 1000.0))
+
     async def _poll_playback(self) -> bool:
         """Poll GET /me/player and emit events. Returns True if API call succeeded."""
         token = await self._ensure_token()
@@ -1880,6 +1984,10 @@ class Plugin:
             self._last_event = event
             await decky.emit("librespot_event", event)
         self._poll_play_state = new_state
+
+        await self._maybe_trigger_local_crossfade(
+            track_id, bool(is_playing), int(progress_ms or 0), int(duration_ms or 0)
+        )
 
         if getattr(self, "_bookmark_manager", None):
             self._bookmark_manager.snapshot_from_state(

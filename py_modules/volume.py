@@ -269,6 +269,7 @@ class VolumeFader:
         self._cached_sink_input_id: str | None = None
         self._duck_reasons: set[str] = set()
         self._sleep_locked: bool = False
+        self._crossfade_active: bool = False
         self._game_override: dict | None = None
 
     @property
@@ -462,6 +463,21 @@ class VolumeFader:
         await self.fade_to(target_vol, restore_duration)
         if wait and self._fade_task and not self._fade_task.done():
             await self._fade_task
+
+    async def trigger_crossfade_out(self, duration_sec: float) -> None:
+        """Fade local sink volume to 0% for librespot track boundary crossfade (no-op if sleep locked)."""
+        if self._sleep_locked:
+            return
+        self._crossfade_active = True
+        await self.fade_to(0.0, max(0.1, float(duration_sec)))
+
+    async def trigger_crossfade_in(self, duration_sec: float) -> None:
+        """Fade local sink volume back to computed target ceiling after track change."""
+        self._crossfade_active = False
+        if self._sleep_locked:
+            return
+        target_vol = self._compute_target_sink_volume()
+        await self.fade_to(target_vol, max(0.1, float(duration_sec)))
 
     async def fade_to(self, target_sink_volume: float, duration_sec: float) -> None:
         """Fade volume smoothly using cosine easing curve."""

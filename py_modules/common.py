@@ -109,6 +109,7 @@ DEFAULT_SETTINGS = {
     "normalisation": True,
     "normalisation_pregain": 0.0,
     "gapless": True,
+    "crossfade_seconds": 0,
     "autoplay": True,
     "playlist_folders": [],
     "spotify_folder_tree": [],
@@ -327,7 +328,7 @@ def _load_settings(settings_file: str | None = None) -> dict:
             saved = json.load(f)
         if not isinstance(saved, dict):
             return copy.deepcopy(default_settings)
-        for obsolete in ("mix_mode", "crossfade_seconds", "mixed_playlists"):
+        for obsolete in ("mix_mode", "mixed_playlists"):
             saved.pop(obsolete, None)
         merged = {**copy.deepcopy(default_settings), **saved}
         if merged["device_name"] == "Steam Deck" and not saved.get("device_name_customized"):
