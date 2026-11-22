@@ -215,6 +215,68 @@ class Lyrics2CacheAndOffsetsTests(unittest.TestCase):
             self.assertEqual(loaded["romanize_display_style"], "dual")
             self.assertIs(loaded["romanize_overlay_enabled"], True)
 
+    def test_netease_romalrc_persistence_and_enrichment(self):
+        with tempfile.TemporaryDirectory() as tmp_dir, patch.object(spotify, "LYRICS_CACHE_DIR", tmp_dir):
+            spotify._clear_lyrics_cache()
+            search_resp = MagicMock()
+            search_resp.read.return_value = json.dumps({
+                "result": {"songs": [{"id": 998877}]}
+            }).encode("utf-8")
+            search_resp.__enter__.return_value = search_resp
+
+            lyric_resp = MagicMock()
+            lyric_resp.read.return_value = json.dumps({
+                "lrc": {"lyric": "[00:10.00] ありがとう\n[00:15.00] Hello"},
+                "romalrc": {"lyric": "[00:10.00] a ri ga tou"},
+            }).encode("utf-8")
+            lyric_resp.__enter__.return_value = lyric_resp
+
+            seen_urls = []
+
+            def fake_urlopen(req, timeout=3.5, context=None):
+                url = req.full_url if hasattr(req, "full_url") else req.get_full_url()
+                seen_urls.append(url)
+                if "search/get/web" in url:
+                    return search_resp
+                return lyric_resp
+
+            with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+                res1 = spotify._fetch_lyrics_sync(
+                    "Arigatou",
+                    "JP Artist",
+                    180,
+                    provider_offset=2,
+                    track_id="neRomalrc01",
+                )
+
+            self.assertTrue(res1["ok"])
+            self.assertEqual(res1["source"], "NetEase")
+            self.assertTrue(any("&rv=-1" in u for u in seen_urls))
+            self.assertEqual(res1["romanized_lines"][0]["romanized"], "a ri ga tou")
+            self.assertIsNone(res1["romanized_lines"][1]["romanized"])
+            self.assertEqual(res1["romanized_plain"], [])
+
+            lrc_path = os.path.join(tmp_dir, "JP Artist - Arigatou [neRomalrc01].lrc")
+            with open(lrc_path, "r", encoding="utf-8") as f:
+                disk_lrc = f.read()
+            self.assertIn("[deckify-romalrc:", disk_lrc)
+
+            # Clear memory cache and verify disk .lrc hit restores romalrc and romanized_lines
+            with spotify._CACHE_LOCK:
+                spotify._LYRICS_CACHE.clear()
+
+            res2 = spotify._fetch_lyrics_sync(
+                "Arigatou",
+                "JP Artist",
+                180,
+                provider_offset=0,
+                track_id="neRomalrc01",
+            )
+            self.assertTrue(res2["ok"])
+            self.assertTrue(res2["cached"])
+            self.assertEqual(res2["romanized_lines"][0]["romanized"], "a ri ga tou")
+            self.assertEqual(res2["romanized_plain"][0], "arigatou")
+
 
 if __name__ == "__main__":
     unittest.main()

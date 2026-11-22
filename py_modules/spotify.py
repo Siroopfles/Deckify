@@ -10,6 +10,7 @@ import urllib.parse
 import urllib.request
 
 from py_modules.common import DECK_HOME, SPOTIFY_API_BASE, SPOTIFY_CDP_PORT, _API_SSL_CTX
+from py_modules.romanize import enrich_lyrics_lines
 
 LYRICS_CACHE_DIR = os.path.join(DECK_HOME, ".cache", "deckify", "lyrics")
 
@@ -193,6 +194,7 @@ def _format_lrc_content(
     source: str,
     synced_lyrics: str | None,
     plain_lyrics: str | None,
+    romalrc: str = "",
 ) -> str:
     """Serialize lyrics payload into human-readable .lrc format with metadata tags."""
     safe_ti = re.sub(r"[\r\n\[\]]", " ", title or "").strip()
@@ -205,10 +207,14 @@ def _format_lrc_content(
         f"[ar:{safe_ar}]",
         f"[deckify-source:{safe_src}]",
         f"[deckify-synced:{1 if is_synced else 0}]",
+    ]
+    if romalrc and isinstance(romalrc, str) and romalrc.strip():
+        lines.append(f"[deckify-romalrc:{json.dumps(romalrc)}]")
+    lines.extend([
         "",
         body.rstrip("\r\n"),
         "",
-    ]
+    ])
     return "\n".join(lines)
 
 
@@ -218,6 +224,7 @@ def _parse_lrc_content(raw_text: str) -> dict | None:
         return None
     source = "Cached"
     synced_flag: bool | None = None
+    romalrc = ""
     body_lines: list[str] = []
 
     for line in raw_text.splitlines():
@@ -232,6 +239,13 @@ def _parse_lrc_content(raw_text: str) -> dict | None:
                 source = tag_val
             elif tag_key == "deckify-synced":
                 synced_flag = tag_val == "1"
+            elif tag_key == "deckify-romalrc" and tag_val:
+                try:
+                    decoded = json.loads(tag_val)
+                    if isinstance(decoded, str):
+                        romalrc = decoded
+                except Exception:
+                    pass
             continue
         body_lines.append(line)
 
@@ -250,6 +264,7 @@ def _parse_lrc_content(raw_text: str) -> dict | None:
             "synced_lyrics": body,
             "plain_lyrics": plain_text,
             "source": source,
+            "romalrc": romalrc,
             "cached": True,
         }
     return {
@@ -257,6 +272,7 @@ def _parse_lrc_content(raw_text: str) -> dict | None:
         "synced_lyrics": None,
         "plain_lyrics": body,
         "source": source,
+        "romalrc": romalrc,
         "cached": True,
     }
 
@@ -348,6 +364,7 @@ def _put_cached_lyrics(
                 source=str(data.get("source") or "Unknown"),
                 synced_lyrics=data.get("synced_lyrics"),
                 plain_lyrics=data.get("plain_lyrics"),
+                romalrc=str(data.get("romalrc") or ""),
             )
             tmp_path = f"{target}.{os.getpid()}.tmp"
             with open(tmp_path, "w", encoding="utf-8") as f:
@@ -500,19 +517,20 @@ def _fetch_netease_lyrics(clean_title: str, artist: str) -> dict | None:
         if not song_id:
             return None
 
-        lyric_url = f"http://music.163.com/api/song/lyric?os=pc&id={song_id}&lv=-1&kv=-1&tv=-1"
+        lyric_url = f"http://music.163.com/api/song/lyric?os=pc&id={song_id}&lv=-1&kv=-1&tv=-1&rv=-1"
         l_req = urllib.request.Request(lyric_url, headers=headers)
         with urllib.request.urlopen(l_req, timeout=3.5) as l_resp:
             l_data = json.loads(l_resp.read().decode("utf-8", errors="ignore"))
 
-        lrc_text = l_data.get("lrc", {}).get("lyric", "")
+        lrc_text = (l_data.get("lrc") or {}).get("lyric", "")
         if not lrc_text:
             return None
+        romalrc = (l_data.get("romalrc") or {}).get("lyric", "")
 
         # Check if synced LRC format [mm:ss.xx]
         if re.search(r"\[\d{2}:\d{2}\.\d{2,3}\]", lrc_text):
-            return {"syncedLyrics": lrc_text, "plainLyrics": None}
-        return {"syncedLyrics": None, "plainLyrics": lrc_text}
+            return {"syncedLyrics": lrc_text, "plainLyrics": None, "romalrc": romalrc}
+        return {"syncedLyrics": None, "plainLyrics": lrc_text, "romalrc": romalrc}
     except Exception:
         return None
 
@@ -584,15 +602,25 @@ def _fetch_lyrics_sync(
     primary_artist = a_name.split(",")[0].strip() if "," in a_name else a_name
     safe_id = _sanitize_track_id(track_id, a_name, clean_title)
 
+    def _attach_romanization(payload: dict) -> dict:
+        enriched = enrich_lyrics_lines(
+            payload.get("synced_lyrics"),
+            payload.get("plain_lyrics"),
+            str(payload.get("romalrc") or ""),
+        )
+        payload["romanized_lines"] = enriched["romanized_lines"]
+        payload["romanized_plain"] = enriched["romanized_plain"]
+        return payload
+
     if provider_offset == 0 and not force_refresh:
         cached = _get_cached_lyrics(safe_id)
         if cached is not None:
-            return cached
+            return _attach_romanization(cached)
 
     def _cache_and_return(payload: dict) -> dict:
         payload["cached"] = False
         _put_cached_lyrics(safe_id, payload, artist=a_name, title=clean_title)
-        return payload
+        return _attach_romanization(payload)
 
     # Waterfall Providers
     # 0: Spotify CDP
@@ -677,6 +705,7 @@ def _fetch_lyrics_sync(
                 "synced_lyrics": ne_res.get("syncedLyrics"),
                 "plain_lyrics": ne_res.get("plainLyrics"),
                 "source": "NetEase",
+                "romalrc": ne_res.get("romalrc", ""),
             })
 
     # Step 4: Musixmatch fallback
