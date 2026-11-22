@@ -19,6 +19,13 @@ with patch.dict(
 ):
     from py_modules import common, eco
 
+try:
+    from test_token_refresh import main
+except ImportError:
+    from tests.test_token_refresh import main
+
+from py_modules import rpc_playback
+
 
 def _make_supply(root: str, name: str, supply_type: str, status: str | None = None) -> None:
     supply_dir = os.path.join(root, name)
@@ -201,6 +208,101 @@ class TestPowerGovernor(unittest.IsolatedAsyncioTestCase):
                 await gov.evaluate_now()
             self.assertTrue(gov.engine_sleeping)
             plugin.stop_librespot.assert_awaited_once()
+
+
+class TestPhase21SettingsAndWake(unittest.IsolatedAsyncioTestCase):
+    def _make_real_plugin(self):
+        p = main.Plugin()
+        p._settings = dict(common.DEFAULT_SETTINGS)
+        p._access_token = "tok"
+        p._power_governor = eco.PowerGovernor(p, sysfs_root=os.path.join(tempfile.gettempdir(), "nonexistent_sysfs_test"))
+        return p
+
+    def test_default_settings_include_phase21_keys(self):
+        self.assertEqual(common.DEFAULT_SETTINGS["accent_theme"], "spotify_green")
+        self.assertIs(common.DEFAULT_SETTINGS["eco_mode_enabled"], True)
+        self.assertEqual(common.DEFAULT_SETTINGS["eco_timeout_minutes"], 15)
+        self.assertIs(common.DEFAULT_SETTINGS["eco_sleep_spotify_client"], False)
+
+    async def test_set_setting_validates_accent_theme_and_eco_settings(self):
+        p = self._make_real_plugin()
+        with patch("main._save_settings"), patch("main.decky.emit", new=AsyncMock()):
+            for valid_theme in ("spotify_green", "dynamic_album", "steamos_blue"):
+                res = await p.set_setting("accent_theme", valid_theme)
+                self.assertTrue(res["ok"])
+                self.assertEqual(p._settings["accent_theme"], valid_theme)
+
+            bad_theme = await p.set_setting("accent_theme", "neon_pink")
+            self.assertFalse(bad_theme["ok"])
+
+            bad_theme_bool = await p.set_setting("accent_theme", True)
+            self.assertFalse(bad_theme_bool["ok"])
+
+            # eco_timeout_minutes rejects bool & invalid, snaps/clamps ints
+            res_bool = await p.set_setting("eco_timeout_minutes", True)
+            self.assertFalse(res_bool["ok"])
+
+            res_bad = await p.set_setting("eco_timeout_minutes", "abc")
+            self.assertFalse(res_bad["ok"])
+
+            res_20 = await p.set_setting("eco_timeout_minutes", 20)
+            self.assertTrue(res_20["ok"])
+            self.assertEqual(p._settings["eco_timeout_minutes"], 20)
+
+            res_clamp = await p.set_setting("eco_timeout_minutes", 99)
+            self.assertTrue(res_clamp["ok"])
+            self.assertEqual(p._settings["eco_timeout_minutes"], 30)
+
+            res_enabled = await p.set_setting("eco_mode_enabled", False)
+            self.assertTrue(res_enabled["ok"])
+            self.assertIs(p._settings["eco_mode_enabled"], False)
+
+            res_client = await p.set_setting("eco_sleep_spotify_client", True)
+            self.assertTrue(res_client["ok"])
+            self.assertIs(p._settings["eco_sleep_spotify_client"], True)
+
+    async def test_get_status_exposes_phase21_public_keys_and_eco_status(self):
+        p = self._make_real_plugin()
+        status = await p.get_status()
+        for key in ("accent_theme", "eco_mode_enabled", "eco_timeout_minutes", "eco_sleep_spotify_client"):
+            self.assertIn(key, status["settings"])
+        self.assertIn("eco_status", status)
+        self.assertEqual(status["eco_status"]["status"], "bypassed")
+        self.assertFalse(status["eco_status"]["has_battery"])
+
+    async def test_control_playback_and_quick_play_pinned_wake_sleeping_governor(self):
+        gov = MagicMock()
+        gov.engine_sleeping = True
+
+        async def _fake_wake():
+            gov.engine_sleeping = False
+            return {"status": "on_battery_active"}
+
+        gov.wake_for_playback = AsyncMock(side_effect=_fake_wake)
+
+        plugin = SimpleNamespace(
+            _ensure_token=AsyncMock(return_value="tok"),
+            _poll_play_state="paused",
+            _is_engine_running=lambda: False,
+            _power_governor=gov,
+            _mpris_bridge=None,
+            _context_uri=None,
+            _auto_transfer_and_play=AsyncMock(return_value={"ok": True}),
+            start_librespot=AsyncMock(return_value={"ok": True}),
+        )
+
+        with patch.object(rpc_playback, "_exec", new=AsyncMock(return_value={})):
+            res = await rpc_playback.control_playback(plugin, "play")
+        self.assertTrue(res["ok"], res)
+        gov.wake_for_playback.assert_awaited_once()
+
+        gov.wake_for_playback.reset_mock()
+        gov.engine_sleeping = True
+        with patch.object(rpc_playback, "_exec", new=AsyncMock(return_value={})):
+            res2 = await rpc_playback.quick_play_pinned(plugin, "spotify:playlist:123")
+        self.assertTrue(res2["ok"])
+        gov.wake_for_playback.assert_awaited_once()
+        plugin.start_librespot.assert_not_awaited()
 
 
 if __name__ == "__main__":

@@ -163,6 +163,10 @@ DEFAULT_SETTINGS = {
     "resilience_prompt_held_enabled": True,
     "mpris_enabled": True,
     "mpris_auto_proxy": True,
+    "accent_theme": "spotify_green",
+    "eco_mode_enabled": True,
+    "eco_timeout_minutes": 15,
+    "eco_sleep_spotify_client": False,
 }
 
 # PulseAudio socket for processes

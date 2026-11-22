@@ -55,6 +55,7 @@ from py_modules import soundtrack
 from py_modules import dock
 from py_modules import resilience
 from py_modules import mpris
+from py_modules import eco
 from py_modules import vdf_parser
 from py_modules import input_watch
 
@@ -198,6 +199,8 @@ class Plugin:
         await self._equalizer_manager.cleanup_stale_process()
         self._dock_switcher = dock.DockAudioSwitcher(self)
         self._dock_switcher.start()
+        self._power_governor = eco.PowerGovernor(self)
+        self._power_governor.start()
         self._bookmark_manager = resilience.SessionBookmarkManager(self)
         self._bookmark_manager.load_bookmark()
         self._event_server = resilience.LibrespotEventServer(self)
@@ -250,6 +253,9 @@ class Plugin:
         if getattr(self, "_dock_switcher", None):
             await self._dock_switcher.stop()
             self._dock_switcher = None
+        if getattr(self, "_power_governor", None):
+            await self._power_governor.stop()
+            self._power_governor = None
         if getattr(self, "_soundtrack_manager", None):
             self._soundtrack_manager.cancel_all()
         if getattr(self, "_equalizer_manager", None):
@@ -651,6 +657,8 @@ class Plugin:
             "resilience_bookmark_never_expires", "resilience_toast_enabled",
             "resilience_prompt_held_enabled",
             "mpris_enabled", "mpris_auto_proxy",
+            "accent_theme", "eco_mode_enabled",
+            "eco_timeout_minutes", "eco_sleep_spotify_client",
         )
         eq_mgr = getattr(self, "_equalizer_manager", None)
         raw_app_id = getattr(getattr(self, "_soundtrack_manager", None), "_active_game_app_id", None)
@@ -728,6 +736,23 @@ class Plugin:
                     "bus_name": mpris.MPRIS_BUS_NAME,
                 }
             ),
+            "eco_status": (
+                self._power_governor.get_status_dict()
+                if getattr(self, "_power_governor", None)
+                else {
+                    "enabled": bool(self._settings.get("eco_mode_enabled", True)),
+                    "has_battery": False,
+                    "on_battery": False,
+                    "is_docked": False,
+                    "is_game_running": False,
+                    "animations_suspended": False,
+                    "engine_sleeping": False,
+                    "sleep_spotify_client": bool(self._settings.get("eco_sleep_spotify_client", False)),
+                    "timeout_minutes": int(self._settings.get("eco_timeout_minutes", 15)),
+                    "paused_seconds": 0,
+                    "status": "bypassed",
+                }
+            ),
         }
 
     async def get_settings(self) -> dict:
@@ -785,10 +810,26 @@ class Plugin:
             value = bool(value)
             if not value and hasattr(self, "_volume_fader") and self._volume_fader:
                 asyncio.create_task(self._volume_fader.set_ducking(False, reason="game"))
-        elif key in ("normalisation", "gapless", "autoplay", "bit_perfect_clock", "overlay_enabled", "toast_enabled", "toast_sound_enabled", "gamepad_chords_enabled", "silent_banner_enabled", "overlay_autohide", "overlay_show_progress", "overlay_lyrics_enabled", "voice_ducking_enabled", "sleep_timer_fade_enabled", "dock_auto_switch_enabled", "dock_respect_bluetooth", "dock_pause_on_undock", "dock_toast_enabled", "resilience_auto_resume", "resilience_bookmark_never_expires", "resilience_toast_enabled", "resilience_prompt_held_enabled", "mpris_enabled", "mpris_auto_proxy"):
+        elif key in ("normalisation", "gapless", "autoplay", "bit_perfect_clock", "overlay_enabled", "toast_enabled", "toast_sound_enabled", "gamepad_chords_enabled", "silent_banner_enabled", "overlay_autohide", "overlay_show_progress", "overlay_lyrics_enabled", "voice_ducking_enabled", "sleep_timer_fade_enabled", "dock_auto_switch_enabled", "dock_respect_bluetooth", "dock_pause_on_undock", "dock_toast_enabled", "resilience_auto_resume", "resilience_bookmark_never_expires", "resilience_toast_enabled", "resilience_prompt_held_enabled", "mpris_enabled", "mpris_auto_proxy", "eco_mode_enabled", "eco_sleep_spotify_client"):
             value = bool(value)
             if key == "gamepad_chords_enabled" and getattr(self, "_input_watcher", None):
                 self._input_watcher.set_enabled(value)
+        elif key == "accent_theme":
+            if not isinstance(value, str):
+                return {"ok": False, "error": "accent_theme must be a string"}
+            val = value.strip().lower()
+            if val not in ("spotify_green", "dynamic_album", "steamos_blue"):
+                return {"ok": False, "error": f"Invalid accent_theme: {value}"}
+            value = val
+        elif key == "eco_timeout_minutes":
+            if isinstance(value, bool):
+                return {"ok": False, "error": "eco_timeout_minutes must be an integer between 5 and 30"}
+            try:
+                raw_int = int(value)
+            except (TypeError, ValueError):
+                return {"ok": False, "error": "eco_timeout_minutes must be an integer between 5 and 30"}
+            clamped = max(5, min(30, raw_int))
+            value = int(round(clamped / 5.0) * 5)
         elif key == "gamepad_chord_bindings":
             validated, err = _validate_chord_bindings(
                 value, self._settings.get("gamepad_chord_bindings")
@@ -909,6 +950,9 @@ class Plugin:
 
         if key in ("mpris_enabled", "mpris_auto_proxy") and getattr(self, "_mpris_bridge", None):
             await self._mpris_bridge.on_settings_changed(key, value)
+
+        if key.startswith("eco_") and getattr(self, "_power_governor", None):
+            asyncio.create_task(self._power_governor.evaluate_now())
 
         if backend_changed:
             if getattr(self, "_poll_wake_event", None):

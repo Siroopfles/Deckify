@@ -60,6 +60,11 @@ async def control_playback(plugin, action: str, device_id: str = "") -> dict:
 
     method, endpoint = action_map[action]
     params = {"device_id": device_id} if device_id else None
+    power_gov = getattr(plugin, "_power_governor", None)
+    if action == "play" and power_gov is not None:
+        is_running = plugin._is_engine_running() if hasattr(plugin, "_is_engine_running") else True
+        if getattr(power_gov, "engine_sleeping", False) or not is_running:
+            await power_gov.wake_for_playback()
     try:
         await _exec(_spotify_api_request, endpoint, token, method, params)
         if action == "play":
@@ -402,6 +407,9 @@ async def play_tracks(
         body["uris"] = [str(offset_uri).strip()]
     if body and position_ms is not None and int(position_ms) > 0:
         body["position_ms"] = int(position_ms)
+    power_gov = getattr(plugin, "_power_governor", None)
+    if power_gov is not None and getattr(power_gov, "engine_sleeping", False):
+        await power_gov.wake_for_playback()
     try:
         await _exec(
             _spotify_api_request, "me/player/play", token, "PUT", None, body,
@@ -410,7 +418,13 @@ async def play_tracks(
     except urllib.error.HTTPError as e:
         if e.code == 404:
             transfer_res = await plugin._auto_transfer_and_play(token)
-            if (
+            if not transfer_res.get("ok") and power_gov is not None and (
+                getattr(power_gov, "engine_sleeping", False)
+                or (hasattr(plugin, "_is_engine_running") and not plugin._is_engine_running())
+            ):
+                await power_gov.wake_for_playback()
+                transfer_res = await plugin._auto_transfer_and_play(token)
+            elif (
                 not transfer_res.get("ok")
                 and hasattr(plugin, "_is_engine_running")
                 and not plugin._is_engine_running()
@@ -480,7 +494,11 @@ async def quick_play_pinned(plugin, uri: str, item_type: str = "playlist") -> di
         return {"ok": False, "error": "Invalid playlist URI"}
     uri = uri.strip()
 
-    if not plugin._is_engine_running():
+    power_gov = getattr(plugin, "_power_governor", None)
+    is_running = plugin._is_engine_running() if hasattr(plugin, "_is_engine_running") else True
+    if power_gov is not None and (getattr(power_gov, "engine_sleeping", False) or not is_running):
+        await power_gov.wake_for_playback()
+    elif not is_running:
         start_res = await plugin.start_librespot()
         if isinstance(start_res, dict) and start_res.get("ok"):
             for _ in range(4):
