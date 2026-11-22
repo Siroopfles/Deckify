@@ -32,6 +32,10 @@ vi.mock("react", () => ({
 }));
 
 vi.mock("@decky/ui", () => ({
+  GamepadButton: {
+    DIR_LEFT: 11,
+    DIR_RIGHT: 12,
+  },
   Focusable: ({ children, ...props }: Record<string, unknown>) => ({
     type: "Focusable",
     props: { children, ...props },
@@ -88,7 +92,8 @@ vi.mock("../common/InteractiveRow", () => ({
   formatMs: (ms: number) => `${Math.floor(ms / 1000)}s`,
 }));
 
-import { NowPlayingTab, NowPlayingTabProps } from "./NowPlayingTab";
+import { NowPlayingTab, NowPlayingTabProps, ProgressScrubBar } from "./NowPlayingTab";
+import { getScrubStepMs } from "../../hooks/usePlaybackClock";
 import { StatusResponse } from "../../types";
 
 function findNodes(
@@ -299,5 +304,98 @@ describe("NowPlayingTab POD-01 speed Dropdown", () => {
     expect(dropdowns).toHaveLength(1);
     expect(dropdowns[0].props?.disabled).toBe(true);
     expect(collectText(tree)).toContain("Playback speed requires Official Spotify Client");
+  });
+});
+
+describe("ProgressScrubBar G-24-2 scrubbing and cleanup", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("renders no -15s or +15s buttons under ProgressScrubBar", () => {
+    const tree = ProgressScrubBar({
+      durationMs: 240000,
+      currentPositionMs: 30000,
+      handleSeekDelta: vi.fn(),
+      onSeekPlayback: vi.fn(),
+    }) as unknown as MockNode;
+
+    const text = collectText(tree);
+    expect(text).not.toContain("-15s");
+    expect(text).not.toContain("+15s");
+    expect(findNodes(tree, (n) => n.type === "InteractiveRow")).toHaveLength(0);
+  });
+
+  it("handles onGamepadDirection DIR_LEFT and DIR_RIGHT scrubbing when focused", () => {
+    const handleSeekDelta = vi.fn();
+    const durationMs = 240000;
+    const expectedStepSec = getScrubStepMs(durationMs) / 1000;
+
+    const tree = ProgressScrubBar({
+      durationMs,
+      currentPositionMs: 30000,
+      handleSeekDelta,
+      onSeekPlayback: vi.fn(),
+    }) as unknown as MockNode;
+
+    const focusables = findNodes(tree, (n) => n.props?.noFocusRing === true);
+    expect(focusables).toHaveLength(1);
+    const bar = focusables[0];
+    const onGamepadDirection = bar.props?.onGamepadDirection as (e: unknown) => void;
+    expect(typeof onGamepadDirection).toBe("function");
+
+    const preventDefault = vi.fn();
+    const stopPropagation = vi.fn();
+    onGamepadDirection({ detail: { button: 11 }, preventDefault, stopPropagation });
+    expect(preventDefault).toHaveBeenCalledTimes(1);
+    expect(stopPropagation).toHaveBeenCalledTimes(1);
+    expect(handleSeekDelta).toHaveBeenNthCalledWith(1, -expectedStepSec);
+
+    onGamepadDirection({ detail: { button: 12 }, preventDefault, stopPropagation });
+    expect(handleSeekDelta).toHaveBeenNthCalledWith(2, expectedStepSec);
+
+    onGamepadDirection({ detail: { button: 9 }, preventDefault, stopPropagation });
+    expect(handleSeekDelta).toHaveBeenCalledTimes(2);
+  });
+
+  it("handles pointer drag (onPointerDown -> onPointerMove -> onPointerUp) via onSeekPlayback", () => {
+    const handleSeekDelta = vi.fn();
+    const onSeekPlayback = vi.fn();
+    const durationMs = 200000;
+
+    const tree = ProgressScrubBar({
+      durationMs,
+      currentPositionMs: 20000,
+      handleSeekDelta,
+      onSeekPlayback,
+    }) as unknown as MockNode;
+
+    const bar = findNodes(tree, (n) => n.props?.noFocusRing === true)[0];
+    const onPointerDown = bar.props?.onPointerDown as (e: unknown) => void;
+    const onPointerMove = bar.props?.onPointerMove as (e: unknown) => void;
+    const onPointerUp = bar.props?.onPointerUp as (e: unknown) => void;
+
+    expect(typeof onPointerDown).toBe("function");
+    expect(typeof onPointerMove).toBe("function");
+    expect(typeof onPointerUp).toBe("function");
+
+    const setPointerCapture = vi.fn();
+    const releasePointerCapture = vi.fn();
+    const target = {
+      getBoundingClientRect: () => ({ left: 100, width: 200 }),
+      setPointerCapture,
+      releasePointerCapture,
+    };
+
+    onPointerDown({ clientX: 150, pointerId: 1, currentTarget: target });
+    expect(setPointerCapture).toHaveBeenCalledWith(1);
+
+    onPointerMove({ clientX: 250, pointerId: 1, currentTarget: target });
+    expect(onSeekPlayback).not.toHaveBeenCalled();
+
+    onPointerUp({ clientX: 250, pointerId: 1, currentTarget: target });
+    expect(releasePointerCapture).toHaveBeenCalledWith(1);
+    expect(onSeekPlayback).toHaveBeenCalledTimes(1);
+    expect(onSeekPlayback).toHaveBeenCalledWith(150000);
   });
 });

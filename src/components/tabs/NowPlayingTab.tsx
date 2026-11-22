@@ -1,5 +1,5 @@
-import { FC, useState } from "react";
-import { Dropdown, Focusable } from "@decky/ui";
+import { FC, useRef, useState } from "react";
+import { Dropdown, Focusable, GamepadButton, GamepadEvent } from "@decky/ui";
 import {
   FaSpotify,
   FaRandom,
@@ -125,7 +125,7 @@ const ProgressFillTrack: FC<{ progressPercent: number; isFocused: boolean }> = (
   </div>
 );
 
-const ProgressScrubBar: FC<ProgressScrubBarProps> = ({
+export const ProgressScrubBar: FC<ProgressScrubBarProps> = ({
   durationMs,
   currentPositionMs,
   handleSeekDelta,
@@ -133,7 +133,26 @@ const ProgressScrubBar: FC<ProgressScrubBarProps> = ({
 }) => {
   const [isFocused, setIsFocused] = useState(false);
   const [, setIsScrubbing] = useState(false);
-  const progressPercent = Math.min(100, Math.max(0, (currentPositionMs / durationMs) * 100));
+  const [dragPositionMs, setDragPositionMs] = useState<number | null>(null);
+  const isDraggingRef = useRef(false);
+
+  const effectivePositionMs = dragPositionMs ?? currentPositionMs;
+  const progressPercent = Math.min(100, Math.max(0, (effectivePositionMs / durationMs) * 100));
+
+  const computeTargetMs = (el: HTMLDivElement, clientX: number): number | null => {
+    const rect = el.getBoundingClientRect();
+    if (rect.width <= 0) return null;
+    const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    return pct * durationMs;
+  };
+
+  const commitSeek = (targetMs: number) => {
+    if (onSeekPlayback) {
+      onSeekPlayback(targetMs);
+    } else {
+      handleSeekDelta((targetMs - currentPositionMs) / 1000);
+    }
+  };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
@@ -144,22 +163,62 @@ const ProgressScrubBar: FC<ProgressScrubBarProps> = ({
     handleSeekDelta(e.key === "ArrowLeft" ? -stepMs / 1000 : stepMs / 1000);
   };
 
+  const handleGamepadDirection = (e: GamepadEvent) => {
+    const btn = e.detail?.button;
+    if (btn !== GamepadButton.DIR_LEFT && btn !== GamepadButton.DIR_RIGHT) return;
+    e.preventDefault?.();
+    e.stopPropagation?.();
+    setIsScrubbing(true);
+    const stepMs = getScrubStepMs(durationMs);
+    handleSeekDelta(btn === GamepadButton.DIR_LEFT ? -stepMs / 1000 : stepMs / 1000);
+  };
+
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    const targetMs = computeTargetMs(e.currentTarget, e.clientX);
+    if (targetMs === null) return;
+    isDraggingRef.current = true;
+    setIsScrubbing(true);
+    setDragPositionMs(targetMs);
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+  };
+
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!isDraggingRef.current) return;
+    const targetMs = computeTargetMs(e.currentTarget, e.clientX);
+    if (targetMs !== null) {
+      setDragPositionMs(targetMs);
+    }
+  };
+
+  const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!isDraggingRef.current) return;
+    isDraggingRef.current = false;
+    setIsScrubbing(false);
+    const targetMs = computeTargetMs(e.currentTarget, e.clientX) ?? dragPositionMs;
+    setDragPositionMs(null);
+    e.currentTarget.releasePointerCapture?.(e.pointerId);
+    if (targetMs !== null) {
+      commitSeek(targetMs);
+    }
+  };
+
+  const handlePointerCancel = () => {
+    isDraggingRef.current = false;
+    setIsScrubbing(false);
+    setDragPositionMs(null);
+  };
+
   const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    if (rect.width <= 0) return;
-    const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    const targetMs = pct * durationMs;
-    if (onSeekPlayback) {
-      onSeekPlayback(targetMs);
-    } else {
-      handleSeekDelta((targetMs - currentPositionMs) / 1000);
+    const targetMs = computeTargetMs(e.currentTarget, e.clientX);
+    if (targetMs !== null) {
+      commitSeek(targetMs);
     }
   };
 
   return (
     <div style={{ width: "100%", marginBottom: 16 }}>
       <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, opacity: 0.6, marginBottom: 4 }}>
-        <span>{formatMs(currentPositionMs)}</span>
+        <span>{formatMs(effectivePositionMs)}</span>
         <span>{formatMs(durationMs)}</span>
       </div>
 
@@ -170,7 +229,12 @@ const ProgressScrubBar: FC<ProgressScrubBarProps> = ({
         onBlur={() => { setIsFocused(false); setIsScrubbing(false); }}
         onGamepadFocus={() => setIsFocused(true)}
         onGamepadBlur={() => { setIsFocused(false); setIsScrubbing(false); }}
+        onGamepadDirection={handleGamepadDirection}
         onKeyDown={handleKeyDown}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerCancel}
         onClick={handleClick}
         style={{
           width: "100%",
@@ -180,19 +244,11 @@ const ProgressScrubBar: FC<ProgressScrubBarProps> = ({
           cursor: "pointer",
           padding: 0,
           overflow: "visible",
+          touchAction: "none",
           ...focusHalo(isFocused),
         }}
       >
         <ProgressFillTrack progressPercent={progressPercent} isFocused={isFocused} />
-      </Focusable>
-
-      <Focusable flow-children="horizontal" style={{ display: "flex", justifyContent: "center", gap: 12, marginTop: 8 }}>
-        <InteractiveRow onClick={() => handleSeekDelta(-15)} style={{ padding: "4px 10px", fontSize: 11 }}>
-          -15s
-        </InteractiveRow>
-        <InteractiveRow onClick={() => handleSeekDelta(15)} style={{ padding: "4px 10px", fontSize: 11 }}>
-          +15s
-        </InteractiveRow>
       </Focusable>
     </div>
   );
