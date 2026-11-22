@@ -103,7 +103,7 @@ vi.mock("react", () => ({
   useMemo: (fn: any) => fn(),
 }));
 
-import { SettingsTab } from "./SettingsTab";
+import { SettingsTab, CrossfadeSettingRow } from "./SettingsTab";
 import { ChordBindingsCard } from "./ChordBindingsCard";
 import { CHORD_ACTIONS, DEFAULT_CHORD_BINDINGS } from "../../chords";
 import { DialogButton, Focusable, SliderField, ToggleField } from "@decky/ui";
@@ -1725,5 +1725,86 @@ describe("SettingsTab - Accent Theme & Handheld Battery Eco-Mode (Phase 21, THEM
     )!;
     expect(disabledSlider.props.disabled).toBe(true);
     expect(disabledSpotifyToggle.props.disabled).toBe(true);
+  });
+});
+
+describe("Native Crossfade (RADIO-02)", () => {
+  const refreshStatus = vi.fn();
+  const showToast = vi.fn();
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockSetSetting.mockResolvedValue({ ok: true });
+  });
+
+  it("renders CrossfadeSettingRow inside Playback & Audiophile Features with Crossfade SliderField", () => {
+    const tree = SettingsTab({
+      status: {
+        ...mockStatus,
+        settings: {
+          ...mockStatus.settings!,
+          crossfade_seconds: 5,
+        },
+      },
+      refreshStatus,
+      showToast,
+    });
+
+    const playbackCard = findNodes(
+      tree,
+      (n) => n.type === "div" && findText(n).includes("Playback & Audiophile Features") && !findText(n).includes("Playback Engine")
+    )[0];
+    expect(playbackCard).toBeDefined();
+
+    const rowNode = findNodes(playbackCard, (n) => n.type === CrossfadeSettingRow)[0];
+    expect(rowNode).toBeDefined();
+    expect(rowNode.props.initialValue).toBe(5);
+
+    const rowTree = CrossfadeSettingRow(rowNode.props);
+    const slider = findNodes(rowTree, (n) => n.type === SliderField || n.type === "SliderField")[0];
+    expect(slider).toBeDefined();
+    expect(slider.props).toMatchObject({
+      label: "Crossfade",
+      min: 0,
+      max: 12,
+      step: 1,
+      showValue: true,
+      valueSuffix: "s",
+      value: 5,
+    });
+  });
+
+  it("debounces set_setting('crossfade_seconds', clamped) by 300ms and shows error toast on failure", async () => {
+    vi.useFakeTimers();
+    try {
+      const rowTree = CrossfadeSettingRow({
+        initialValue: 0,
+        showToast,
+        refreshStatus,
+      });
+      const slider = findNodes(rowTree, (n) => n.type === SliderField || n.type === "SliderField")[0];
+
+      // Trigger rapid changes; should clamp 20 -> 12 and debounce 300ms
+      slider.props.onChange(4);
+      slider.props.onChange(20);
+      expect(mockSetSetting).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(299);
+      expect(mockSetSetting).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(mockSetSetting).toHaveBeenCalledTimes(1);
+      expect(mockSetSetting).toHaveBeenCalledWith("crossfade_seconds", 12);
+      expect(refreshStatus).toHaveBeenCalledTimes(1);
+
+      // Failure path shows error toast
+      mockSetSetting.mockResolvedValueOnce({ ok: false, error: "save failed" });
+      slider.props.onChange(6);
+      await vi.advanceTimersByTimeAsync(300);
+      expect(mockSetSetting).toHaveBeenCalledWith("crossfade_seconds", 6);
+      expect(showToast).toHaveBeenCalledWith("Failed to save Crossfade setting — please try again.");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

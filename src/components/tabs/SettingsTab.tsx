@@ -238,6 +238,63 @@ export interface SettingsTabProps {
   showToast: (msg: string) => void;
 }
 
+export const CrossfadeSettingRow: FC<{
+  initialValue: number;
+  showToast: (msg: string) => void;
+  refreshStatus: () => void;
+}> = ({ initialValue, showToast, refreshStatus }) => {
+  const [localCrossfade, setLocalCrossfade] = useState<number>(initialValue);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    setLocalCrossfade(initialValue);
+  }, [initialValue]);
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+      }
+    };
+  }, []);
+
+  return (
+    <div style={{ marginTop: 10 }}>
+      <SliderField
+        label="Crossfade"
+        description="Smoothly blend between tracks (0s = Off). Syncs with Official Spotify Client and provides local PipeWire transition fallback for librespot."
+        min={0}
+        max={12}
+        step={1}
+        showValue
+        valueSuffix="s"
+        value={localCrossfade}
+        onChange={(val: number) => {
+          const clamped = Math.min(12, Math.max(0, Math.round(val)));
+          setLocalCrossfade(clamped);
+          if (timerRef.current) {
+            clearTimeout(timerRef.current);
+          }
+          timerRef.current = setTimeout(async () => {
+            try {
+              const res = await backendSetSetting("crossfade_seconds", clamped);
+              if (res?.ok) {
+                refreshStatus();
+              } else {
+                setLocalCrossfade(initialValue);
+                showToast("Failed to save Crossfade setting — please try again.");
+              }
+            } catch {
+              setLocalCrossfade(initialValue);
+              showToast("Failed to save Crossfade setting — please try again.");
+            }
+          }, 300);
+        }}
+      />
+    </div>
+  );
+};
+
 export const SettingsTab: FC<SettingsTabProps> = ({ status, ecoStatus, refreshStatus, showToast }) => {
   const [audioSinks, setAudioSinks] = useState<AudioSinkInfo[]>([]);
   const [officialClientStatus, setOfficialClientStatus] = useState<{ running: boolean; logged_in: boolean } | null>(null);
@@ -748,6 +805,12 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, ecoStatus, refreshSt
             </Focusable>
           </div>
         )}
+
+        <CrossfadeSettingRow
+          initialValue={status?.settings?.crossfade_seconds ?? 0}
+          showToast={showToast}
+          refreshStatus={refreshStatus}
+        />
       </div>
 
       {/* Equalizer & Audio Presets */}

@@ -245,6 +245,7 @@ export interface EngineSettings {
   normalisation: boolean;
   normalisation_pregain?: number;
   gapless: boolean;
+  crossfade_seconds?: number;
   autoplay: boolean;
   playlist_folders?: FolderItem[];
   spotify_folder_tree?: FolderItem[];
