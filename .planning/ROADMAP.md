@@ -56,7 +56,7 @@
 ### v0.7 Studio, Living Room TV, Offline Travel & Ultimate Immersion (In Progress)
 
 - [ ] **Phase 19: Per-Game EQ & Volume Profiles** - Bind per-game 10-band PipeWire EQ presets and target volume/ducking overrides in `SoundtracksTab` with automatic launch activation and crash-resilient baseline restoration.
-- [ ] **Phase 20: 100% Silent HUD Toasts & Extended In-Game Quick-Chords** - Route silent 3.5s track-change notifications directly through `DeckifyOverlay` (`pointerEvents: "none"`) and trigger configurable in-game quick-chords (`Like ♥`, `Cycle Pinned Playlists`, `Toggle Lyrics HUD`).
+- [x] **Phase 20: 100% Silent HUD Toasts & Extended In-Game Quick-Chords** - Route silent 3.5s track-change notifications directly through `DeckifyOverlay` (`pointerEvents: "none"`) and trigger configurable in-game quick-chords (`Like ♥`, `Cycle Pinned Playlists`, `Toggle Lyrics HUD`). (completed 2026-11-22)
 - [ ] **Phase 21: Dynamic Album-Art Accent Themes & Handheld Battery Eco-Mode** - Extract WCAG-clamped (`L >= 55%`) cover-art accent colors across modal and HUD, and automatically suspend background visualizers and idle paused engines during battery gameplay.
 - [ ] **Phase 22: Spotify Connect Hub 2.0 & Native Crossfade** - Upgrade `DevicesTab` with 1-click auto-waking *"Pull Playback to Steam Deck"*, device icons, engine badges, and remote volume control alongside configurable `0–12s` native crossfade.
 - [ ] **Phase 23: Lyrics 2.0 — Offline .lrc Cache, Per-Track Sync Nudge & CJK Romanization** - Cache `.lrc` lyrics locally for instant/offline loads, persist per-track `-0.5s`/`+0.5s` sync offset nudges synced live with `DeckifyOverlay`, and render dual-line Romaji/Pinyin/Korean romanization.
@@ -103,7 +103,7 @@ Plans:
   1. When `toast_sound_enabled` is `false`, track-change notifications render as a 100% silent 3.5-second banner inside `DeckifyOverlay` (`pointerEvents: "none"`), completely bypassing Steam's `toaster.toast` audio chime even when the persistent HUD overlay is hidden.
   2. User can trigger configurable in-game controller quick-chords to Like/Unlike (`♥`) the current track, cycle through the 4 Pinned Playlists, or toggle the Lyrics HUD, receiving instant silent visual confirmation inside `DeckifyOverlay`.
   3. Controller chord detection enforces a 4-second `guideHeld` expiry guard and blocks reserved Valve system chords (`STEAM + X/R1/L1`) so chords never misfire or collide with SteamOS system shortcuts.
-**Plans:** 7/7 plans executed
+**Plans:** 7/7 plans complete
 
 Plans:
 **Wave 1**
@@ -250,7 +250,7 @@ Phases execute in numeric order: 19 → 20 → 21 → 22 → 23 → 24 → 25 �
 | 6–12. In-Game Flow & Music Discovery | v0.5 | 22/22 | Complete | 2026-11-15 |
 | 13–18.1. Audio DSP, Docked Flow & System Resilience | v0.6 | 14/14 | Complete | 2026-11-18 |
 | 19. Per-Game EQ & Volume Profiles | v0.7 | 5/5 | In Progress | - |
-| 20. 100% Silent HUD Toasts & Extended In-Game Quick-Chords | v0.7 | 7/7 | In Progress | - |
+| 20. 100% Silent HUD Toasts & Extended In-Game Quick-Chords | v0.7 | 7/7 | Complete    | 2026-11-22 |
 | 21. Dynamic Album-Art Accent Themes & Handheld Battery Eco-Mode | v0.7 | 0/TBD | Not started | - |
 | 22. Spotify Connect Hub 2.0 & Native Crossfade | v0.7 | 0/TBD | Not started | - |
 | 23. Lyrics 2.0 — Offline .lrc Cache, Per-Track Sync Nudge & CJK Romanization | v0.7 | 0/TBD | Not started | - |
