@@ -121,6 +121,26 @@ function subscribeDeckyPlaybackEvents(setStatus: SetStatusFn): () => void {
   };
 }
 
+function extractClockInputs(status: StatusResponse | null) {
+  if (!status) {
+    return {
+      serverPositionMs: 0,
+      isPlaying: false,
+      durationMs: 0,
+      trackId: undefined,
+      playbackSpeed: 1.0,
+    };
+  }
+  const track = status.track || status.track_meta;
+  return {
+    serverPositionMs: status.position_ms ?? 0,
+    isPlaying: Boolean(status.is_playing),
+    durationMs: status.duration_ms || track?.duration_ms || 0,
+    trackId: track?.track_id || track?.id,
+    playbackSpeed: status.playback_speed ?? 1.0,
+  };
+}
+
 export function usePlaybackStatus() {
   const [status, setStatus] = useState<StatusResponse | null>(null);
 
@@ -133,17 +153,8 @@ export function usePlaybackStatus() {
     }
   }, []);
 
-  const track = status?.track || status?.track_meta;
-  const durationMs = status?.duration_ms || track?.duration_ms || 0;
-  const isPlaying = Boolean(status?.is_playing);
-  const trackId = track?.track_id || track?.id;
-
   const clock = usePlaybackClock({
-    serverPositionMs: status?.position_ms ?? 0,
-    isPlaying,
-    durationMs,
-    trackId,
-    playbackSpeed: status?.playback_speed ?? 1.0,
+    ...extractClockInputs(status),
     onSeekCommit: commitSeekWithToast,
   });
 
