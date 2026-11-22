@@ -5,16 +5,16 @@ milestone_name: Studio, Living Room TV, Offline Travel & Ultimate Immersion (In 
 current_phase: 23
 current_phase_name: Lyrics 2.0 — Offline .lrc Cache, Per-Track Sync Nudge & CJK Romanization
 status: executing
-stopped_at: Completed 23-02-PLAN.md
-last_updated: "2026-11-22T18:14:52.124Z"
+stopped_at: Completed 23-03-PLAN.md
+last_updated: "2026-11-22T18:20:58.359Z"
 last_activity: 2026-11-22
 last_activity_desc: Phase 23 execution started
-state_head: c898b4d66bd79d93213dae6429b112c513ace47d
+state_head: b0b64b567fb9e9455e3a5eecd820aa40bc8b7483
 progress:
   total_phases: 12
   completed_phases: 3
   total_plans: 27
-  completed_plans: 25
+  completed_plans: 26
   percent: 25
 ---
 
@@ -30,7 +30,7 @@ See: [.planning/PROJECT.md](file:///C:/Users/djdje/Deckify/.planning/PROJECT.md)
 ## Current Position
 
 Phase: 23 (Lyrics 2.0 — Offline .lrc Cache, Per-Track Sync Nudge & CJK Romanization) — EXECUTING
-Plan: 3 of 4
+Plan: 4 of 4
 Status: Ready to execute
 Last activity: 2026-11-22 — Phase 23 execution started
 
@@ -126,6 +126,7 @@ Last activity: 2026-11-22 — Phase 23 execution started
 | Phase 22 P05 | 4 min | 2 tasks | 4 files |
 | Phase 23 P01 | 6min | 2 tasks | 7 files |
 | Phase 23 P02 | 4min | 2 tasks | 3 files |
+| Phase 23 P03 | 5min | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -201,6 +202,7 @@ Recent decisions affecting current work:
 - [Phase 23]: Key _LYRICS_CACHE by sanitized track_id and store .lrc files as {artist} - {title} [{track_id}].lrc
 - [Phase 23]: Persist per-track sync offsets in ~/.config/deckify/lyrics_offsets.json with 0ms pruning
 - [Phase 23]: Used pure-Python stdlib CJK lookup tables (437 Kanji, 666 Hanzi) with zero C-extensions and song-level Kana disambiguation in detect_song_script()
+- [Phase 23]: Keep overlay-lyric-row single-child <span> when dual romanization is inactive and clamp trackLyricsOffsetMs to [-10000, 10000] with Number.isFinite guard
 
 ### Pending Todos
 
@@ -231,8 +233,8 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-22T18:14:49.080Z
-Stopped at: Completed 23-02-PLAN.md
+Last session: 2026-11-22T18:20:55.355Z
+Stopped at: Completed 23-03-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
