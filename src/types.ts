@@ -336,6 +336,8 @@ export interface DevicesResponse {
   ok: boolean;
   devices?: SpotifyDevice[];
   local_device_name?: string;
+  local_hostname?: string;
+  local_hardware_label?: string;
   audio_backend?: string;
   engine_running?: boolean;
   engine_sleeping?: boolean;

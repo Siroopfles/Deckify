@@ -218,6 +218,7 @@ describe("DevicesTab (Spotify Connect Hub 2.0)", () => {
     mockGetDevices.mockResolvedValue({
       ok: true,
       local_device_name: "Deckify",
+      local_hardware_label: "Steam Deck",
       audio_backend: "librespot",
       engine_running: true,
       engine_sleeping: false,
@@ -413,5 +414,119 @@ describe("DevicesTab (Spotify Connect Hub 2.0)", () => {
       (c) => textContent(c).includes("Wake Local Engine") && textContent(c).includes("Refresh"),
     );
     expect(emptyActions).toBeDefined();
+  });
+
+  it("renders Steam Machine hardware labels when local_hardware_label is 'Steam Machine'", async () => {
+    mockGetDevices.mockResolvedValue({
+      ok: true,
+      local_device_name: "Bazzite",
+      local_hostname: "bazzite",
+      local_hardware_label: "Steam Machine",
+      audio_backend: "librespot",
+      engine_running: true,
+      engine_sleeping: false,
+      devices: [
+        { id: "phone-1", name: "Pixel 8", type: "Smartphone", is_active: true, volume_percent: 60 },
+      ],
+    });
+
+    renderDevicesTab();
+    await flushMicrotasks();
+    const tree = renderDevicesTab();
+
+    const fullText = textContent(tree);
+    expect(fullText).toContain("Steam Machine Engine");
+    expect(fullText).toContain("Pull Playback to Steam Machine");
+    expect(fullText).not.toContain("Steam Deck Engine");
+    expect(fullText).not.toContain("Pull Playback to Steam Deck");
+  });
+
+  it("deduplicates local device across differing hostname capitalization", async () => {
+    mockGetDevices.mockResolvedValue({
+      ok: true,
+      local_device_name: "bazzite",
+      local_hostname: "bazzite",
+      local_hardware_label: "Steam Machine",
+      audio_backend: "librespot",
+      engine_running: true,
+      engine_sleeping: false,
+      devices: [
+        { id: "local-1", name: "Bazzite", type: "Computer", is_active: true, volume_percent: 80 },
+        { id: "phone-1", name: "Pixel 8", type: "Smartphone", is_active: false, volume_percent: 50 },
+      ],
+    });
+
+    renderDevicesTab();
+    await flushMicrotasks();
+    const tree = renderDevicesTab();
+
+    const rows = findNodes(
+      tree,
+      (n) => (n.type === Focusable || n.type === "Focusable") && n.props?.noFocusRing === true && n.props?.tabIndex === 0,
+    );
+    // Only the remote device ("Pixel 8") should appear as a DeviceRow; "Bazzite" is pinned in LocalDeckStatusCard only
+    expect(rows.length).toBe(1);
+    expect(textContent(rows[0])).toContain("Pixel 8");
+    expect(textContent(rows[0])).not.toContain("Bazzite");
+  });
+
+  it("hardens InteractiveRow and badges for 40+ character Connect device names", async () => {
+    const longName = "Living Room Denon AVR-X3800H Home Theater Receiver";
+    mockGetDevices.mockResolvedValue({
+      ok: true,
+      local_device_name: "Deckify",
+      local_hardware_label: "Steam Deck",
+      audio_backend: "librespot",
+      engine_running: true,
+      engine_sleeping: false,
+      devices: [
+        {
+          id: "avr-1",
+          name: longName,
+          type: "AVR",
+          is_active: true,
+          volume_percent: null,
+          is_restricted: true,
+          supports_volume: false,
+        },
+      ],
+    });
+
+    renderDevicesTab();
+    await flushMicrotasks();
+    const tree = renderDevicesTab();
+
+    const interactiveRows = findNodes(
+      tree,
+      (n) => (n.type === Focusable || n.type === "Focusable") && n.props?.noFocusRing === true && n.props?.tabIndex === 0,
+    );
+    expect(interactiveRows.length).toBe(1);
+    expect(interactiveRows[0].props.style?.minWidth).toBe(0);
+    expect(interactiveRows[0].props.style?.boxSizing).toBe("border-box");
+
+    const nameSpan = findNodes(
+      tree,
+      (n) =>
+        n.type === "span" &&
+        n.props?.style?.textOverflow === "ellipsis" &&
+        textContent(n).includes(longName),
+    );
+    expect(nameSpan.length).toBe(1);
+    expect(nameSpan[0].props.style?.overflow).toBe("hidden");
+    expect(nameSpan[0].props.style?.whiteSpace).toBe("nowrap");
+
+    const fixedBadge = findNodes(
+      tree,
+      (n) => n.type === "span" && textContent(n).includes("Fixed Volume"),
+    );
+    expect(fixedBadge.length).toBe(1);
+    expect(fixedBadge[0].props.style?.whiteSpace).toBe("nowrap");
+
+    const activeBadge = findNodes(
+      tree,
+      (n) => n.type === "span" && textContent(n).trim() === "Active",
+    );
+    expect(activeBadge.length).toBe(1);
+    expect(activeBadge[0].props.style?.whiteSpace).toBe("nowrap");
   });
 });

@@ -50,10 +50,12 @@ export function getEngineBadgeLabel(audioBackend?: string): string {
   return "librespot";
 }
 
-export function isLocalDevice(device: SpotifyDevice, localName: string): boolean {
+export function isLocalDevice(device: SpotifyDevice, localName: string, localHostname?: string): boolean {
   const norm = (device.name ?? "").trim().toLowerCase();
+  if (!norm) return false;
   const target = (localName ?? "").trim().toLowerCase();
-  return (target.length > 0 && norm === target) || norm === "deckify";
+  const host = (localHostname ?? "").trim().toLowerCase();
+  return (target.length > 0 && norm === target) || (host.length > 0 && norm === host) || norm === "deckify";
 }
 
 export function canControlVolume(device: SpotifyDevice): boolean {
@@ -62,6 +64,7 @@ export function canControlVolume(device: SpotifyDevice): boolean {
 
 interface LocalDeckStatusCardProps {
   localDeviceName: string;
+  hardwareLabel: string;
   engineLabel: string;
   engineStatus: "Active" | "Ready" | "Sleeping" | "Stopped";
   showPullCta: boolean;
@@ -71,6 +74,7 @@ interface LocalDeckStatusCardProps {
 
 const LocalDeckStatusCard: FC<LocalDeckStatusCardProps> = ({
   localDeviceName,
+  hardwareLabel,
   engineLabel,
   engineStatus,
   showPullCta,
@@ -120,7 +124,7 @@ const LocalDeckStatusCard: FC<LocalDeckStatusCardProps> = ({
             </span>
           </div>
           <div style={{ fontSize: 12, opacity: 0.65 }}>
-            Steam Deck Engine · <span style={{ color: statusColor, fontWeight: 600 }}>{engineStatus}</span>
+            {`${hardwareLabel} Engine`} · <span style={{ color: statusColor, fontWeight: 600 }}>{engineStatus}</span>
           </div>
         </div>
       </div>
@@ -130,7 +134,7 @@ const LocalDeckStatusCard: FC<LocalDeckStatusCardProps> = ({
           onClick={onPullPlayback}
           style={{ width: "auto", minWidth: "auto", minHeight: 44, padding: "0 14px", flexShrink: 0 }}
         >
-          {isPulling ? "Pulling..." : "Pull Playback to Steam Deck"}
+          {isPulling ? "Pulling..." : `Pull Playback to ${hardwareLabel}`}
         </DialogButton>
       )}
     </div>
@@ -182,16 +186,17 @@ const RemoteVolumeSection: FC<RemoteVolumeSectionProps> = ({ device, volumeValue
 };
 
 interface EmptyDevicesCardProps {
+  hardwareLabel: string;
   isLoading: boolean;
   onWakeEngine: () => void;
   onRefresh: () => void;
 }
 
-const EmptyDevicesCard: FC<EmptyDevicesCardProps> = ({ isLoading, onWakeEngine, onRefresh }) => (
+const EmptyDevicesCard: FC<EmptyDevicesCardProps> = ({ hardwareLabel, isLoading, onWakeEngine, onRefresh }) => (
   <div style={{ padding: 16, borderRadius: 10, background: "rgba(255,255,255,0.04)" }}>
     <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 6 }}>No Spotify Connect Devices Found</div>
     <div style={{ fontSize: 14, opacity: 0.75, marginBottom: 12 }}>
-      Make sure your Steam Deck engine is awake or another Spotify Connect device is online, then select Wake Local
+      Make sure your {hardwareLabel} engine is awake or another Spotify Connect device is online, then select Wake Local
       Engine or Refresh.
     </div>
     <Focusable flow-children="horizontal" style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -216,11 +221,12 @@ const EmptyDevicesCard: FC<EmptyDevicesCardProps> = ({ isLoading, onWakeEngine, 
 interface DeviceRowProps {
   device: SpotifyDevice;
   isLocal: boolean;
+  hardwareLabel: string;
   engineLabel: string;
   onSelect: () => void;
 }
 
-const DeviceRow: FC<DeviceRowProps> = ({ device, isLocal, engineLabel, onSelect }) => {
+const DeviceRow: FC<DeviceRowProps> = ({ device, isLocal, hardwareLabel, engineLabel, onSelect }) => {
   const fixedVolume = !canControlVolume(device);
   return (
     <InteractiveRow
@@ -263,7 +269,7 @@ const DeviceRow: FC<DeviceRowProps> = ({ device, isLocal, engineLabel, onSelect 
           </div>
           <div style={{ fontSize: 12, opacity: 0.65 }}>
             {device.type}
-            {isLocal ? " · This Deck" : ""}
+            {isLocal ? ` · ${hardwareLabel}` : ""}
             {device.is_active ? " · Active" : ""}
           </div>
         </div>
@@ -279,13 +285,16 @@ const DeviceRow: FC<DeviceRowProps> = ({ device, isLocal, engineLabel, onSelect 
               padding: "2px 8px",
               borderRadius: 999,
               background: "rgba(255,255,255,0.1)",
+              whiteSpace: "nowrap",
             }}
           >
             <FaVolumeMute size={11} /> Fixed Volume
           </span>
         )}
         {device.is_active && (
-          <span style={{ fontSize: 12, color: "var(--deckify-accent, #1DB954)", fontWeight: 700 }}>Active</span>
+          <span style={{ fontSize: 12, color: "var(--deckify-accent, #1DB954)", fontWeight: 700, whiteSpace: "nowrap" }}>
+            Active
+          </span>
         )}
       </div>
     </InteractiveRow>
@@ -339,6 +348,8 @@ function useDebouncedDeviceVolume(showToast: (msg: string) => void) {
 function useDevicesHub(showToast: (msg: string) => void) {
   const [devices, setDevices] = useState<SpotifyDevice[]>([]);
   const [localDeviceName, setLocalDeviceName] = useState("Deckify");
+  const [localHostname, setLocalHostname] = useState("");
+  const [localHardwareLabel, setLocalHardwareLabel] = useState("Local Device");
   const [audioBackend, setAudioBackend] = useState("librespot");
   const [engineRunning, setEngineRunning] = useState(false);
   const [engineSleeping, setEngineSleeping] = useState(false);
@@ -354,6 +365,8 @@ function useDevicesHub(showToast: (msg: string) => void) {
       if (res.ok) {
         setDevices(res.devices ?? []);
         if (res.local_device_name) setLocalDeviceName(res.local_device_name);
+        if (res.local_hostname !== undefined) setLocalHostname(res.local_hostname);
+        setLocalHardwareLabel(res.local_hardware_label || "Local Device");
         if (res.audio_backend) setAudioBackend(res.audio_backend);
         setEngineRunning(Boolean(res.engine_running));
         setEngineSleeping(Boolean(res.engine_sleeping));
@@ -377,12 +390,12 @@ function useDevicesHub(showToast: (msg: string) => void) {
       const res = await backendPullPlaybackToDeck();
       showToast(
         res.ok
-          ? "Playback pulled to Steam Deck"
-          : "Could not pull playback to Steam Deck — ensure the local engine is running and try again.",
+          ? `Playback pulled to ${localHardwareLabel}`
+          : `Could not pull playback to ${localHardwareLabel} — ensure the local engine is running and try again.`,
       );
       await loadDevices();
     } catch {
-      showToast("Could not pull playback to Steam Deck — ensure the local engine is running and try again.");
+      showToast(`Could not pull playback to ${localHardwareLabel} — ensure the local engine is running and try again.`);
     } finally {
       setIsPulling(false);
     }
@@ -398,10 +411,21 @@ function useDevicesHub(showToast: (msg: string) => void) {
     }
   };
 
+  const handleSelectDevice = async (device: SpotifyDevice) => {
+    setSelectedDeviceId(device.id);
+    try {
+      const res = await backendTransferPlayback(device.id);
+      showToast(res.ok ? `Transferred to ${device.name}` : res.error || `Failed to transfer to ${device.name}`);
+      loadDevices();
+    } catch {
+      showToast(`Failed to transfer to ${device.name}`);
+    }
+  };
+
   return {
-    devices, localDeviceName, audioBackend, engineRunning, engineSleeping,
-    isLoading, isPulling, selectedDeviceId, setSelectedDeviceId,
-    optimisticVolumes, loadDevices, handlePullPlayback, handleWakeEngine, handleVolumeChange,
+    devices, localDeviceName, localHostname, localHardwareLabel, audioBackend, engineRunning, engineSleeping,
+    isLoading, isPulling, selectedDeviceId,
+    optimisticVolumes, loadDevices, handlePullPlayback, handleWakeEngine, handleVolumeChange, handleSelectDevice,
   };
 }
 
@@ -409,22 +433,25 @@ export const DevicesTab: FC<DevicesTabProps> = ({ showToast }) => {
   const {
     devices,
     localDeviceName,
+    localHostname,
+    localHardwareLabel,
     audioBackend,
     engineRunning,
     engineSleeping,
     isLoading,
     isPulling,
     selectedDeviceId,
-    setSelectedDeviceId,
     optimisticVolumes,
     loadDevices,
     handlePullPlayback,
     handleWakeEngine,
     handleVolumeChange,
+    handleSelectDevice,
   } = useDevicesHub(showToast);
 
   const engineLabel = getEngineBadgeLabel(audioBackend);
-  const localDevice = devices.find((d) => isLocalDevice(d, localDeviceName));
+  const localDevice = devices.find((d) => isLocalDevice(d, localDeviceName, localHostname));
+  const remoteDevices = devices.filter((d) => !isLocalDevice(d, localDeviceName, localHostname));
   const engineStatus = computeEngineStatus(Boolean(localDevice?.is_active), engineRunning, engineSleeping);
   const showPullCta = !localDevice?.is_active && (devices.some((d) => d.is_active) || !engineRunning || engineSleeping);
   const selectedDevice = devices.find((d) => d.id === selectedDeviceId) ?? devices.find((d) => d.is_active) ?? devices[0];
@@ -447,6 +474,7 @@ export const DevicesTab: FC<DevicesTabProps> = ({ showToast }) => {
 
       <LocalDeckStatusCard
         localDeviceName={localDeviceName}
+        hardwareLabel={localHardwareLabel}
         engineLabel={engineLabel}
         engineStatus={engineStatus}
         showPullCta={showPullCta}
@@ -455,25 +483,22 @@ export const DevicesTab: FC<DevicesTabProps> = ({ showToast }) => {
       />
 
       {!isLoading && devices.length === 0 ? (
-        <EmptyDevicesCard isLoading={isLoading} onWakeEngine={handleWakeEngine} onRefresh={loadDevices} />
+        <EmptyDevicesCard
+          hardwareLabel={localHardwareLabel}
+          isLoading={isLoading}
+          onWakeEngine={handleWakeEngine}
+          onRefresh={loadDevices}
+        />
       ) : (
         <Focusable flow-children="column" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {devices.map((d) => (
+          {remoteDevices.map((d) => (
             <DeviceRow
               key={d.id}
               device={d}
-              isLocal={isLocalDevice(d, localDeviceName)}
+              isLocal={false}
+              hardwareLabel={localHardwareLabel}
               engineLabel={engineLabel}
-              onSelect={async () => {
-                setSelectedDeviceId(d.id);
-                try {
-                  const res = await backendTransferPlayback(d.id);
-                  showToast(res.ok ? `Transferred to ${d.name}` : res.error || `Failed to transfer to ${d.name}`);
-                  loadDevices();
-                } catch {
-                  showToast(`Failed to transfer to ${d.name}`);
-                }
-              }}
+              onSelect={() => handleSelectDevice(d)}
             />
           ))}
         </Focusable>

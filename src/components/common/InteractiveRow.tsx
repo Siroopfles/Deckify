@@ -139,6 +139,8 @@ export function InteractiveRow({
       style={{
         display: "flex",
         alignItems: "center",
+        minWidth: 0,
+        boxSizing: "border-box",
         padding: "8px 12px",
         borderRadius: 8,
         background: active
