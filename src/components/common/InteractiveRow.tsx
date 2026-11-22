@@ -4,7 +4,7 @@ import { Focusable } from "@decky/ui";
 export function focusHalo(focused: boolean) {
   return {
     boxShadow: focused
-      ? "0 0 0 2px #fff, 0 0 12px rgba(29, 185, 84, 0.7)"
+      ? "0 0 0 2px #fff, 0 0 12px rgba(var(--deckify-accent-rgb, 29, 185, 84), 0.7)"
       : "none",
     transform: focused ? "scale(1.02)" : "scale(1)",
     transition: "box-shadow 0.1s ease, transform 0.1s ease",
@@ -72,17 +72,17 @@ export function RoundBtn({
         alignItems: "center",
         justifyContent: "center",
         background: accent
-          ? "#1db954"
+          ? "var(--deckify-accent, #1DB954)"
           : active
-          ? "rgba(29, 185, 84, 0.25)"
+          ? "rgba(var(--deckify-accent-rgb, 29, 185, 84), 0.25)"
           : focused
           ? "rgba(255,255,255,0.22)"
           : "rgba(255,255,255,0.08)",
-        color: accent ? "#000" : active ? "#1db954" : "#fff",
+        color: accent ? "#000" : active ? "var(--deckify-accent, #1DB954)" : "#fff",
         boxShadow: focused
-          ? "0 0 0 2px #fff, 0 0 14px rgba(29, 185, 84, 0.8)"
+          ? "0 0 0 2px #fff, 0 0 14px rgba(var(--deckify-accent-rgb, 29, 185, 84), 0.8)"
           : accent
-          ? "0 4px 16px rgba(29, 185, 84, 0.4)"
+          ? "0 4px 16px rgba(var(--deckify-accent-rgb, 29, 185, 84), 0.4)"
           : "none",
         transform: focused ? "scale(1.1)" : "scale(1)",
         transition: "box-shadow 0.1s ease, transform 0.1s ease",
@@ -142,7 +142,7 @@ export function InteractiveRow({
         padding: "8px 12px",
         borderRadius: 8,
         background: active
-          ? "rgba(29, 185, 84, 0.25)"
+          ? "rgba(var(--deckify-accent-rgb, 29, 185, 84), 0.25)"
           : focused
           ? "rgba(255,255,255,0.18)"
           : "rgba(255,255,255,0.03)",

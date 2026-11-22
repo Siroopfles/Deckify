@@ -982,6 +982,17 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
           }}
         >
           {/* Ambient Glow */}
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              background:
+                "radial-gradient(circle at top right, rgba(var(--deckify-accent-rgb, 29, 185, 84), 0.18), transparent 65%)",
+              transition: "var(--deckify-accent-transition, background 350ms ease)",
+              pointerEvents: "none",
+              zIndex: 0,
+            }}
+          />
           {artwork && (
             <div
               style={{
@@ -1311,12 +1322,12 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
                 left: "50%",
                 transform: "translateX(-50%)",
                 background: "rgba(0,0,0,0.88)",
-                border: "1px solid rgba(29, 185, 84, 0.6)",
+                border: "1px solid rgba(var(--deckify-accent-rgb, 29, 185, 84), 0.6)",
                 borderRadius: 20,
                 padding: "8px 16px",
                 fontSize: 12,
                 fontWeight: 700,
-                color: "#1db954",
+                color: "var(--deckify-accent, #1DB954)",
                 pointerEvents: "none",
                 boxShadow: "0 8px 24px rgba(0,0,0,0.7)",
                 zIndex: 201,
@@ -1335,12 +1346,12 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
                 left: "50%",
                 transform: "translateX(-50%)",
                 background: "rgba(0, 0, 0, 0.88)",
-                border: "1px solid rgba(29, 185, 84, 0.6)",
+                border: "1px solid rgba(var(--deckify-accent-rgb, 29, 185, 84), 0.6)",
                 borderRadius: 20,
                 padding: "8px 20px",
                 fontSize: 13,
                 fontWeight: 700,
-                color: "#1db954",
+                color: "var(--deckify-accent, #1DB954)",
                 boxShadow: "0 8px 24px rgba(0,0,0,0.7)",
                 zIndex: 200,
               }}

@@ -1,5 +1,6 @@
 import { CSSProperties, ReactNode, useEffect, useState } from "react";
 import { FaMusic } from "react-icons/fa";
+import { useAccentTheme } from "../../utils/themeBus";
 import {
   ImageLruCache,
   ImageRequestQueue,
@@ -54,6 +55,7 @@ export function DeckifyImage({
   className,
   fallback,
 }: DeckifyImageProps) {
+  const { animationsSuspended } = useAccentTheme();
   const [dataUrl, setDataUrl] = useState<string | null>(() => {
     if (!src) return null;
     if (src.startsWith("data:") || src.startsWith("http://127.0.0.1")) return src;
@@ -122,12 +124,14 @@ export function DeckifyImage({
   if (isLoading) {
     return (
       <div
-        className="deckify-image-skeleton"
+        className={animationsSuspended ? undefined : "deckify-image-skeleton"}
         style={{
           width,
           height,
-          backgroundColor: "#1a1a1a",
-          animation: "deckifyShimmer 1.5s ease-in-out infinite",
+          backgroundColor: animationsSuspended ? "#1e1e1e" : "#1a1a1a",
+          animation: animationsSuspended
+            ? "none"
+            : "deckifyShimmer 1.5s ease-in-out infinite",
           borderRadius: (style as any)?.borderRadius || 4,
           flexShrink: 0,
           ...style,

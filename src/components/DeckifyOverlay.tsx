@@ -2,6 +2,7 @@ import { FC, useState, useEffect, useRef } from "react";
 import { FaMusic, FaPlay, FaPause } from "react-icons/fa";
 import { DeckifyImage } from "./common/DeckifyImage";
 import { SyncedLine } from "../types";
+import { useAccentTheme } from "../utils/themeBus";
 
 export interface OverlayTrack {
   name?: string;
@@ -47,6 +48,7 @@ export const DeckifyOverlay: FC<DeckifyOverlayProps> = ({
   lyricsLoaded = false,
   onVisibilityChange,
 }) => {
+  const { animationsSuspended } = useAccentTheme();
   const [isVisible, setIsVisible] = useState<boolean>(
     Boolean(visible && track && track.name && isPlaying)
   );
@@ -233,8 +235,9 @@ export const DeckifyOverlay: FC<DeckifyOverlayProps> = ({
       : isTop
       ? "translateY(-10px)"
       : "translateY(10px)",
-    transition:
-      "opacity 0.35s cubic-bezier(0.16, 1, 0.3, 1), transform 0.35s cubic-bezier(0.16, 1, 0.3, 1)",
+    transition: animationsSuspended
+      ? "none"
+      : "opacity 0.35s cubic-bezier(0.16, 1, 0.3, 1), transform 0.35s cubic-bezier(0.16, 1, 0.3, 1)",
     overflow: "hidden",
   };
 
@@ -256,7 +259,16 @@ export const DeckifyOverlay: FC<DeckifyOverlayProps> = ({
 
   return (
     <div style={posStyle} className="deckify-ingame-overlay">
-      {lyricsEnabled && (
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          background:
+            "radial-gradient(circle at top right, rgba(var(--deckify-accent-rgb, 29, 185, 84), 0.16), transparent 65%)",
+          pointerEvents: "none",
+        }}
+      />
+      {lyricsEnabled && !animationsSuspended && (
         <style>{`@keyframes deckifyLyricFadeIn { from { opacity: 0; } to { opacity: 1; } }`}</style>
       )}
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -280,7 +292,7 @@ export const DeckifyOverlay: FC<DeckifyOverlayProps> = ({
               flexShrink: 0,
             }}
           >
-            <FaMusic size={16} color="#1db954" />
+            <FaMusic size={16} color="var(--deckify-accent, #1DB954)" />
           </div>
         )}
         <div
@@ -304,7 +316,7 @@ export const DeckifyOverlay: FC<DeckifyOverlayProps> = ({
             }}
           >
             {isPlaying ? (
-              <FaPlay size={9} color="#1db954" style={{ flexShrink: 0 }} />
+              <FaPlay size={9} color="var(--deckify-accent, #1DB954)" style={{ flexShrink: 0 }} />
             ) : (
               <FaPause size={9} color="#888" style={{ flexShrink: 0 }} />
             )}
@@ -340,7 +352,7 @@ export const DeckifyOverlay: FC<DeckifyOverlayProps> = ({
             paddingTop: 4,
             marginTop: 4,
             opacity: isPlaying ? 1 : 0.5,
-            transition: "opacity 200ms ease",
+            transition: animationsSuspended ? "none" : "opacity 200ms ease",
             color: hasActiveLine
               ? "rgba(255, 255, 255, 0.90)"
               : "rgba(255, 255, 255, 0.55)",
@@ -353,7 +365,7 @@ export const DeckifyOverlay: FC<DeckifyOverlayProps> = ({
               whiteSpace: "nowrap",
               overflow: "hidden",
               textOverflow: "ellipsis",
-              animation: "deckifyLyricFadeIn 200ms ease",
+              animation: animationsSuspended ? "none" : "deckifyLyricFadeIn 200ms ease",
             }}
           >
             {displayLyricText}
@@ -380,8 +392,8 @@ export const DeckifyOverlay: FC<DeckifyOverlayProps> = ({
                 100,
                 Math.max(0, (positionMs / durationMs) * 100)
               )}%`,
-              background: "#1db954",
-              transition: "width 0.25s linear",
+              background: "var(--deckify-accent, #1DB954)",
+              transition: animationsSuspended ? "none" : "width 0.25s linear",
             }}
           />
         </div>

@@ -19,6 +19,10 @@ vi.mock("react/jsx-runtime", () => ({
   }),
 }));
 
+vi.mock("@decky/api", () => ({
+  callable: () => vi.fn(async () => ({ ok: false })),
+}));
+
 vi.mock("./common/DeckifyImage", () => ({
   DeckifyImage: (props: any) => ({
     type: "DeckifyImage",
@@ -321,7 +325,10 @@ describe("DeckifyOverlay Component", () => {
       });
       const playIcons = findNodes(
         rPlay.getTree(),
-        (n) => n.props && n.props.color === "#1db954" && n.props.size === 9
+        (n) =>
+          n.props &&
+          n.props.color === "var(--deckify-accent, #1DB954)" &&
+          n.props.size === 9
       );
       expect(playIcons.length).toBe(1);
 
@@ -482,7 +489,7 @@ describe("DeckifyOverlay Component", () => {
 
       const fill = bars[0].props.children;
       expect(fill.props.style.width).toBe("25%");
-      expect(fill.props.style.background).toBe("#1db954");
+      expect(fill.props.style.background).toBe("var(--deckify-accent, #1DB954)");
     });
 
     it("omits progress bar when showProgress is false", () => {

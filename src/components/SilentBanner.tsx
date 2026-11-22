@@ -44,7 +44,7 @@ function resolveSafeCoverUrl(raw?: string | null): string | null {
 function getToneAccentColor(tone?: BannerTone): string {
   if (tone === "error") return "#E53935";
   if (tone === "neutral") return "rgba(255, 255, 255, 0.35)";
-  return "#1DB954";
+  return "var(--deckify-accent, #1DB954)";
 }
 
 function buildBannerStyle(

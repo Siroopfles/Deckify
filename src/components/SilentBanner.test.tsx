@@ -342,7 +342,7 @@ describe("SilentBanner and bannerBus", () => {
     const { getTree } = render({ enabled: true });
 
     emitBanner({ text: "Accent Banner", tone: "accent" });
-    expect(getTree().props.style.borderLeft).toBe("3px solid #1DB954");
+    expect(getTree().props.style.borderLeft).toBe("3px solid var(--deckify-accent, #1DB954)");
 
     emitBanner({ text: "Error Banner", tone: "error" });
     expect(getTree().props.style.borderLeft).toBe("3px solid #E53935");
