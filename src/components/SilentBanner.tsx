@@ -1,5 +1,6 @@
 import { FC, CSSProperties, useState, useEffect, useRef } from "react";
 import { BannerPayload, BannerTone, subscribeBanner } from "../bannerBus";
+import { getThemeCssVars, useAccentTheme } from "../utils/themeBus";
 
 export const BANNER_DURATION_MS = 3500;
 export const BANNER_FADE_START_MS = 3250;
@@ -151,6 +152,7 @@ export const SilentBanner: FC<SilentBannerProps> = ({
   hudPosition,
   onVisibilityChange,
 }) => {
+  const { accent, animationsSuspended } = useAccentTheme();
   const [bannerState, setBannerState] = useState<ActiveBannerState | null>(null);
   const fadeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -214,7 +216,10 @@ export const SilentBanner: FC<SilentBannerProps> = ({
     <div
       data-testid="deckify-silent-banner"
       data-banner-id={payload.id}
-      style={buildBannerStyle(corner, sameCornerHud, fading, payload.tone)}
+      style={{
+        ...getThemeCssVars(accent, animationsSuspended),
+        ...buildBannerStyle(corner, sameCornerHud, fading, payload.tone),
+      }}
     >
       {renderBannerContent(payload, safeCover)}
     </div>

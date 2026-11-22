@@ -44,7 +44,7 @@ import { DeckifyImage } from "./components/common/DeckifyImage";
 import { fetchWithQueueAndCache, imgMemoryCache } from "./components/common/imagePipeline";
 import { parseLrc } from "./utils";
 import { playNotificationChime } from "./utils/chime";
-import { syncThemeFromState } from "./utils/themeBus";
+import { getThemeCssVars, syncThemeFromState, useAccentTheme } from "./utils/themeBus";
 import {
   FaMusic,
   FaSpotify,
@@ -1402,8 +1402,13 @@ const Content: FC = () => {
     </>
   );
 
+  const { accent, animationsSuspended } = useAccentTheme();
+
   return (
-    <>
+    <div
+      data-deckify-qam-root="true"
+      style={{ display: "contents", ...getThemeCssVars(accent, animationsSuspended) }}
+    >
       <PanelSection title="Deckify">
         {error && (
           <PanelSectionRow>
@@ -1719,7 +1724,7 @@ const Content: FC = () => {
           </>
         )}
       </PanelSection>
-    </>
+    </div>
   );
 };
 
