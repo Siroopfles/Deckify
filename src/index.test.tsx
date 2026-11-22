@@ -170,6 +170,7 @@ import { setChordRecordingActive, isChordRecordingActive } from "./chords";
 import { imgMemoryCache } from "./components/common/imagePipeline";
 import { DeckifyOverlay } from "./components/DeckifyOverlay";
 import { SilentBanner } from "./components/SilentBanner";
+import { syncThemeFromState, resetThemeBusForTest } from "./utils/themeBus";
 
 function findWrapperChild(wrapperTree: any, typeTarget: "Overlay" | "SilentBanner"): any {
   const children = wrapperTree?.props?.children;
@@ -2418,5 +2419,65 @@ describe("Phase 21: QAM Eco-Sleep Active & Wake & Play (ECO-01)", () => {
 
     plugin.onDismount?.();
     expect(removeEventListener).toHaveBeenCalledWith("eco_status_changed", expect.anything());
+  });
+});
+
+describe("Phase 21: QAM Accent Theme CSS Vars (G-21-1, G-21-2)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    hookIdx = 0;
+    hookValues.length = 0;
+    resetThemeBusForTest();
+  });
+
+  afterEach(() => {
+    while (effectCleanups.length > 0) {
+      const cleanup = effectCleanups.pop();
+      try {
+        cleanup?.();
+      } catch {}
+    }
+    resetThemeBusForTest();
+  });
+
+  it("wraps QAM Content in data-deckify-qam-root with display: contents and reactively updates --deckify-accent CSS vars", async () => {
+    await import("./index");
+    const plugin = capturedPluginFactory!();
+
+    const renderContent = () => {
+      hookIdx = 0;
+      return plugin.content.type({});
+    };
+
+    let tree = renderContent();
+    expect(tree.props["data-deckify-qam-root"]).toBe("true");
+    expect(tree.props.style).toMatchObject({
+      display: "contents",
+      "--deckify-accent": "#1DB954",
+      "--deckify-accent-rgb": "29, 185, 84",
+    });
+
+    await syncThemeFromState({ accentTheme: "steamos_blue" });
+    tree = renderContent();
+    expect(tree.props.style).toMatchObject({
+      display: "contents",
+      "--deckify-accent": "#1A9FFF",
+      "--deckify-accent-rgb": "26, 159, 255",
+    });
+
+    await syncThemeFromState({
+      accentTheme: "dynamic_album",
+      artworkUrl: null,
+      animationsSuspended: true,
+    });
+    tree = renderContent();
+    expect(tree.props.style).toMatchObject({
+      display: "contents",
+      "--deckify-accent": "#1DB954",
+      "--deckify-accent-rgb": "29, 185, 84",
+      "--deckify-accent-transition": "none",
+    });
+
+    plugin.onDismount?.();
   });
 });

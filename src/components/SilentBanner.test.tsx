@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
+vi.mock("@decky/api", () => ({
+  callable: () => vi.fn().mockResolvedValue({ ok: true }),
+}));
+
 vi.mock("react/jsx-dev-runtime", () => ({
   Fragment: "Fragment",
   jsxDEV: (type: any, props: any, key: any) => ({
@@ -85,6 +89,7 @@ import {
   HUD_CLEARANCE_OFFSET_PX,
 } from "./SilentBanner";
 import { emitBanner, subscribeBanner, resetBannerBusForTests } from "../bannerBus";
+import { syncThemeFromState, resetThemeBusForTest } from "../utils/themeBus";
 
 function resetHooks() {
   for (const entry of effectSlots) {
@@ -187,11 +192,13 @@ describe("SilentBanner and bannerBus", () => {
     vi.useFakeTimers();
     resetHooks();
     resetBannerBusForTests();
+    resetThemeBusForTest();
   });
 
   afterEach(() => {
     resetHooks();
     resetBannerBusForTests();
+    resetThemeBusForTest();
     vi.useRealTimers();
   });
 
@@ -443,5 +450,27 @@ describe("SilentBanner and bannerBus", () => {
     unmount();
     vi.advanceTimersByTime(4000);
     expect(stateSlots).toEqual([]);
+  });
+
+  it("spreads --deckify-accent, --deckify-accent-rgb, and --deckify-accent-transition from themeBus onto root style (G-21-1)", async () => {
+    await syncThemeFromState({ accentTheme: "steamos_blue" });
+    const { getTree } = render({ enabled: true });
+    emitBanner({ text: "Theme Synced", tone: "accent" });
+
+    const tree = getTree();
+    expect(tree).not.toBeNull();
+    expect(tree.props.style).toMatchObject({
+      "--deckify-accent": "#1A9FFF",
+      "--deckify-accent-rgb": "26, 159, 255",
+      "--deckify-accent-transition": expect.any(String),
+    });
+
+    await syncThemeFromState({ accentTheme: "spotify_green", animationsSuspended: true });
+    const updatedTree = getTree();
+    expect(updatedTree.props.style).toMatchObject({
+      "--deckify-accent": "#1DB954",
+      "--deckify-accent-rgb": "29, 185, 84",
+      "--deckify-accent-transition": "none",
+    });
   });
 });
