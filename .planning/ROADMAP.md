@@ -203,7 +203,7 @@ Plans:
   1. When a podcast episode or audiobook is playing, `NowPlayingTab` and the Quick Access Menu expose `0.75x`–`2.0x` playback speed controls that automatically reset to `1.0x` whenever a standard music track starts playing.
   2. While playing a podcast episode or audiobook, `NowPlayingTab` and L2/R2 controller triggers adapt to perform dedicated `-15s` / `+15s` smart-skip seeks with accurate monotonic clock progression.
   3. User can inspect per-episode resume progress bars and *"Played"* badges (`resume_point`) in `PodcastsTab` and filter show episodes by *All*, *Unplayed*, or *In Progress*.
-**Plans:** 5/5 plans executed
+**Plans:** 5/6 plans executed
 
 Plans:
 **Wave 1**
@@ -216,6 +216,9 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2)*
 - [x] 24-05-PLAN.md — `DeckifyExpandedModal` `L2`/`R2` 15s smart-skip & `PodcastsTab` show wiring, `QuickAccessMenu` compact speed cycle pill, and full verification suite
+
+**Wave 1 (Gap Closure)**
+- [ ] 24-06-PLAN.md — Close UAT gaps G-24-1 & G-24-2: fix `set_playback_speed` `_save_settings` call, remove duplicate `-15s`/`+15s` row & add pointer-drag/`onGamepadDirection` scrubbing to `ProgressScrubBar`, and adapt `TrackActionModal` wording for spoken content
 **UI hint**: yes
 
 ### Phase 25: Universal Artist/Album Drill-Down, Instant Radio & Search 2.0
