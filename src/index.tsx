@@ -44,6 +44,7 @@ import { DeckifyImage } from "./components/common/DeckifyImage";
 import { fetchWithQueueAndCache, imgMemoryCache } from "./components/common/imagePipeline";
 import { parseLrc } from "./utils";
 import { playNotificationChime } from "./utils/chime";
+import { isSpokenContent, getNextCycleSpeed, formatPlaybackSpeed } from "./utils/playback";
 import { getThemeCssVars, syncThemeFromState, useAccentTheme } from "./utils/themeBus";
 import {
   FaMusic,
@@ -120,6 +121,7 @@ const backendGetTrackLyricsOffset = callable<
 >("get_track_lyrics_offset");
 const backendRestoreBookmark = callable<[], { ok: boolean; error?: string }>("restore_bookmark");
 const backendDismissBookmark = callable<[], { ok: boolean }>("dismiss_bookmark");
+const backendSetPlaybackSpeed = callable<[number], { ok: boolean; speed?: number; unsupported_backend?: boolean; error?: string }>("set_playback_speed");
 void backendDismissBookmark;
 
 let currentRunningAppId: number | null = null;
@@ -891,6 +893,7 @@ const Content: FC = () => {
   dockToastEnabledRef.current = settings.dock_toast_enabled;
   const [resilienceStatus, setResilienceStatus] = useState<ResilienceStatusInfo | null>(null);
   const [ecoStatus, setEcoStatus] = useState<EcoStatusInfo | null>(null);
+  const [playbackSpeed, setPlaybackSpeed] = useState<number>(1.0);
   const resilienceToastEnabledRef = useRef<boolean | undefined>(settings.resilience_toast_enabled);
   resilienceToastEnabledRef.current = settings.resilience_toast_enabled;
 
@@ -931,6 +934,9 @@ const Content: FC = () => {
       }
       if (status.eco_status !== undefined) {
         setEcoStatus(status.eco_status ?? null);
+      }
+      if (typeof status.playback_speed === "number") {
+        setPlaybackSpeed(status.playback_speed);
       }
       if (status.active_device?.id) setActiveDeviceId(status.active_device.id);
 
@@ -1078,6 +1084,12 @@ const Content: FC = () => {
       } catch {}
     });
 
+    const unsubPlaybackSpeed = addEventListener<[any]>("playback_speed_changed", (data: any) => {
+      if (data && typeof data.speed === "number") {
+        setPlaybackSpeed(data.speed);
+      }
+    });
+
     return () => {
       activeGameListeners.delete(setActiveGameAppId);
       removeEventListener("ducking_state_changed", unsubDucking);
@@ -1088,6 +1100,7 @@ const Content: FC = () => {
       removeEventListener("resilience_status", unsubResilience);
       removeEventListener("eco_status_changed", unsubEco);
       removeEventListener("session_restored", unsubRestored);
+      removeEventListener("playback_speed_changed", unsubPlaybackSpeed);
     };
   }, []);
 
@@ -1215,6 +1228,34 @@ const Content: FC = () => {
     clock.scrubDelta(deltaSec * 1000);
   };
 
+  const handleCycleSpeed = async () => {
+    const next = getNextCycleSpeed(playbackSpeed);
+    try {
+      const res = await backendSetPlaybackSpeed(next);
+      if (res?.ok) {
+        setPlaybackSpeed(res.speed ?? next);
+      } else if (res?.unsupported_backend) {
+        toaster.toast({
+          title: "Deckify",
+          body: "Playback speed requires the Official Spotify Client engine.",
+          duration: 3000,
+        });
+      } else {
+        toaster.toast({
+          title: "Deckify",
+          body: res?.error || "Failed to change playback speed — please try again.",
+          duration: 3000,
+        });
+      }
+    } catch {
+      toaster.toast({
+        title: "Deckify",
+        body: "Failed to change playback speed — please try again.",
+        duration: 3000,
+      });
+    }
+  };
+
   const handleToggleShuffle = async () => {
     const next = !shuffleState;
     setShuffleState(next);
@@ -1260,7 +1301,7 @@ const Content: FC = () => {
     } catch {}
   };
 
-  const isPodcast = trackMeta?.album === "" || trackMeta?.uri?.includes(":episode:");
+  const isPodcast = isSpokenContent(trackMeta);
   const activeBackend = settings.audio_backend || "librespot";
   const pinnedPlaylists = settings.pinned_playlists || [];
   const activeContextUri = optimisticContextUri ?? contextUri;
@@ -1552,6 +1593,25 @@ const Content: FC = () => {
                     <Focusable flow-children="horizontal" style={{ display: "flex", justifyContent: "center", gap: 10, marginTop: 4 }}>
                       <DialogButton style={{ minWidth: "auto", padding: "4px 10px", fontSize: 11 }} onClick={() => handleSeekDelta(-15)}>
                         -15s
+                      </DialogButton>
+                      <DialogButton
+                        style={{
+                          width: "auto",
+                          minWidth: "auto",
+                          minHeight: 36,
+                          padding: "4px 8px",
+                          fontSize: 12,
+                          fontWeight: 700,
+                          ...(playbackSpeed !== 1.0
+                            ? {
+                                color: "var(--deckify-accent, #1DB954)",
+                                border: "1px solid var(--deckify-accent, #1DB954)",
+                              }
+                            : {}),
+                        }}
+                        onClick={handleCycleSpeed}
+                      >
+                        {formatPlaybackSpeed(playbackSpeed)}
                       </DialogButton>
                       <DialogButton style={{ minWidth: "auto", padding: "4px 10px", fontSize: 11 }} onClick={() => handleSeekDelta(15)}>
                         +15s
