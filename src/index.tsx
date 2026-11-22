@@ -101,7 +101,23 @@ const backendGetDuckingState = callable<[], DuckingState>("get_ducking_state");
 const backendHandleAppLifetimeEvent = callable<[number, boolean], { ok: boolean; error?: string }>("handle_app_lifetime_event");
 const backendBindCurrentMusicToGame = callable<[number, string?], { ok: boolean; error?: string }>("bind_current_music_to_game");
 const backendQuickPlayPinned = callable<[string, string], { ok: boolean; error?: string }>("quick_play_pinned");
-const backendGetLyrics = callable<[string, string, number, number?], { ok: boolean; synced_lyrics?: string; plain_lyrics?: string; source?: string; error?: string }>("get_lyrics");
+const backendGetLyrics = callable<
+  [string, string, number, number?, string?, boolean?],
+  {
+    ok: boolean;
+    synced_lyrics?: string;
+    plain_lyrics?: string;
+    source?: string;
+    cached?: boolean;
+    romanized_lines?: SyncedLine[];
+    romanized_plain?: (string | null)[];
+    error?: string;
+  }
+>("get_lyrics");
+const backendGetTrackLyricsOffset = callable<
+  [string],
+  { ok: boolean; offset_ms?: number }
+>("get_track_lyrics_offset");
 const backendRestoreBookmark = callable<[], { ok: boolean; error?: string }>("restore_bookmark");
 const backendDismissBookmark = callable<[], { ok: boolean }>("dismiss_bookmark");
 void backendDismissBookmark;
@@ -1803,10 +1819,12 @@ const DeckifyOverlayWrapper: FC = () => {
   const [modalOpen, setModalOpen] = useState<boolean>(bigOpen);
   const [syncedLyrics, setSyncedLyrics] = useState<SyncedLine[]>([]);
   const [lyricsLoaded, setLyricsLoaded] = useState<boolean>(false);
+  const [trackLyricsOffsetMs, setTrackLyricsOffsetMs] = useState<number>(0);
   const [bannerVisible, setBannerVisible] = useState<boolean>(false);
   const [overlayVisible, setOverlayVisible] = useState<boolean>(false);
   const lastFetchedTrackKeyRef = useRef<string>("");
   const currentTrackKeyRef = useRef<string>("");
+  const currentTrackIdRef = useRef<string>("");
 
   useEffect(() => {
     const listener = (open: boolean) => setModalOpen(open);
@@ -1880,13 +1898,51 @@ const DeckifyOverlayWrapper: FC = () => {
   const overlayLyricsEnabled = Boolean(
     settings?.overlay_enabled && settings?.overlay_lyrics_enabled
   );
+  const trackId = track?.track_id || track?.id || "";
   const trackTitle = track?.name || "";
   const trackArtist = track?.artist || "";
   const trackKey =
     trackTitle && trackArtist
-      ? `${track?.track_id || track?.id || trackTitle}::${trackArtist}`
+      ? `${trackId || trackTitle}::${trackArtist}`
       : "";
   currentTrackKeyRef.current = trackKey;
+  currentTrackIdRef.current = trackId;
+
+  useEffect(() => {
+    const unsubOffset = addEventListener<[{ track_id?: string; offset_ms?: number }]>(
+      "lyrics_offset_changed",
+      (ev) => {
+        if (ev && ev.track_id === currentTrackIdRef.current && typeof ev.offset_ms === "number") {
+          setTrackLyricsOffsetMs(ev.offset_ms);
+        }
+      }
+    );
+    return () => {
+      removeEventListener("lyrics_offset_changed", unsubOffset);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!overlayLyricsEnabled || !trackId) {
+      setTrackLyricsOffsetMs(0);
+      return;
+    }
+    const activeId = trackId;
+    backendGetTrackLyricsOffset(activeId)
+      .then((res) => {
+        if (currentTrackIdRef.current !== activeId) return;
+        if (res?.ok && typeof res.offset_ms === "number") {
+          setTrackLyricsOffsetMs(res.offset_ms);
+        } else {
+          setTrackLyricsOffsetMs(0);
+        }
+      })
+      .catch(() => {
+        if (currentTrackIdRef.current === activeId) {
+          setTrackLyricsOffsetMs(0);
+        }
+      });
+  }, [overlayLyricsEnabled, trackId]);
 
   useEffect(() => {
     if (!overlayLyricsEnabled || !trackTitle || !trackArtist || !trackKey) {
@@ -1907,10 +1963,15 @@ const DeckifyOverlayWrapper: FC = () => {
 
     const fetchKey = trackKey;
     const dur = durationMs || track?.duration_ms || 0;
-    backendGetLyrics(trackTitle, trackArtist, dur, 0)
+    backendGetLyrics(trackTitle, trackArtist, dur, 0, trackId)
       .then((res) => {
         if (currentTrackKeyRef.current !== fetchKey) return;
-        const parsed = res?.ok && res?.synced_lyrics ? parseLrc(res.synced_lyrics) : [];
+        const parsed =
+          res?.ok && Array.isArray(res?.romanized_lines) && res.romanized_lines.length > 0
+            ? res.romanized_lines
+            : res?.ok && res?.synced_lyrics
+            ? parseLrc(res.synced_lyrics)
+            : [];
         setSyncedLyrics(parsed);
         setLyricsLoaded(true);
       })
@@ -1919,7 +1980,7 @@ const DeckifyOverlayWrapper: FC = () => {
         setSyncedLyrics([]);
         setLyricsLoaded(true);
       });
-  }, [overlayLyricsEnabled, trackKey, trackTitle, trackArtist, durationMs, track?.duration_ms]);
+  }, [overlayLyricsEnabled, trackKey, trackId, trackTitle, trackArtist, durationMs, track?.duration_ms]);
 
   const overlayEnabled = Boolean(settings?.overlay_enabled);
   const hudVisible = overlayEnabled && !modalOpen && Boolean(track?.name);
@@ -1944,6 +2005,9 @@ const DeckifyOverlayWrapper: FC = () => {
           durationMs={durationMs}
           lyricsEnabled={Boolean(settings?.overlay_lyrics_enabled)}
           lyricsOffsetMs={settings?.overlay_lyrics_offset_ms ?? 0}
+          trackLyricsOffsetMs={trackLyricsOffsetMs}
+          romanizeOverlayEnabled={Boolean(settings?.romanize_overlay_enabled)}
+          romanizeDisplayStyle={settings?.romanize_display_style || "dual"}
           syncedLyrics={syncedLyrics}
           lyricsLoaded={lyricsLoaded}
           onVisibilityChange={setOverlayVisible}

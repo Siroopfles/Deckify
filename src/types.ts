@@ -130,6 +130,7 @@ export interface LyricsLine {
 export interface SyncedLine {
   timeMs: number;
   text: string;
+  romanized?: string;
 }
 
 export interface AudioStreamInfo {
@@ -265,6 +266,9 @@ export interface EngineSettings {
   overlay_show_progress?: boolean;
   overlay_lyrics_enabled?: boolean;
   overlay_lyrics_offset_ms?: number;
+  romanize_lyrics_enabled?: boolean;
+  romanize_display_style?: "dual" | "romanized_only";
+  romanize_overlay_enabled?: boolean;
   overlay_autohide_duration_s?: number;
   eq_preset?: EqualizerPreset;
   eq_custom_bands?: number[];

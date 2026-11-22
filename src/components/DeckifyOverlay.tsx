@@ -27,6 +27,9 @@ export interface DeckifyOverlayProps {
   durationMs?: number;
   lyricsEnabled?: boolean;
   lyricsOffsetMs?: number;
+  trackLyricsOffsetMs?: number;
+  romanizeOverlayEnabled?: boolean;
+  romanizeDisplayStyle?: "dual" | "romanized_only";
   syncedLyrics?: SyncedLine[];
   lyricsLoaded?: boolean;
   onVisibilityChange?: (visible: boolean) => void;
@@ -44,6 +47,9 @@ export const DeckifyOverlay: FC<DeckifyOverlayProps> = ({
   durationMs = 0,
   lyricsEnabled = false,
   lyricsOffsetMs = 0,
+  trackLyricsOffsetMs = 0,
+  romanizeOverlayEnabled = false,
+  romanizeDisplayStyle = "dual",
   syncedLyrics = [],
   lyricsLoaded = false,
   onVisibilityChange,
@@ -157,13 +163,17 @@ export const DeckifyOverlay: FC<DeckifyOverlayProps> = ({
       return;
     }
 
-    const clampedOffsetMs = Math.min(2000, Math.max(-2000, lyricsOffsetMs ?? 0));
+    const rawGlobalOffset = Number.isFinite(lyricsOffsetMs) ? (lyricsOffsetMs as number) : 0;
+    const clampedOffsetMs = Math.min(2000, Math.max(-2000, rawGlobalOffset));
+    const rawTrackOffset = Number.isFinite(trackLyricsOffsetMs) ? (trackLyricsOffsetMs as number) : 0;
+    const clampedTrackOffsetMs = Math.min(10000, Math.max(-10000, rawTrackOffset));
 
     const scheduleNext = () => {
       const effectivePosMs =
         posAnchorRef.current.posMs +
         Math.max(0, Date.now() - posAnchorRef.current.atMs) +
-        clampedOffsetMs;
+        clampedOffsetMs -
+        clampedTrackOffsetMs;
 
       let idx = -1;
       for (let i = 0; i < syncedLyrics.length; i++) {
@@ -196,6 +206,7 @@ export const DeckifyOverlay: FC<DeckifyOverlayProps> = ({
     isPlaying,
     positionMs,
     lyricsOffsetMs,
+    trackLyricsOffsetMs,
     track?.track_id,
     track?.id,
     track?.name,
@@ -249,14 +260,31 @@ export const DeckifyOverlay: FC<DeckifyOverlayProps> = ({
   let displayLyricText = "♪ •••";
   let lyricDisplayKey = "placeholder";
   let hasActiveLine = false;
+  let activeRomanized: string | undefined;
   if (syncedLyrics.length === 0 && lyricsLoaded) {
     displayLyricText = "No synced lyrics";
     lyricDisplayKey = "no-synced-lyrics";
-  } else if (lyricsLoaded && activeLineIndex >= 0 && syncedLyrics[activeLineIndex]) {
-    displayLyricText = syncedLyrics[activeLineIndex].text;
-    lyricDisplayKey = `line-${activeLineIndex}-${syncedLyrics[activeLineIndex].timeMs}`;
+  } else if (
+    lyricsLoaded &&
+    activeLineIndex >= 0 &&
+    activeLineIndex < syncedLyrics.length &&
+    syncedLyrics[activeLineIndex]
+  ) {
+    const activeLine = syncedLyrics[activeLineIndex];
+    activeRomanized = romanizeOverlayEnabled && activeLine.romanized ? activeLine.romanized : undefined;
+    displayLyricText =
+      activeRomanized && romanizeDisplayStyle === "romanized_only"
+        ? activeRomanized
+        : activeLine.text;
+    lyricDisplayKey = `line-${activeLineIndex}-${activeLine.timeMs}`;
     hasActiveLine = true;
   }
+  const showDualRomanized = Boolean(
+    hasActiveLine && activeRomanized && romanizeDisplayStyle !== "romanized_only"
+  );
+  const showSingleRomanized = Boolean(
+    hasActiveLine && activeRomanized && romanizeDisplayStyle === "romanized_only"
+  );
 
   return (
     <div style={posStyle} className="deckify-ingame-overlay">
@@ -343,9 +371,11 @@ export const DeckifyOverlay: FC<DeckifyOverlayProps> = ({
         <div
           data-testid="overlay-lyric-row"
           style={{
-            height: 18,
-            lineHeight: "18px",
-            fontSize: 11,
+            ...(showDualRomanized
+              ? { minHeight: 32, lineHeight: "16px", fontSize: 12 }
+              : showSingleRomanized
+              ? { height: 20, lineHeight: "20px", fontSize: 12 }
+              : { height: 18, lineHeight: "18px", fontSize: 11 }),
             whiteSpace: "nowrap",
             overflow: "hidden",
             textOverflow: "ellipsis",
@@ -359,18 +389,49 @@ export const DeckifyOverlay: FC<DeckifyOverlayProps> = ({
               : "rgba(255, 255, 255, 0.55)",
           }}
         >
-          <span
-            key={lyricDisplayKey}
-            style={{
-              display: "block",
-              whiteSpace: "nowrap",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              animation: animationsSuspended ? "none" : "deckifyLyricFadeIn 200ms ease",
-            }}
-          >
-            {displayLyricText}
-          </span>
+          {showDualRomanized && activeRomanized
+            ? [
+                <span
+                  key={lyricDisplayKey}
+                  style={{
+                    display: "block",
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    animation: animationsSuspended ? "none" : "deckifyLyricFadeIn 200ms ease",
+                  }}
+                >
+                  {displayLyricText}
+                </span>,
+                <span
+                  key={`${lyricDisplayKey}-roma`}
+                  data-testid="overlay-lyric-romanized"
+                  style={{
+                    display: "block",
+                    fontSize: 12,
+                    opacity: 0.72,
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                  }}
+                >
+                  {activeRomanized}
+                </span>,
+              ]
+            : (
+                <span
+                  key={lyricDisplayKey}
+                  style={{
+                    display: "block",
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    animation: animationsSuspended ? "none" : "deckifyLyricFadeIn 200ms ease",
+                  }}
+                >
+                  {displayLyricText}
+                </span>
+              )}
         </div>
       )}
 

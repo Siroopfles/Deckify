@@ -609,7 +609,7 @@ describe("src/index.tsx DeckifyOverlayWrapper Phase 10 Gating & Modal Suppressio
     const overlayOn2 = findWrapperChild(renderWrapper(), "Overlay");
 
     expect(mockGetLyrics).toHaveBeenCalledTimes(1);
-    expect(mockGetLyrics).toHaveBeenCalledWith("Song A", "Artist A", 180000, 0);
+    expect(mockGetLyrics).toHaveBeenCalledWith("Song A", "Artist A", 180000, 0, "trk1");
     expect(overlayOn2.props.lyricsEnabled).toBe(true);
     expect(overlayOn2.props.autoHideDurationMs).toBe(9000);
     expect(overlayOn2.props.lyricsOffsetMs).toBe(200);

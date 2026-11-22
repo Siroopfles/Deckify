@@ -715,5 +715,108 @@ describe("DeckifyOverlay Component", () => {
       expect(getTree().props.className).toBe("deckify-ingame-overlay");
       expect(getTree().props.style.pointerEvents).toBe("none");
     });
+
+    it("subtracts clamped trackLyricsOffsetMs so +500ms shifts HUD lines later and composes with lyricsOffsetMs (D-09, T-23-04)", () => {
+      const { getTree, rerender } = render({
+        track: { track_id: "t8", name: "Track Offset Song" },
+        isPlaying: true,
+        visible: true,
+        lyricsEnabled: true,
+        lyricsLoaded: true,
+        syncedLyrics: sampleLyrics,
+        positionMs: 3100,
+        lyricsOffsetMs: 0,
+        trackLyricsOffsetMs: 500,
+      });
+
+      // effectivePosMs = 3100 - 500 = 2600ms -> still on line 0 (1000ms), not line 1 (3000ms)
+      let row = findNodes(
+        getTree(),
+        (n) => n.props && n.props["data-testid"] === "overlay-lyric-row"
+      )[0];
+      expect(row.props.children.props.children).toBe("First lyric line");
+
+      // Advance 400ms -> effectivePosMs = 3500 - 500 = 3000ms -> line 1
+      vi.advanceTimersByTime(400);
+      row = findNodes(
+        getTree(),
+        (n) => n.props && n.props["data-testid"] === "overlay-lyric-row"
+      )[0];
+      expect(row.props.children.props.children).toBe("Second lyric line");
+
+      // Additive with lyricsOffsetMs: +200ms global - 500ms track = -300ms net
+      // At positionMs=3200ms, effective = 3200 + 200 - 500 = 2900ms -> back to line 0
+      rerender({ positionMs: 3200, lyricsOffsetMs: 200, trackLyricsOffsetMs: 500 });
+      row = findNodes(
+        getTree(),
+        (n) => n.props && n.props["data-testid"] === "overlay-lyric-row"
+      )[0];
+      expect(row.props.children.props.children).toBe("First lyric line");
+
+      // Clamp extreme trackLyricsOffsetMs (25000ms -> 10000ms)
+      // At positionMs=11100ms, effective = 11100 - 10000 = 1100ms -> line 0 (1000ms)
+      rerender({ positionMs: 11100, lyricsOffsetMs: 0, trackLyricsOffsetMs: 25000 });
+      row = findNodes(
+        getTree(),
+        (n) => n.props && n.props["data-testid"] === "overlay-lyric-row"
+      )[0];
+      expect(row.props.children.props.children).toBe("First lyric line");
+    });
+
+    it("renders dual and romanized_only sub-lines when romanizeOverlayEnabled is true", () => {
+      const romanizedSample = [
+        { timeMs: 1000, text: "ありがとう", romanized: "arigatou" },
+        { timeMs: 3000, text: "Hello", romanized: undefined },
+      ];
+
+      const { getTree, rerender } = render({
+        track: { track_id: "t9", name: "CJK Song" },
+        isPlaying: true,
+        visible: true,
+        lyricsEnabled: true,
+        lyricsLoaded: true,
+        syncedLyrics: romanizedSample,
+        positionMs: 1200,
+        romanizeOverlayEnabled: true,
+        romanizeDisplayStyle: "dual",
+      });
+
+      let row = findNodes(
+        getTree(),
+        (n) => n.props && n.props["data-testid"] === "overlay-lyric-row"
+      )[0];
+      expect(row.props.style.minHeight).toBe(32);
+      expect(row.props.children[0].props.children).toBe("ありがとう");
+      const romaSpan = findNodes(
+        getTree(),
+        (n) => n.props && n.props["data-testid"] === "overlay-lyric-romanized"
+      );
+      expect(romaSpan.length).toBe(1);
+      expect(romaSpan[0].props.children).toBe("arigatou");
+
+      // Switch to romanized_only
+      rerender({ romanizeDisplayStyle: "romanized_only" });
+      row = findNodes(
+        getTree(),
+        (n) => n.props && n.props["data-testid"] === "overlay-lyric-row"
+      )[0];
+      expect(row.props.style.height).toBe(20);
+      expect(row.props.children.props.children).toBe("arigatou");
+      expect(
+        findNodes(
+          getTree(),
+          (n) => n.props && n.props["data-testid"] === "overlay-lyric-romanized"
+        ).length
+      ).toBe(0);
+
+      // Non-CJK line without romanized falls back to standard single-line
+      rerender({ positionMs: 3200, romanizeDisplayStyle: "dual" });
+      row = findNodes(
+        getTree(),
+        (n) => n.props && n.props["data-testid"] === "overlay-lyric-row"
+      )[0];
+      expect(row.props.style.height).toBe(18);
+      expect(row.props.children.props.children).toBe("Hello");
+    });
   });
 });
