@@ -36,7 +36,7 @@
     {
       "number": "22",
       "name": "Spotify Connect Hub 2.0 & Native Crossfade",
-      "status": "pending"
+      "status": "complete"
     },
     {
       "number": "23",
@@ -82,7 +82,7 @@
   "next": {
     "command": "/gsd-progress --next",
     "label": "Advance to the next step (verify)",
-    "reason": "Phase 1 of 12 · 17% · ready to verify"
+    "reason": "Phase 1 of 12 · 25% · ready to verify"
   },
-  "updated_at": "2026-11-22T11:58:17.616Z"
+  "updated_at": "2026-11-22T17:48:09.154Z"
 }
