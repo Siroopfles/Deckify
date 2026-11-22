@@ -26,12 +26,12 @@
     {
       "number": "20",
       "name": "100% Silent HUD Toasts & Extended In-Game Quick-Chords",
-      "status": "in_progress"
+      "status": "complete"
     },
     {
       "number": "21",
       "name": "Dynamic Album-Art Accent Themes & Handheld Battery Eco-Mode",
-      "status": "pending"
+      "status": "complete"
     },
     {
       "number": "22",
@@ -82,7 +82,7 @@
   "next": {
     "command": "/gsd-progress --next",
     "label": "Advance to the next step (verify)",
-    "reason": "Phase 2 of 12 · 0% · ready to verify"
+    "reason": "Phase 1 of 12 · 17% · ready to verify"
   },
-  "updated_at": "2026-11-21T18:51:37.527Z"
+  "updated_at": "2026-11-22T11:58:17.616Z"
 }
