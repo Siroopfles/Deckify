@@ -136,7 +136,15 @@ Plans:
   1. User can switch between *Classic Spotify Green*, *Dynamic Album Glow* (dominant cover-art accent extracted from proxied artwork and WCAG luminance-clamped to `L >= 55%` for readable controller focus halos), and *SteamOS Deck Blue* across the Expanded Modal and in-game HUD.
   2. When Handheld Battery Eco-Mode is enabled and the Steam Deck is running on battery during active gameplay, background spectrum visualizers and non-essential animations are automatically suspended.
   3. When playback remains paused on battery beyond the user's configured Eco-Mode inactivity timeout (`5–30 min`), the background playback engine automatically enters idle sleep and wakes transparently on the next play command (with Eco-Mode sleep automatically bypassed when AC-powered or docked).
-**Plans**: TBD
+**Plans:** 3 plans
+
+Plans:
+**Wave 1**
+- [ ] 21-01-PLAN.md — Dynamic Album-Art Accent Theme tracer (32x32 canvas extractor, L>=55% WCAG clamp, cross-root --deckify-accent CSS vars, Modal/HUD/Banner/InteractiveRow integration)
+- [ ] 21-02-PLAN.md — Handheld Battery Eco-Mode backend (PowerGovernor sysfs/dock/game detection, animations_suspended, idle pause sleep, transparent wake-on-play, settings validation)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [ ] 21-03-PLAN.md — Remaining tab/common --deckify-accent migration, SettingsTab Accent Theme & Eco-Mode cards, QAM Eco-Sleep indicator + Wake & Play, and full test suite
 **UI hint**: yes
 
 ### Phase 22: Spotify Connect Hub 2.0 & Native Crossfade
