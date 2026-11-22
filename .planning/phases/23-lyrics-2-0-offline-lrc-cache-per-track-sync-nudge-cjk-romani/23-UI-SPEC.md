@@ -43,8 +43,8 @@ Declared values (multiples of 4):
 
 Exceptions:
 - `44px` minimum focus/touch target height for `SettingsTab` `InteractiveRow` toggles and `Clear Lyrics Cache` `DialogButton`.
-- `36px` minimum height (`padding: "6px 12px"`) for compact `LyricsTab` toolbar pills (`[-0.5s]`, `[+0.5s]`, `[Reset]`, `[Romanize]`, `Try Next Source`) so the two horizontal toolbars leave maximum vertical space for synced lyrics on the `1280x800` handheld viewport.
-- `18px` fixed single-line height (`lineHeight: "18px"`) on `DeckifyOverlay` `overlay-lyric-row` when `romanize_overlay_enabled` is `false` (expands to `minHeight: 32px` only when dual-line overlay romanization is explicitly enabled).
+- `36px` minimum height (`padding: "8px 12px"`) for compact `LyricsTab` toolbar pills (`[-0.5s]`, `[+0.5s]`, `[Reset]`, `[Romanize]`, `Try Next Source`) so the two horizontal toolbars leave maximum vertical space for synced lyrics on the `1280x800` handheld viewport.
+- `20px` fixed single-line height (`lineHeight: "20px"`) on `DeckifyOverlay` `overlay-lyric-row` when `romanize_overlay_enabled` is `false` (expands to `minHeight: 32px` only when dual-line overlay romanization is explicitly enabled).
 
 ---
 
@@ -63,7 +63,7 @@ Exceptions:
   - `Heading` (`16px`, `700`): `SettingsTab` `Lyrics & Overlay` section heading, and `LyricsTab` empty-state heading (`No Lyrics Available`).
   - `Body` (`14px`, `400`): Inactive synced lyric lines (`opacity: 0.45`), plain lyrics text (`lineHeight: 1.5`), `SettingsTab` setting descriptions, and empty-state helper body.
   - `Label` (`12px`, `700` or `400` for muted sub-text): `Source: {name} (Cached)` badge, `LYRICS_SOURCES` pills, `[-0.5s]` / `[+0.5s]` / `[Reset]` / `[Romanize]` toolbar controls, offset badge (`+0.5s` / `0.0s`), romanized sub-line beneath CJK lyrics (`12px`, `400`, `opacity: 0.72`), and `X -0.5s · Y +0.5s` shortcut hint (`12px`, `400`, `opacity: 0.55`).
-  - `DeckifyOverlay` HUD preservation: Keeps existing compact `11px` lyric row (`10px` muted romanized sub-line when `romanize_overlay_enabled` is `true`).
+  - `DeckifyOverlay` HUD preservation: Uses `Label` (`12px`, `400`) for both the compact overlay lyric row and the optional romanized sub-line (differentiated via `opacity: 0.72`), keeping total font sizes strictly at 4 (`12px`, `14px`, `16px`, `20px`).
 
 ---
 
@@ -113,11 +113,11 @@ Accent reserved for:
 ### 2. `LyricsTab` Sync Nudge & Romanize Toolbar (`LYRICS-01`, `LYRICS-02`; D-06, D-07, D-08, D-09, D-11)
 - Placed in a dedicated `<Focusable flow-children="horizontal" style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 16 }}>` directly below the `LYRICS_SOURCES` pills row.
 - **Controls (left to right):**
-  1. `[-0.5s]` (`InteractiveRow`, `minHeight: 36`, `padding: "6px 12px"`): calls `onNudgeOffset(-500)` (clamped to `-10000ms`; shifts lyrics **earlier**).
+  1. `[-0.5s]` (`InteractiveRow`, `minHeight: 36`, `padding: "8px 12px"`): calls `onNudgeOffset(-500)` (clamped to `-10000ms`; shifts lyrics **earlier**).
   2. Offset Badge (`<span>`, non-focusable status pill, `12px`/`700`): displays `0.0s` (muted `rgba(255,255,255,0.6)` when `0ms`) or `+1.5s` / `-0.5s` (`var(--deckify-accent, #1DB954)` with `rgba(var(--deckify-accent-rgb, 29, 185, 84), 0.18)` background when `!== 0ms`).
-  3. `[+0.5s]` (`InteractiveRow`, `minHeight: 36`, `padding: "6px 12px"`): calls `onNudgeOffset(500)` (clamped to `+10000ms`; shifts lyrics **later**).
-  4. `[Reset]` (`InteractiveRow`, `minHeight: 36`, `padding: "6px 12px"`): calls `onResetOffset()` (sets `0ms`); dimmed (`opacity: 0.4`) when `trackOffsetMs === 0`.
-  5. `[Romanize]` (`InteractiveRow`, `active={romanizeEnabled}`, `minHeight: 36`, `padding: "6px 12px"`): toggles `romanize_lyrics_enabled` globally via `set_setting` and refreshes/displays romanized lines.
+  3. `[+0.5s]` (`InteractiveRow`, `minHeight: 36`, `padding: "8px 12px"`): calls `onNudgeOffset(500)` (clamped to `+10000ms`; shifts lyrics **later**).
+  4. `[Reset]` (`InteractiveRow`, `minHeight: 36`, `padding: "8px 12px"`): calls `onResetOffset()` (sets `0ms`); dimmed (`opacity: 0.4`) when `trackOffsetMs === 0`.
+  5. `[Romanize]` (`InteractiveRow`, `active={romanizeEnabled}`, `minHeight: 36`, `padding: "8px 12px"`): toggles `romanize_lyrics_enabled` globally via `set_setting` and refreshes/displays romanized lines.
   6. Shortcut Hint (`<span>`, `marginLeft: "auto"`, `12px`/`400`, `opacity: 0.55`): `X -0.5s · Y +0.5s`.
 - **Quick Controller Shortcuts (D-07):**
   - While `LyricsTab` is active (`modeRef.current === "lyrics"`), `DeckifyExpandedModal` intercepts gamepad `X` (`onNudgeOffset(-500)`) and `Y` (`onNudgeOffset(500)`) in `useTriggerNavigation` `onAction` before Track Like / ActionModal handlers, leaving `L1`/`R1` (modal tabs) and `L2`/`R2` (10s seek) untouched.
@@ -131,8 +131,8 @@ Accent reserved for:
 ### 4. `DeckifyOverlay` Live Offset & Optional Romanization (`LYRICS-01`, `LYRICS-02`; D-09, D-12)
 - Receives `trackLyricsOffsetMs` (`-10000..10000ms`) separately from global `lyricsOffsetMs` (`-2000..2000ms`), computing `effectivePosMs = posMs + elapsed + clampedOffsetMs - clampedTrackOffsetMs` so `+0.5s` shifts HUD lines **later** in real time via `lyrics_offset_changed` events.
 - When `romanizeOverlayEnabled` is `true` and the active line has `romanized`:
-  - `dual`: renders primary line (`11px`) + muted sub-line (`10px`, `opacity: 0.72`, `whiteSpace: "nowrap"`, `overflow: "hidden"`, `textOverflow: "ellipsis"`).
-  - `romanized_only`: renders `line.romanized` in the single-line `overlay-lyric-row`.
+  - `dual`: renders primary line (`12px`) + muted sub-line (`12px`, `opacity: 0.72`, `whiteSpace: "nowrap"`, `overflow: "hidden"`, `textOverflow: "ellipsis"`).
+  - `romanized_only`: renders `line.romanized` in the single-line `overlay-lyric-row` (`20px` height/lineHeight).
 
 ### 5. `SettingsTab` Lyrics 2.0 Controls (`LYRICS-01`, `LYRICS-02`; D-04, D-11, D-12)
 - Placed inside the `In-Game Overlay & Lyrics` card in `SettingsTab.tsx`:
