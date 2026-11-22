@@ -23,7 +23,7 @@
 ### Lyrics 2.0 & Podcast / Audiobook Power Suite
 
 - [ ] **LYRICS-01**: Synced and plain lyrics are automatically cached as local `.lrc` files (`~/.cache/deckify/lyrics/`) for `0ms` repeat loads and Offline Travel Mode support, paired with persistent per-track `-0.5s` / `+0.5s` sync offset nudging in `LyricsTab` that synchronizes live with `DeckifyOverlay`.
-- [ ] **LYRICS-02**: User can toggle phonetic romanization in `LyricsTab` and `TvSplitView` to display dual-line Romaji (Japanese), Revised Romanization (Korean), or Pinyin (Chinese) beneath CJK lyrics using upstream phonetic data and a zero-dependency pure-Python transliterator.
+- [x] **LYRICS-02**: User can toggle phonetic romanization in `LyricsTab` and `TvSplitView` to display dual-line Romaji (Japanese), Revised Romanization (Korean), or Pinyin (Chinese) beneath CJK lyrics using upstream phonetic data and a zero-dependency pure-Python transliterator.
 - [ ] **POD-01**: When a podcast episode or audiobook is playing, `NowPlayingTab` and QAM expose playback speed controls (`0.75x`–`2.0x`, automatically resetting to `1.0x` on music tracks) and dedicated `-15s` / `+15s` smart-skip transport actions (plus L2/R2 trigger adaptation).
 - [ ] **POD-02**: User can view per-episode resume progress bars and *"Played"* badges (`resume_point`) in `PodcastsTab` and filter episodes by *All*, *Unplayed*, or *In Progress*.
 
@@ -86,7 +86,7 @@
 | CONNECT-01 | Phase 22 | Complete |
 | RADIO-02 | Phase 22 | Complete |
 | LYRICS-01 | Phase 23 | Pending |
-| LYRICS-02 | Phase 23 | Pending |
+| LYRICS-02 | Phase 23 | Complete |
 | POD-01 | Phase 24 | Pending |
 | POD-02 | Phase 24 | Pending |
 | RADIO-01 | Phase 25 | Pending |
