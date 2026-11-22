@@ -1,9 +1,9 @@
 ---
-status: diagnosed
+status: complete
 phase: 21-dynamic-album-art-accent-themes-handheld-battery-eco-mode
 source: 21-01-SUMMARY.md, 21-02-SUMMARY.md, 21-03-SUMMARY.md, 21-04-SUMMARY.md, 21-05-SUMMARY.md
 started: 2026-11-22T12:20:00+01:00
-updated: 2026-11-22T11:38:12.094Z
+updated: 2026-11-22T12:08:06.700Z
 hardware_context: Steam Machine (desktop SteamOS, no battery — handheld battery discharge tests covered by tests/test_eco.py)
 ---
 
@@ -42,7 +42,9 @@ blocked: 0
 
 - gap_id: G-21-1
   truth: "Selecting an Accent Theme updates focus halos, active pills, progress bars, and highlights across the Expanded Modal, QAM, and HUD"
-  status: failed
+  status: resolved
+  resolved_by: 21-06-PLAN.md
+  resolved_at: 2026-11-22
   reason: "User reported: Yess ze werken bijna overal maar niet in de QAM dat is de enige plek waar ze nog niet werken"
   severity: major
   test: 1
@@ -57,7 +59,9 @@ blocked: 0
   debug_session: .planning/debug/qam-accent-theme-not-applied.md
 - gap_id: G-21-2
   truth: "With Dynamic Album Glow selected, accent colors adapt smoothly to album art in the QAM as well as Expanded Modal and HUD"
-  status: failed
+  status: resolved
+  resolved_by: 21-06-PLAN.md
+  resolved_at: 2026-11-22
   reason: "User reported: Werkt top en goed maar ook in QAM"
   severity: major
   test: 2
