@@ -2,20 +2,20 @@
 gsd_state_version: "1.0"
 milestone: v0.7
 milestone_name: Studio, Living Room TV, Offline Travel & Ultimate Immersion (In Progress)
-current_phase: 22
-current_phase_name: Spotify Connect Hub 2.0 & Native Crossfade
+current_phase: 19
+current_phase_name: Per-Game EQ & Volume Profiles
 status: verifying
-stopped_at: Phase 23 context gathered
-last_updated: "2026-11-22T17:41:53.764Z"
+stopped_at: Phase 22 complete, ready to verify Phase 19
+last_updated: "2026-11-22T17:48:09.036Z"
 last_activity: 2026-11-22
-last_activity_desc: Phase 22 execution started
-state_head: 7af1b46f681ea9cd0478307226324b40437cd1f7
+last_activity_desc: Phase 22 complete, transitioned to Phase 19
+state_head: 6278b0024fdde9223243ebba37ae1d06a4853c8e
 progress:
   total_phases: 12
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 23
   completed_plans: 23
-  percent: 17
+  percent: 25
 ---
 
 # Project State
@@ -29,16 +29,16 @@ See: [.planning/PROJECT.md](file:///C:/Users/djdje/Deckify/.planning/PROJECT.md)
 
 ## Current Position
 
-Phase: 22 (Spotify Connect Hub 2.0 & Native Crossfade) — EXECUTING
-Plan: 5 of 5
+Phase: 19 — Per-Game EQ & Volume Profiles
+Plan: 5
 Status: Phase complete — ready for verification
-Last activity: 2026-11-22 — Phase 22 execution started
+Last activity: 2026-11-22 — Phase 22 complete, transitioned to Phase 19
 
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 56 (7 in v0.4, 22 in v0.5, 14 in v0.6)
+- Total plans completed: 61 (7 in v0.4, 22 in v0.5, 14 in v0.6)
 - Average duration: ~14.7 min
 - Total execution time: ~2.2 hours
 
@@ -64,6 +64,7 @@ Last activity: 2026-11-22 — Phase 22 execution started
 | 18.1 | 2 | - | - |
 | 20 | 7 | - | - |
 | 21 | 6 | - | - |
+| 22 | 5 | - | - |
 
 **Recent Trend:**
 - Last 5 plans: 18m, 14m, 16m, 14m, 12m
@@ -226,7 +227,7 @@ Items acknowledged and deferred at milestone close, most recent first:
 ## Session Continuity
 
 Last session: 2026-11-22T17:41:50.738Z
-Stopped at: Phase 23 context gathered
+Stopped at: Phase 22 complete, ready to verify Phase 19
 Resume file: C:/Users/djdje/Deckify/.planning/phases/23-lyrics-2-0-offline-lrc-cache-per-track-sync-nudge-cjk-romani/23-CONTEXT.md
 
 ## Operator Next Steps

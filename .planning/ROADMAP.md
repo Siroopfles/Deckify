@@ -58,7 +58,7 @@
 - [ ] **Phase 19: Per-Game EQ & Volume Profiles** - Bind per-game 10-band PipeWire EQ presets and target volume/ducking overrides in `SoundtracksTab` with automatic launch activation and crash-resilient baseline restoration.
 - [x] **Phase 20: 100% Silent HUD Toasts & Extended In-Game Quick-Chords** - Route silent 3.5s track-change notifications directly through `DeckifyOverlay` (`pointerEvents: "none"`) and trigger configurable in-game quick-chords (`Like ♥`, `Cycle Pinned Playlists`, `Toggle Lyrics HUD`). (completed 2026-11-22)
 - [x] **Phase 21: Dynamic Album-Art Accent Themes & Handheld Battery Eco-Mode** - Extract WCAG-clamped (`L >= 55%`) cover-art accent colors across modal and HUD, and automatically suspend background visualizers and idle paused engines during battery gameplay. (completed 2026-11-22)
-- [ ] **Phase 22: Spotify Connect Hub 2.0 & Native Crossfade** - Upgrade `DevicesTab` with 1-click auto-waking *"Pull Playback to Steam Deck"*, device icons, engine badges, and remote volume control alongside configurable `0–12s` native crossfade.
+- [x] **Phase 22: Spotify Connect Hub 2.0 & Native Crossfade** - Upgrade `DevicesTab` with 1-click auto-waking *"Pull Playback to Steam Deck"*, device icons, engine badges, and remote volume control alongside configurable `0–12s` native crossfade. (completed 2026-11-22)
 - [ ] **Phase 23: Lyrics 2.0 — Offline .lrc Cache, Per-Track Sync Nudge & CJK Romanization** - Cache `.lrc` lyrics locally for instant/offline loads, persist per-track `-0.5s`/`+0.5s` sync offset nudges synced live with `DeckifyOverlay`, and render dual-line Romaji/Pinyin/Korean romanization.
 - [ ] **Phase 24: Podcast & Audiobook Power Suite** - Expose `0.75x`–`2.0x` episode playback speed (auto-resetting to `1.0x` on music), `-15s`/`+15s` smart-skip transport & trigger controls, episode resume progress bars, and *Unplayed*/*In Progress* filters.
 - [ ] **Phase 25: Universal Artist/Album Drill-Down, Instant Radio & Search 2.0** - Navigate to full Artist/Album views from any track with `B`-button backstack restoration, launch 3-tier Song/Artist Radio, and browse Search 2.0 with history pills, gaming/mood tiles, and podcast filters.
@@ -162,7 +162,7 @@ Plans:
   1. User can open `DevicesTab` to view distinct device type icons (Steam Deck, Desktop, Smartphone, Speaker/TV) and active engine badges (`librespot` vs `Spotify Client`).
   2. User can select the 1-click *"Pull Playback to Steam Deck"* action in `DevicesTab` to automatically wake a sleeping local Deckify engine and transfer active playback from an external Spotify Connect device, or adjust remote Connect device volume via a debounced slider.
   3. User can configure native track Crossfade (`0–12s`) in `SettingsTab`, synchronizing the transition duration across Official Spotify Client CDP preferences, `librespot` / `spotifyd` engine config, and local playback transitions.
-**Plans**: 5/5 plans executed
+**Plans**: 5/5 plans complete
 - [x] 22-01-PLAN.md
 - [x] 22-02-PLAN.md
 - [x] 22-03-PLAN.md — Close UAT gaps G-22-1 & G-22-2: host hardware label detection, local device deduplication, and CEF truncation hardening
@@ -272,7 +272,7 @@ Phases execute in numeric order: 19 → 20 → 21 → 22 → 23 → 24 → 25 �
 | 19. Per-Game EQ & Volume Profiles | v0.7 | 5/5 | In Progress | - |
 | 20. 100% Silent HUD Toasts & Extended In-Game Quick-Chords | v0.7 | 7/7 | Complete    | 2026-11-22 |
 | 21. Dynamic Album-Art Accent Themes & Handheld Battery Eco-Mode | v0.7 | 6/6 | Complete    | 2026-11-22 |
-| 22. Spotify Connect Hub 2.0 & Native Crossfade | v0.7 | 5/5 | In Progress | - |
+| 22. Spotify Connect Hub 2.0 & Native Crossfade | v0.7 | 5/5 | Complete    | 2026-11-22 |
 | 23. Lyrics 2.0 — Offline .lrc Cache, Per-Track Sync Nudge & CJK Romanization | v0.7 | 0/TBD | Not started | - |
 | 24. Podcast & Audiobook Power Suite | v0.7 | 0/TBD | Not started | - |
 | 25. Universal Artist/Album Drill-Down, Instant Radio & Search 2.0 | v0.7 | 0/TBD | Not started | - |
