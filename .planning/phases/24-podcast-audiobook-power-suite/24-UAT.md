@@ -1,31 +1,27 @@
 ---
-status: testing
+status: complete
 phase: 24-podcast-audiobook-power-suite
 source: [24-VERIFICATION.md]
 started: 2026-11-23T18:56:30Z
-updated: 2026-11-23T18:56:30Z
+updated: 2026-11-23T19:19:31.441Z
 ---
 
 ## Current Test
 
-number: 1
-name: SteamOS GamepadUI Controller Focus/Selection & Touchscreen Drag on ProgressScrubBar (Re-test G-24-3 & G-24-4)
-expected: |
-  Focus lands on ProgressScrubBar when pressing D-pad Up from the transport row (showing focus halo and "Scrub ←/→" legend), D-pad Left/Right steps playback position without jumping focus to the left Sidebar, pressing A toggles "Done Scrubbing" mode and B exits scrub selection cleanly, and touchscreen/mouse dragging commits a single seek on release.
-awaiting: user response
+[testing complete]
 
 ## Tests
 
 ### 1. SteamOS GamepadUI Controller Focus/Selection & Touchscreen Drag on ProgressScrubBar (Re-test G-24-3 & G-24-4)
 expected: On Steam Deck, navigate D-pad Up from the transport row to focus ProgressScrubBar, press A (onActivate) or scrub Left/Right via D-pad, press B to exit active scrub mode without closing the modal, and test touchscreen/mouse dragging on the slider. Focus lands on ProgressScrubBar (showing focus halo and "Scrub ←/→" legend), D-pad Left/Right steps playback position without jumping focus to the left Sidebar, pressing A toggles "Done Scrubbing" mode and B exits scrub selection cleanly, and touchscreen/mouse dragging commits a single seek on release.
-result: [pending]
+result: pass
 
 ## Summary
 
 total: 1
-passed: 0
+passed: 1
 issues: 0
-pending: 1
+pending: 0
 skipped: 0
 blocked: 0
 
