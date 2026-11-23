@@ -33,7 +33,7 @@ import { TrackRowItem } from "../common/TrackRowItem";
 import { EpisodeRow } from "./PodcastsTab";
 
 const backendSearchSpotify = callable<
-  [string, string, number],
+  [string, string, number, number?],
   {
     ok: boolean;
     tracks?: TrackItem[];
@@ -47,6 +47,7 @@ const backendSearchSpotify = callable<
 >("search_spotify");
 
 const SEARCH_TYPES = "track,artist,album,playlist,show,episode";
+const SEARCH_PAGE_LIMIT = 10;
 
 const FILTER_CHIPS: readonly SearchFilterTab[] = [
   "all",
@@ -479,6 +480,7 @@ const SearchResultsView: FC<{
   searchResults: SearchResults;
   tileSearchMode: boolean;
   loadingSearch: boolean;
+  searchError?: string | null;
   onLoadMore: () => void;
   handlers: SearchHandlers;
 }> = ({
@@ -488,6 +490,7 @@ const SearchResultsView: FC<{
   searchResults,
   tileSearchMode,
   loadingSearch,
+  searchError,
   onLoadMore,
   handlers,
 }) => {
@@ -526,9 +529,23 @@ const SearchResultsView: FC<{
       </Focusable>
 
       {loadingSearch && <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 12 }}>Searching...</div>}
+      {!loadingSearch && searchError && (
+        <div
+          style={{
+            padding: "14px 16px",
+            marginBottom: 12,
+            borderRadius: 8,
+            background: "rgba(255, 80, 80, 0.12)",
+            border: "1px solid rgba(255, 80, 80, 0.35)",
+          }}
+        >
+          <h3 style={{ fontSize: 15, fontWeight: 700, marginBottom: 4, color: "#ff7b7b" }}>Search Error</h3>
+          <div style={{ fontSize: 12, opacity: 0.85 }}>{searchError}</div>
+        </div>
+      )}
       {sections}
 
-      {!loadingSearch && !visibleAny && (
+      {!loadingSearch && !searchError && !visibleAny && (
         <div style={{ padding: "24px 0", textAlign: "center" }}>
           <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 6 }}>No Results Found</h3>
           <div style={{ fontSize: 12, opacity: 0.65 }}>
@@ -587,30 +604,56 @@ function useControlledState<T>(controlled: T | undefined, onChange: ((v: T) => v
   return [controlled !== undefined ? controlled : local, onChange ?? setLocal] as const;
 }
 
+function dedupeByKey<T extends { id?: string; uri?: string }>(prev: T[] = [], next: T[] = []): T[] {
+  const seen = new Set<string>();
+  const merged: T[] = [];
+  for (const item of [...prev, ...next]) {
+    const key = item.id || item.uri;
+    if (key) {
+      if (seen.has(key)) continue;
+      seen.add(key);
+    }
+    merged.push(item);
+  }
+  return merged;
+}
+
+function mergeSearchResults(prev: SearchResults, next: SearchResults): SearchResults {
+  return {
+    tracks: dedupeByKey(prev.tracks, next.tracks),
+    artists: dedupeByKey(prev.artists, next.artists),
+    albums: dedupeByKey(prev.albums, next.albums),
+    playlists: dedupeByKey(prev.playlists, next.playlists),
+    shows: dedupeByKey(prev.shows, next.shows),
+    episodes: dedupeByKey(prev.episodes, next.episodes),
+  };
+}
+
 async function executeSearchQuery(
   query: string,
-  limit: number,
+  offset: number,
   onSuccess: (res: SearchResults, trimmed: string) => void,
-  onError: () => void,
+  onError: (msg: string) => void,
 ) {
   const trimmed = query.trim();
   if (!trimmed) return;
   try {
-    const res = await backendSearchSpotify(trimmed, SEARCH_TYPES, limit);
+    const res = await backendSearchSpotify(trimmed, SEARCH_TYPES, SEARCH_PAGE_LIMIT, offset);
     if (res.ok) onSuccess(res, trimmed);
-    else onError();
-  } catch {
-    onError();
+    else onError(res.error || "Search failed — check your connection and try again.");
+  } catch (err) {
+    onError(err instanceof Error && err.message ? err.message : "Search failed — check your connection and try again.");
   }
 }
 
 function useSearchController(props: SearchTabProps) {
   const [searchQuery, setSearchQuery] = useControlledState(props.searchQuery, props.onSearchQueryChange, "");
-  const [searchLimit, setSearchLimit] = useState(25);
+  const [searchOffset, setSearchOffset] = useState(0);
   const [searchTab, setSearchTab] = useControlledState<SearchFilterTab>(props.searchTab, props.onSearchTabChange, "all");
   const [searchResults, setSearchResults] = useControlledState<SearchResults>(props.searchResults, props.onSearchResultsChange, {});
   const [tileSearchMode, setTileSearchMode] = useControlledState(props.tileSearchMode, props.onTileSearchModeChange, false);
   const [loadingSearch, setLoadingSearch] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
   const { searchHistory, recordHistory, removeHistoryItem, clearHistory } = useSearchHistory(
     props.searchHistory,
     props.onUpdateSearchHistory,
@@ -620,63 +663,77 @@ function useSearchController(props: SearchTabProps) {
   showToastRef.current = props.showToast;
   const setResultsRef = useRef(setSearchResults);
   setResultsRef.current = setSearchResults;
+  const resultsRef = useRef(searchResults);
+  resultsRef.current = searchResults;
   const recordHistoryRef = useRef(recordHistory);
   recordHistoryRef.current = recordHistory;
 
-  const runSearch = useCallback(async (query: string, limit: number) => {
+  const runSearch = useCallback(async (query: string, offset: number) => {
     if (!query.trim()) return;
     setLoadingSearch(true);
+    setSearchError(null);
     await executeSearchQuery(
       query,
-      limit,
+      offset,
       (res, trimmed) => {
-        setResultsRef.current(res);
+        const nextResults = offset > 0 ? mergeSearchResults(resultsRef.current, res) : res;
+        resultsRef.current = nextResults;
+        setResultsRef.current(nextResults);
         recordHistoryRef.current(trimmed);
       },
-      () => showToastRef.current?.("Search failed — check your connection and try again."),
+      (msg) => {
+        setSearchError(msg);
+        showToastRef.current?.(msg);
+      },
     );
     setLoadingSearch(false);
   }, []);
 
   const prevQueryRef = useRef(searchQuery);
-  const prevLimitRef = useRef(searchLimit);
   const skipNextDebounceRef = useRef<string | null>(null);
 
   useEffect(() => {
     const queryChanged = searchQuery !== prevQueryRef.current;
-    const limitChanged = searchLimit !== prevLimitRef.current;
     prevQueryRef.current = searchQuery;
-    prevLimitRef.current = searchLimit;
-    if (!queryChanged && !limitChanged) return;
+    if (!queryChanged) return;
+    setSearchOffset(0);
     if (!searchQuery.trim()) {
       setResultsRef.current({});
+      setSearchError(null);
       setLoadingSearch(false);
       return;
     }
-    if (skipNextDebounceRef.current === searchQuery && !limitChanged) {
+    if (skipNextDebounceRef.current === searchQuery) {
       skipNextDebounceRef.current = null;
       return;
     }
-    const timer = setTimeout(() => void runSearch(searchQuery, searchLimit), 350);
+    const timer = setTimeout(() => void runSearch(searchQuery, 0), 350);
     return () => clearTimeout(timer);
-  }, [searchQuery, searchLimit, runSearch]);
+  }, [searchQuery, runSearch]);
 
   return {
-    searchQuery, setSearchQuery, searchLimit, setSearchLimit,
+    searchQuery, setSearchQuery, searchOffset, setSearchOffset,
     searchTab, setSearchTab, searchResults, tileSearchMode, setTileSearchMode,
-    searchHistory, loadingSearch, removeHistoryItem, clearHistory,
+    searchHistory, loadingSearch, searchError, removeHistoryItem, clearHistory,
+    handleLoadMore: () => {
+      const nextOffset = searchOffset + SEARCH_PAGE_LIMIT;
+      setSearchOffset(nextOffset);
+      void runSearch(searchQuery, nextOffset);
+    },
     handleSelectHistory: (q: string) => {
       skipNextDebounceRef.current = q;
       setTileSearchMode(false);
+      setSearchOffset(0);
       setSearchQuery(q);
-      void runSearch(q, searchLimit);
+      void runSearch(q, 0);
     },
     handleSelectTile: (tile: GamingMoodTile) => {
       skipNextDebounceRef.current = tile.query;
       setTileSearchMode(true);
       setSearchTab("all");
+      setSearchOffset(0);
       setSearchQuery(tile.query);
-      void runSearch(tile.query, searchLimit);
+      void runSearch(tile.query, 0);
     },
   };
 }
@@ -713,7 +770,8 @@ export const SearchTab: FC<SearchTabProps> = (props) => {
           searchResults={ctrl.searchResults}
           tileSearchMode={ctrl.tileSearchMode}
           loadingSearch={ctrl.loadingSearch}
-          onLoadMore={() => ctrl.setSearchLimit((prev) => prev + 25)}
+          searchError={ctrl.searchError}
+          onLoadMore={ctrl.handleLoadMore}
           handlers={{
             onPlayTrack: props.onPlayTrack,
             onToggleLike: props.onToggleLike,

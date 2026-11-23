@@ -246,7 +246,7 @@ describe("SearchTab Search 2.0 idle screen & history", () => {
     const lofiPill = findNodes(tree, (n) => n.type === "Focusable" && n.props?.["data-deckify-label"] === "lofi")[0];
     (lofiPill.props?.onClick as () => void)();
     expect(onSearchQueryChange).toHaveBeenCalledWith("lofi");
-    expect(mockSearchSpotify).toHaveBeenCalledWith("lofi", "track,artist,album,playlist,show,episode", 25);
+    expect(mockSearchSpotify).toHaveBeenCalledWith("lofi", "track,artist,album,playlist,show,episode", 10, 0);
 
     const removeBtn = findNodes(lofiPill, (n) => n.type === "span" && n.props?.["aria-label"] === "Remove lofi")[0];
     (removeBtn.props?.onClick as (e: { stopPropagation: () => void }) => void)({ stopPropagation: vi.fn() });
@@ -275,7 +275,7 @@ describe("SearchTab Search 2.0 tiles, filters & results", () => {
     (epicTile.props?.onClick as () => void)();
     expect(onTileSearchModeChange).toHaveBeenCalledWith(true);
     expect(onSearchQueryChange).toHaveBeenCalledWith("epic gaming soundtrack");
-    expect(mockSearchSpotify).toHaveBeenCalledWith("epic gaming soundtrack", "track,artist,album,playlist,show,episode", 25);
+    expect(mockSearchSpotify).toHaveBeenCalledWith("epic gaming soundtrack", "track,artist,album,playlist,show,episode", 10, 0);
 
     const tileResultsTree = renderSearchTab({
       searchQuery: "epic gaming soundtrack",
@@ -327,5 +327,65 @@ describe("SearchTab Search 2.0 tiles, filters & results", () => {
     expect(text).toContain("No Results Found");
     expect(text).toContain("nonexistentxyz");
     expect(text).toContain("podcasts");
+  });
+
+  it("Load More Results paginates via offset=10 and appends deduplicated results", async () => {
+    const onSearchResultsChange = vi.fn();
+    mockSearchSpotify.mockResolvedValueOnce({
+      ok: true,
+      tracks: [
+        mockTracks[0],
+        {
+          id: "t2",
+          name: "Track Two",
+          artist: "Artist Two",
+          album: "Album Two",
+          artist_id: "ar2",
+          album_id: "al2",
+          duration_ms: 190000,
+          uri: "spotify:track:t2",
+        },
+      ],
+      playlists: [],
+    });
+
+    const tree = renderSearchTab({
+      searchQuery: "lofi",
+      searchTab: "all",
+      searchResults: { tracks: mockTracks, playlists: mockPlaylists },
+      onSearchResultsChange,
+    });
+
+    const loadMoreBtn = findNodes(tree, (n) => n.type === "Focusable" && cleanText(n) === "Load More Results")[0];
+    expect(loadMoreBtn).toBeDefined();
+    (loadMoreBtn.props?.onClick as () => void)();
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(mockSearchSpotify).toHaveBeenCalledWith("lofi", "track,artist,album,playlist,show,episode", 10, 10);
+    expect(onSearchResultsChange).toHaveBeenCalled();
+    const merged = onSearchResultsChange.mock.calls[0][0];
+    expect(merged.tracks.map((t: TrackItem) => t.id)).toEqual(["t1", "t2"]);
+    expect(merged.playlists.map((p: PlaylistItem) => p.id)).toEqual(["pl1"]);
+  });
+
+  it("renders explicit Search Error banner instead of No Results Found when search_spotify returns ok: false", async () => {
+    mockSearchSpotify.mockResolvedValueOnce({ ok: false, error: "HTTP 403" });
+    const showToast = vi.fn();
+    const idleTree = renderSearchTab({ searchQuery: "", searchHistory: ["lofi"], showToast });
+
+    const lofiPill = findNodes(idleTree, (n) => n.type === "Focusable" && n.props?.["data-deckify-label"] === "lofi")[0];
+    (lofiPill.props?.onClick as () => void)();
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(showToast).toHaveBeenCalledWith("HTTP 403");
+    const errTree = renderSearchTab({
+      searchQuery: "lofi",
+      searchTab: "all",
+      searchResults: {},
+    });
+    const text = cleanText(errTree);
+    expect(text).toContain("Search Error");
+    expect(text).toContain("HTTP 403");
+    expect(text).not.toContain("No Results Found");
   });
 });
