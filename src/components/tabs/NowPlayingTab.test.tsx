@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 interface MockNode {
   type?: unknown;
@@ -307,6 +307,37 @@ describe("NowPlayingTab POD-01 speed Dropdown", () => {
   });
 });
 
+function setupMockWindowListeners() {
+  const listeners = new Map<string, Set<(ev: unknown) => void>>();
+  const addEventListener = vi.fn((type: string, fn: (ev: unknown) => void) => {
+    const set = listeners.get(type) ?? new Set();
+    set.add(fn);
+    listeners.set(type, set);
+  });
+  const removeEventListener = vi.fn((type: string, fn: (ev: unknown) => void) => {
+    listeners.get(type)?.delete(fn);
+  });
+  vi.stubGlobal("window", { addEventListener, removeEventListener });
+  return { listeners, addEventListener, removeEventListener };
+}
+
+function attachSliderRefTarget(slider: MockNode) {
+  const setPointerCapture = vi.fn();
+  const releasePointerCapture = vi.fn();
+  const target = {
+    getBoundingClientRect: () => ({ left: 100, width: 200 }),
+    setPointerCapture,
+    releasePointerCapture,
+  };
+  const ref = slider.props?.ref;
+  if (typeof ref === "function") {
+    ref(target);
+  } else if (ref && typeof ref === "object" && "current" in ref) {
+    (ref as { current: unknown }).current = target;
+  }
+  return { target, setPointerCapture, releasePointerCapture };
+}
+
 describe("ProgressScrubBar G-24-2 scrubbing and cleanup", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -326,7 +357,7 @@ describe("ProgressScrubBar G-24-2 scrubbing and cleanup", () => {
     expect(findNodes(tree, (n) => n.type === "InteractiveRow")).toHaveLength(0);
   });
 
-  it("handles onGamepadDirection DIR_LEFT and DIR_RIGHT scrubbing when focused", () => {
+  it("handles onGamepadDirection DIR_LEFT and DIR_RIGHT scrubbing on Focusable without onPointerDown on Focusable", () => {
     const handleSeekDelta = vi.fn();
     const durationMs = 240000;
     const expectedStepSec = getScrubStepMs(durationMs) / 1000;
@@ -341,6 +372,7 @@ describe("ProgressScrubBar G-24-2 scrubbing and cleanup", () => {
     const focusables = findNodes(tree, (n) => n.props?.noFocusRing === true);
     expect(focusables).toHaveLength(1);
     const bar = focusables[0];
+    expect(bar.props?.onPointerDown).toBeUndefined();
     const onGamepadDirection = bar.props?.onGamepadDirection as (e: unknown) => void;
     expect(typeof onGamepadDirection).toBe("function");
 
@@ -357,45 +389,86 @@ describe("ProgressScrubBar G-24-2 scrubbing and cleanup", () => {
     onGamepadDirection({ detail: { button: 9 }, preventDefault, stopPropagation });
     expect(handleSeekDelta).toHaveBeenCalledTimes(2);
   });
+});
 
-  it("handles pointer drag (onPointerDown -> onPointerMove -> onPointerUp) via onSeekPlayback", () => {
-    const handleSeekDelta = vi.fn();
+describe("ProgressScrubBar G-24-3 native div pointer-drag, window listeners, and click deduplication", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("handles native div role=slider pointer drag via window listeners and suppresses duplicate trailing onClick", () => {
+    const { listeners, addEventListener, removeEventListener } = setupMockWindowListeners();
     const onSeekPlayback = vi.fn();
-    const durationMs = 200000;
-
     const tree = ProgressScrubBar({
-      durationMs,
+      durationMs: 200000,
       currentPositionMs: 20000,
-      handleSeekDelta,
+      handleSeekDelta: vi.fn(),
       onSeekPlayback,
     }) as unknown as MockNode;
 
-    const bar = findNodes(tree, (n) => n.props?.noFocusRing === true)[0];
-    const onPointerDown = bar.props?.onPointerDown as (e: unknown) => void;
-    const onPointerMove = bar.props?.onPointerMove as (e: unknown) => void;
-    const onPointerUp = bar.props?.onPointerUp as (e: unknown) => void;
+    const sliders = findNodes(tree, (n) => n.type === "div" && n.props?.role === "slider");
+    expect(sliders).toHaveLength(1);
+    const slider = sliders[0];
+    const style = slider.props?.style as Record<string, unknown>;
+    expect(style?.touchAction).toBe("none");
+    expect(style?.padding).toBe("10px 0");
+    expect(style?.userSelect).toBe("none");
 
-    expect(typeof onPointerDown).toBe("function");
-    expect(typeof onPointerMove).toBe("function");
-    expect(typeof onPointerUp).toBe("function");
+    const { target, setPointerCapture, releasePointerCapture } = attachSliderRefTarget(slider);
+    const preventDefault = vi.fn();
+    const stopPropagation = vi.fn();
+    (slider.props?.onPointerDown as (e: unknown) => void)({
+      clientX: 150, pointerId: 7, pointerType: "touch", button: 0, currentTarget: target, preventDefault, stopPropagation,
+    });
+    expect(preventDefault).toHaveBeenCalledTimes(1);
+    expect(stopPropagation).toHaveBeenCalledTimes(1);
+    expect(setPointerCapture).toHaveBeenCalledWith(7);
+    expect(addEventListener).toHaveBeenCalledWith("pointermove", expect.any(Function));
+    expect(addEventListener).toHaveBeenCalledWith("pointerup", expect.any(Function));
+    expect(addEventListener).toHaveBeenCalledWith("pointercancel", expect.any(Function));
 
-    const setPointerCapture = vi.fn();
-    const releasePointerCapture = vi.fn();
-    const target = {
-      getBoundingClientRect: () => ({ left: 100, width: 200 }),
-      setPointerCapture,
-      releasePointerCapture,
-    };
-
-    onPointerDown({ clientX: 150, pointerId: 1, currentTarget: target });
-    expect(setPointerCapture).toHaveBeenCalledWith(1);
-
-    onPointerMove({ clientX: 250, pointerId: 1, currentTarget: target });
+    const movePreventDefault = vi.fn();
+    listeners.get("pointermove")?.forEach((fn) => fn({ clientX: 250, pointerId: 7, preventDefault: movePreventDefault }));
+    expect(movePreventDefault).toHaveBeenCalledTimes(1);
     expect(onSeekPlayback).not.toHaveBeenCalled();
 
-    onPointerUp({ clientX: 250, pointerId: 1, currentTarget: target });
-    expect(releasePointerCapture).toHaveBeenCalledWith(1);
+    listeners.get("pointerup")?.forEach((fn) => fn({ clientX: 250, pointerId: 7 }));
+    expect(releasePointerCapture).toHaveBeenCalledWith(7);
+    expect(removeEventListener).toHaveBeenCalledWith("pointermove", expect.any(Function));
+    expect(removeEventListener).toHaveBeenCalledWith("pointerup", expect.any(Function));
+    expect(removeEventListener).toHaveBeenCalledWith("pointercancel", expect.any(Function));
     expect(onSeekPlayback).toHaveBeenCalledTimes(1);
     expect(onSeekPlayback).toHaveBeenCalledWith(150000);
+
+    const onClick = slider.props?.onClick as (e: unknown) => void;
+    onClick({ clientX: 250, currentTarget: target });
+    expect(onSeekPlayback).toHaveBeenCalledTimes(1);
+    onClick({ clientX: 150, currentTarget: target });
+    expect(onSeekPlayback).toHaveBeenCalledTimes(2);
+    expect(onSeekPlayback).toHaveBeenNthCalledWith(2, 50000);
+  });
+
+  it("cleans up window listeners and aborts seek when pointercancel fires mid-drag", () => {
+    const { listeners, removeEventListener } = setupMockWindowListeners();
+    const onSeekPlayback = vi.fn();
+    const tree = ProgressScrubBar({
+      durationMs: 200000, currentPositionMs: 20000, handleSeekDelta: vi.fn(), onSeekPlayback,
+    }) as unknown as MockNode;
+
+    const slider = findNodes(tree, (n) => n.type === "div" && n.props?.role === "slider")[0];
+    const { target } = attachSliderRefTarget(slider);
+    (slider.props?.onPointerDown as (e: unknown) => void)({
+      clientX: 150, pointerId: 3, pointerType: "touch", button: 0, currentTarget: target,
+    });
+
+    listeners.get("pointercancel")?.forEach((fn) => fn({ pointerId: 3 }));
+    expect(removeEventListener).toHaveBeenCalledWith("pointermove", expect.any(Function));
+    expect(removeEventListener).toHaveBeenCalledWith("pointerup", expect.any(Function));
+    expect(removeEventListener).toHaveBeenCalledWith("pointercancel", expect.any(Function));
+    expect(onSeekPlayback).not.toHaveBeenCalled();
   });
 });
