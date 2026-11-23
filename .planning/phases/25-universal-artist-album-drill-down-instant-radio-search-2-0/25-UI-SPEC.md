@@ -1,10 +1,11 @@
 ---
 phase: "25"
 slug: "universal-artist-album-drill-down-instant-radio-search-2-0"
-status: draft
+status: approved
 shadcn_initialized: false
 preset: none
 created: "2026-11-23"
+reviewed_at: "2026-11-23"
 ---
 
 # Phase 25 — UI Design Contract
@@ -35,7 +36,7 @@ Declared values (must be multiples of 4):
 |-------|-------|-------|
 | xs | 4px | Gap between track/artist/album/episode list rows (`gap: 4`), badge vertical padding (`4px 8px`), subtle icon-to-label spacing |
 | sm | 8px | Gap between Search 2.0 filter chips (`All`, `Tracks`, `Artists`, `Albums`, `Playlists`, `Podcasts`, `Episodes`), gap between search history pills, gap between Gaming & Mood grid tiles (`gap: 8`), gap between detail header action buttons |
-| md | 16px | Section spacing below search input, filter chip row, and detail headers (`marginBottom: 16`), tile internal padding (`12px 16px` / `16px`) |
+| md | 16px | Section spacing below search input, filter chip row, and detail headers (`marginBottom: 16`), tile internal padding (`8px 16px` / `16px`) |
 | lg | 24px | Section breaks between `Recent Searches` and `Browse Gaming & Mood`, and between Artist `Top Tracks`, `Albums & Singles`, and `All Tracks` (`marginBottom: 24`) |
 | xl | 32px | Page outer horizontal gutters in `DeckifyExpandedModal` |
 | 2xl | 48px | Major section breaks |
@@ -43,8 +44,8 @@ Declared values (must be multiples of 4):
 
 Exceptions:
 - `44px` minimum focus/touch target height for `InteractiveRow` track, artist, album, playlist, show, and episode rows.
-- `36px` minimum height (`padding: "4px 12px"` or `"4px 16px"`) for Search 2.0 filter chips, recent search history pills, `Clear All` pill, and `← Back (B)` button so controls fit cleanly across `1280x800` and `1080p+` modal viewports.
-- `64px` minimum height for the 12 Gaming & Mood genre tiles (`minHeight: 64`, `padding: "12px 16px"`) in a 4-column × 3-row (or 3-column × 4-row) controller grid.
+- `36px` minimum height (`padding: "4px 16px"`) for Search 2.0 filter chips, recent search history pills, `Clear All` pill, and `← Back (B)` button so controls fit cleanly across `1280x800` and `1080p+` modal viewports.
+- `64px` minimum height for the 12 Gaming & Mood genre tiles (`minHeight: 64`, `padding: "8px 16px"`) in a 4-column × 3-row (or 3-column × 4-row) controller grid.
 
 ---
 
@@ -117,8 +118,8 @@ Accent reserved for:
   - Explicit top-level tab switches via sidebar or `L1`/`R1` (`handleSelectMode`) clear `navigationHistoryRef.current = []`.
 
 ### 2. Artist Detail Page (`ArtistsTab.tsx`) (`RADIO-01`; D-01, D-02)
-- **Header Bar (`<Focusable flow-children="horizontal" style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 16, flexWrap: "wrap" }}>`):**
-  - `← Back (B)` `InteractiveRow` (`minHeight: 36`, `padding: "6px 12px"`).
+- **Header Bar (`<Focusable flow-children="horizontal" style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 16, flexWrap: "wrap" }}>`):**
+  - `← Back (B)` `InteractiveRow` (`minHeight: 36`, `padding: "4px 16px"`).
   - Artist avatar (`DeckifyImage`, `42x42`, `borderRadius: "50%"`) + Artist name (`Display` `20px`/`700`, `flex: 1`, `minWidth: 0`).
   - `Start Artist Radio` `InteractiveRow` (`FaBroadcastTower`, `marginLeft: "auto"`, `background: "var(--deckify-accent, #1DB954)"`, `color: "#000"`, `fontWeight: 700`, `padding: "8px 16px"`, `borderRadius: 20`, `gap: 8`).
 - **Sections (vertical `<Focusable flow-children="column">` flow):**
@@ -127,12 +128,12 @@ Accent reserved for:
   3. `All Tracks` (`Heading` `16px`/`700`, `color: var(--deckify-accent, #1DB954)`) — Full discography paginated across the artist's albums (`get_artist_all_tracks`, 3 albums per page) rendered as `TrackRowItem` rows, followed by a `Load More Tracks` `InteractiveRow` (`minHeight: 44`, centered) whenever `hasMore === true` (with `Loading more tracks...` label while fetching).
 
 ### 3. Album Detail Page (`AlbumsTab.tsx`) (`RADIO-01`; D-03)
-- **Header Bar (`<Focusable flow-children="horizontal" style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>`):**
-  - `← Back (B)` `InteractiveRow` (`minHeight: 36`, `padding: "6px 12px"`).
+- **Header Bar (`<Focusable flow-children="horizontal" style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 16, flexWrap: "wrap" }}>`):**
+  - `← Back (B)` `InteractiveRow` (`minHeight: 36`, `padding: "4px 16px"`).
   - Album artwork (`DeckifyImage`, `42x42`, `borderRadius: 4`) + Title (`Display` `20px`/`700`) + Artist subtitle (`Label` `12px`/`400`, `opacity: 0.6`).
   - Action cluster (`marginLeft: "auto"`, `display: "flex"`, `gap: 8`):
     - `Play Album` (`FaPlay`, `background: "var(--deckify-accent, #1DB954)"`, `color: "#000"`, `fontWeight: 700`, `padding: "8px 16px"`, `borderRadius: 20`).
-    - `Album Radio` (`FaBroadcastTower`, `background: "rgba(255,255,255,0.08)"`, `color: "#fff"`, `fontWeight: 700`, `padding: "8px 14px"`, `borderRadius: 20`).
+    - `Album Radio` (`FaBroadcastTower`, `background: "rgba(255,255,255,0.08)"`, `color: "#fff"`, `fontWeight: 700`, `padding: "8px 16px"`, `borderRadius: 20`).
     - Existing `Pin` / `Unpin` toggle button.
 - **Track List:** Full album track list rendered via `TrackRowItem` (`gap: 4`).
 
@@ -144,10 +145,10 @@ Accent reserved for:
 - **State Preservation:** `searchQuery`, `searchFilter`, `searchResults`, and `tileSearchMode` are lifted to `DeckifyExpandedModal.tsx` (or persisted across tab switches) so drilling down into an Artist/Album/Playlist/Show and pressing `B` restores the exact search query, filter, results, scroll position, and focused row.
 - **Idle Screen (`!searchQuery.trim()`):**
   - **Recent Searches (D-08):** Rendered when `searchHistory.length > 0`.
-    - Header row (`display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8`): `Recent Searches` (`Heading` `16px`/`700`) + `Clear All` `InteractiveRow` (`minHeight: 36`, `padding: "4px 12px"`, `fontSize: 12`, `fontWeight: 700`).
-    - Pill strip (`<Focusable flow-children="horizontal" style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 24 }}>`): Up to 10 persisted query pills (`minHeight: 36`, `padding: "4px 12px"`, `borderRadius: 18`, `background: "rgba(255,255,255,0.08)"`). Clicking (`A`) runs the search; pressing `Y` on a focused pill or clicking its inline `×` removes that entry from `search_history` in `settings.json`.
+    - Header row (`display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8`): `Recent Searches` (`Heading` `16px`/`700`) + `Clear All` `InteractiveRow` (`minHeight: 36`, `padding: "4px 16px"`, `fontSize: 12`, `fontWeight: 700`).
+    - Pill strip (`<Focusable flow-children="horizontal" style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 24 }}>`): Up to 10 persisted query pills (`minHeight: 36`, `padding: "4px 16px"`, `borderRadius: 18`, `background: "rgba(255,255,255,0.08)"`). Clicking (`A`) runs the search; pressing `Y` on a focused pill or clicking its inline `×` removes that entry from `search_history` in `settings.json`.
   - **12 Gaming & Mood Browse Tiles (D-09):**
-    - Section heading: `Browse Gaming & Mood` (`Heading` `16px`/`700`, `marginBottom: 12`).
+    - Section heading: `Browse Gaming & Mood` (`Heading` `16px`/`700`, `marginBottom: 8`).
     - 3 rows of 4 tiles (each row is `<Focusable flow-children="horizontal" style={{ display: "flex", gap: 8, marginBottom: 8 }}>`), controller-navigable via D-pad without focusing `TextField` or opening the virtual keyboard:
       1. `Epic Gaming` (`"epic gaming soundtrack"`)
       2. `RPG Soundtracks` (`"rpg video game soundtrack"`)
@@ -161,16 +162,16 @@ Accent reserved for:
       10. `Cozy Indie` (`"cozy indie folk"`)
       11. `Retro 8-Bit` (`"chiptune 8-bit"`)
       12. `Ambient` (`"ambient space"`)
-    - Each tile is an `InteractiveRow` (`flex: 1`, `minWidth: 0`, `minHeight: 64`, `padding: "12px 16px"`, `borderRadius: 10`, subtle category tint over `#1E1E1E` secondary surface, icon + `Body` `14px`/`700` label).
+    - Each tile is an `InteractiveRow` (`flex: 1`, `minWidth: 0`, `minHeight: 64`, `padding: "8px 16px"`, `borderRadius: 10`, subtle category tint over `#1E1E1E` secondary surface, icon + `Body` `14px`/`700` label).
     - Selecting a tile runs the curated query immediately with `tileSearchMode = true` so `All` results display the **Playlists** section first (before Tracks/Artists/Albums).
 
 ### 6. Search 2.0 Filter Chips & Podcasts/Episodes Results (`SEARCH-02`; D-10)
-- **Filter Chip Row (`<Focusable flow-children="horizontal" style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 12, marginBottom: 16 }}>`):**
-  - 7 chips (`minHeight: 36`, `padding: "4px 12px"`, `fontSize: 12`, `fontWeight: 700`): `All`, `Tracks`, `Artists`, `Albums`, `Playlists`, `Podcasts`, `Episodes`.
+- **Filter Chip Row (`<Focusable flow-children="horizontal" style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8, marginBottom: 16 }}>`):**
+  - 7 chips (`minHeight: 36`, `padding: "4px 16px"`, `fontSize: 12`, `fontWeight: 700`): `All`, `Tracks`, `Artists`, `Albums`, `Playlists`, `Podcasts`, `Episodes`.
   - Active chip uses `rgba(var(--deckify-accent-rgb, 29, 185, 84), 0.18)` background and `var(--deckify-accent, #1DB954)` text/border.
 - **Result Sections:**
   - `All` view keeps the grouped section layout (`Tracks`, `Artists`, `Albums`, `Playlists`, `Podcasts`, `Episodes`), except when `tileSearchMode === true` where `Playlists` renders first.
-  - `Podcasts` (`shows`): `InteractiveRow` (`minHeight: 44`, `gap: 10`) with `DeckifyImage` (`36x36`, `borderRadius: 4`) or `FaPodcast` fallback, show name + publisher subtitle, calling `onOpenShow(show)` (pushing onto `navigationHistoryRef`).
+  - `Podcasts` (`shows`): `InteractiveRow` (`minHeight: 44`, `gap: 8`) with `DeckifyImage` (`36x36`, `borderRadius: 4`) or `FaPodcast` fallback, show name + publisher subtitle, calling `onOpenShow(show)` (pushing onto `navigationHistoryRef`).
   - `Episodes` (`episodes`): Reuses `EpisodeRow` from `PodcastsTab.tsx` so Phase 24 bottom `4px` green resume progress bars and `"Played"` / `"Xm left"` badges render consistently and play on select.
 
 ---
@@ -202,12 +203,12 @@ Applicable state considerations resolved: 6 covered, 2 backstop, 0 unresolved.
 
 ## Checker Sign-Off
 
-- [ ] Dimension 1 Copywriting: PASS
-- [ ] Dimension 2 Visuals: PASS
-- [ ] Dimension 3 Color: PASS
-- [ ] Dimension 4 Typography: PASS
-- [ ] Dimension 5 Spacing: PASS
-- [ ] Dimension 6 Registry Safety: PASS
-- [ ] Dimension 7 Inventory Provenance: PASS
+- [x] Dimension 1 Copywriting: PASS
+- [x] Dimension 2 Visuals: PASS
+- [x] Dimension 3 Color: PASS
+- [x] Dimension 4 Typography: PASS
+- [x] Dimension 5 Spacing: PASS
+- [x] Dimension 6 Registry Safety: PASS
+- [x] Dimension 7 Inventory Provenance: PASS
 
-**Approval:** pending
+**Approval:** approved 2026-11-23
