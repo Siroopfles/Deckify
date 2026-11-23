@@ -1,4 +1,4 @@
-import { FC, useRef, useState } from "react";
+import { FC, useEffect, useRef, useState } from "react";
 import { Dropdown, Focusable, GamepadButton, GamepadEvent } from "@decky/ui";
 import {
   FaSpotify,
@@ -105,6 +105,7 @@ const ProgressFillTrack: FC<{ progressPercent: number; isFocused: boolean }> = (
       background: "var(--deckify-accent, #1DB954)",
       borderRadius: 6,
       position: "relative",
+      pointerEvents: "none",
     }}
   >
     <div
@@ -125,6 +126,147 @@ const ProgressFillTrack: FC<{ progressPercent: number; isFocused: boolean }> = (
   </div>
 );
 
+function computeTargetMs(el: HTMLDivElement, clientX: number, durationMs: number): number | null {
+  const rect = el.getBoundingClientRect();
+  if (rect.width <= 0) return null;
+  const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+  return pct * durationMs;
+}
+
+interface ScrubDragContext {
+  durationMs: number;
+  hitTargetRef: React.MutableRefObject<HTMLDivElement | null>;
+  isDraggingRef: React.MutableRefObject<boolean>;
+  activePointerIdRef: React.MutableRefObject<number | null>;
+  dragPositionMsRef: React.MutableRefObject<number | null>;
+  suppressNextClickRef: React.MutableRefObject<boolean>;
+  cleanupWindowDragRef: React.MutableRefObject<(() => void) | null>;
+  setIsScrubbing: (v: boolean) => void;
+  setDragPositionMs: (v: number | null) => void;
+  commitSeek: (targetMs: number) => void;
+}
+
+function bindWindowScrubListeners(ctx: ScrubDragContext): void {
+  if (typeof window === "undefined") return;
+  ctx.cleanupWindowDragRef.current?.();
+  ctx.cleanupWindowDragRef.current = null;
+
+  const isMatch = (ev: PointerEvent) =>
+    ctx.isDraggingRef.current &&
+    (ctx.activePointerIdRef.current === null ||
+      ev.pointerId === undefined ||
+      ev.pointerId === ctx.activePointerIdRef.current);
+
+  const resetDragState = () => {
+    ctx.cleanupWindowDragRef.current?.();
+    ctx.cleanupWindowDragRef.current = null;
+    ctx.isDraggingRef.current = false;
+    ctx.activePointerIdRef.current = null;
+    ctx.dragPositionMsRef.current = null;
+    ctx.setIsScrubbing(false);
+    ctx.setDragPositionMs(null);
+  };
+
+  const onWindowMove = (ev: PointerEvent) => {
+    if (!isMatch(ev)) return;
+    ev.preventDefault?.();
+    const targetMs = ctx.hitTargetRef.current
+      ? computeTargetMs(ctx.hitTargetRef.current, ev.clientX, ctx.durationMs)
+      : null;
+    if (targetMs !== null) {
+      ctx.suppressNextClickRef.current = true;
+      ctx.dragPositionMsRef.current = targetMs;
+      ctx.setDragPositionMs(targetMs);
+    }
+  };
+
+  const onWindowUp = (ev: PointerEvent) => {
+    if (!isMatch(ev)) return;
+    const fallbackMs = ctx.dragPositionMsRef.current;
+    const targetMs =
+      (ctx.hitTargetRef.current
+        ? computeTargetMs(ctx.hitTargetRef.current, ev.clientX, ctx.durationMs)
+        : null) ?? fallbackMs;
+    ctx.suppressNextClickRef.current = true;
+    resetDragState();
+    try {
+      ctx.hitTargetRef.current?.releasePointerCapture?.(ev.pointerId);
+    } catch {
+      // Ignore when pointer capture is unsupported or already released
+    }
+    if (targetMs !== null) {
+      ctx.commitSeek(targetMs);
+    }
+  };
+
+  const onWindowCancel = (ev: PointerEvent) => {
+    if (!isMatch(ev)) return;
+    resetDragState();
+  };
+
+  window.addEventListener("pointermove", onWindowMove);
+  window.addEventListener("pointerup", onWindowUp);
+  window.addEventListener("pointercancel", onWindowCancel);
+  ctx.cleanupWindowDragRef.current = () => {
+    window.removeEventListener("pointermove", onWindowMove);
+    window.removeEventListener("pointerup", onWindowUp);
+    window.removeEventListener("pointercancel", onWindowCancel);
+  };
+}
+
+function createScrubHandlers(
+  ctx: ScrubDragContext,
+  handleSeekDelta: (seconds: number) => void
+) {
+  const stepSec = getScrubStepMs(ctx.durationMs) / 1000;
+  return {
+    handleKeyDown: (e: React.KeyboardEvent) => {
+      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+      e.preventDefault?.();
+      e.stopPropagation?.();
+      ctx.setIsScrubbing(true);
+      handleSeekDelta(e.key === "ArrowLeft" ? -stepSec : stepSec);
+    },
+    handleGamepadDirection: (e: GamepadEvent) => {
+      const btn = e.detail?.button;
+      if (btn !== GamepadButton.DIR_LEFT && btn !== GamepadButton.DIR_RIGHT) return;
+      e.preventDefault?.();
+      e.stopPropagation?.();
+      ctx.setIsScrubbing(true);
+      handleSeekDelta(btn === GamepadButton.DIR_LEFT ? -stepSec : stepSec);
+    },
+    handlePointerDown: (e: React.PointerEvent<HTMLDivElement>) => {
+      if (e.pointerType === "mouse" && e.button !== 0) return;
+      e.preventDefault?.();
+      e.stopPropagation?.();
+      const targetMs = computeTargetMs(e.currentTarget, e.clientX, ctx.durationMs);
+      if (targetMs === null) return;
+      ctx.isDraggingRef.current = true;
+      ctx.activePointerIdRef.current = e.pointerId ?? null;
+      ctx.suppressNextClickRef.current = false;
+      ctx.dragPositionMsRef.current = targetMs;
+      ctx.setIsScrubbing(true);
+      ctx.setDragPositionMs(targetMs);
+      try {
+        e.currentTarget.setPointerCapture?.(e.pointerId);
+      } catch {
+        // Ignore when pointer capture is unsupported in CEF
+      }
+      bindWindowScrubListeners(ctx);
+    },
+    handleClick: (e: React.MouseEvent<HTMLDivElement>) => {
+      if (ctx.suppressNextClickRef.current) {
+        ctx.suppressNextClickRef.current = false;
+        return;
+      }
+      const targetMs = computeTargetMs(e.currentTarget, e.clientX, ctx.durationMs);
+      if (targetMs !== null) {
+        ctx.commitSeek(targetMs);
+      }
+    },
+  };
+}
+
 export const ProgressScrubBar: FC<ProgressScrubBarProps> = ({
   durationMs,
   currentPositionMs,
@@ -134,86 +276,35 @@ export const ProgressScrubBar: FC<ProgressScrubBarProps> = ({
   const [isFocused, setIsFocused] = useState(false);
   const [, setIsScrubbing] = useState(false);
   const [dragPositionMs, setDragPositionMs] = useState<number | null>(null);
+  const hitTargetRef = useRef<HTMLDivElement | null>(null);
   const isDraggingRef = useRef(false);
+  const activePointerIdRef = useRef<number | null>(null);
+  const dragPositionMsRef = useRef<number | null>(null);
+  const suppressNextClickRef = useRef(false);
+  const cleanupWindowDragRef = useRef<(() => void) | null>(null);
+
+  useEffect(() => () => cleanupWindowDragRef.current?.(), []);
 
   const effectivePositionMs = dragPositionMs ?? currentPositionMs;
   const progressPercent = Math.min(100, Math.max(0, (effectivePositionMs / durationMs) * 100));
+  const commitSeek = (targetMs: number) =>
+    onSeekPlayback ? onSeekPlayback(targetMs) : handleSeekDelta((targetMs - currentPositionMs) / 1000);
 
-  const computeTargetMs = (el: HTMLDivElement, clientX: number): number | null => {
-    const rect = el.getBoundingClientRect();
-    if (rect.width <= 0) return null;
-    const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
-    return pct * durationMs;
-  };
-
-  const commitSeek = (targetMs: number) => {
-    if (onSeekPlayback) {
-      onSeekPlayback(targetMs);
-    } else {
-      handleSeekDelta((targetMs - currentPositionMs) / 1000);
-    }
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
-    e.preventDefault?.();
-    e.stopPropagation?.();
-    setIsScrubbing(true);
-    const stepMs = getScrubStepMs(durationMs);
-    handleSeekDelta(e.key === "ArrowLeft" ? -stepMs / 1000 : stepMs / 1000);
-  };
-
-  const handleGamepadDirection = (e: GamepadEvent) => {
-    const btn = e.detail?.button;
-    if (btn !== GamepadButton.DIR_LEFT && btn !== GamepadButton.DIR_RIGHT) return;
-    e.preventDefault?.();
-    e.stopPropagation?.();
-    setIsScrubbing(true);
-    const stepMs = getScrubStepMs(durationMs);
-    handleSeekDelta(btn === GamepadButton.DIR_LEFT ? -stepMs / 1000 : stepMs / 1000);
-  };
-
-  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    const targetMs = computeTargetMs(e.currentTarget, e.clientX);
-    if (targetMs === null) return;
-    isDraggingRef.current = true;
-    setIsScrubbing(true);
-    setDragPositionMs(targetMs);
-    e.currentTarget.setPointerCapture?.(e.pointerId);
-  };
-
-  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!isDraggingRef.current) return;
-    const targetMs = computeTargetMs(e.currentTarget, e.clientX);
-    if (targetMs !== null) {
-      setDragPositionMs(targetMs);
-    }
-  };
-
-  const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!isDraggingRef.current) return;
-    isDraggingRef.current = false;
-    setIsScrubbing(false);
-    const targetMs = computeTargetMs(e.currentTarget, e.clientX) ?? dragPositionMs;
-    setDragPositionMs(null);
-    e.currentTarget.releasePointerCapture?.(e.pointerId);
-    if (targetMs !== null) {
-      commitSeek(targetMs);
-    }
-  };
-
-  const handlePointerCancel = () => {
-    isDraggingRef.current = false;
-    setIsScrubbing(false);
-    setDragPositionMs(null);
-  };
-
-  const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    const targetMs = computeTargetMs(e.currentTarget, e.clientX);
-    if (targetMs !== null) {
-      commitSeek(targetMs);
-    }
-  };
+  const { handleKeyDown, handleGamepadDirection, handlePointerDown, handleClick } = createScrubHandlers(
+    {
+      durationMs,
+      hitTargetRef,
+      isDraggingRef,
+      activePointerIdRef,
+      dragPositionMsRef,
+      suppressNextClickRef,
+      cleanupWindowDragRef,
+      setIsScrubbing,
+      setDragPositionMs,
+      commitSeek,
+    },
+    handleSeekDelta
+  );
 
   return (
     <div style={{ width: "100%", marginBottom: 16 }}>
@@ -231,24 +322,23 @@ export const ProgressScrubBar: FC<ProgressScrubBarProps> = ({
         onGamepadBlur={() => { setIsFocused(false); setIsScrubbing(false); }}
         onGamepadDirection={handleGamepadDirection}
         onKeyDown={handleKeyDown}
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-        onPointerCancel={handlePointerCancel}
-        onClick={handleClick}
-        style={{
-          width: "100%",
-          height: 12,
-          background: "rgba(255,255,255,0.15)",
-          borderRadius: 6,
-          cursor: "pointer",
-          padding: 0,
-          overflow: "visible",
-          touchAction: "none",
-          ...focusHalo(isFocused),
-        }}
+        style={{ width: "100%", padding: 0, overflow: "visible", borderRadius: 6, ...focusHalo(isFocused) }}
       >
-        <ProgressFillTrack progressPercent={progressPercent} isFocused={isFocused} />
+        <div
+          ref={hitTargetRef}
+          role="slider"
+          aria-label="Seek"
+          aria-valuemin={0}
+          aria-valuemax={durationMs}
+          aria-valuenow={Math.round(effectivePositionMs)}
+          onPointerDown={handlePointerDown}
+          onClick={handleClick}
+          style={{ width: "100%", padding: "10px 0", cursor: "pointer", touchAction: "none", userSelect: "none", position: "relative" }}
+        >
+          <div style={{ width: "100%", height: 12, background: "rgba(255,255,255,0.15)", borderRadius: 6, overflow: "visible", pointerEvents: "none" }}>
+            <ProgressFillTrack progressPercent={progressPercent} isFocused={isFocused} />
+          </div>
+        </div>
       </Focusable>
     </div>
   );
