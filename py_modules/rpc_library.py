@@ -1095,7 +1095,7 @@ async def search_spotify(
     plugin,
     query: str,
     types: str = "track,artist,album,playlist",
-    limit: int = 50,
+    limit: int = 10,
     offset: int = 0,
 ) -> dict:
     """Multi-entity search across tracks, artists, albums, playlists, shows, and episodes."""
@@ -1113,7 +1113,7 @@ async def search_spotify(
     if not token:
         return {"ok": False, "error": "Not authenticated"}
     try:
-        final_limit = 50 if limit <= 0 else max(1, min(int(limit), 50))
+        final_limit = 10 if limit <= 0 else max(1, min(int(limit), 10))
         final_offset = max(0, int(offset))
         try:
             data = await _exec(
@@ -1123,11 +1123,10 @@ async def search_spotify(
                     "type": types,
                     "limit": final_limit,
                     "offset": final_offset,
-                    "market": "from_token",
                 },
             )
         except Exception as e:
-            if "Invalid limit" in str(e) or "400" in str(e):
+            if "Invalid limit" in str(e) or "400" in str(e) or "403" in str(e):
                 data = await _exec(
                     _spotify_api_request, "search", token, "GET",
                     {
@@ -1135,7 +1134,6 @@ async def search_spotify(
                         "type": types,
                         "limit": min(final_limit, 10),
                         "offset": final_offset,
-                        "market": "from_token",
                     },
                 )
             else:

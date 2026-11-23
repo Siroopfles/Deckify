@@ -72,6 +72,7 @@ class TestStartRadioWaterfall(unittest.IsolatedAsyncioTestCase):
             if endpoint == "artists/art-1/top-tracks":
                 return {"tracks": [{"uri": "spotify:track:top-1"}, {"uri": "spotify:track:top-2"}]}
             if endpoint == "search":
+                self.assertEqual(params["limit"], 10)
                 return {
                     "tracks": {
                         "items": [
@@ -81,6 +82,8 @@ class TestStartRadioWaterfall(unittest.IsolatedAsyncioTestCase):
                         ]
                     }
                 }
+            if endpoint == "artists/art-1/albums":
+                return {"items": []}
             raise AssertionError(f"Unexpected endpoint: {endpoint}")
 
         with patch.object(rpc_playback, "_exec", side_effect=fake_exec), \
@@ -114,7 +117,10 @@ class TestStartRadioWaterfall(unittest.IsolatedAsyncioTestCase):
                 raise urllib.error.HTTPError("https://api.spotify.com", 403, "Forbidden", {}, None)
             if endpoint == "search":
                 self.assertEqual(params["q"], "artist:Artist Nine")
+                self.assertEqual(params["limit"], 10)
                 return {"tracks": {"items": [{"uri": "spotify:track:synth-1"}, {"uri": "spotify:track:synth-2"}]}}
+            if endpoint == "artists/art-9/albums":
+                return {"items": []}
             raise AssertionError(f"Unexpected endpoint: {endpoint}")
 
         with patch.object(rpc_playback, "_exec", side_effect=fake_exec), \
@@ -146,6 +152,8 @@ class TestStartRadioWaterfall(unittest.IsolatedAsyncioTestCase):
                 return {"tracks": [{"uri": "spotify:track:t2"}]}
             if endpoint == "search":
                 return {"tracks": {"items": []}}
+            if endpoint == "artists/art-a/albums":
+                return {"items": []}
             raise AssertionError(f"Unexpected endpoint: {endpoint}")
 
         with patch.object(rpc_playback, "_exec", side_effect=fake_exec), \
@@ -180,6 +188,42 @@ class TestStartRadioWaterfall(unittest.IsolatedAsyncioTestCase):
             res = await plugin.start_radio("track", "t1", "spotify:track:t1", "Song", "Artist")
         self.assertEqual(res, {"ok": True, "count": 5})
         mock_sr.assert_awaited_once_with(plugin, "track", "t1", "spotify:track:t1", "Song", "Artist")
+
+    async def test_artist_radio_falls_back_to_artist_albums_when_top_tracks_and_search_fail(self):
+        plugin = make_plugin("librespot")
+        seen_calls = []
+
+        async def fake_exec(fn, endpoint, token, method="GET", params=None, body=None):
+            seen_calls.append((endpoint, params))
+            if endpoint == "recommendations":
+                raise urllib.error.HTTPError("https://api.spotify.com", 403, "Forbidden", {}, None)
+            if endpoint == "artists/art-fb/top-tracks":
+                raise urllib.error.HTTPError("https://api.spotify.com", 403, "Forbidden", {}, None)
+            if endpoint == "search":
+                raise urllib.error.HTTPError("https://api.spotify.com", 403, "Forbidden", {}, None)
+            if endpoint == "artists/art-fb/albums":
+                self.assertEqual(params, {"limit": 3, "include_groups": "album,single"})
+                return {"items": [{"id": "alb-fb-1"}]}
+            if endpoint == "albums/alb-fb-1/tracks":
+                self.assertEqual(params, {"limit": 10})
+                return {"items": [{"uri": "spotify:track:fb-1"}, {"uri": "spotify:track:fb-2"}]}
+            raise AssertionError(f"Unexpected endpoint: {endpoint}")
+
+        with patch.object(rpc_playback, "_exec", side_effect=fake_exec), \
+             patch.object(rpc_playback, "play_tracks", new_callable=AsyncMock, return_value={"ok": True}) as mock_play, \
+             patch.object(rpc_playback.decky.logger, "warning") as mock_warn:
+            res = await rpc_playback.start_radio(
+                plugin,
+                seed_type="artist",
+                seed_id="art-fb",
+                artist_name="Fallback Artist",
+            )
+
+        self.assertTrue(res.get("ok"), msg=res)
+        self.assertEqual(res.get("tier"), "synthesis")
+        self.assertEqual(res.get("uris"), ["spotify:track:fb-1", "spotify:track:fb-2"])
+        mock_play.assert_awaited_once_with(plugin, uris=["spotify:track:fb-1", "spotify:track:fb-2"])
+        self.assertGreaterEqual(mock_warn.call_count, 3)
 
 
 class TestArtistDiscographyPagination(unittest.IsolatedAsyncioTestCase):
@@ -355,12 +399,14 @@ class TestSearchHistoryAndPodcastSearch(unittest.IsolatedAsyncioTestCase):
             },
         )
 
-    async def test_search_spotify_show_episode_market_from_token_and_null_guards(self):
+    async def test_search_spotify_show_episode_no_market_limit_cap_and_null_guards(self):
         plugin = make_plugin("spotify_client")
 
         async def fake_exec(fn, endpoint, token, method="GET", params=None, body=None):
             self.assertEqual(endpoint, "search")
-            self.assertEqual(params["market"], "from_token")
+            self.assertNotIn("market", params)
+            self.assertLessEqual(params["limit"], 10)
+            self.assertEqual(params["limit"], 10)
             self.assertIn("show", params["type"])
             self.assertIn("episode", params["type"])
             return {
@@ -411,6 +457,7 @@ class TestSearchHistoryAndPodcastSearch(unittest.IsolatedAsyncioTestCase):
                 plugin,
                 "deck",
                 types="track,artist,album,playlist,show,episode",
+                limit=50,
             )
 
         self.assertTrue(res.get("ok"), msg=res)

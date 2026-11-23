@@ -753,10 +753,11 @@ async def start_radio(
             candidate_uris = _dedupe_uris(tier1)
             if candidate_uris:
                 tier_used = "cdp"
-    except Exception:
+    except Exception as e:
+        decky.logger.warning("start_radio Tier 1 CDP failed: %s", e)
         candidate_uris = []
 
-    # Tier 2: Web API /v1/recommendations (silent fallthrough on 403/404/empty)
+    # Tier 2: Web API /v1/recommendations (fallthrough on 403/404/empty)
     if not candidate_uris:
         try:
             rec_params: dict | None = None
@@ -770,7 +771,7 @@ async def start_radio(
                     f"albums/{safe_id}/tracks",
                     token,
                     "GET",
-                    {"limit": 5},
+                    {"limit": 10},
                 )
                 for item in (alb_data or {}).get("items", []) or []:
                     if not isinstance(item, dict):
@@ -804,10 +805,11 @@ async def start_radio(
                 candidate_uris = _dedupe_uris(rec_uris)
                 if candidate_uris:
                     tier_used = "recommendations"
-        except Exception:
+        except Exception as e:
+            decky.logger.warning("start_radio Tier 2 recommendations failed: %s", e)
             candidate_uris = []
 
-    # Tier 3: Top-Tracks + Search synthesis (silent fallback)
+    # Tier 3: Top-Tracks + Search + Artist Albums synthesis fallback
     if not candidate_uris:
         synth_uris: list[str] = []
 
@@ -820,8 +822,8 @@ async def start_radio(
                     if artists and isinstance(artists[0], dict):
                         resolved_artist_id = resolved_artist_id or (artists[0].get("id") or "")
                         resolved_artist_name = resolved_artist_name or (artists[0].get("name") or "")
-            except Exception:
-                pass
+            except Exception as e:
+                decky.logger.warning("start_radio Tier 3 track lookup failed: %s", e)
 
         if resolved_artist_id:
             safe_art_id = urllib.parse.quote(resolved_artist_id.strip(), safe="")
@@ -835,7 +837,8 @@ async def start_radio(
                 for t in ((top_data or {}).get("tracks") or []):
                     if isinstance(t, dict) and isinstance(t.get("uri"), str) and t.get("uri"):
                         synth_uris.append(t["uri"])
-            except Exception:
+            except Exception as e:
+                decky.logger.warning("start_radio Tier 3 top-tracks failed: %s", e)
                 if not resolved_artist_name:
                     try:
                         art_info = await _exec(
@@ -846,8 +849,8 @@ async def start_radio(
                         )
                         if isinstance(art_info, dict):
                             resolved_artist_name = art_info.get("name", "") or ""
-                    except Exception:
-                        pass
+                    except Exception as art_err:
+                        decky.logger.warning("start_radio Tier 3 artist lookup failed: %s", art_err)
 
         synth_uris = _dedupe_uris(synth_uris)
 
@@ -860,14 +863,62 @@ async def start_radio(
                         "search",
                         token,
                         "GET",
-                        {"q": search_query, "type": "track", "limit": 25},
+                        {"q": search_query, "type": "track", "limit": 10},
                     )
                     for t in ((search_data or {}).get("tracks") or {}).get("items", []) or []:
                         if isinstance(t, dict) and isinstance(t.get("uri"), str) and t.get("uri"):
                             synth_uris.append(t["uri"])
                     synth_uris = _dedupe_uris(synth_uris)
-                except Exception:
-                    pass
+                except Exception as e:
+                    decky.logger.warning("start_radio Tier 3 search failed: %s", e)
+
+        if len(synth_uris) < 15 and resolved_artist_id:
+            safe_art_id = urllib.parse.quote(resolved_artist_id.strip(), safe="")
+            try:
+                albums_data = await _exec(
+                    _spotify_api_request,
+                    f"artists/{safe_art_id}/albums",
+                    token,
+                    "GET",
+                    {"limit": 3, "include_groups": "album,single"},
+                )
+                for alb in (albums_data or {}).get("items", []) or []:
+                    if not isinstance(alb, dict):
+                        continue
+                    alb_id = alb.get("id")
+                    if not isinstance(alb_id, str) or not alb_id.strip():
+                        continue
+                    safe_alb_id = urllib.parse.quote(alb_id.strip(), safe="")
+                    alb_tracks_data = await _exec(
+                        _spotify_api_request,
+                        f"albums/{safe_alb_id}/tracks",
+                        token,
+                        "GET",
+                        {"limit": 10},
+                    )
+                    for t in (alb_tracks_data or {}).get("items", []) or []:
+                        if isinstance(t, dict) and isinstance(t.get("uri"), str) and t.get("uri"):
+                            synth_uris.append(t["uri"])
+                    synth_uris = _dedupe_uris(synth_uris)
+                    if len(synth_uris) >= 15:
+                        break
+            except Exception as e:
+                decky.logger.warning("start_radio Tier 3 artist albums fallback failed: %s", e)
+
+        if norm_type == "album" and not album_track_uris:
+            try:
+                alb_data = await _exec(
+                    _spotify_api_request,
+                    f"albums/{safe_id}/tracks",
+                    token,
+                    "GET",
+                    {"limit": 10},
+                )
+                for item in (alb_data or {}).get("items", []) or []:
+                    if isinstance(item, dict) and isinstance(item.get("uri"), str) and item.get("uri"):
+                        album_track_uris.append(item["uri"])
+            except Exception as e:
+                decky.logger.warning("start_radio Tier 3 album tracks fallback failed: %s", e)
 
         if norm_type == "album" and album_track_uris:
             synth_uris = _dedupe_uris(synth_uris + album_track_uris)

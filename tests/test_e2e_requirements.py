@@ -421,17 +421,22 @@ class TestTier1FeatureCoverage(unittest.IsolatedAsyncioTestCase):
         mock_like.assert_awaited_once()
 
     async def test_r5_search_spotify_forwards_custom_limit_to_api(self):
-        """R5.5: search_spotify forwards custom limit value to Spotify request."""
+        """R5.5: search_spotify forwards custom limit value (capped at 10 for Spotify Dev Mode) to Spotify request."""
         self.execute.return_value = {}
         with patch.object(self.plugin, "_annotate_tracks_liked", new_callable=AsyncMock):
             try:
-                await self.plugin.search_spotify(query="daft", limit=40)
+                await self.plugin.search_spotify(query="daft", limit=7)
             except TypeError as e:
                 self.fail(f"search_spotify signature mismatch: {e}")
 
         call_args = self.execute.call_args[0]
         params = call_args[4]
-        self.assertEqual(params.get("limit"), 40)
+        self.assertEqual(params.get("limit"), 7)
+
+        with patch.object(self.plugin, "_annotate_tracks_liked", new_callable=AsyncMock):
+            await self.plugin.search_spotify(query="daft", limit=40)
+        params_capped = self.execute.call_args[0][4]
+        self.assertEqual(params_capped.get("limit"), 10)
 
     # ------------------------------------------------------------------------
     # R6: Notification Album Artwork
