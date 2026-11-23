@@ -23,8 +23,31 @@ vi.mock("react/jsx-runtime", () => ({
   }),
 }));
 
+const hookState: { slots: unknown[]; cursor: number; active: boolean } = {
+  slots: [],
+  cursor: 0,
+  active: false,
+};
+
+function resetHookState(active = false): void {
+  hookState.slots = [];
+  hookState.cursor = 0;
+  hookState.active = active;
+}
+
 vi.mock("react", () => ({
-  useState: (init: unknown) => [init, vi.fn()],
+  useState: (init: unknown) => {
+    if (!hookState.active) return [init, vi.fn()];
+    const idx = hookState.cursor++;
+    if (!(idx in hookState.slots)) {
+      hookState.slots[idx] = typeof init === "function" ? (init as () => unknown)() : init;
+    }
+    const setState = (next: unknown) => {
+      hookState.slots[idx] =
+        typeof next === "function" ? (next as (prev: unknown) => unknown)(hookState.slots[idx]) : next;
+    };
+    return [hookState.slots[idx], setState];
+  },
   useEffect: (fn: () => void) => fn(),
   useCallback: (fn: unknown) => fn,
   useRef: (init: unknown) => ({ current: init }),
@@ -33,6 +56,8 @@ vi.mock("react", () => ({
 
 vi.mock("@decky/ui", () => ({
   GamepadButton: {
+    DIR_UP: 9,
+    DIR_DOWN: 10,
     DIR_LEFT: 11,
     DIR_RIGHT: 12,
   },
@@ -378,16 +403,75 @@ describe("ProgressScrubBar G-24-2 scrubbing and cleanup", () => {
 
     const preventDefault = vi.fn();
     const stopPropagation = vi.fn();
-    onGamepadDirection({ detail: { button: 11 }, preventDefault, stopPropagation });
+    expect(onGamepadDirection({ detail: { button: 11 }, preventDefault, stopPropagation })).toBe(true);
     expect(preventDefault).toHaveBeenCalledTimes(1);
     expect(stopPropagation).toHaveBeenCalledTimes(1);
     expect(handleSeekDelta).toHaveBeenNthCalledWith(1, -expectedStepSec);
 
-    onGamepadDirection({ detail: { button: 12 }, preventDefault, stopPropagation });
+    expect(onGamepadDirection({ detail: { button: 12 }, preventDefault, stopPropagation })).toBe(true);
     expect(handleSeekDelta).toHaveBeenNthCalledWith(2, expectedStepSec);
 
-    onGamepadDirection({ detail: { button: 9 }, preventDefault, stopPropagation });
+    expect(onGamepadDirection({ detail: { button: 9 }, preventDefault, stopPropagation })).toBe(false);
+    expect(onGamepadDirection({ detail: { button: 10 }, preventDefault, stopPropagation })).toBe(false);
     expect(handleSeekDelta).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("ProgressScrubBar G-24-4 controller focus and selection", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetHookState(true);
+  });
+
+  afterEach(() => {
+    resetHookState(false);
+  });
+
+  it("registers onActivate, onCancelButton, and aria-label on Focusable and toggles Done Scrubbing mode", () => {
+    const props = {
+      durationMs: 240000,
+      currentPositionMs: 30000,
+      handleSeekDelta: vi.fn(),
+      onSeekPlayback: vi.fn(),
+    };
+    const renderBar = () => {
+      hookState.cursor = 0;
+      const tree = ProgressScrubBar(props) as unknown as MockNode;
+      return findNodes(tree, (n) => n.props?.noFocusRing === true)[0];
+    };
+
+    let bar = renderBar();
+    expect(bar.props?.["aria-label"]).toBe("Seek Playback");
+    expect(typeof bar.props?.onActivate).toBe("function");
+    expect(typeof bar.props?.onCancelButton).toBe("function");
+    expect(bar.props?.onOKActionDescription).toBe("Scrub ←/→");
+    expect(bar.props?.["data-deckify-focused"]).toBeUndefined();
+
+    const idleCancelPrevent = vi.fn();
+    const idleCancelStop = vi.fn();
+    (bar.props?.onCancelButton as (e: unknown) => void)({
+      preventDefault: idleCancelPrevent,
+      stopPropagation: idleCancelStop,
+    });
+    expect(idleCancelPrevent).not.toHaveBeenCalled();
+
+    (bar.props?.onGamepadFocus as () => void)();
+    (bar.props?.onActivate as () => void)();
+    bar = renderBar();
+    expect(bar.props?.["data-deckify-focused"]).toBe("true");
+    expect(bar.props?.onOKActionDescription).toBe("Done Scrubbing");
+
+    const cancelPrevent = vi.fn();
+    const cancelStop = vi.fn();
+    (bar.props?.onCancelButton as (e: unknown) => void)({
+      preventDefault: cancelPrevent,
+      stopPropagation: cancelStop,
+    });
+    expect(cancelPrevent).toHaveBeenCalledTimes(1);
+    expect(cancelStop).toHaveBeenCalledTimes(1);
+
+    bar = renderBar();
+    expect(bar.props?.onOKActionDescription).toBe("Scrub ←/→");
   });
 });
 
