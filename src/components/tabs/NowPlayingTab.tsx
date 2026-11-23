@@ -227,13 +227,17 @@ function createScrubHandlers(
       ctx.setIsScrubbing(true);
       handleSeekDelta(e.key === "ArrowLeft" ? -stepSec : stepSec);
     },
-    handleGamepadDirection: (e: GamepadEvent) => {
+    handleGamepadDirection: (e: GamepadEvent): boolean => {
       const btn = e.detail?.button;
-      if (btn !== GamepadButton.DIR_LEFT && btn !== GamepadButton.DIR_RIGHT) return;
+      if (btn !== GamepadButton.DIR_LEFT && btn !== GamepadButton.DIR_RIGHT) {
+        ctx.setIsScrubbing(false);
+        return false;
+      }
       e.preventDefault?.();
       e.stopPropagation?.();
       ctx.setIsScrubbing(true);
       handleSeekDelta(btn === GamepadButton.DIR_LEFT ? -stepSec : stepSec);
+      return true;
     },
     handlePointerDown: (e: React.PointerEvent<HTMLDivElement>) => {
       if (e.pointerType === "mouse" && e.button !== 0) return;
@@ -267,14 +271,9 @@ function createScrubHandlers(
   };
 }
 
-export const ProgressScrubBar: FC<ProgressScrubBarProps> = ({
-  durationMs,
-  currentPositionMs,
-  handleSeekDelta,
-  onSeekPlayback,
-}) => {
+export const ProgressScrubBar: FC<ProgressScrubBarProps> = ({ durationMs, currentPositionMs, handleSeekDelta, onSeekPlayback }) => {
   const [isFocused, setIsFocused] = useState(false);
-  const [, setIsScrubbing] = useState(false);
+  const [isScrubbing, setIsScrubbing] = useState(false);
   const [dragPositionMs, setDragPositionMs] = useState<number | null>(null);
   const hitTargetRef = useRef<HTMLDivElement | null>(null);
   const isDraggingRef = useRef(false);
@@ -285,24 +284,14 @@ export const ProgressScrubBar: FC<ProgressScrubBarProps> = ({
 
   useEffect(() => () => cleanupWindowDragRef.current?.(), []);
 
+  const isActive = isFocused || isScrubbing;
   const effectivePositionMs = dragPositionMs ?? currentPositionMs;
   const progressPercent = Math.min(100, Math.max(0, (effectivePositionMs / durationMs) * 100));
   const commitSeek = (targetMs: number) =>
     onSeekPlayback ? onSeekPlayback(targetMs) : handleSeekDelta((targetMs - currentPositionMs) / 1000);
 
   const { handleKeyDown, handleGamepadDirection, handlePointerDown, handleClick } = createScrubHandlers(
-    {
-      durationMs,
-      hitTargetRef,
-      isDraggingRef,
-      activePointerIdRef,
-      dragPositionMsRef,
-      suppressNextClickRef,
-      cleanupWindowDragRef,
-      setIsScrubbing,
-      setDragPositionMs,
-      commitSeek,
-    },
+    { durationMs, hitTargetRef, isDraggingRef, activePointerIdRef, dragPositionMsRef, suppressNextClickRef, cleanupWindowDragRef, setIsScrubbing, setDragPositionMs, commitSeek },
     handleSeekDelta
   );
 
@@ -316,13 +305,23 @@ export const ProgressScrubBar: FC<ProgressScrubBarProps> = ({
       <Focusable
         noFocusRing
         tabIndex={0}
+        aria-label="Seek Playback"
+        data-deckify-focused={isFocused ? "true" : undefined}
+        onOKActionDescription={isScrubbing ? "Done Scrubbing" : "Scrub ←/→"}
+        onActivate={() => setIsScrubbing(!isScrubbing)}
+        onCancelButton={(e: GamepadEvent) => {
+          if (!isScrubbing) return;
+          e.preventDefault?.();
+          e.stopPropagation?.();
+          setIsScrubbing(false);
+        }}
         onFocus={() => setIsFocused(true)}
         onBlur={() => { setIsFocused(false); setIsScrubbing(false); }}
         onGamepadFocus={() => setIsFocused(true)}
         onGamepadBlur={() => { setIsFocused(false); setIsScrubbing(false); }}
         onGamepadDirection={handleGamepadDirection}
         onKeyDown={handleKeyDown}
-        style={{ width: "100%", padding: 0, overflow: "visible", borderRadius: 6, ...focusHalo(isFocused) }}
+        style={{ width: "100%", padding: 0, overflow: "visible", borderRadius: 6, ...focusHalo(isActive) }}
       >
         <div
           ref={hitTargetRef}
@@ -336,7 +335,7 @@ export const ProgressScrubBar: FC<ProgressScrubBarProps> = ({
           style={{ width: "100%", padding: "10px 0", cursor: "pointer", touchAction: "none", userSelect: "none", position: "relative" }}
         >
           <div style={{ width: "100%", height: 12, background: "rgba(255,255,255,0.15)", borderRadius: 6, overflow: "visible", pointerEvents: "none" }}>
-            <ProgressFillTrack progressPercent={progressPercent} isFocused={isFocused} />
+            <ProgressFillTrack progressPercent={progressPercent} isFocused={isActive} />
           </div>
         </div>
       </Focusable>
