@@ -3,6 +3,7 @@ import os
 import socket
 import time
 import urllib.error
+import urllib.parse
 from py_modules.common import (
     ALLOWED_PLAYBACK_SPEEDS,
     _exec,
@@ -682,3 +683,215 @@ async def set_playback_speed(plugin, speed: float) -> dict:
     _save_settings(plugin._settings)
     await decky.emit("playback_speed_changed", {"speed": target_speed})
     return {"ok": True, "speed": target_speed}
+
+
+async def _try_cdp_station_radio(
+    plugin,
+    seed_type: str,
+    seed_id: str,
+    seed_uri: str = "",
+) -> list[str]:
+    """Tier 1 CDP station radio hook (stubbed until Phase 26 cdp_bridge)."""
+    return []
+
+
+def _dedupe_uris(uris: list[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for uri in uris:
+        if isinstance(uri, str) and uri.strip() and uri not in seen:
+            seen.add(uri)
+            out.append(uri)
+    return out
+
+
+def _extract_seed_id(seed_id: str, seed_uri: str) -> str:
+    raw = (seed_id or "").strip()
+    if not raw and seed_uri:
+        raw = seed_uri.strip()
+    if raw.startswith("spotify:") and ":" in raw:
+        raw = raw.split(":")[-1].strip()
+    return raw
+
+
+async def start_radio(
+    plugin,
+    seed_type: str,
+    seed_id: str,
+    seed_uri: str = "",
+    seed_name: str = "",
+    artist_name: str = "",
+) -> dict:
+    """Start Song, Artist, or Album Radio via a silent 3-tier waterfall and replace the queue."""
+    norm_type = (seed_type or "").strip().lower()
+    if norm_type not in ("track", "artist", "album"):
+        return {"ok": False, "error": "Invalid radio seed type"}
+
+    clean_id = _extract_seed_id(seed_id, seed_uri)
+    if not clean_id:
+        return {"ok": False, "error": "Invalid radio seed ID"}
+
+    norm_uri = (seed_uri or "").strip() or f"spotify:{norm_type}:{clean_id}"
+    safe_id = urllib.parse.quote(clean_id, safe="")
+
+    token = await plugin._ensure_token()
+    if not token:
+        return {"ok": False, "error": "Not authenticated"}
+
+    candidate_uris: list[str] = []
+    tier_used = ""
+    album_track_uris: list[str] = []
+    album_track_ids: list[str] = []
+    resolved_artist_id = clean_id if norm_type == "artist" else ""
+    resolved_artist_name = (artist_name or "").strip()
+    resolved_seed_name = (seed_name or "").strip()
+
+    # Tier 1: CDP station radio hook (stubbed until Phase 26)
+    try:
+        tier1 = await _try_cdp_station_radio(plugin, norm_type, clean_id, norm_uri)
+        if isinstance(tier1, list):
+            candidate_uris = _dedupe_uris(tier1)
+            if candidate_uris:
+                tier_used = "cdp"
+    except Exception:
+        candidate_uris = []
+
+    # Tier 2: Web API /v1/recommendations (silent fallthrough on 403/404/empty)
+    if not candidate_uris:
+        try:
+            rec_params: dict | None = None
+            if norm_type == "track":
+                rec_params = {"seed_tracks": clean_id, "limit": 25}
+            elif norm_type == "artist":
+                rec_params = {"seed_artists": clean_id, "limit": 25}
+            elif norm_type == "album":
+                alb_data = await _exec(
+                    _spotify_api_request,
+                    f"albums/{safe_id}/tracks",
+                    token,
+                    "GET",
+                    {"limit": 5},
+                )
+                for item in (alb_data or {}).get("items", []) or []:
+                    if not isinstance(item, dict):
+                        continue
+                    tid = item.get("id")
+                    turi = item.get("uri")
+                    if isinstance(tid, str) and tid:
+                        album_track_ids.append(tid)
+                    if isinstance(turi, str) and turi:
+                        album_track_uris.append(turi)
+                    if not resolved_artist_id and item.get("artists"):
+                        first_art = item["artists"][0] if isinstance(item["artists"][0], dict) else {}
+                        resolved_artist_id = first_art.get("id", "") or resolved_artist_id
+                        resolved_artist_name = resolved_artist_name or first_art.get("name", "")
+                if album_track_ids:
+                    rec_params = {"seed_tracks": ",".join(album_track_ids[:5]), "limit": 25}
+
+            if rec_params:
+                rec_data = await _exec(
+                    _spotify_api_request,
+                    "recommendations",
+                    token,
+                    "GET",
+                    rec_params,
+                )
+                rec_uris = [
+                    t["uri"]
+                    for t in ((rec_data or {}).get("tracks") or [])
+                    if isinstance(t, dict) and isinstance(t.get("uri"), str) and t.get("uri")
+                ]
+                candidate_uris = _dedupe_uris(rec_uris)
+                if candidate_uris:
+                    tier_used = "recommendations"
+        except Exception:
+            candidate_uris = []
+
+    # Tier 3: Top-Tracks + Search synthesis (silent fallback)
+    if not candidate_uris:
+        synth_uris: list[str] = []
+
+        if norm_type == "track" and (not resolved_artist_id or not resolved_artist_name):
+            try:
+                t_info = await _exec(_spotify_api_request, f"tracks/{safe_id}", token, "GET")
+                if isinstance(t_info, dict):
+                    resolved_seed_name = resolved_seed_name or (t_info.get("name") or "")
+                    artists = t_info.get("artists") or []
+                    if artists and isinstance(artists[0], dict):
+                        resolved_artist_id = resolved_artist_id or (artists[0].get("id") or "")
+                        resolved_artist_name = resolved_artist_name or (artists[0].get("name") or "")
+            except Exception:
+                pass
+
+        if resolved_artist_id:
+            safe_art_id = urllib.parse.quote(resolved_artist_id.strip(), safe="")
+            try:
+                top_data = await _exec(
+                    _spotify_api_request,
+                    f"artists/{safe_art_id}/top-tracks",
+                    token,
+                    "GET",
+                )
+                for t in ((top_data or {}).get("tracks") or []):
+                    if isinstance(t, dict) and isinstance(t.get("uri"), str) and t.get("uri"):
+                        synth_uris.append(t["uri"])
+            except Exception:
+                if not resolved_artist_name:
+                    try:
+                        art_info = await _exec(
+                            _spotify_api_request,
+                            f"artists/{safe_art_id}",
+                            token,
+                            "GET",
+                        )
+                        if isinstance(art_info, dict):
+                            resolved_artist_name = art_info.get("name", "") or ""
+                    except Exception:
+                        pass
+
+        synth_uris = _dedupe_uris(synth_uris)
+
+        if len(synth_uris) < 15:
+            search_query = f"artist:{resolved_artist_name}" if resolved_artist_name else resolved_seed_name
+            if search_query:
+                try:
+                    search_data = await _exec(
+                        _spotify_api_request,
+                        "search",
+                        token,
+                        "GET",
+                        {"q": search_query, "type": "track", "limit": 25},
+                    )
+                    for t in ((search_data or {}).get("tracks") or {}).get("items", []) or []:
+                        if isinstance(t, dict) and isinstance(t.get("uri"), str) and t.get("uri"):
+                            synth_uris.append(t["uri"])
+                    synth_uris = _dedupe_uris(synth_uris)
+                except Exception:
+                    pass
+
+        if norm_type == "album" and album_track_uris:
+            synth_uris = _dedupe_uris(synth_uris + album_track_uris)
+
+        candidate_uris = synth_uris
+        if candidate_uris:
+            tier_used = "synthesis"
+
+    if not candidate_uris:
+        return {"ok": False, "error": "Could not start radio — please try again."}
+
+    if norm_type == "track" and norm_uri:
+        final_uris = [norm_uri] + [u for u in candidate_uris if u != norm_uri]
+        final_uris = final_uris[:30]
+    else:
+        final_uris = candidate_uris[:30]
+
+    play_res = await play_tracks(plugin, uris=final_uris)
+    if not isinstance(play_res, dict) or not play_res.get("ok"):
+        return play_res if isinstance(play_res, dict) else {"ok": False, "error": "Playback failed"}
+
+    return {
+        "ok": True,
+        "count": len(final_uris),
+        "tier": tier_used,
+        "uris": final_uris,
+    }

@@ -1422,6 +1422,18 @@ class Plugin:
     async def get_track_recommendations(self, seed_track_id: str, limit: int = 25) -> dict:
         return await rpc_library.get_track_recommendations(self, seed_track_id, limit)
 
+    async def start_radio(
+        self,
+        seed_type: str,
+        seed_id: str,
+        seed_uri: str = "",
+        seed_name: str = "",
+        artist_name: str = "",
+    ) -> dict:
+        return await rpc_playback.start_radio(
+            self, seed_type, seed_id, seed_uri, seed_name, artist_name
+        )
+
     async def get_lyrics(
         self,
         track_name: str,
