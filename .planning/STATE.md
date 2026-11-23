@@ -2,43 +2,43 @@
 gsd_state_version: "1.0"
 milestone: v0.7
 milestone_name: Studio, Living Room TV, Offline Travel & Ultimate Immersion (In Progress)
-current_phase: 24
-current_phase_name: Podcast & Audiobook Power Suite
-status: verifying
-stopped_at: Completed 24-08-PLAN.md
-last_updated: "2026-11-23T18:53:51.293Z"
+current_phase: 25
+current_phase_name: Universal Artist/Album Drill-Down, Instant Radio & Search 2.0
+status: planning
+stopped_at: Phase 24 complete, ready to plan Phase 25
+last_updated: "2026-11-23T19:21:00.000Z"
 last_activity: 2026-11-23
-last_activity_desc: Phase 24 execution started
-state_head: e52460ec19023b45dc2c6f6b70745e2549ab8614
+last_activity_desc: Phase 24 complete, transitioned to Phase 25
+state_head: 4b0350944dc150d38ddbcd540d1ea628af8fdd74
 progress:
   total_phases: 12
-  completed_phases: 4
+  completed_phases: 6
   total_plans: 36
   completed_plans: 36
-  percent: 33
+  percent: 50
 ---
 
 # Project State
 
 ## Project Reference
 
-See: [.planning/PROJECT.md](file:///C:/Users/djdje/Deckify/.planning/PROJECT.md) (updated 2026-11-18)
+See: [.planning/PROJECT.md](file:///C:/Users/djdje/Deckify/.planning/PROJECT.md) (updated 2026-11-23)
 
 **Core value:** Rock-solid Spotify playback and responsive, reliable controller navigation on Steam Deck without UI lag, broken images, or desynchronized playback states.
-**Current focus:** Phase 24 — Podcast & Audiobook Power Suite
+**Current focus:** Phase 25 — Universal Artist/Album Drill-Down, Instant Radio & Search 2.0
 
 ## Current Position
 
-Phase: 24 (Podcast & Audiobook Power Suite) — EXECUTING
-Plan: 8 of 8
-Status: Phase complete — ready for verification
-Last activity: 2026-11-23 — Phase 24 execution started
+Phase: 25 — Universal Artist/Album Drill-Down, Instant Radio & Search 2.0
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-11-23 — Phase 24 complete, transitioned to Phase 25
 
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 65 (7 in v0.4, 22 in v0.5, 14 in v0.6)
+- Total plans completed: 73 (7 in v0.4, 22 in v0.5, 14 in v0.6)
 - Average duration: ~14.7 min
 - Total execution time: ~2.2 hours
 
@@ -66,6 +66,7 @@ Last activity: 2026-11-23 — Phase 24 execution started
 | 21 | 6 | - | - |
 | 22 | 5 | - | - |
 | 23 | 4 | - | - |
+| 24 | 8 | - | - |
 
 **Recent Trend:**
 - Last 5 plans: 18m, 14m, 16m, 14m, 12m
@@ -252,10 +253,10 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-23T18:53:46.201Z
-Stopped at: Completed 24-08-PLAN.md
+Last session: 2026-11-23T19:21:00.000Z
+Stopped at: Phase 24 complete, ready to plan Phase 25
 Resume file: None
 
 ## Operator Next Steps
 
-- Run `/gsd-plan-phase 19` (or `/gsd-discuss-phase 19`) to begin Phase 19
+- Run `/gsd-discuss-phase 25` (or `/gsd-plan-phase 25`) to begin Phase 25
