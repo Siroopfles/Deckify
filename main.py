@@ -1400,6 +1400,14 @@ class Plugin:
     async def get_artist_top_tracks(self, artist_id: str) -> dict:
         return await rpc_library.get_artist_top_tracks(self, artist_id)
 
+    async def get_artist_info(self, artist_id: str) -> dict:
+        return await rpc_library.get_artist_info(self, artist_id)
+
+    async def get_artist_all_tracks(
+        self, artist_id: str, album_offset: int = 0, album_limit: int = 3
+    ) -> dict:
+        return await rpc_library.get_artist_all_tracks(self, artist_id, album_offset, album_limit)
+
     async def get_recently_played(self, limit: int = 30) -> dict:
         return await rpc_library.get_recently_played(self, limit)
 

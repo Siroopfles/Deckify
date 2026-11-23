@@ -182,5 +182,121 @@ class TestStartRadioWaterfall(unittest.IsolatedAsyncioTestCase):
         mock_sr.assert_awaited_once_with(plugin, "track", "t1", "spotify:track:t1", "Song", "Artist")
 
 
+class TestArtistDiscographyPagination(unittest.IsolatedAsyncioTestCase):
+    async def test_get_artist_all_tracks_paginates_and_annotates(self):
+        plugin = make_plugin("spotify_client")
+
+        async def fake_exec(fn, endpoint, token, method="GET", params=None, body=None):
+            if endpoint == "artists/art-1/albums":
+                self.assertEqual(params["limit"], 3)
+                self.assertEqual(params["offset"], 0)
+                self.assertEqual(params["include_groups"], "album,single")
+                return {
+                    "total": 5,
+                    "items": [
+                        {
+                            "id": "alb-1",
+                            "name": "Album One",
+                            "images": [{"url": "https://i.scdn.co/image/alb1"}],
+                        },
+                        {
+                            "id": "alb-2",
+                            "name": "Album Two",
+                            "images": [{"url": "https://i.scdn.co/image/alb2"}],
+                        },
+                        {
+                            "id": "alb-3",
+                            "name": "Album Three",
+                            "images": [{"url": "https://i.scdn.co/image/alb3"}],
+                        },
+                    ],
+                }
+            if endpoint.startswith("albums/") and endpoint.endswith("/tracks"):
+                alb_id = endpoint.split("/")[1]
+                return {
+                    "items": [
+                        None,
+                        {
+                            "id": f"trk-{alb_id}",
+                            "name": f"Track from {alb_id}",
+                            "artists": [{"id": "art-1", "name": "Synth Artist"}],
+                            "uri": f"spotify:track:{alb_id}",
+                            "duration_ms": 180000,
+                        },
+                    ]
+                }
+            raise AssertionError(f"Unexpected endpoint: {endpoint}")
+
+        with patch.object(rpc_library, "_exec", side_effect=fake_exec), \
+             patch.object(rpc_library, "_image_url", side_effect=lambda imgs: f"proxy:{imgs[0]['url']}" if imgs else None):
+            res = await rpc_library.get_artist_all_tracks(plugin, "art-1", album_offset=0, album_limit=3)
+
+        self.assertTrue(res.get("ok"), msg=res)
+        self.assertTrue(res.get("has_more"))
+        self.assertEqual(res.get("next_album_offset"), 3)
+        self.assertEqual(res.get("total_albums"), 5)
+        tracks = res.get("tracks") or []
+        self.assertEqual(len(tracks), 3)
+        self.assertEqual(tracks[0]["album"], "Album One")
+        self.assertEqual(tracks[0]["album_id"], "alb-1")
+        self.assertEqual(tracks[0]["image_url"], "proxy:https://i.scdn.co/image/alb1")
+        self.assertEqual(tracks[0]["artwork_url"], "proxy:https://i.scdn.co/image/alb1")
+        plugin._annotate_tracks_liked.assert_awaited_once()
+
+    async def test_get_artist_all_tracks_quotes_id_clamps_limit_and_validates(self):
+        plugin = make_plugin("spotify_client")
+
+        bad_res = await rpc_library.get_artist_all_tracks(plugin, "   ")
+        self.assertFalse(bad_res.get("ok"))
+
+        plugin_no_tok = make_plugin("spotify_client")
+        plugin_no_tok._ensure_token = AsyncMock(return_value="")
+        unauth_res = await rpc_library.get_artist_all_tracks(plugin_no_tok, "art-1")
+        self.assertFalse(unauth_res.get("ok"))
+
+        seen = []
+
+        async def fake_exec(fn, endpoint, token, method="GET", params=None, body=None):
+            seen.append((endpoint, params))
+            return {"total": 0, "items": []}
+
+        with patch.object(rpc_library, "_exec", side_effect=fake_exec):
+            res = await rpc_library.get_artist_all_tracks(plugin, "art/1?x=2", album_offset=-5, album_limit=99)
+
+        self.assertTrue(res.get("ok"))
+        self.assertFalse(res.get("has_more"))
+        self.assertEqual(seen[0][0], "artists/art%2F1%3Fx%3D2/albums")
+        self.assertEqual(seen[0][1]["limit"], 5)
+        self.assertEqual(seen[0][1]["offset"], 0)
+
+    async def test_get_artist_info_returns_proxied_artist_and_delegates_on_plugin(self):
+        plugin = make_plugin("spotify_client")
+
+        async def fake_exec(fn, endpoint, token, method="GET", params=None, body=None):
+            self.assertEqual(endpoint, "artists/art%201")
+            return {
+                "id": "art 1",
+                "name": "Artist One",
+                "uri": "spotify:artist:art 1",
+                "images": [{"url": "https://i.scdn.co/image/art1"}],
+            }
+
+        with patch.object(rpc_library, "_exec", side_effect=fake_exec), \
+             patch.object(rpc_library, "_image_url", return_value="data:image/jpeg;base64,ABC"):
+            res = await rpc_library.get_artist_info(plugin, " art 1 ")
+
+        self.assertTrue(res.get("ok"))
+        self.assertEqual(res["artist"]["name"], "Artist One")
+        self.assertEqual(res["artist"]["image_url"], "data:image/jpeg;base64,ABC")
+
+        p = main_mod.Plugin()
+        with patch.object(main_mod.rpc_library, "get_artist_info", new_callable=AsyncMock, return_value={"ok": True}) as m_info, \
+             patch.object(main_mod.rpc_library, "get_artist_all_tracks", new_callable=AsyncMock, return_value={"ok": True}) as m_all:
+            await p.get_artist_info("art-1")
+            await p.get_artist_all_tracks("art-1", 3, 3)
+        m_info.assert_awaited_once_with(p, "art-1")
+        m_all.assert_awaited_once_with(p, "art-1", 3, 3)
+
+
 if __name__ == "__main__":
     unittest.main()

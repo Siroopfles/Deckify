@@ -930,6 +930,121 @@ async def get_artist_top_tracks(plugin, artist_id: str) -> dict:
         return {"ok": False, "error": str(e)}
 
 
+async def get_artist_info(plugin, artist_id: str) -> dict:
+    """Fetch metadata for a single artist."""
+    if not isinstance(artist_id, str) or not artist_id.strip():
+        return {"ok": False, "error": "Invalid artist_id"}
+    token = await plugin._ensure_token()
+    if not token:
+        return {"ok": False, "error": "Not authenticated"}
+    clean_id = artist_id.strip()
+    safe_id = urllib.parse.quote(clean_id, safe="")
+    try:
+        data = await _exec(_spotify_api_request, f"artists/{safe_id}", token, "GET")
+        if not isinstance(data, dict):
+            return {"ok": False, "error": "Artist not found"}
+        images = data.get("images") or []
+        return {
+            "ok": True,
+            "artist": {
+                "id": data.get("id") or clean_id,
+                "name": data.get("name", ""),
+                "uri": data.get("uri", f"spotify:artist:{clean_id}"),
+                "image_url": _image_url(images),
+            },
+        }
+    except Exception as e:
+        decky.logger.error("get_artist_info failed: %s", e)
+        return {"ok": False, "error": str(e)}
+
+
+async def get_artist_all_tracks(
+    plugin,
+    artist_id: str,
+    album_offset: int = 0,
+    album_limit: int = 3,
+) -> dict:
+    """Fetch full artist discography tracks paginated across albums."""
+    if not isinstance(artist_id, str) or not artist_id.strip():
+        return {"ok": False, "error": "Invalid artist_id"}
+    token = await plugin._ensure_token()
+    if not token:
+        return {"ok": False, "error": "Not authenticated"}
+    try:
+        clamped_limit = max(1, min(int(album_limit), 5))
+    except (TypeError, ValueError):
+        clamped_limit = 3
+    try:
+        clamped_offset = max(0, int(album_offset))
+    except (TypeError, ValueError):
+        clamped_offset = 0
+
+    clean_id = artist_id.strip()
+    safe_id = urllib.parse.quote(clean_id, safe="")
+    try:
+        albums_data = await _exec(
+            _spotify_api_request,
+            f"artists/{safe_id}/albums",
+            token,
+            "GET",
+            {
+                "limit": clamped_limit,
+                "offset": clamped_offset,
+                "include_groups": "album,single",
+            },
+        )
+        album_items = (albums_data or {}).get("items") or []
+        tracks: list[dict] = []
+        for alb in album_items:
+            if not alb or not isinstance(alb, dict):
+                continue
+            alb_id = str(alb.get("id") or "").strip()
+            if not alb_id:
+                continue
+            safe_alb_id = urllib.parse.quote(alb_id, safe="")
+            alb_name = alb.get("name", "")
+            img_url = _image_url(alb.get("images") or [])
+            alb_tracks_data = await _exec(
+                _spotify_api_request,
+                f"albums/{safe_alb_id}/tracks",
+                token,
+                "GET",
+                {"limit": 50},
+            )
+            for t in (alb_tracks_data or {}).get("items") or []:
+                if not t or not isinstance(t, dict):
+                    continue
+                t_artists = [a for a in (t.get("artists") or []) if isinstance(a, dict)]
+                artists_str = ", ".join(a.get("name", "") for a in t_artists if a.get("name"))
+                first_artist_id = t_artists[0].get("id", "") if t_artists else clean_id
+                tracks.append({
+                    "id": t.get("id"),
+                    "name": t.get("name", ""),
+                    "artist": artists_str,
+                    "artist_id": first_artist_id,
+                    "album": alb_name,
+                    "album_id": alb_id,
+                    "uri": t.get("uri", ""),
+                    "duration_ms": int(t.get("duration_ms") or 0),
+                    "image_url": img_url,
+                    "artwork_url": img_url,
+                })
+        await plugin._annotate_tracks_liked(token, tracks)
+        total_albums = int((albums_data or {}).get("total") or 0)
+        next_offset = clamped_offset + len(album_items)
+        has_more = next_offset < total_albums and len(album_items) > 0
+        return {
+            "ok": True,
+            "tracks": tracks,
+            "next_album_offset": next_offset,
+            "has_more": has_more,
+            "total_albums": total_albums,
+        }
+    except Exception as e:
+        decky.logger.error("get_artist_all_tracks failed: %s", e)
+        return {"ok": False, "error": str(e)}
+
+
 async def get_recently_played(plugin, limit: int = 30) -> dict:
     """Fetch user's recently played track list."""
     token = await plugin._ensure_token()
