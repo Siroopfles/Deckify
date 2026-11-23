@@ -7,6 +7,7 @@ import {
   ArtistItem,
   EpisodeItem,
   FolderItem,
+  NavHistoryEntry,
   PinnedPlaylistItem,
   PlaylistItem,
   ShowItem,
@@ -64,7 +65,9 @@ const backendSetVolume = callable<[number], { ok: boolean; error?: string }>("se
 const backendSetRepeat = callable<[string, string], { ok: boolean; error?: string }>("set_repeat");
 const backendSetShuffle = callable<[boolean, string], { ok: boolean; error?: string }>("set_shuffle");
 const backendToggleLike = callable<[string, string | null], { ok: boolean; is_liked?: boolean; error?: string }>("toggle_like");
-const backendGetTrackRecommendations = callable<[string, number], { ok: boolean; tracks?: TrackItem[]; error?: string }>("get_track_recommendations");
+const backendStartRadio = callable<[string, string, string, string, string], { ok: boolean; count?: number; error?: string }>("start_radio");
+const backendGetArtistAllTracks = callable<[string, number, number], { ok: boolean; tracks?: TrackItem[]; next_album_offset?: number; has_more?: boolean; error?: string }>("get_artist_all_tracks");
+const backendGetArtistInfo = callable<[string], { ok: boolean; artist?: ArtistItem; error?: string }>("get_artist_info");
 const backendAddToQueue = callable<[string, string], { ok: boolean; error?: string }>("add_to_queue");
 const backendAddTrackToPlaylist = callable<[string, string], { ok: boolean; error?: string }>("add_track_to_playlist");
 const backendRemoveTrackFromPlaylist = callable<[string, string], { ok: boolean; error?: string }>("remove_track_from_playlist");
@@ -102,6 +105,37 @@ const backendSetNativeMix = callable<[string, boolean, boolean], { ok: boolean; 
 const backendSetSetting = callable<[string, unknown], { ok: boolean; settings?: any; error?: string }>("set_setting");
 const backendSetPlaybackSpeed = callable<[number], { ok: boolean; speed?: number; unsupported_backend?: boolean; error?: string }>("set_playback_speed");
 const backendGetShowEpisodes = callable<[string, number], { ok: boolean; episodes?: EpisodeItem[]; total?: number; error?: string }>("get_show_episodes");
+
+function escapeCssAttr(val: string): string {
+  if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
+    return CSS.escape(val);
+  }
+  return val.replace(/["\\]/g, "\\$&");
+}
+
+function restoreScrollAndFocus(
+  container: HTMLDivElement | null,
+  entry: NavHistoryEntry,
+) {
+  if (typeof requestAnimationFrame !== "function") return;
+  requestAnimationFrame(() => {
+    if (!container) return;
+    container.scrollTop = entry.scrollTop;
+    let target: HTMLElement | null = null;
+    if (entry.focusLabel) {
+      const escaped = escapeCssAttr(entry.focusLabel);
+      target = container.querySelector(
+        `[data-deckify-list-item="true"][data-deckify-label="${escaped}"]`,
+      ) as HTMLElement | null;
+    }
+    if (!target) {
+      target = container.querySelector(
+        '[data-deckify-list-item="true"], [tabindex="0"]',
+      ) as HTMLElement | null;
+    }
+    target?.focus?.();
+  });
+}
 
 export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeModal }) => {
   const closeModalRef = useRef(closeModal);
@@ -171,6 +205,10 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
   const [activeShow, setActiveShow] = useState<ShowItem | null>(null);
   const [showEpisodes, setShowEpisodes] = useState<EpisodeItem[]>([]);
   const [loadingShowEpisodes, setLoadingShowEpisodes] = useState(false);
+  const [artistAllTracks, setArtistAllTracks] = useState<TrackItem[]>([]);
+  const [artistAllTracksOffset, setArtistAllTracksOffset] = useState(0);
+  const [artistAllTracksHasMore, setArtistAllTracksHasMore] = useState(false);
+  const [loadingAllTracks, setLoadingAllTracks] = useState(false);
   const pillTimerRef = useRef<any>(null);
   const pendingSeekDeltaSecRef = useRef(0);
   const seekDebounceTimerRef = useRef<any>(null);
@@ -193,8 +231,29 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
   const focusedTrackRef = useRef<TrackItem | null>(null);
   const focusedCollectionRef = useRef<PinnedPlaylistItem | null>(null);
   const contentPaneRef = useRef<HTMLDivElement | null>(null);
+  const navigationHistoryRef = useRef<NavHistoryEntry[]>([]);
   const modeRef = useRef<ViewMode>(mode);
   modeRef.current = mode;
+
+  const pushNavHistory = useCallback(() => {
+    const focusLabel =
+      typeof document !== "undefined"
+        ? document.activeElement?.getAttribute?.("data-deckify-label") || undefined
+        : undefined;
+    const entry: NavHistoryEntry = {
+      mode: modeRef.current,
+      activeAlbum: activeAlbumRef.current,
+      activeArtist: activeArtistRef.current,
+      activePlaylist: activePlaylistRef.current,
+      activeShow: activeShowRef.current,
+      scrollTop: contentPaneRef.current?.scrollTop || 0,
+      focusLabel,
+    };
+    const current = Array.isArray(navigationHistoryRef.current)
+      ? navigationHistoryRef.current
+      : [];
+    navigationHistoryRef.current = [...current.slice(-9), entry];
+  }, []);
 
   const showToast = useCallback((msg: string) => {
     setToastMsg(msg);
@@ -307,6 +366,7 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
 
   // Drill-down open handlers
   const handleOpenPlaylist = useCallback(async (pl: PlaylistItem) => {
+    pushNavHistory();
     focusedCollectionRef.current = null;
     setActivePlaylist(pl);
     setPlaylistTracks([]);
@@ -326,9 +386,10 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
       showToast("Failed to load playlist tracks");
     }
     setLoadingContent(false);
-  }, [showToast]);
+  }, [pushNavHistory, showToast]);
 
   const handleOpenAlbum = useCallback(async (alb: AlbumItem) => {
+    pushNavHistory();
     focusedCollectionRef.current = null;
     setActiveAlbum(alb);
     setMode("albums");
@@ -338,24 +399,72 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
       if (res.ok && res.tracks) setAlbumTracks(res.tracks);
     } catch {}
     setLoadingContent(false);
-  }, []);
+  }, [pushNavHistory]);
 
   const handleOpenArtist = useCallback(async (art: ArtistItem) => {
+    pushNavHistory();
     setActiveArtist(art);
+    setArtistTopTracks([]);
+    setArtistAlbums([]);
+    setArtistAllTracks([]);
+    setArtistAllTracksOffset(0);
+    setArtistAllTracksHasMore(false);
     setMode("artists");
     setLoadingContent(true);
     try {
-      const [topRes, albRes] = await Promise.all([
+      const [topRes, albRes, allRes] = await Promise.all([
         backendGetArtistTopTracks(art.id),
         backendGetArtistAlbums(art.id, 0),
+        backendGetArtistAllTracks(art.id, 0, 3),
       ]);
       if (topRes.ok && topRes.tracks) setArtistTopTracks(topRes.tracks);
       if (albRes.ok && albRes.albums) setArtistAlbums(albRes.albums);
-    } catch {}
+      if (allRes.ok) {
+        if (allRes.tracks) setArtistAllTracks(allRes.tracks);
+        setArtistAllTracksOffset(allRes.next_album_offset ?? 3);
+        setArtistAllTracksHasMore(Boolean(allRes.has_more));
+      }
+      if (!topRes.ok && !albRes.ok && !allRes.ok) {
+        showToast("Failed to load artist details — check your connection and try again.");
+      }
+      if (!art.image_url && art.id) {
+        backendGetArtistInfo(art.id)
+          .then((infoRes) => {
+            if (infoRes?.ok && infoRes.artist) {
+              setActiveArtist((prev) => (prev && prev.id === art.id ? { ...prev, ...infoRes.artist } : prev));
+            }
+          })
+          .catch(() => {});
+      }
+    } catch {
+      showToast("Failed to load artist details — check your connection and try again.");
+    }
     setLoadingContent(false);
-  }, []);
+  }, [pushNavHistory, showToast]);
+
+  const handleLoadMoreArtistTracks = useCallback(async () => {
+    const art = activeArtistRef.current;
+    if (!art?.id || loadingAllTracks) return;
+    setLoadingAllTracks(true);
+    try {
+      const res = await backendGetArtistAllTracks(art.id, artistAllTracksOffset, 3);
+      if (res?.ok) {
+        if (Array.isArray(res.tracks) && res.tracks.length > 0) {
+          setArtistAllTracks((prev) => [...prev, ...res.tracks!]);
+        }
+        setArtistAllTracksOffset(res.next_album_offset ?? artistAllTracksOffset + 3);
+        setArtistAllTracksHasMore(Boolean(res.has_more));
+      } else {
+        showToast("Failed to load artist details — check your connection and try again.");
+      }
+    } catch {
+      showToast("Failed to load artist details — check your connection and try again.");
+    }
+    setLoadingAllTracks(false);
+  }, [artistAllTracksOffset, loadingAllTracks, showToast]);
 
   const handleOpenShow = useCallback(async (show: ShowItem) => {
+    pushNavHistory();
     focusedCollectionRef.current = null;
     setActiveShow(show);
     setShowEpisodes([]);
@@ -372,7 +481,7 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
       showToast("Failed to load show episodes — check your connection and try again.");
     }
     setLoadingShowEpisodes(false);
-  }, [showToast]);
+  }, [pushNavHistory, showToast]);
 
   const handleSetPlaybackSpeed = useCallback(async (speed: number) => {
     try {
@@ -741,27 +850,41 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
   }, [status, showToast, refreshStatus]);
 
   // Track Action Handlers
-  const handleStartRadio = useCallback(async (t: TrackItem) => {
-    const tid = t.id || t.uri?.replace("spotify:track:", "");
-    if (!tid) return;
-    showToast(`Starting radio for ${t.name}...`);
+  const runStartRadio = useCallback(async (
+    seedType: "track" | "artist" | "album",
+    seedId: string,
+    seedUri: string,
+    seedName: string,
+    seedArtist: string,
+    successMsg: string,
+  ) => {
+    if (!seedId && !seedUri) return;
     try {
-      const res = await backendGetTrackRecommendations(tid, 25);
-      if (res.ok && res.tracks && res.tracks.length > 0) {
-        const uris = res.tracks.map((x) => x.uri).filter(Boolean) as string[];
-        if (uris.length) {
-          await backendPlayTracks(null, uris[0], uris, 0);
-          showToast(`Radio started (${uris.length} tracks)`);
-          refreshStatus();
-        }
+      const res = await backendStartRadio(seedType, seedId, seedUri, seedName, seedArtist);
+      if (res?.ok) {
+        showToast(successMsg);
+        refreshStatus();
       } else {
-        showToast("No recommendations found.");
+        showToast("Could not start radio — please try again.");
       }
     } catch {
-      showToast("Error fetching recommendations.");
+      showToast("Could not start radio — please try again.");
     }
-    setActionTrack(null);
   }, [showToast, refreshStatus]);
+
+  const handleStartRadio = useCallback(async (t: TrackItem) => {
+    const tid = t.id || t.uri?.replace("spotify:track:", "") || "";
+    setActionTrack(null);
+    await runStartRadio("track", tid, t.uri || "", t.name || "", t.artist || "", "Song Radio started");
+  }, [runStartRadio]);
+
+  const handleStartArtistRadio = useCallback(async (art: ArtistItem) => {
+    await runStartRadio("artist", art.id || "", `spotify:artist:${art.id}`, art.name || "", art.name || "", "Artist Radio started");
+  }, [runStartRadio]);
+
+  const handleStartAlbumRadio = useCallback(async (alb: AlbumItem) => {
+    await runStartRadio("album", alb.id || "", alb.uri || `spotify:album:${alb.id}`, alb.name || "", alb.artist || "", "Album Radio started");
+  }, [runStartRadio]);
 
   const handleAddToQueue = useCallback(async (t: TrackItem) => {
     if (!t.uri) return;
@@ -889,6 +1012,7 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
 
   // Mode Selection & Gamepad Cycle
   const handleSelectMode = useCallback((id: ViewMode) => {
+    navigationHistoryRef.current = [];
     setActivePlaylist(null);
     setActiveAlbum(null);
     setActiveArtist(null);
@@ -1099,6 +1223,19 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
         e.stopPropagation();
         (e as any).stopImmediatePropagation?.();
         setActionCollection(null);
+        return;
+      }
+      if (Array.isArray(navigationHistoryRef.current) && navigationHistoryRef.current.length > 0) {
+        e.preventDefault();
+        e.stopPropagation();
+        (e as any).stopImmediatePropagation?.();
+        const entry = navigationHistoryRef.current.pop()!;
+        setMode(entry.mode);
+        setActiveAlbum(entry.activeAlbum);
+        setActiveArtist(entry.activeArtist);
+        setActivePlaylist(entry.activePlaylist);
+        setActiveShow(entry.activeShow);
+        restoreScrollAndFocus(contentPaneRef.current, entry);
         return;
       }
       if (activeAlbumRef.current) {
@@ -1366,6 +1503,7 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
                     focusedCollectionRef.current = c;
                     if (c) focusedTrackRef.current = null;
                   }}
+                  onStartAlbumRadio={handleStartAlbumRadio}
                 />
               )}
 
@@ -1375,6 +1513,9 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
                   activeArtist={activeArtist}
                   artistTopTracks={artistTopTracks}
                   artistAlbums={artistAlbums}
+                  artistAllTracks={artistAllTracks}
+                  hasMoreAllTracks={artistAllTracksHasMore}
+                  loadingAllTracks={loadingAllTracks}
                   loadingContent={loadingContent}
                   onOpenArtist={handleOpenArtist}
                   onCloseArtist={() => setActiveArtist(null)}
@@ -1383,6 +1524,8 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
                   onToggleLike={handleToggleLike}
                   onOpenActions={(t) => setActionTrack(t)}
                   onFocusTrack={(t) => { focusedTrackRef.current = t; }}
+                  onLoadMoreArtistTracks={handleLoadMoreArtistTracks}
+                  onStartArtistRadio={handleStartArtistRadio}
                 />
               )}
 
@@ -1430,6 +1573,7 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
                   handlePlayTrack={handlePlayTrack}
                   handleToggleLike={handleToggleLike}
                   onFocusTrack={(t) => { focusedTrackRef.current = t; }}
+                  onOpenActions={(t) => setActionTrack(t)}
                 />
               )}
 

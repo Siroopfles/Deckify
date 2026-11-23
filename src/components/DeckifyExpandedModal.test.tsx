@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-const { mockToast, mockScrubTo, mockToggleLike, mockSetSetting, mockSetNativeMix, mockPlayTracks, mockGetRecentlyPlayed } = vi.hoisted(() => ({
+const { mockToast, mockScrubTo, mockToggleLike, mockSetSetting, mockSetNativeMix, mockPlayTracks, mockGetRecentlyPlayed, mockStartRadio } = vi.hoisted(() => ({
   mockToast: vi.fn(),
   mockScrubTo: vi.fn(),
   mockToggleLike: vi.fn().mockResolvedValue({ ok: true, is_liked: true }),
@@ -8,6 +8,7 @@ const { mockToast, mockScrubTo, mockToggleLike, mockSetSetting, mockSetNativeMix
   mockSetNativeMix: vi.fn().mockResolvedValue({ ok: true }),
   mockPlayTracks: vi.fn().mockResolvedValue({ ok: true }),
   mockGetRecentlyPlayed: vi.fn().mockResolvedValue({ ok: true, tracks: [] }),
+  mockStartRadio: vi.fn().mockResolvedValue({ ok: true, count: 20 }),
 }));
 
 vi.mock("@decky/api", () => ({
@@ -17,6 +18,7 @@ vi.mock("@decky/api", () => ({
     if (name === "set_native_mix") return mockSetNativeMix;
     if (name === "play_tracks") return mockPlayTracks;
     if (name === "get_recently_played") return mockGetRecentlyPlayed;
+    if (name === "start_radio") return mockStartRadio;
     return vi.fn().mockResolvedValue({ ok: true });
   },
   addEventListener: vi.fn(),
@@ -1388,5 +1390,144 @@ describe("DeckifyExpandedModal Sidebar actions, NowPlaying Add to Playlist & Rec
     DeckifyExpandedModal({ closeModal });
 
     expect(mockGetRecentlyPlayed.mock.calls.length).toBeGreaterThan(callsAfterModeEnter);
+  });
+});
+
+describe("Phase 25: navigationHistoryRef backstack & start_radio (25-02)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    stateValues = [];
+    stateIdx = 0;
+    refValues = [];
+    refIdx = 0;
+    effectCleanups = [];
+    runEffectsInTest = false;
+    mockStartRadio.mockResolvedValue({ ok: true, count: 20 });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("pushes NavHistoryEntry on drill-down, caps at 10 entries dropping oldest, and clears on Sidebar mode switch", async () => {
+    const closeModal = vi.fn();
+    stateValues[0] = "search";
+    const tree = DeckifyExpandedModal({ closeModal });
+
+    // Locate navigationHistoryRef (the ref initialized to [])
+    const navHistoryRef = refValues.find((r) => Array.isArray(r?.current));
+    expect(navHistoryRef).toBeDefined();
+    expect(navHistoryRef.current).toEqual([]);
+
+    // Attach a mock contentPaneRef with scrollTop
+    const contentDiv = findNodes(tree, (n) => n.props?.["data-testid"] === "content-pane")[0];
+    expect(contentDiv).toBeDefined();
+    contentDiv.props.ref.current = { scrollTop: 140, querySelector: vi.fn() };
+
+    vi.stubGlobal("document", {
+      activeElement: { getAttribute: (attr: string) => (attr === "data-deckify-label" ? "Track Alpha" : null) },
+    });
+
+    const actionModal = findNodes(tree, (n) => n.type === TrackActionModal)[0];
+    expect(actionModal).toBeDefined();
+
+    // Push 12 artist drill-downs; stack must cap at 10 and drop oldest (0, 1)
+    for (let i = 0; i < 12; i++) {
+      await actionModal.props.onOpenArtist({ id: `art-${i}`, name: `Artist ${i}` });
+    }
+
+    expect(navHistoryRef.current.length).toBe(10);
+    expect(navHistoryRef.current[0].focusLabel).toBe("Track Alpha");
+    expect(navHistoryRef.current[0].scrollTop).toBe(140);
+
+    // Explicit tab switch clears the backstack
+    const sidebar = findNodes(tree, (n) => n.type === Sidebar)[0];
+    sidebar.props.onSelectMode("liked");
+    expect(navHistoryRef.current).toEqual([]);
+  });
+
+  it("pops navigationHistoryRef on vgp_oncancel and restores mode, scrollTop, and focused row", () => {
+    const closeModal = vi.fn();
+    const rafCallbacks: FrameRequestCallback[] = [];
+    vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => {
+      rafCallbacks.push(cb);
+      return 1;
+    });
+
+    stateValues[0] = "artists";
+    const tree = DeckifyExpandedModal({ closeModal });
+
+    const navDiv = findNodes(tree, (n) => n.type === "div" && typeof n.props?.ref === "function")[0];
+    const listeners: Record<string, (e: any) => void> = {};
+    navDiv.props.ref({
+      addEventListener: (ev: string, fn: (e: any) => void) => {
+        listeners[ev] = fn;
+      },
+    });
+
+    const focusSpy = vi.fn();
+    const contentDiv = findNodes(tree, (n) => n.props?.["data-testid"] === "content-pane")[0];
+    const mockPane = {
+      scrollTop: 0,
+      querySelector: vi.fn((sel: string) =>
+        sel.includes("Track Alpha") ? { focus: focusSpy } : null,
+      ),
+    };
+    contentDiv.props.ref.current = mockPane;
+
+    const navHistoryRef = refValues.find((r) => Array.isArray(r?.current));
+    expect(navHistoryRef).toBeDefined();
+    navHistoryRef.current.push({
+      mode: "queue",
+      activeAlbum: null,
+      activeArtist: null,
+      activePlaylist: null,
+      activeShow: null,
+      scrollTop: 320,
+      focusLabel: "Track Alpha",
+    });
+
+    const ev = {
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+      stopImmediatePropagation: vi.fn(),
+    };
+    listeners["vgp_oncancel"](ev);
+
+    expect(ev.preventDefault).toHaveBeenCalledTimes(1);
+    expect(ev.stopPropagation).toHaveBeenCalledTimes(1);
+    expect(closeModal).not.toHaveBeenCalled();
+    expect(navHistoryRef.current.length).toBe(0);
+    expect(stateValues[0]).toBe("queue");
+
+    expect(rafCallbacks.length).toBe(1);
+    rafCallbacks[0](0);
+    expect(mockPane.scrollTop).toBe(320);
+    expect(focusSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("calls start_radio and shows single toast for Song Radio, Artist Radio, Album Radio, and failure", async () => {
+    const closeModal = vi.fn();
+    stateValues[0] = "artists";
+    const tree = DeckifyExpandedModal({ closeModal });
+
+    const actionModal = findNodes(tree, (n) => n.type === TrackActionModal)[0];
+    await actionModal.props.onStartRadio({
+      id: "trk-1",
+      uri: "spotify:track:trk-1",
+      name: "Song 1",
+      artist: "Artist 1",
+    });
+    expect(mockStartRadio).toHaveBeenCalledWith("track", "trk-1", "spotify:track:trk-1", "Song 1", "Artist 1");
+    expect(stateValues.includes("Song Radio started")).toBe(true);
+
+    mockStartRadio.mockResolvedValueOnce({ ok: false, error: "Total failure" });
+    await actionModal.props.onStartRadio({
+      id: "trk-2",
+      uri: "spotify:track:trk-2",
+      name: "Song 2",
+      artist: "Artist 2",
+    });
+    expect(stateValues.includes("Could not start radio — please try again.")).toBe(true);
   });
 });
