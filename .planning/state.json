@@ -21,7 +21,7 @@
     {
       "number": "19",
       "name": "Per-Game EQ & Volume Profiles",
-      "status": "in_progress"
+      "status": "complete"
     },
     {
       "number": "20",
@@ -41,17 +41,17 @@
     {
       "number": "23",
       "name": "Lyrics 2.0 — Offline .lrc Cache, Per-Track Sync Nudge & CJK Romanization",
-      "status": "in_progress"
+      "status": "complete"
     },
     {
       "number": "24",
       "name": "Podcast & Audiobook Power Suite",
-      "status": "in_progress"
+      "status": "complete"
     },
     {
       "number": "25",
       "name": "Universal Artist/Album Drill-Down, Instant Radio & Search 2.0",
-      "status": "pending"
+      "status": "in_progress"
     },
     {
       "number": "26",
@@ -81,8 +81,8 @@
   ],
   "next": {
     "command": "/gsd-progress --next",
-    "label": "Advance to the next step (verify)",
-    "reason": "Phase 6 of 12 · 33% · ready to verify"
+    "label": "Advance to the next step",
+    "reason": "Phase 7 of 12 · 50% · executing"
   },
-  "updated_at": "2026-11-22T20:41:04.035Z"
+  "updated_at": "2026-11-23T20:04:56.635Z"
 }

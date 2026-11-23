@@ -232,11 +232,11 @@ Plans:
   2. Selecting *"Start Song Radio"* or *"Start Artist Radio"* generates and starts a continuous radio queue on both `spotify_client` and `librespot` via the 3-tier radio waterfall (CDP station → Web API recommendations → Top-Tracks/Search synthesis fallback).
   3. When the search query in `SearchTab` is empty, user can launch searches from recent search history pills (with individual and clear-all options) or select from 12 controller-friendly Gaming & Mood browse tiles without opening the virtual keyboard.
   4. User can filter and browse search results specifically by `Podcasts` (`show`) and `Episodes` (`episode`) in `SearchTab` alongside Tracks, Artists, Albums, and Playlists.
-**Plans:** 3 plans
+**Plans:** 1/3 plans executed
 
 Plans:
 **Wave 1**
-- [ ] 25-01-PLAN.md — Backend 3-tier radio waterfall (`start_radio` tracer), paginated `get_artist_all_tracks` discography, `search_spotify` (`show`/`episode`, `market="from_token"`), and `search_history` persistence
+- [x] 25-01-PLAN.md — Backend 3-tier radio waterfall (`start_radio` tracer), paginated `get_artist_all_tracks` discography, `search_spotify` (`show`/`episode`, `market="from_token"`), and `search_history` persistence
 
 **Wave 2** *(blocked on Wave 1)*
 - [ ] 25-02-PLAN.md — Universal Artist/Album drill-down (`ArtistsTab` All Tracks + Radio, `AlbumsTab` Radio), `TrackActionModal` / `QueueTab` / `NowPlayingTab` actions, and `navigationHistoryRef` `B`-button backstack restoration
@@ -316,7 +316,7 @@ Phases execute in numeric order: 19 → 20 → 21 → 22 → 23 → 24 → 25 �
 | 22. Spotify Connect Hub 2.0 & Native Crossfade | v0.7 | 5/5 | Complete    | 2026-11-22 |
 | 23. Lyrics 2.0 — Offline .lrc Cache, Per-Track Sync Nudge & CJK Romanization | v0.7 | 5/5 | Complete    | 2026-11-22 |
 | 24. Podcast & Audiobook Power Suite | v0.7 | 8/8 | Complete    | 2026-11-23 |
-| 25. Universal Artist/Album Drill-Down, Instant Radio & Search 2.0 | v0.7 | 0/3 | Planned | - |
+| 25. Universal Artist/Album Drill-Down, Instant Radio & Search 2.0 | v0.7 | 1/3 | In Progress | - |
 | 26. Unified CDP Platform Bridge & Deep Discovery 2.0 | v0.7 | 0/TBD | Not started | - |
 | 27. Interactive Queue Studio & Controller Playlist Management | v0.7 | 0/TBD | Not started | - |
 | 28. CDP Offline Downloads, Wi-Fi Travel Mode & Living Room Spotify Jam | v0.7 | 0/TBD | Not started | - |
