@@ -172,6 +172,7 @@ DEFAULT_SETTINGS = {
     "eco_timeout_minutes": 15,
     "eco_sleep_spotify_client": False,
     "preferred_podcast_speed": 1.0,
+    "search_history": [],
 }
 
 ALLOWED_PLAYBACK_SPEEDS = (0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0)

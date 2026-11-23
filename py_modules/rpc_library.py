@@ -1098,9 +1098,17 @@ async def search_spotify(
     limit: int = 50,
     offset: int = 0,
 ) -> dict:
-    """Multi-entity search across tracks, artists, albums, and playlists."""
+    """Multi-entity search across tracks, artists, albums, playlists, shows, and episodes."""
     if not query or not str(query).strip():
-        return {"ok": True, "tracks": [], "artists": [], "albums": [], "playlists": []}
+        return {
+            "ok": True,
+            "tracks": [],
+            "artists": [],
+            "albums": [],
+            "playlists": [],
+            "shows": [],
+            "episodes": [],
+        }
     token = await plugin._ensure_token()
     if not token:
         return {"ok": False, "error": "Not authenticated"}
@@ -1110,27 +1118,49 @@ async def search_spotify(
         try:
             data = await _exec(
                 _spotify_api_request, "search", token, "GET",
-                {"q": query, "type": types, "limit": final_limit, "offset": final_offset},
+                {
+                    "q": query,
+                    "type": types,
+                    "limit": final_limit,
+                    "offset": final_offset,
+                    "market": "from_token",
+                },
             )
         except Exception as e:
             if "Invalid limit" in str(e) or "400" in str(e):
                 data = await _exec(
                     _spotify_api_request, "search", token, "GET",
-                    {"q": query, "type": types, "limit": min(final_limit, 10), "offset": final_offset},
+                    {
+                        "q": query,
+                        "type": types,
+                        "limit": min(final_limit, 10),
+                        "offset": final_offset,
+                        "market": "from_token",
+                    },
                 )
             else:
                 raise
         if not data:
-            return {"ok": True, "tracks": [], "artists": [], "albums": [], "playlists": []}
+            return {
+                "ok": True,
+                "tracks": [],
+                "artists": [],
+                "albums": [],
+                "playlists": [],
+                "shows": [],
+                "episodes": [],
+            }
         tracks = []
-        for t in data.get("tracks", {}).get("items", []):
-            artists = ", ".join(a["name"] for a in t.get("artists", []))
-            images = t.get("album", {}).get("images") or []
-            artist_id = (t.get("artists") or [{}])[0].get("id", "")
-            album_id = t.get("album", {}).get("id", "")
+        for t in (data.get("tracks") or {}).get("items") or []:
+            if not t or not isinstance(t, dict):
+                continue
+            artists = ", ".join(a["name"] for a in t.get("artists", []) if isinstance(a, dict) and a.get("name"))
+            images = (t.get("album") or {}).get("images") or []
+            artist_id = ((t.get("artists") or [{}])[0] or {}).get("id", "")
+            album_id = (t.get("album") or {}).get("id", "")
             tracks.append({
                 "id": t.get("id"), "name": t.get("name", ""), "artist": artists,
-                "album": t.get("album", {}).get("name", ""),
+                "album": (t.get("album") or {}).get("name", ""),
                 "artist_id": artist_id, "album_id": album_id,
                 "uri": t.get("uri", ""),
                 "duration_ms": t.get("duration_ms", 0),
@@ -1139,38 +1169,90 @@ async def search_spotify(
             })
         await plugin._annotate_tracks_liked(token, tracks)
         artists_out = []
-        for a in data.get("artists", {}).get("items", []):
+        for a in (data.get("artists") or {}).get("items") or []:
+            if not a or not isinstance(a, dict):
+                continue
             images = a.get("images") or []
             raw_img = images[0].get("url") if images and isinstance(images, list) and isinstance(images[0], dict) else None
+            a_id = a.get("id", "")
             artists_out.append({
-                "id": a["id"], "name": a.get("name", ""),
-                "uri": a.get("uri", f"spotify:artist:{a['id']}"),
+                "id": a_id, "name": a.get("name", ""),
+                "uri": a.get("uri", f"spotify:artist:{a_id}"),
                 "image_url": _image_url(images) or raw_img,
             })
         albums_out = []
-        for a in data.get("albums", {}).get("items", []):
+        for a in (data.get("albums") or {}).get("items") or []:
+            if not a or not isinstance(a, dict):
+                continue
             images = a.get("images") or []
-            ar = ", ".join(x["name"] for x in a.get("artists", []))
+            ar = ", ".join(x["name"] for x in a.get("artists", []) if isinstance(x, dict) and x.get("name"))
             albums_out.append({
-                "id": a["id"], "name": a.get("name", ""), "artist": ar,
+                "id": a.get("id"), "name": a.get("name", ""), "artist": ar,
                 "image_url": _image_url(images),
                 "artwork_url": _image_url(images),
                 "track_count": a.get("total_tracks", 0), "uri": a.get("uri", ""),
             })
         playlists_out = []
-        for p in data.get("playlists", {}).get("items", []):
-            if p is None:
+        for p in (data.get("playlists") or {}).get("items") or []:
+            if not p or not isinstance(p, dict):
                 continue
             images = p.get("images") or []
+            p_id = p.get("id", "")
             playlists_out.append({
-                "id": p["id"], "name": p.get("name", ""),
-                "uri": p.get("uri") or f"spotify:playlist:{p['id']}",
+                "id": p_id, "name": p.get("name", ""),
+                "uri": p.get("uri") or f"spotify:playlist:{p_id}",
                 "image_url": _image_url(images),
                 "artwork_url": _image_url(images),
                 "track_count": (p.get("items") or p.get("tracks") or {}).get("total", 0),
-                "owner_id": p.get("owner", {}).get("id", ""),
+                "owner_id": (p.get("owner") or {}).get("id", ""),
             })
-        return {"ok": True, "tracks": tracks, "artists": artists_out, "albums": albums_out, "playlists": playlists_out}
+        shows_out = []
+        for s in (data.get("shows") or {}).get("items") or []:
+            if not s or not isinstance(s, dict):
+                continue
+            images = s.get("images") or []
+            s_id = s.get("id", "")
+            shows_out.append({
+                "id": s_id,
+                "name": s.get("name", ""),
+                "publisher": s.get("publisher", ""),
+                "image_url": _image_url(images),
+                "total_episodes": int(s.get("total_episodes") or 0),
+                "uri": s.get("uri") or (f"spotify:show:{s_id}" if s_id else ""),
+            })
+        episodes_out = []
+        for ep in (data.get("episodes") or {}).get("items") or []:
+            if not ep or not isinstance(ep, dict):
+                continue
+            resume_point = ep.get("resume_point") or {}
+            if not isinstance(resume_point, dict):
+                resume_point = {}
+            show_obj = ep.get("show") or {}
+            if not isinstance(show_obj, dict):
+                show_obj = {}
+            images = ep.get("images") or show_obj.get("images") or []
+            img_url = _image_url(images)
+            episodes_out.append({
+                "id": ep.get("id"),
+                "name": ep.get("name", ""),
+                "show_name": show_obj.get("name", ""),
+                "uri": ep.get("uri", ""),
+                "duration_ms": int(ep.get("duration_ms") or 0),
+                "release_date": ep.get("release_date", ""),
+                "image_url": img_url,
+                "artwork_url": img_url,
+                "resume_position_ms": int(resume_point.get("resume_position_ms") or 0),
+                "fully_played": bool(resume_point.get("fully_played", False)),
+            })
+        return {
+            "ok": True,
+            "tracks": tracks,
+            "artists": artists_out,
+            "albums": albums_out,
+            "playlists": playlists_out,
+            "shows": shows_out,
+            "episodes": episodes_out,
+        }
     except Exception as e:
         decky.logger.error("search_spotify failed: %s", e)
         return {"ok": False, "error": str(e)}

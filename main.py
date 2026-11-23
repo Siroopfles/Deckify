@@ -923,6 +923,24 @@ class Plugin:
             except (TypeError, ValueError):
                 return {"ok": False, "error": "crossfade_seconds must be an integer between 0 and 12"}
             value = max(0, min(12, raw_int))
+        elif key == "search_history":
+            if not isinstance(value, list):
+                return {"ok": False, "error": "search_history must be a list"}
+            cleaned_history: list[str] = []
+            seen_queries: set[str] = set()
+            for item in value:
+                if not isinstance(item, str):
+                    continue
+                if any(ord(char) < 32 or ord(char) == 127 for char in item):
+                    continue
+                trimmed = item.strip()[:200]
+                if not trimmed or trimmed in seen_queries:
+                    continue
+                seen_queries.add(trimmed)
+                cleaned_history.append(trimmed)
+                if len(cleaned_history) >= 10:
+                    break
+            value = cleaned_history
         elif key == "gamepad_chord_bindings":
             validated, err = _validate_chord_bindings(
                 value, self._settings.get("gamepad_chord_bindings")

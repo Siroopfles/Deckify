@@ -298,5 +298,136 @@ class TestArtistDiscographyPagination(unittest.IsolatedAsyncioTestCase):
         m_all.assert_awaited_once_with(p, "art-1", 3, 3)
 
 
+class TestSearchHistoryAndPodcastSearch(unittest.IsolatedAsyncioTestCase):
+    async def test_search_history_default_and_set_setting_validation(self):
+        self.assertEqual(common.DEFAULT_SETTINGS["search_history"], [])
+
+        p = main_mod.Plugin()
+        p._settings = dict(common.DEFAULT_SETTINGS)
+
+        bad_res = await p.set_setting("search_history", "not-a-list")
+        self.assertFalse(bad_res.get("ok"))
+        self.assertIn("list", bad_res.get("error", ""))
+
+        raw = [
+            "  lofi ",
+            "",
+            "   ",
+            "synthwave",
+            "lofi",
+            "bad\x00query",
+            123,
+            "a" * 250,
+            "q4",
+            "q5",
+            "q6",
+            "q7",
+            "q8",
+            "q9",
+            "q10",
+            "q11",
+            "q12",
+        ]
+        with patch.object(main_mod, "_save_settings"):
+            res = await p.set_setting("search_history", raw)
+
+        self.assertTrue(res.get("ok"), msg=res)
+        saved = p._settings["search_history"]
+        self.assertEqual(len(saved), 10)
+        self.assertEqual(saved[0], "lofi")
+        self.assertEqual(saved[1], "synthwave")
+        self.assertEqual(saved[2], "a" * 200)
+        self.assertEqual(saved[-1], "q10")
+
+    async def test_search_spotify_empty_query_returns_empty_arrays(self):
+        plugin = make_plugin("spotify_client")
+        res = await rpc_library.search_spotify(plugin, "   ")
+        self.assertEqual(
+            res,
+            {
+                "ok": True,
+                "tracks": [],
+                "artists": [],
+                "albums": [],
+                "playlists": [],
+                "shows": [],
+                "episodes": [],
+            },
+        )
+
+    async def test_search_spotify_show_episode_market_from_token_and_null_guards(self):
+        plugin = make_plugin("spotify_client")
+
+        async def fake_exec(fn, endpoint, token, method="GET", params=None, body=None):
+            self.assertEqual(endpoint, "search")
+            self.assertEqual(params["market"], "from_token")
+            self.assertIn("show", params["type"])
+            self.assertIn("episode", params["type"])
+            return {
+                "tracks": {"items": [None]},
+                "artists": {"items": [None]},
+                "albums": {"items": [None]},
+                "playlists": {"items": [None]},
+                "shows": {
+                    "items": [
+                        None,
+                        {
+                            "id": "show-1",
+                            "name": "Deck Cast",
+                            "publisher": "Valve Fans",
+                            "images": [{"url": "https://i.scdn.co/image/show1"}],
+                            "total_episodes": 42,
+                            "uri": "spotify:show:show-1",
+                        },
+                    ]
+                },
+                "episodes": {
+                    "items": [
+                        None,
+                        {
+                            "id": "ep-1",
+                            "name": "Episode One",
+                            "show": {"name": "Deck Cast", "images": [{"url": "https://i.scdn.co/image/ep1"}]},
+                            "uri": "spotify:episode:ep-1",
+                            "duration_ms": 123000,
+                            "release_date": "2026-01-15",
+                            "resume_point": {"resume_position_ms": 45000, "fully_played": False},
+                        },
+                        {
+                            "id": "ep-2",
+                            "name": "Episode Two",
+                            "show": {"name": "Deck Cast"},
+                            "uri": "spotify:episode:ep-2",
+                            "duration_ms": 60000,
+                            "release_date": "2026-01-16",
+                        },
+                    ]
+                },
+            }
+
+        with patch.object(rpc_library, "_exec", side_effect=fake_exec), \
+             patch.object(rpc_library, "_image_url", side_effect=lambda imgs: f"proxy:{imgs[0]['url']}" if imgs else None):
+            res = await rpc_library.search_spotify(
+                plugin,
+                "deck",
+                types="track,artist,album,playlist,show,episode",
+            )
+
+        self.assertTrue(res.get("ok"), msg=res)
+        self.assertEqual(len(res["shows"]), 1)
+        self.assertEqual(res["shows"][0]["id"], "show-1")
+        self.assertEqual(res["shows"][0]["publisher"], "Valve Fans")
+        self.assertEqual(res["shows"][0]["total_episodes"], 42)
+        self.assertEqual(res["shows"][0]["image_url"], "proxy:https://i.scdn.co/image/show1")
+
+        self.assertEqual(len(res["episodes"]), 2)
+        self.assertEqual(res["episodes"][0]["show_name"], "Deck Cast")
+        self.assertEqual(res["episodes"][0]["resume_position_ms"], 45000)
+        self.assertFalse(res["episodes"][0]["fully_played"])
+        self.assertEqual(res["episodes"][0]["image_url"], "proxy:https://i.scdn.co/image/ep1")
+        self.assertEqual(res["episodes"][1]["resume_position_ms"], 0)
+        self.assertFalse(res["episodes"][1]["fully_played"])
+
+
 if __name__ == "__main__":
     unittest.main()
