@@ -1,29 +1,31 @@
 ---
-status: diagnosed
+status: testing
 phase: 24-podcast-audiobook-power-suite
 source: [24-VERIFICATION.md]
-started: 2026-11-23T17:57:30Z
-updated: 2026-11-23T18:43:00Z
+started: 2026-11-23T18:56:30Z
+updated: 2026-11-23T18:56:30Z
 ---
 
 ## Current Test
 
-[testing complete]
+number: 1
+name: SteamOS GamepadUI Controller Focus/Selection & Touchscreen Drag on ProgressScrubBar (Re-test G-24-3 & G-24-4)
+expected: |
+  Focus lands on ProgressScrubBar when pressing D-pad Up from the transport row (showing focus halo and "Scrub ←/→" legend), D-pad Left/Right steps playback position without jumping focus to the left Sidebar, pressing A toggles "Done Scrubbing" mode and B exits scrub selection cleanly, and touchscreen/mouse dragging commits a single seek on release.
+awaiting: user response
 
 ## Tests
 
-### 1. SteamOS GamepadUI Touchscreen / Mouse Drag on ProgressScrubBar (Re-test G-24-3)
-expected: Drag the ProgressScrubBar in NowPlayingTab via touchscreen or mouse pointer on Steam Deck during music and podcast playback, and scrub Left/Right via D-pad when focused. The progress bar tracks finger/cursor smoothly without scroll-hijacking or focus capture blockage from @decky/ui Focusable, commits a single seek on release without duplicate synthetic click seeks, and still steps Left/Right with D-pad when focused.
-result: issue
-reported: "Nee kan niet want ik kan hem niet focussen of selecteren met de controller. waardoor ik hem niet kan slepen"
-severity: major
+### 1. SteamOS GamepadUI Controller Focus/Selection & Touchscreen Drag on ProgressScrubBar (Re-test G-24-3 & G-24-4)
+expected: On Steam Deck, navigate D-pad Up from the transport row to focus ProgressScrubBar, press A (onActivate) or scrub Left/Right via D-pad, press B to exit active scrub mode without closing the modal, and test touchscreen/mouse dragging on the slider. Focus lands on ProgressScrubBar (showing focus halo and "Scrub ←/→" legend), D-pad Left/Right steps playback position without jumping focus to the left Sidebar, pressing A toggles "Done Scrubbing" mode and B exits scrub selection cleanly, and touchscreen/mouse dragging commits a single seek on release.
+result: [pending]
 
 ## Summary
 
 total: 1
 passed: 0
-issues: 1
-pending: 0
+issues: 0
+pending: 1
 skipped: 0
 blocked: 0
 
@@ -31,7 +33,9 @@ blocked: 0
 
 - gap_id: G-24-4
   truth: "ProgressScrubBar in NowPlayingTab can be focused and selected with the Steam Deck controller (D-pad Up from transport row / A button) and scrubbed Left/Right with D-pad (as well as pointer/touch drag)"
-  status: failed
+  status: resolved
+  resolved_by: 24-08-PLAN.md
+  resolved_at: 2026-11-23
   reason: "User reported: Nee kan niet want ik kan hem niet focussen of selecteren met de controller. waardoor ik hem niet kan slepen"
   severity: major
   test: 1
