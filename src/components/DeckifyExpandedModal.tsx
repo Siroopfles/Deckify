@@ -10,6 +10,8 @@ import {
   NavHistoryEntry,
   PinnedPlaylistItem,
   PlaylistItem,
+  SearchFilterTab,
+  SearchResults,
   ShowItem,
   SyncedLine,
   TrackItem,
@@ -209,6 +211,27 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
   const [artistAllTracksOffset, setArtistAllTracksOffset] = useState(0);
   const [artistAllTracksHasMore, setArtistAllTracksHasMore] = useState(false);
   const [loadingAllTracks, setLoadingAllTracks] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchFilter, setSearchFilter] = useState<SearchFilterTab>("all");
+  const [searchResults, setSearchResults] = useState<SearchResults>({});
+  const [tileSearchMode, setTileSearchMode] = useState(false);
+  const [searchHistory, setSearchHistory] = useState<string[]>([]);
+
+  useEffect(() => {
+    const persisted = status?.settings?.search_history;
+    if (Array.isArray(persisted)) {
+      setSearchHistory(persisted);
+    }
+  }, [status?.settings?.search_history]);
+
+  const handleUpdateSearchHistory = useCallback(async (next: string[]) => {
+    setSearchHistory(next);
+    try {
+      await backendSetSetting("search_history", next);
+    } catch (err) {
+      console.error("Failed to persist search_history:", err);
+    }
+  }, []);
   const pillTimerRef = useRef<any>(null);
   const pendingSeekDeltaSecRef = useRef(0);
   const seekDebounceTimerRef = useRef<any>(null);
@@ -1561,6 +1584,18 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
                   onOpenPlaylist={handleOpenPlaylist}
                   onOpenArtist={handleOpenArtist}
                   onOpenAlbum={handleOpenAlbum}
+                  onOpenShow={handleOpenShow}
+                  showToast={showToast}
+                  searchQuery={searchQuery}
+                  onSearchQueryChange={setSearchQuery}
+                  searchTab={searchFilter}
+                  onSearchTabChange={setSearchFilter}
+                  searchResults={searchResults}
+                  onSearchResultsChange={setSearchResults}
+                  tileSearchMode={tileSearchMode}
+                  onTileSearchModeChange={setTileSearchMode}
+                  searchHistory={searchHistory}
+                  onUpdateSearchHistory={handleUpdateSearchHistory}
                 />
               )}
 
