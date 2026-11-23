@@ -322,6 +322,7 @@ export interface EngineSettings {
   eco_timeout_minutes?: number;
   eco_sleep_spotify_client?: boolean;
   preferred_podcast_speed?: number;
+  search_history?: string[];
 }
 
 export type DuckingMode = "proportional" | "fixed";
@@ -455,6 +456,35 @@ export type DiscoveryTimeRange = "short_term" | "medium_term" | "long_term";
 export interface DiscoveryMixItem extends PlaylistItem {
   subtitle?: string;
   is_album?: boolean;
+}
+
+export type SearchFilterTab =
+  | "all"
+  | "tracks"
+  | "artists"
+  | "albums"
+  | "playlists"
+  | "podcasts"
+  | "episodes";
+
+export interface SearchResults {
+  tracks?: TrackItem[];
+  artists?: ArtistItem[];
+  albums?: AlbumItem[];
+  playlists?: PlaylistItem[];
+  shows?: ShowItem[];
+  episodes?: EpisodeItem[];
+}
+
+export interface NavHistoryEntry {
+  mode: ViewMode;
+  activeAlbum: AlbumItem | null;
+  activeArtist: ArtistItem | null;
+  activePlaylist: PlaylistItem | null;
+  activeShow: ShowItem | null;
+  scrollTop: number;
+  focusLabel?: string;
+  focusTrackId?: string;
 }
 
 export interface DiscoveryFeedResponse {

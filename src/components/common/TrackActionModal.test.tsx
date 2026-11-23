@@ -229,7 +229,7 @@ describe("TrackActionModal spoken content labels (G-24-2)", () => {
     (globalThis as any).cancelAnimationFrame = vi.fn();
   });
 
-  it("renders music track labels (Play Track, Start Track Radio, Go to Artist, Go to Album)", () => {
+  it("renders music track labels (Play Track, Start Song Radio, Go to Artist, Go to Album)", () => {
     const tree = TrackActionModal(
       makeProps({
         actionTrack: {
@@ -246,14 +246,14 @@ describe("TrackActionModal spoken content labels (G-24-2)", () => {
     );
     const text = collectText(tree);
     expect(text).toContain("Play Track");
-    expect(text).toContain("Start Track Radio");
+    expect(text).toContain("Start Song Radio");
     expect(text).toContain("Go to Artist (Band Name)");
     expect(text).toContain("Go to Album");
     expect(text).not.toContain("Play Episode");
     expect(text).not.toContain("Go to Show");
   });
 
-  it("renders episode/show labels and hides Start Track Radio and Go to Album for podcast episodes and audiobooks", () => {
+  it("renders episode/show labels and hides Start Song Radio and Go to Album for podcast episodes and audiobooks", () => {
     for (const mediaType of ["episode", "audiobook"] as const) {
       refValues = [];
       refIdx = 0;
@@ -275,7 +275,7 @@ describe("TrackActionModal spoken content labels (G-24-2)", () => {
       expect(text).toContain("Play Episode");
       expect(text).toContain("Go to Show (Podcast Show)");
       expect(text).not.toContain("Play Track");
-      expect(text).not.toContain("Start Track Radio");
+      expect(text).not.toContain("Start Song Radio");
       expect(text).not.toContain("Go to Artist");
       expect(text).not.toContain("Go to Album");
     }
