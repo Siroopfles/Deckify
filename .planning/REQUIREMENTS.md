@@ -31,8 +31,8 @@
 
 - [x] **RADIO-01**: User can select *"Start Song Radio"*, *"Go to Artist"*, or *"Go to Album"* from any track (`TrackActionModal`, `NowPlayingTab`, `QueueTab`, `SearchTab`), using a 3-tier radio waterfall (CDP station → Web API → Top-Tracks/Search synthesis fallback) and a breadcrumb backstack (`navigationHistoryRef`) that restores the exact originating tab on `B`.
 - [x] **RADIO-02**: User can configure native track Crossfade (`0–12s`) in `SettingsTab`, synchronized across Official Spotify Client CDP preferences, `librespot` / `spotifyd` engine config, and smooth transition handling.
-- [ ] **SEARCH-01**: When the search query in `SearchTab` is empty, user can select from recent search history pills (with individual/all clear) or 12 controller-friendly Gaming & Mood genre browse tiles without opening the virtual keyboard.
-- [ ] **SEARCH-02**: User can search and filter specifically by `Podcasts` (`show`) and `Episodes` (`episode`) in `SearchTab` alongside Tracks, Artists, Albums, and Playlists.
+- [x] **SEARCH-01**: When the search query in `SearchTab` is empty, user can select from recent search history pills (with individual/all clear) or 12 controller-friendly Gaming & Mood genre browse tiles without opening the virtual keyboard.
+- [x] **SEARCH-02**: User can search and filter specifically by `Podcasts` (`show`) and `Episodes` (`episode`) in `SearchTab` alongside Tracks, Artists, Albums, and Playlists.
 
 ### Unified CDP Bridge, Interactive Queue Studio, Playlist Studio & Discovery 2.0
 
@@ -90,8 +90,8 @@
 | POD-01 | Phase 24 | Complete |
 | POD-02 | Phase 24 | Complete |
 | RADIO-01 | Phase 25 | Complete |
-| SEARCH-01 | Phase 25 | Pending |
-| SEARCH-02 | Phase 25 | Pending |
+| SEARCH-01 | Phase 25 | Complete |
+| SEARCH-02 | Phase 25 | Complete |
 | DISC-04 | Phase 26 | Pending |
 | QUEUE-03 | Phase 27 | Pending |
 | PL-01 | Phase 27 | Pending |
