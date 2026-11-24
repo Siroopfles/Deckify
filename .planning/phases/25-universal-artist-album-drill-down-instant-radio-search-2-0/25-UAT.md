@@ -1,9 +1,9 @@
 ---
-status: diagnosed
+status: complete
 phase: 25-universal-artist-album-drill-down-instant-radio-search-2-0
 source: [25-VERIFICATION.md]
 started: 2026-11-23T20:36:00Z
-updated: 2026-11-24T16:23:00Z
+updated: 2026-11-24T16:54:23.960Z
 ---
 
 ## Current Test
@@ -22,21 +22,17 @@ result: pass
 
 ### 3. SearchTab 7 filter chips and 3x4 Gaming & Mood tile grid D-pad navigation without virtual keyboard
 expected: Opening SearchTab with empty query shows Recent Searches pills (Y/x delete + Clear All) and 12 Gaming & Mood tiles in 3x4 horizontal rows; selecting a tile runs a curated search with Playlists first without opening SteamOS virtual keyboard.
-result: issue
-reported: "Zoeken en tiles werken, maar de footer geeft niet weer dat je een recent search kan verwijderen met Y of X, ze doen allebei niks op een recent pill, en de search history wordt niet geladen/opgeslagen als ik de modal opnieuw open"
-severity: major
+result: pass
 
 ### 4. Live 3-tier Song/Artist/Album Radio on both spotify_client and librespot
 expected: Starting Song Radio plays the seed track immediately and replaces the upcoming queue; Artist Radio and Album Radio start radio playback with a single toast on success.
-result: issue
-reported: "Ja dat doet hij wel maar heb het idee dat de artist of album radio niet hezelfde is als dat ik die zou starten op spotify maar kan aan mij liggen"
-severity: minor
+result: pass
 
 ## Summary
 
 total: 4
-passed: 2
-issues: 2
+passed: 4
+issues: 0
 pending: 0
 skipped: 0
 blocked: 0
@@ -85,7 +81,9 @@ blocked: 0
 
 - gap_id: G-25-3-2
   truth: "Opening SearchTab with empty query shows Recent Searches pills (Y/x delete + Clear All) and 12 Gaming & Mood tiles in 3x4 horizontal rows; selecting a tile runs a curated search with Playlists first without opening SteamOS virtual keyboard."
-  status: failed
+  status: resolved
+  resolved_by: 25-05-PLAN.md
+  resolved_at: 2026-11-24
   reason: "User reported: Zoeken en tiles werken, maar de footer geeft niet weer dat je een recent search kan verwijderen met Y of X, ze doen allebei niks op een recent pill, en de search history wordt niet geladen/opgeslagen als ik de modal opnieuw open"
   severity: major
   test: 3
@@ -103,7 +101,9 @@ blocked: 0
 
 - gap_id: G-25-4-2
   truth: "Starting Song Radio plays the seed track immediately and replaces the upcoming queue; Artist Radio and Album Radio start radio playback with a single toast on success."
-  status: failed
+  status: resolved
+  resolved_by: 25-05-PLAN.md
+  resolved_at: 2026-11-24
   reason: "User reported: Ja dat doet hij wel maar heb het idee dat de artist of album radio niet hezelfde is als dat ik die zou starten op spotify maar kan aan mij liggen"
   severity: minor
   test: 4
