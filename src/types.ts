@@ -501,3 +501,16 @@ export interface DiscoveryFeedResponse {
   retry_after?: number;
   error?: string;
 }
+
+export interface SearchBrowseCategory {
+  id: string;
+  name: string;
+  image_url?: string | null;
+  uri?: string;
+}
+
+export interface SearchBrowseCategoriesResponse {
+  ok: boolean;
+  categories?: SearchBrowseCategory[];
+  error?: string;
+}

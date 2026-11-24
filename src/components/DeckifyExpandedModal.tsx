@@ -277,6 +277,8 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
   searchHistoryRef.current = searchHistory;
   const modeRef = useRef<ViewMode>(mode);
   modeRef.current = mode;
+  const searchQueryRef = useRef(searchQuery);
+  searchQueryRef.current = searchQuery;
 
   const pushNavHistory = useCallback(() => {
     const focusLabel =
@@ -1317,6 +1319,15 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
         setActiveShow(null);
         return;
       }
+      if (modeRef.current === "search" && searchQueryRef.current.trim().length > 0) {
+        e.preventDefault();
+        e.stopPropagation();
+        (e as any).stopImmediatePropagation?.();
+        setSearchQuery("");
+        setSearchResults({});
+        setTileSearchMode(false);
+        return;
+      }
     }, false);
   }, []);
 
@@ -1335,6 +1346,10 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
       ? "L1/R1 Tabs · B Back"
       : mode === "search" && focusedHistoryQuery
       ? "A Search · X/Y Remove · L1/R1 Tabs"
+      : mode === "search" && searchQuery.trim().length > 0
+      ? "A Select · B Clear Search · L1/R1 Tabs"
+      : mode === "search"
+      ? "A Select · B Close · L1/R1 Tabs"
       : "L2/R2 Page · X Like · Y Options · L1/R1 Tabs";
 
   return (

@@ -22,6 +22,8 @@ import {
   ArtistItem,
   EpisodeItem,
   PlaylistItem,
+  SearchBrowseCategoriesResponse,
+  SearchBrowseCategory,
   SearchFilterTab,
   SearchResults,
   ShowItem,
@@ -45,6 +47,10 @@ const backendSearchSpotify = callable<
     error?: string;
   }
 >("search_spotify");
+
+const getSearchBrowseCategories = callable<[], SearchBrowseCategoriesResponse>(
+  "get_search_browse_categories",
+);
 
 const SEARCH_TYPES = "track,artist,album,playlist,show,episode";
 const SEARCH_PAGE_LIMIT = 10;
@@ -754,10 +760,76 @@ function useSearchController(props: SearchTabProps) {
   };
 }
 
+const BrowseCategoriesSection: FC<{
+  categories: SearchBrowseCategory[];
+  onSelectCategory: (cat: SearchBrowseCategory) => void;
+}> = ({ categories, onSelectCategory }) => {
+  if (categories.length === 0) return null;
+  const rows: SearchBrowseCategory[][] = [];
+  for (let i = 0; i < categories.length; i += 4) {
+    rows.push(categories.slice(i, i + 4));
+  }
+  return (
+    <div style={{ marginTop: 24 }}>
+      <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 8, marginTop: 0 }}>
+        Browse Categories
+      </h3>
+      {rows.map((row, rowIdx) => (
+        <Focusable
+          key={rowIdx}
+          flow-children="horizontal"
+          style={{ display: "flex", gap: 8, marginBottom: 8 }}
+        >
+          {row.map((cat) => (
+            <InteractiveRow
+              key={cat.id || cat.name}
+              data-deckify-list-item="true"
+              data-deckify-label={cat.name}
+              onClick={() => onSelectCategory(cat)}
+              style={{
+                flex: 1,
+                minWidth: 0,
+                minHeight: 64,
+                padding: "8px 16px",
+                borderRadius: 10,
+                background: "rgba(255,255,255,0.08)",
+                gap: 10,
+              }}
+            >
+              {cat.image_url && (
+                <DeckifyImage
+                  src={cat.image_url}
+                  width={40}
+                  height={40}
+                  style={{ borderRadius: 6, flexShrink: 0 }}
+                />
+              )}
+              <span
+                style={{
+                  fontSize: 14,
+                  fontWeight: 700,
+                  minWidth: 0,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {cat.name}
+              </span>
+            </InteractiveRow>
+          ))}
+        </Focusable>
+      ))}
+    </div>
+  );
+};
+
 export const SearchTab: FC<SearchTabProps> = (props) => {
   const ctrl = useSearchController(props);
   const { onFocusHistoryPill } = props;
   const hasQuery = Boolean(ctrl.searchQuery.trim());
+  const [browseCategories, setBrowseCategories] = useState<SearchBrowseCategory[]>([]);
+  const fetchedBrowseRef = useRef(false);
 
   useEffect(() => {
     if (hasQuery) {
@@ -767,6 +839,25 @@ export const SearchTab: FC<SearchTabProps> = (props) => {
       onFocusHistoryPill?.(null);
     };
   }, [hasQuery, onFocusHistoryPill]);
+
+  useEffect(() => {
+    if (hasQuery || fetchedBrowseRef.current) return;
+    fetchedBrowseRef.current = true;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await getSearchBrowseCategories?.();
+        if (!cancelled && res?.ok && Array.isArray(res.categories)) {
+          setBrowseCategories(res.categories);
+        }
+      } catch {
+        if (!cancelled) setBrowseCategories([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [hasQuery]);
 
   return (
     <div>
@@ -789,6 +880,17 @@ export const SearchTab: FC<SearchTabProps> = (props) => {
             onFocusHistoryPill={onFocusHistoryPill}
           />
           <GamingMoodGrid onSelectTile={ctrl.handleSelectTile} />
+          <BrowseCategoriesSection
+            categories={browseCategories}
+            onSelectCategory={(cat) =>
+              ctrl.handleSelectTile({
+                id: cat.id,
+                label: cat.name,
+                query: cat.name,
+                tint: "rgba(255,255,255,0.08)",
+              })
+            }
+          />
         </div>
       ) : (
         <SearchResultsView
