@@ -258,11 +258,11 @@ Plans:
   2. `DiscoveryTab` populates the *Made For You* section with the user's personalized algorithmic mixes (*Daylist*, *Discover Weekly*, *Release Radar*, *Daily Mix 1–6*) via the CDP Pathfinder/Rootlist bridge, bypassing Spotify Web API Development Mode `HTTP 403/404` blocks.
   3. Resolved algorithmic mix metadata and track URI lists are cached locally on disk so users can browse and play those mixes even after switching their active playback engine to `librespot`.
   4. `py_modules/rpc_playback.py:_try_cdp_station_radio` (Phase 25 Tier 1 hook) is wired to `cdp_bridge.py` to start native Spotify `spotify:station:...` radio when `spotify_client` is active (falling back silently to Tier 2/3), `SearchTab` optionally enriches its Browse Categories / Gaming & Mood tiles via CDP with the 12 static tiles as automatic fallback on `librespot` or when CDP is unavailable, and pressing `B` while viewing search results in `SearchTab` (when `searchQuery` is non-empty) clears the search query/results and returns to the main Search idle view instead of closing the modal.
-**Plans:** 4 plans
+**Plans:** 1/4 plans executed
 
 Plans:
 **Wave 1**
-- [ ] 26-01-PLAN.md — Unified CDP Platform Bridge (`py_modules/cdp_bridge.py`) & `engine.py` / `rpc_library.py` delegation (tracer)
+- [x] 26-01-PLAN.md — Unified CDP Platform Bridge (`py_modules/cdp_bridge.py`) & `engine.py` / `rpc_library.py` delegation (tracer)
 
 **Wave 2** *(blocked on Wave 1)*
 - [ ] 26-02-PLAN.md — Algorithmic mixes (`Daylist`, `Discover Weekly`, `Release Radar`, `Daily Mix 1–6`), `~/.cache/deckify/discovery_mixes.json` persistence, `get_playlist_tracks` fallback & `get_search_browse_categories`
@@ -333,7 +333,7 @@ Phases execute in numeric order: 19 → 20 → 21 → 22 → 23 → 24 → 25 �
 | 23. Lyrics 2.0 — Offline .lrc Cache, Per-Track Sync Nudge & CJK Romanization | v0.7 | 5/5 | Complete    | 2026-11-22 |
 | 24. Podcast & Audiobook Power Suite | v0.7 | 8/8 | Complete    | 2026-11-23 |
 | 25. Universal Artist/Album Drill-Down, Instant Radio & Search 2.0 | v0.7 | 5/5 | Complete    | 2026-11-24 |
-| 26. Unified CDP Platform Bridge & Deep Discovery 2.0 | v0.7 | 0/TBD | Not started | - |
+| 26. Unified CDP Platform Bridge & Deep Discovery 2.0 | v0.7 | 1/4 | In Progress | - |
 | 27. Interactive Queue Studio & Controller Playlist Management | v0.7 | 0/TBD | Not started | - |
 | 28. CDP Offline Downloads, Wi-Fi Travel Mode & Living Room Spotify Jam | v0.7 | 0/TBD | Not started | - |
 | 29. 10-Foot Docked TV Split-View Mode & PipeWire Spectrum Visualizer | v0.7 | 0/TBD | Not started | - |

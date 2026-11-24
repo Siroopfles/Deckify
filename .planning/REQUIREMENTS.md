@@ -38,7 +38,7 @@
 
 - [ ] **QUEUE-03**: User can enter controller Grab/Move Mode on any upcoming track in `QueueTab` to reorder it up/down with D-pad focus locked (via stable `_rowKey` IDs and batched commit), remove individual tracks, or clear the upcoming queue via CDP `PlayerAPI` with an automatic URI-slice playback fallback on `librespot`.
 - [ ] **PL-01**: User can create new playlists, rename or edit playlist descriptions, delete/unfollow playlists with confirmation, and reorder or remove tracks inside user-owned playlists directly from the controller.
-- [ ] **DISC-04**: `DiscoveryTab` unlocks personalized Spotify algorithmic mixes (*Daylist*, *Discover Weekly*, *Release Radar*, *Daily Mix 1–6*) via a unified CDP Pathfinder/Rootlist bridge (`py_modules/cdp_bridge.py`), caching resolved track URIs so both `spotify_client` and `librespot` can play them.
+- [x] **DISC-04**: `DiscoveryTab` unlocks personalized Spotify algorithmic mixes (*Daylist*, *Discover Weekly*, *Release Radar*, *Daily Mix 1–6*) via a unified CDP Pathfinder/Rootlist bridge (`py_modules/cdp_bridge.py`), caching resolved track URIs so both `spotify_client` and `librespot` can play them.
 
 ### CDP Offline Downloads, Travel Mode & Living Room Spotify Jam
 
@@ -92,7 +92,7 @@
 | RADIO-01 | Phase 25 | Complete |
 | SEARCH-01 | Phase 25 | Complete |
 | SEARCH-02 | Phase 25 | Complete |
-| DISC-04 | Phase 26 | Pending |
+| DISC-04 | Phase 26 | Complete |
 | QUEUE-03 | Phase 27 | Pending |
 | PL-01 | Phase 27 | Pending |
 | CDP-01 | Phase 28 | Pending |
