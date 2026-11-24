@@ -624,5 +624,146 @@ class TestSearchHistoryAndPodcastSearch(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(res["episodes"][1]["fully_played"])
 
 
+class TestPhase26CdpRadioAndCachedMixPlayback(unittest.IsolatedAsyncioTestCase):
+    async def test_try_cdp_station_radio_fast_fails_without_calling_cdp_when_not_running(self):
+        for backend in ("librespot", "spotify_client"):
+            plugin = make_plugin(backend)
+            with patch.object(rpc_playback, "is_spotify_client_running", return_value=False), \
+                 patch.object(rpc_playback, "cdp_fetch_station_radio_uris") as mock_cdp:
+                res = await rpc_playback._try_cdp_station_radio(
+                    plugin, "track", "trk-1", "spotify:track:trk-1"
+                )
+            self.assertEqual(res, [])
+            mock_cdp.assert_not_called()
+
+    async def test_try_cdp_station_radio_resolves_up_to_30_uris_when_running(self):
+        plugin = make_plugin("spotify_client")
+        raw_uris = [f"spotify:track:cdp-{i}" for i in range(35)]
+        raw_uris.insert(1, "spotify:track:cdp-0")  # duplicate
+        raw_uris.insert(2, "spotify:episode:not-a-track")  # non-track filtered out
+
+        with patch.object(rpc_playback, "is_spotify_client_running", return_value=True), \
+             patch.object(rpc_playback, "cdp_fetch_station_radio_uris", return_value=raw_uris) as mock_cdp:
+            res = await rpc_playback._try_cdp_station_radio(
+                plugin, "artist", "art-1", "spotify:artist:art-1"
+            )
+
+        mock_cdp.assert_called_once_with("artist", "art-1", "spotify:artist:art-1")
+        self.assertEqual(len(res), 30)
+        self.assertEqual(res[0], "spotify:track:cdp-0")
+        self.assertEqual(len(set(res)), 30)
+        self.assertTrue(all(u.startswith("spotify:track:") for u in res))
+
+    async def test_play_tracks_librespot_uses_cached_mix_uris_and_slices_offset(self):
+        plugin = make_plugin("librespot")
+        mix_uri = "spotify:playlist:37i9dQZF1EP06eD0402"
+        cached_cache = {
+            "version": 1,
+            "mixes": [
+                {
+                    "id": "37i9dQZF1EP06eD0402",
+                    "uri": mix_uri,
+                    "uris": [
+                        "spotify:track:m1",
+                        "spotify:track:m2",
+                        "spotify:track:m3",
+                    ],
+                }
+            ],
+        }
+        captured_bodies = []
+
+        def fake_exec(fn, endpoint, token, method="GET", params=None, body=None):
+            captured_bodies.append((endpoint, method, body))
+            return {}
+
+        with patch.object(rpc_playback, "is_spotify_client_running", return_value=False), \
+             patch.object(rpc_playback, "load_discovery_mixes_cache", return_value=cached_cache), \
+             patch.object(rpc_playback, "_exec", side_effect=fake_exec):
+            res = await rpc_playback.play_tracks(
+                plugin,
+                context_uri=mix_uri,
+                offset_uri="spotify:track:m2",
+            )
+
+        self.assertTrue(res.get("ok"), msg=res)
+        self.assertEqual(plugin._context_uri, mix_uri)
+        self.assertEqual(len(captured_bodies), 1)
+        endpoint, method, body = captured_bodies[0]
+        self.assertEqual(endpoint, "me/player/play")
+        self.assertEqual(method, "PUT")
+        self.assertNotIn("context_uri", body)
+        self.assertEqual(body["uris"], ["spotify:track:m2", "spotify:track:m3"])
+        self.assertEqual(body["offset"], {"position": 0})
+
+    async def test_play_tracks_spotify_client_403_falls_back_to_cached_mix_uris(self):
+        plugin = make_plugin("spotify_client")
+        mix_uri = "spotify:playlist:37i9dQZF1DXcBWIGoYBM5M"
+        cached_cache = {
+            "version": 1,
+            "mixes": [
+                {
+                    "id": "37i9dQZF1DXcBWIGoYBM5M",
+                    "uri": mix_uri,
+                    "uris": ["spotify:track:t1", "spotify:track:t2"],
+                }
+            ],
+        }
+        captured_bodies = []
+
+        def fake_exec(fn, endpoint, token, method="GET", params=None, body=None):
+            captured_bodies.append(dict(body or {}))
+            if len(captured_bodies) == 1:
+                raise urllib.error.HTTPError("https://api.spotify.com", 403, "Forbidden", {}, None)
+            return {}
+
+        with patch.object(rpc_playback, "is_spotify_client_running", return_value=True), \
+             patch.object(rpc_playback, "load_discovery_mixes_cache", return_value=cached_cache), \
+             patch.object(rpc_playback, "_exec", side_effect=fake_exec):
+            res = await rpc_playback.play_tracks(
+                plugin,
+                context_uri=mix_uri,
+                position=1,
+            )
+
+        self.assertTrue(res.get("ok"), msg=res)
+        self.assertEqual(len(captured_bodies), 2)
+        self.assertIn("context_uri", captured_bodies[0])
+        self.assertNotIn("context_uri", captured_bodies[1])
+        self.assertEqual(captured_bodies[1]["uris"], ["spotify:track:t1", "spotify:track:t2"])
+        self.assertEqual(captured_bodies[1]["offset"], {"position": 1})
+
+    async def test_quick_play_pinned_plays_cached_mix_on_librespot(self):
+        plugin = make_plugin("librespot")
+        plugin._is_engine_running = lambda: True
+        mix_uri = "spotify:playlist:37i9dQZF1E35pinned"
+        cached_cache = {
+            "version": 1,
+            "mixes": [
+                {
+                    "id": "37i9dQZF1E35pinned",
+                    "uri": mix_uri,
+                    "uris": ["spotify:track:p1", "spotify:track:p2"],
+                }
+            ],
+        }
+        captured_bodies = []
+
+        def fake_exec(fn, endpoint, token, method="GET", params=None, body=None):
+            captured_bodies.append(dict(body or {}))
+            return {}
+
+        with patch.object(rpc_playback, "is_spotify_client_running", return_value=False), \
+             patch.object(rpc_playback, "load_discovery_mixes_cache", return_value=cached_cache), \
+             patch.object(rpc_playback, "_exec", side_effect=fake_exec):
+            res = await rpc_playback.quick_play_pinned(plugin, mix_uri)
+
+        self.assertTrue(res.get("ok"), msg=res)
+        self.assertEqual(plugin._context_uri, mix_uri)
+        self.assertEqual(len(captured_bodies), 1)
+        self.assertNotIn("context_uri", captured_bodies[0])
+        self.assertEqual(captured_bodies[0]["uris"], ["spotify:track:p1", "spotify:track:p2"])
+
+
 if __name__ == "__main__":
     unittest.main()

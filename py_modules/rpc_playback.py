@@ -4,6 +4,11 @@ import socket
 import time
 import urllib.error
 import urllib.parse
+from py_modules.cdp_bridge import (
+    cdp_fetch_station_radio_uris,
+    is_spotify_client_running,
+    load_discovery_mixes_cache,
+)
 from py_modules.common import (
     ALLOWED_PLAYBACK_SPEEDS,
     _exec,
@@ -376,6 +381,58 @@ async def add_to_queue(plugin, uri: str, device_id: str = "") -> dict:
         return {"ok": False, "error": str(e)}
 
 
+def _resolve_cached_mix_uris(context_uri: str) -> list[str]:
+    """Return cached track URIs for an algorithmic mix from discovery_mixes.json, or []."""
+    if not context_uri or not isinstance(context_uri, str):
+        return []
+    target = context_uri.strip()
+    if not target:
+        return []
+    pid = target.split(":")[-1] if ":" in target else target
+    disk_cache = load_discovery_mixes_cache()
+    mixes = disk_cache.get("mixes") if isinstance(disk_cache, dict) else None
+    if not isinstance(mixes, list):
+        return []
+    for m in mixes:
+        if not isinstance(m, dict):
+            continue
+        m_uri = str(m.get("uri") or "").strip()
+        m_id = str(m.get("id") or "").strip()
+        if (
+            (m_uri and m_uri == target)
+            or (m_id and pid and m_id == pid)
+            or (m_uri and pid and m_uri.endswith(f":{pid}"))
+        ):
+            raw_uris = m.get("uris")
+            if not (isinstance(raw_uris, list) and raw_uris) and isinstance(m.get("tracks"), list):
+                raw_uris = [t.get("uri") for t in m["tracks"] if isinstance(t, dict) and t.get("uri")]
+            clean = [u for u in (raw_uris or []) if isinstance(u, str) and u.strip()]
+            if clean:
+                return clean
+    return []
+
+
+def _build_uris_body(
+    uris: list[str],
+    offset_uri: str | None = None,
+    position: int = 0,
+    position_ms: int | None = None,
+) -> dict:
+    """Build a PUT /v1/me/player/play body using uris[] without context_uri."""
+    body: dict = {}
+    if offset_uri and offset_uri in uris:
+        idx = uris.index(offset_uri)
+        body["uris"] = uris[idx:]
+        body["offset"] = {"position": 0}
+    else:
+        body["uris"] = list(uris)
+        if position > 0:
+            body["offset"] = {"position": position}
+    if position_ms is not None and int(position_ms) > 0:
+        body["position_ms"] = int(position_ms)
+    return body
+
+
 async def play_tracks(
     plugin,
     context_uri: str | None = None,
@@ -394,21 +451,23 @@ async def play_tracks(
 
     body = {}
     if context_uri:
-        body["context_uri"] = context_uri
-        if offset_uri:
-            body["offset"] = {"uri": offset_uri}
-        elif position > 0:
-            body["offset"] = {"position": position}
+        settings = getattr(plugin, "_settings", {}) or {}
+        use_cached_mix = (
+            settings.get("audio_backend", "librespot") == "librespot"
+            or not is_spotify_client_running(plugin)
+        )
+        cached_uris = _resolve_cached_mix_uris(context_uri) if (use_cached_mix and not uris) else []
+        if cached_uris:
+            body = _build_uris_body(cached_uris, offset_uri, position, position_ms)
+        else:
+            body["context_uri"] = context_uri
+            if offset_uri:
+                body["offset"] = {"uri": offset_uri}
+            elif position > 0:
+                body["offset"] = {"position": position}
         plugin._context_uri = context_uri
     elif uris:
-        if offset_uri and offset_uri in uris:
-            idx = uris.index(offset_uri)
-            body["uris"] = uris[idx:]
-            body["offset"] = {"position": 0}
-        else:
-            body["uris"] = uris
-            if position > 0:
-                body["offset"] = {"position": position}
+        body = _build_uris_body(uris, offset_uri, position, position_ms)
     elif offset_uri and str(offset_uri).strip():
         body["uris"] = [str(offset_uri).strip()]
     if body and position_ms is not None and int(position_ms) > 0:
@@ -422,6 +481,18 @@ async def play_tracks(
         )
         return {"ok": True}
     except urllib.error.HTTPError as e:
+        if e.code in (403, 404) and body.get("context_uri"):
+            cached_uris = _resolve_cached_mix_uris(context_uri or body["context_uri"])
+            if cached_uris:
+                body = _build_uris_body(cached_uris, offset_uri, position, position_ms)
+                try:
+                    await _exec(_spotify_api_request, "me/player/play", token, "PUT", None, body)
+                    return {"ok": True}
+                except urllib.error.HTTPError as retry_err:
+                    e = retry_err
+                except Exception as retry_exc:
+                    decky.logger.error("play_tracks cached mix retry failed: %s", retry_exc)
+                    return {"ok": False, "error": str(retry_exc)}
         if e.code == 404:
             transfer_res = await plugin._auto_transfer_and_play(token)
             if not transfer_res.get("ok") and power_gov is not None and (
@@ -691,8 +762,20 @@ async def _try_cdp_station_radio(
     seed_id: str,
     seed_uri: str = "",
 ) -> list[str]:
-    """Tier 1 CDP station radio hook (stubbed until Phase 26 cdp_bridge)."""
-    return []
+    """Tier 1 CDP station radio via cdp_bridge (0ms fast-fail when spotify_client is inactive)."""
+    if (seed_type or "").strip().lower() not in ("track", "artist", "album"):
+        return []
+    if not is_spotify_client_running(plugin):
+        return []
+    try:
+        uris = await _exec(cdp_fetch_station_radio_uris, seed_type, seed_id, seed_uri)
+    except Exception as e:
+        decky.logger.warning("_try_cdp_station_radio failed: %s", e)
+        return []
+    if not isinstance(uris, list):
+        return []
+    valid = [u for u in uris if isinstance(u, str) and u.startswith("spotify:track:")]
+    return _dedupe_uris(valid)[:30]
 
 
 def _dedupe_uris(uris: list[str]) -> list[str]:
