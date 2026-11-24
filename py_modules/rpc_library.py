@@ -69,6 +69,53 @@ async def get_playlists(plugin, offset: int = 0) -> dict:
         return {"ok": False, "error": str(e)}
 
 
+def _refresh_cached_mix_tracks(pid: str, tracks: list[dict], total: int | None = None) -> None:
+    """Refresh cached mix tracks (up to 100) and URIs in discovery_mixes.json when present."""
+    if not pid or not tracks:
+        return
+    try:
+        disk_cache = load_discovery_mixes_cache()
+        mixes = disk_cache.get("mixes")
+        if not isinstance(mixes, list):
+            return
+        updated = False
+        for m in mixes:
+            if not isinstance(m, dict):
+                continue
+            if m.get("id") == pid or str(m.get("uri") or "").endswith(f":{pid}"):
+                capped = [dict(t) for t in tracks[:100] if isinstance(t, dict)]
+                m["tracks"] = capped
+                m["uris"] = [t["uri"] for t in capped if t.get("uri")]
+                if total:
+                    m["track_count"] = total
+                updated = True
+                break
+        if updated:
+            disk_cache["version"] = disk_cache.get("version") or 1
+            disk_cache["updated_at"] = int(time.time())
+            save_discovery_mixes_cache(disk_cache)
+    except Exception as e:
+        decky.logger.debug("_refresh_cached_mix_tracks failed for %s: %s", pid, e)
+
+
+def _get_cached_mix_tracks(pid: str) -> list[dict]:
+    """Return cached tracks for an algorithmic mix from discovery_mixes.json, or []."""
+    if not pid:
+        return []
+    disk_cache = load_discovery_mixes_cache()
+    mixes = disk_cache.get("mixes")
+    if not isinstance(mixes, list):
+        return []
+    for m in mixes:
+        if not isinstance(m, dict):
+            continue
+        if m.get("id") == pid or str(m.get("uri") or "").endswith(f":{pid}"):
+            tracks = m.get("tracks")
+            if isinstance(tracks, list) and tracks:
+                return [dict(t) for t in tracks if isinstance(t, dict)]
+    return []
+
+
 async def get_playlist_tracks(
     plugin,
     playlist_id: str,
@@ -158,21 +205,29 @@ async def get_playlist_tracks(
                 break
 
         if not tracks and cur_offset == 0:
-            is_spotify_client = (
-                plugin._settings.get("audio_backend") == "spotify_client"
-                and bool(
-                    getattr(plugin, "_spotify_client_process", None)
-                    and plugin._spotify_client_process.poll() is None
-                )
-            )
-            if is_spotify_client:
+            if is_spotify_client_running(plugin):
                 try:
                     cdp_res = await _exec(_cdp_get_playlist_tracks, pid, offset, fetch_all)
                     if isinstance(cdp_res, dict) and cdp_res.get("ok") and cdp_res.get("tracks"):
                         tracks = cdp_res["tracks"]
                         total = cdp_res.get("total", len(tracks))
+                        _refresh_cached_mix_tracks(pid, tracks, total)
                 except Exception as cdp_err:
                     decky.logger.warning("get_playlist_tracks CDP fallback failed: %s", cdp_err)
+            if not tracks:
+                cached_tracks = _get_cached_mix_tracks(pid)
+                if cached_tracks:
+                    try:
+                        await plugin._annotate_tracks_liked(token, cached_tracks)
+                    except Exception as ex:
+                        decky.logger.warning("Failed to annotate cached mix tracks liked: %s", ex)
+                    return {
+                        "ok": True,
+                        "tracks": cached_tracks,
+                        "total": len(cached_tracks),
+                        "has_more": False,
+                        "cached": True,
+                    }
 
         try:
             await plugin._annotate_tracks_liked(token, tracks)
@@ -180,19 +235,14 @@ async def get_playlist_tracks(
             decky.logger.warning("Failed to annotate tracks liked: %s", ex)
         return {"ok": True, "tracks": tracks, "total": total or len(tracks), "offset": offset}
     except urllib.error.HTTPError as e:
-        if getattr(e, "code", None) == 403:
-            is_spotify_client = (
-                plugin._settings.get("audio_backend") == "spotify_client"
-                and bool(
-                    getattr(plugin, "_spotify_client_process", None)
-                    and plugin._spotify_client_process.poll() is None
-                )
-            )
-            if is_spotify_client:
+        if getattr(e, "code", None) in (403, 404) and int(offset) == 0:
+            if is_spotify_client_running(plugin):
                 try:
                     cdp_res = await _exec(_cdp_get_playlist_tracks, pid, offset, fetch_all)
                     if isinstance(cdp_res, dict) and cdp_res.get("ok"):
                         cdp_tracks = cdp_res.get("tracks") or []
+                        if cdp_tracks:
+                            _refresh_cached_mix_tracks(pid, cdp_tracks, cdp_res.get("total", len(cdp_tracks)))
                         try:
                             await plugin._annotate_tracks_liked(token, cdp_tracks)
                         except Exception:
@@ -204,7 +254,20 @@ async def get_playlist_tracks(
                             "offset": offset,
                         }
                 except Exception as cdp_err:
-                    decky.logger.warning("get_playlist_tracks CDP 403 fallback failed: %s", cdp_err)
+                    decky.logger.warning("get_playlist_tracks CDP %s fallback failed: %s", e.code, cdp_err)
+            cached_tracks = _get_cached_mix_tracks(pid)
+            if cached_tracks:
+                try:
+                    await plugin._annotate_tracks_liked(token, cached_tracks)
+                except Exception as ex:
+                    decky.logger.warning("Failed to annotate cached mix tracks liked: %s", ex)
+                return {
+                    "ok": True,
+                    "tracks": cached_tracks,
+                    "total": len(cached_tracks),
+                    "has_more": False,
+                    "cached": True,
+                }
         decky.logger.error("get_playlist_tracks failed: %s", e)
         return {"ok": False, "error": _parse_spotify_error(e)}
     except Exception as e:

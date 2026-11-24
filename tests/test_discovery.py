@@ -507,3 +507,63 @@ class TestDiscoveryAlgorithmicMixes(unittest.IsolatedAsyncioTestCase):
         with patch.object(rpc_library, "cdp_fetch_browse_categories", return_value=cats):
             res_cdp = await rpc_library.get_search_browse_categories(self.plugin)
         self.assertEqual(res_cdp, {"ok": True, "categories": cats})
+
+    async def test_get_playlist_tracks_serves_cached_mix_on_403_404_librespot(self):
+        seeded_tracks = [{"id": "t1", "uri": "spotify:track:t1", "name": "Cached Song"}]
+        cdp_bridge.save_discovery_mixes_cache({
+            "version": 1,
+            "updated_at": 1700000000,
+            "mixes": [{
+                "id": "dl1",
+                "uri": "spotify:playlist:dl1",
+                "name": "daylist",
+                "tracks": seeded_tracks,
+            }],
+        })
+        self.plugin._settings["audio_backend"] = "librespot"
+        self.plugin._spotify_client_process = None
+
+        async def annotate(tok, tracks):
+            for t in tracks:
+                t["is_liked"] = True
+
+        self.plugin._annotate_tracks_liked = AsyncMock(side_effect=annotate)
+
+        for code in (403, 404):
+            with patch.object(rpc_library, "_spotify_api_request", side_effect=_http_error(code)), \
+                 patch.object(rpc_library, "_cdp_get_playlist_tracks") as mock_cdp:
+                res = await rpc_library.get_playlist_tracks(self.plugin, "dl1", offset=0, fetch_all=False)
+            mock_cdp.assert_not_called()
+            self.assertTrue(res["ok"])
+            self.assertTrue(res["cached"])
+            self.assertFalse(res["has_more"])
+            self.assertEqual(res["total"], 1)
+            self.assertEqual(res["tracks"][0]["id"], "t1")
+            self.assertTrue(res["tracks"][0]["is_liked"])
+
+    async def test_get_playlist_tracks_live_cdp_refreshes_disk_cache(self):
+        cdp_bridge.save_discovery_mixes_cache({
+            "version": 1,
+            "updated_at": 1700000000,
+            "mixes": [{
+                "id": "dl1",
+                "uri": "spotify:playlist:dl1",
+                "name": "daylist",
+                "tracks": [{"id": "old", "uri": "spotify:track:old", "name": "Old"}],
+            }],
+        })
+        self.plugin._settings["audio_backend"] = "spotify_client"
+        self.plugin._spotify_client_process = SimpleNamespace(poll=lambda: None)
+        fresh_tracks = [{"id": f"new{i}", "uri": f"spotify:track:new{i}", "name": f"New {i}"} for i in range(110)]
+
+        with patch.object(rpc_library, "_spotify_api_request", side_effect=_http_error(404)), \
+             patch.object(rpc_library, "_cdp_get_playlist_tracks", return_value={"ok": True, "tracks": fresh_tracks, "total": 110}):
+            res = await rpc_library.get_playlist_tracks(self.plugin, "spotify:playlist:dl1", offset=0, fetch_all=True)
+
+        self.assertTrue(res["ok"])
+        self.assertEqual(len(res["tracks"]), 110)
+        disk = cdp_bridge.load_discovery_mixes_cache()
+        self.assertEqual(len(disk["mixes"][0]["tracks"]), 100)
+        self.assertEqual(disk["mixes"][0]["tracks"][0]["id"], "new0")
+        self.assertEqual(len(disk["mixes"][0]["uris"]), 100)
+        self.assertEqual(disk["mixes"][0]["uris"][0], "spotify:track:new0")
