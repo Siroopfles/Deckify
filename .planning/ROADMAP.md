@@ -232,7 +232,7 @@ Plans:
   2. Selecting *"Start Song Radio"* or *"Start Artist Radio"* generates and starts a continuous radio queue on both `spotify_client` and `librespot` via the 3-tier radio waterfall (CDP station → Web API recommendations → Top-Tracks/Search synthesis fallback).
   3. When the search query in `SearchTab` is empty, user can launch searches from recent search history pills (with individual and clear-all options) or select from 12 controller-friendly Gaming & Mood browse tiles without opening the virtual keyboard.
   4. User can filter and browse search results specifically by `Podcasts` (`show`) and `Episodes` (`episode`) in `SearchTab` alongside Tracks, Artists, Albums, and Playlists.
-**Plans:** 4/4 plans executed
+**Plans:** 5 plans (4 executed, 1 gap-closure planned)
 
 Plans:
 **Wave 1**
@@ -246,6 +246,7 @@ Plans:
 
 **Wave 1 (Gap Closure)**
 - [x] 25-04-PLAN.md — Close UAT gaps G-25-3 & G-25-4: omit `market="from_token"` and cap `limit=10` with `offset` pagination & error banner in `search_spotify`/`SearchTab`, and add `limit=10` + `artists/{id}/albums` fallback + warning logs in `start_radio`
+- [ ] 25-05-PLAN.md — Close UAT gaps G-25-3-2 & G-25-4-2: expose `search_history` in `get_status()`, wire gamepad X/Y recent-pill removal & footer hint in `SearchTab`/`DeckifyExpandedModal`, and upgrade `start_radio` Tier 3 to a multi-artist Radio mix
 **UI hint**: yes
 
 ### Phase 26: Unified CDP Platform Bridge & Deep Discovery 2.0
