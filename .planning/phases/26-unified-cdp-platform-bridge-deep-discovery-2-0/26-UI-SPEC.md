@@ -1,10 +1,11 @@
 ---
 phase: "26"
 slug: "unified-cdp-platform-bridge-deep-discovery-2-0"
-status: draft
+status: approved
 shadcn_initialized: false
 preset: none
 created: "2026-11-24"
+reviewed_at: "2026-11-24"
 ---
 
 # Phase 26 — UI Design Contract
@@ -31,7 +32,7 @@ Declared values (multiples of 4):
 
 | Token | Value | Usage |
 |-------|-------|-------|
-| xs | 4px | Inline icon gaps, carousel edge padding (`padding: "6px 4px 10px"`), title/subtitle stack gap |
+| xs | 4px | Inline icon gaps, title/subtitle stack gap, horizontal carousel edge inset |
 | sm | 8px | Compact element spacing, `DiscoveryCard` padding/gap, `RecentSearchesSection` pill gap, `GamingMoodGrid` tile gap |
 | md | 16px | Default element spacing, carousel horizontal gap, section vertical gap, tile horizontal padding |
 | lg | 24px | Section breaks (`RecentSearchesSection` bottom margin, optional CDP `Browse Categories` top margin) |
@@ -40,6 +41,7 @@ Declared values (multiples of 4):
 | 3xl | 64px | Browse tile `minHeight: 64` in `GamingMoodGrid` and optional CDP `Browse Categories` tiles |
 
 Exceptions:
+- `6px 4px 10px` carousel edge padding in `DiscoveryTab.tsx` (existing component baseline for focus halo clearance).
 - `14px` bottom margin on `SearchTab` `<h2>` heading (existing component baseline).
 - `36px` `minHeight` on `RecentSearchesSection` history pills and `Clear All` button (existing component baseline).
 - `44px` `minHeight` on `InteractiveRow` list rows (controller/touch target minimum).
@@ -143,12 +145,12 @@ Applicable state considerations resolved: 5 covered, 0 backstop, 0 unresolved
 
 ## Checker Sign-Off
 
-- [ ] Dimension 1 Copywriting: PASS
-- [ ] Dimension 2 Visuals: PASS
-- [ ] Dimension 3 Color: PASS
-- [ ] Dimension 4 Typography: PASS
-- [ ] Dimension 5 Spacing: PASS
-- [ ] Dimension 6 Registry Safety: PASS
-- [ ] Dimension 7 Inventory Provenance: PASS
+- [x] Dimension 1 Copywriting: PASS
+- [x] Dimension 2 Visuals: PASS
+- [x] Dimension 3 Color: PASS
+- [x] Dimension 4 Typography: PASS
+- [x] Dimension 5 Spacing: PASS
+- [x] Dimension 6 Registry Safety: PASS
+- [x] Dimension 7 Inventory Provenance: PASS
 
-**Approval:** pending
+**Approval:** approved 2026-11-24
