@@ -735,7 +735,7 @@ class Plugin:
             "mpris_enabled", "mpris_auto_proxy",
             "accent_theme", "eco_mode_enabled",
             "eco_timeout_minutes", "eco_sleep_spotify_client",
-            "preferred_podcast_speed",
+            "preferred_podcast_speed", "search_history",
         )
         eq_mgr = getattr(self, "_equalizer_manager", None)
         raw_app_id = getattr(getattr(self, "_soundtrack_manager", None), "_active_game_app_id", None)

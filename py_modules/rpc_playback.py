@@ -714,6 +714,83 @@ def _extract_seed_id(seed_id: str, seed_uri: str) -> str:
     return raw
 
 
+def _track_artist_key(track_dict: dict) -> str:
+    """Return lowercased primary artist ID or name from a track dict."""
+    if not isinstance(track_dict, dict):
+        return ""
+    artists = track_dict.get("artists")
+    if isinstance(artists, list) and artists and isinstance(artists[0], dict):
+        aid = artists[0].get("id")
+        if isinstance(aid, str) and aid.strip():
+            return aid.strip().lower()
+        aname = artists[0].get("name")
+        if isinstance(aname, str) and aname.strip():
+            return aname.strip().lower()
+    return ""
+
+
+def _extract_track_pairs(items: list) -> list[tuple[str, str]]:
+    """Extract (uri, artist_key) pairs from track or playlist-track wrapper items."""
+    pairs: list[tuple[str, str]] = []
+    for item in items or []:
+        if not isinstance(item, dict):
+            continue
+        t = item.get("track") if isinstance(item.get("track"), dict) else item
+        uri = t.get("uri")
+        if isinstance(uri, str) and uri:
+            pairs.append((uri, _track_artist_key(t)))
+    return pairs
+
+
+def _interleave_radio_mix(
+    mix_tracks: list[tuple[str, str]],
+    seed_artist_uris: list[str],
+    seed_artist_keys: set[str],
+    album_track_uris: list[str],
+    norm_type: str,
+) -> list[str]:
+    """Interleave multi-artist mix tracks (2:1) with seed-artist tracks and cap single-artist dominance."""
+    other_pool: list[tuple[str, str]] = []
+    mix_seed_uris: list[str] = []
+    for uri, art_key in mix_tracks:
+        if art_key and art_key in seed_artist_keys:
+            mix_seed_uris.append(uri)
+        else:
+            other_pool.append((uri, art_key))
+
+    capped_other: list[str] = []
+    overflow_other: list[str] = []
+    artist_counts: dict[str, int] = {}
+    for uri, art_key in other_pool:
+        if art_key:
+            count = artist_counts.get(art_key, 0)
+            if count >= 4:
+                overflow_other.append(uri)
+                continue
+            artist_counts[art_key] = count + 1
+        capped_other.append(uri)
+
+    seed_extras = album_track_uris if norm_type == "album" else []
+    seed_pool = _dedupe_uris(seed_artist_uris + mix_seed_uris + seed_extras)
+
+    synth_uris: list[str] = []
+    o_idx = 0
+    s_idx = 0
+    while o_idx < len(capped_other) or s_idx < len(seed_pool):
+        for _ in range(2):
+            if o_idx < len(capped_other):
+                synth_uris.append(capped_other[o_idx])
+                o_idx += 1
+        if s_idx < len(seed_pool):
+            synth_uris.append(seed_pool[s_idx])
+            s_idx += 1
+
+    if len(_dedupe_uris(synth_uris)) < 15 and overflow_other:
+        synth_uris.extend(overflow_other)
+
+    return _dedupe_uris(synth_uris)
+
+
 async def start_radio(
     plugin,
     seed_type: str,
@@ -809,9 +886,11 @@ async def start_radio(
             decky.logger.warning("start_radio Tier 2 recommendations failed: %s", e)
             candidate_uris = []
 
-    # Tier 3: Top-Tracks + Search + Artist Albums synthesis fallback
+    # Tier 3: Multi-artist Radio Playlist + Broad/Genre Search + Seed-Artist synthesis fallback
     if not candidate_uris:
-        synth_uris: list[str] = []
+        mix_tracks: list[tuple[str, str]] = []
+        seed_artist_uris: list[str] = []
+        cached_art_info: dict | None = None
 
         if norm_type == "track" and (not resolved_artist_id or not resolved_artist_name):
             try:
@@ -825,6 +904,112 @@ async def start_radio(
             except Exception as e:
                 decky.logger.warning("start_radio Tier 3 track lookup failed: %s", e)
 
+        # Step A: Radio/Mix Playlist Search
+        if norm_type == "artist" or not resolved_seed_name:
+            pl_query = f"{resolved_artist_name} radio".strip() if resolved_artist_name else ""
+        else:
+            pl_query = f"{resolved_seed_name} {resolved_artist_name} radio".strip()
+
+        if pl_query:
+            try:
+                pl_data = await _exec(
+                    _spotify_api_request,
+                    "search",
+                    token,
+                    "GET",
+                    {"q": pl_query, "type": "playlist", "limit": 5},
+                )
+                pl_items = [
+                    p
+                    for p in ((pl_data or {}).get("playlists", {}).get("items", []) or [])
+                    if isinstance(p, dict) and isinstance(p.get("id"), str) and p.get("id", "").strip()
+                ]
+                chosen_pl = next(
+                    (
+                        p
+                        for p in pl_items
+                        if any(kw in (p.get("name") or "").lower() for kw in ("radio", "mix"))
+                    ),
+                    pl_items[0] if pl_items else None,
+                )
+                if chosen_pl:
+                    safe_pl_id = urllib.parse.quote(chosen_pl["id"].strip(), safe="")
+                    pl_tracks_data = await _exec(
+                        _spotify_api_request,
+                        f"playlists/{safe_pl_id}/tracks",
+                        token,
+                        "GET",
+                        {"limit": 10},
+                    )
+                    mix_tracks.extend(_extract_track_pairs((pl_tracks_data or {}).get("items", [])))
+                    pl_total = (pl_tracks_data or {}).get("total")
+                    if len(mix_tracks) < 15 and isinstance(pl_total, int) and pl_total > 10:
+                        pl_page2 = await _exec(
+                            _spotify_api_request,
+                            f"playlists/{safe_pl_id}/tracks",
+                            token,
+                            "GET",
+                            {"limit": 10, "offset": 10},
+                        )
+                        mix_tracks.extend(_extract_track_pairs((pl_page2 or {}).get("items", [])))
+            except Exception as e:
+                decky.logger.warning("start_radio Tier 3 playlist radio failed: %s", e)
+
+        # Step B: Broad + Genre Multi-Artist Track Search
+        if len(mix_tracks) < 15:
+            if resolved_seed_name and resolved_artist_name and resolved_seed_name.lower() != resolved_artist_name.lower():
+                broad_q = f"{resolved_seed_name} {resolved_artist_name}".strip()
+            else:
+                broad_q = (resolved_seed_name or resolved_artist_name).strip()
+            if broad_q:
+                try:
+                    broad_data = await _exec(
+                        _spotify_api_request,
+                        "search",
+                        token,
+                        "GET",
+                        {"q": broad_q, "type": "track", "limit": 10},
+                    )
+                    mix_tracks.extend(
+                        _extract_track_pairs(((broad_data or {}).get("tracks") or {}).get("items", []))
+                    )
+                except Exception as e:
+                    decky.logger.warning("start_radio Tier 3 broad search failed: %s", e)
+
+        if resolved_artist_id and len(mix_tracks) < 15:
+            safe_art_id = urllib.parse.quote(resolved_artist_id.strip(), safe="")
+            try:
+                if cached_art_info is None:
+                    art_info = await _exec(
+                        _spotify_api_request,
+                        f"artists/{safe_art_id}",
+                        token,
+                        "GET",
+                    )
+                    if isinstance(art_info, dict):
+                        cached_art_info = art_info
+                        if not resolved_artist_name:
+                            resolved_artist_name = art_info.get("name", "") or ""
+                genres = (cached_art_info or {}).get("genres") or []
+                first_genre = next(
+                    (g.strip() for g in genres if isinstance(g, str) and g.strip()),
+                    "",
+                )
+                if first_genre:
+                    genre_data = await _exec(
+                        _spotify_api_request,
+                        "search",
+                        token,
+                        "GET",
+                        {"q": f"genre:{first_genre}", "type": "track", "limit": 10},
+                    )
+                    mix_tracks.extend(
+                        _extract_track_pairs(((genre_data or {}).get("tracks") or {}).get("items", []))
+                    )
+            except Exception as e:
+                decky.logger.warning("start_radio Tier 3 genre search failed: %s", e)
+
+        # Step C: Seed-Artist Pool Fallback
         if resolved_artist_id:
             safe_art_id = urllib.parse.quote(resolved_artist_id.strip(), safe="")
             try:
@@ -836,10 +1021,10 @@ async def start_radio(
                 )
                 for t in ((top_data or {}).get("tracks") or []):
                     if isinstance(t, dict) and isinstance(t.get("uri"), str) and t.get("uri"):
-                        synth_uris.append(t["uri"])
+                        seed_artist_uris.append(t["uri"])
             except Exception as e:
                 decky.logger.warning("start_radio Tier 3 top-tracks failed: %s", e)
-                if not resolved_artist_name:
+                if not resolved_artist_name and cached_art_info is None:
                     try:
                         art_info = await _exec(
                             _spotify_api_request,
@@ -848,13 +1033,14 @@ async def start_radio(
                             "GET",
                         )
                         if isinstance(art_info, dict):
+                            cached_art_info = art_info
                             resolved_artist_name = art_info.get("name", "") or ""
                     except Exception as art_err:
                         decky.logger.warning("start_radio Tier 3 artist lookup failed: %s", art_err)
 
-        synth_uris = _dedupe_uris(synth_uris)
+        seed_artist_uris = _dedupe_uris(seed_artist_uris)
 
-        if len(synth_uris) < 15:
+        if len(mix_tracks) + len(seed_artist_uris) < 20:
             search_query = f"artist:{resolved_artist_name}" if resolved_artist_name else resolved_seed_name
             if search_query:
                 try:
@@ -867,12 +1053,12 @@ async def start_radio(
                     )
                     for t in ((search_data or {}).get("tracks") or {}).get("items", []) or []:
                         if isinstance(t, dict) and isinstance(t.get("uri"), str) and t.get("uri"):
-                            synth_uris.append(t["uri"])
-                    synth_uris = _dedupe_uris(synth_uris)
+                            seed_artist_uris.append(t["uri"])
+                    seed_artist_uris = _dedupe_uris(seed_artist_uris)
                 except Exception as e:
                     decky.logger.warning("start_radio Tier 3 search failed: %s", e)
 
-        if len(synth_uris) < 15 and resolved_artist_id:
+        if len(mix_tracks) + len(seed_artist_uris) < 20 and resolved_artist_id:
             safe_art_id = urllib.parse.quote(resolved_artist_id.strip(), safe="")
             try:
                 albums_data = await _exec(
@@ -898,9 +1084,9 @@ async def start_radio(
                     )
                     for t in (alb_tracks_data or {}).get("items", []) or []:
                         if isinstance(t, dict) and isinstance(t.get("uri"), str) and t.get("uri"):
-                            synth_uris.append(t["uri"])
-                    synth_uris = _dedupe_uris(synth_uris)
-                    if len(synth_uris) >= 15:
+                            seed_artist_uris.append(t["uri"])
+                    seed_artist_uris = _dedupe_uris(seed_artist_uris)
+                    if len(mix_tracks) + len(seed_artist_uris) >= 20:
                         break
             except Exception as e:
                 decky.logger.warning("start_radio Tier 3 artist albums fallback failed: %s", e)
@@ -920,10 +1106,19 @@ async def start_radio(
             except Exception as e:
                 decky.logger.warning("start_radio Tier 3 album tracks fallback failed: %s", e)
 
-        if norm_type == "album" and album_track_uris:
-            synth_uris = _dedupe_uris(synth_uris + album_track_uris)
-
-        candidate_uris = synth_uris
+        # Step D: Interleaved Multi-Artist Assembly
+        seed_artist_keys = {
+            k.strip().lower()
+            for k in (resolved_artist_id, resolved_artist_name)
+            if isinstance(k, str) and k.strip()
+        }
+        candidate_uris = _interleave_radio_mix(
+            mix_tracks,
+            seed_artist_uris,
+            seed_artist_keys,
+            album_track_uris,
+            norm_type,
+        )
         if candidate_uris:
             tier_used = "synthesis"
 

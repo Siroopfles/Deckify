@@ -71,8 +71,14 @@ class TestStartRadioWaterfall(unittest.IsolatedAsyncioTestCase):
                 raise urllib.error.HTTPError("https://api.spotify.com", 403, "Forbidden", {}, None)
             if endpoint == "artists/art-1/top-tracks":
                 return {"tracks": [{"uri": "spotify:track:top-1"}, {"uri": "spotify:track:top-2"}]}
+            if endpoint == "artists/art-1":
+                return {"id": "art-1", "name": "Synth Artist", "genres": []}
             if endpoint == "search":
+                if (params or {}).get("type") == "playlist":
+                    return {"playlists": {"items": []}}
                 self.assertEqual(params["limit"], 10)
+                if not str((params or {}).get("q", "")).startswith("artist:"):
+                    return {"tracks": {"items": []}}
                 return {
                     "tracks": {
                         "items": [
@@ -224,6 +230,140 @@ class TestStartRadioWaterfall(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(res.get("uris"), ["spotify:track:fb-1", "spotify:track:fb-2"])
         mock_play.assert_awaited_once_with(plugin, uris=["spotify:track:fb-1", "spotify:track:fb-2"])
         self.assertGreaterEqual(mock_warn.call_count, 3)
+
+    async def test_tier3_playlist_radio_yields_multi_artist_mix(self):
+        plugin = make_plugin("librespot")
+        seen_endpoints = []
+
+        async def fake_exec(fn, endpoint, token, method="GET", params=None, body=None):
+            seen_endpoints.append((endpoint, params))
+            if endpoint == "recommendations":
+                raise urllib.error.HTTPError("https://api.spotify.com", 403, "Forbidden", {}, None)
+            if endpoint == "artists/art-seed/top-tracks":
+                raise urllib.error.HTTPError("https://api.spotify.com", 404, "Not Found", {}, None)
+            if endpoint == "search" and (params or {}).get("type") == "playlist":
+                self.assertEqual(params.get("limit"), 5)
+                return {
+                    "playlists": {
+                        "items": [
+                            {"id": "pl-other", "name": "Random Hits"},
+                            {"id": "pl-radio", "name": "Seed Artist Radio"},
+                        ]
+                    }
+                }
+            if endpoint == "playlists/pl-radio/tracks":
+                self.assertEqual((params or {}).get("limit"), 10)
+                items = []
+                for i in range(6):
+                    art = f"art-{i % 3}"
+                    items.append({
+                        "track": {
+                            "uri": f"spotify:track:pl-{i}",
+                            "artists": [{"id": art, "name": f"Artist {i % 3}"}],
+                        }
+                    })
+                return {"total": 6, "items": items}
+            if endpoint == "search" and (params or {}).get("type") == "track":
+                q = (params or {}).get("q", "")
+                if q.startswith("artist:"):
+                    return {
+                        "tracks": {
+                            "items": [
+                                {"uri": "spotify:track:seed-a", "artists": [{"id": "art-seed", "name": "Seed Artist"}]},
+                                {"uri": "spotify:track:seed-b", "artists": [{"id": "art-seed", "name": "Seed Artist"}]},
+                            ]
+                        }
+                    }
+                return {"tracks": {"items": []}}
+            if endpoint == "artists/art-seed":
+                return {"id": "art-seed", "name": "Seed Artist", "genres": []}
+            if endpoint == "artists/art-seed/albums":
+                return {"items": []}
+            raise AssertionError(f"Unexpected endpoint: {endpoint} {params}")
+
+        with patch.object(rpc_playback, "_exec", side_effect=fake_exec), \
+             patch.object(rpc_playback, "play_tracks", new_callable=AsyncMock, return_value={"ok": True}) as mock_play:
+            res = await rpc_playback.start_radio(
+                plugin,
+                seed_type="artist",
+                seed_id="art-seed",
+                artist_name="Seed Artist",
+            )
+
+        self.assertTrue(res.get("ok"), msg=res)
+        self.assertEqual(res.get("tier"), "synthesis")
+        uris = mock_play.call_args.kwargs["uris"]
+        self.assertIn("spotify:track:pl-0", uris)
+        self.assertIn("spotify:track:seed-a", uris)
+        # Interleaved: 2 other-artist tracks before first seed-artist track
+        self.assertEqual(uris[:3], ["spotify:track:pl-0", "spotify:track:pl-1", "spotify:track:seed-a"])
+        self.assertTrue(any(ep == "playlists/pl-radio/tracks" for ep, _ in seen_endpoints))
+
+    async def test_tier3_broad_and_genre_search_interleaves_and_caps_artist_dominance(self):
+        plugin = make_plugin("spotify_client")
+
+        async def fake_exec(fn, endpoint, token, method="GET", params=None, body=None):
+            if endpoint == "recommendations":
+                raise urllib.error.HTTPError("https://api.spotify.com", 403, "Forbidden", {}, None)
+            if endpoint == "tracks/trk-seed":
+                return {"name": "Midnight Run", "artists": [{"id": "art-seed", "name": "Seed Artist"}]}
+            if endpoint == "artists/art-seed/top-tracks":
+                raise urllib.error.HTTPError("https://api.spotify.com", 403, "Forbidden", {}, None)
+            if endpoint == "search" and (params or {}).get("type") == "playlist":
+                return {"playlists": {"items": []}}
+            if endpoint == "search" and (params or {}).get("type") == "track":
+                q = (params or {}).get("q", "")
+                if q == "Midnight Run Seed Artist":
+                    # 6 tracks from dominant-art, plus 2 from art-2
+                    items = [
+                        {"uri": f"spotify:track:dom-{i}", "artists": [{"id": "dom-art", "name": "Dominant"}]}
+                        for i in range(6)
+                    ] + [
+                        {"uri": "spotify:track:other-1", "artists": [{"id": "art-2", "name": "Other Two"}]},
+                        {"uri": "spotify:track:other-2", "artists": [{"id": "art-2", "name": "Other Two"}]},
+                    ]
+                    return {"tracks": {"items": items}}
+                if q == "genre:synthwave":
+                    return {
+                        "tracks": {
+                            "items": [
+                                {"uri": f"spotify:track:gen-{i}", "artists": [{"id": f"gen-art-{i}", "name": f"Gen {i}"}]}
+                                for i in range(8)
+                            ]
+                        }
+                    }
+                if q == "artist:Seed Artist":
+                    return {
+                        "tracks": {
+                            "items": [
+                                {"uri": "spotify:track:seed-1", "artists": [{"id": "art-seed", "name": "Seed Artist"}]},
+                                {"uri": "spotify:track:seed-2", "artists": [{"id": "art-seed", "name": "Seed Artist"}]},
+                            ]
+                        }
+                    }
+            if endpoint == "artists/art-seed":
+                return {"id": "art-seed", "name": "Seed Artist", "genres": ["synthwave", "electronic"]}
+            if endpoint == "artists/art-seed/albums":
+                return {"items": []}
+            raise AssertionError(f"Unexpected endpoint: {endpoint} {params}")
+
+        with patch.object(rpc_playback, "_exec", side_effect=fake_exec), \
+             patch.object(rpc_playback, "play_tracks", new_callable=AsyncMock, return_value={"ok": True}) as mock_play:
+            res = await rpc_playback.start_radio(
+                plugin,
+                seed_type="track",
+                seed_id="trk-seed",
+                seed_uri="spotify:track:trk-seed",
+            )
+
+        self.assertTrue(res.get("ok"), msg=res)
+        uris = mock_play.call_args.kwargs["uris"]
+        self.assertEqual(uris[0], "spotify:track:trk-seed")
+        # Dominant non-seed artist capped at 4 tracks when >=15 total tracks are available
+        dom_count = sum(1 for u in uris if u.startswith("spotify:track:dom-"))
+        self.assertLessEqual(dom_count, 4)
+        self.assertTrue(any(u.startswith("spotify:track:gen-") for u in uris))
+        self.assertIn("spotify:track:seed-1", uris)
 
 
 class TestArtistDiscographyPagination(unittest.IsolatedAsyncioTestCase):
@@ -382,6 +522,14 @@ class TestSearchHistoryAndPodcastSearch(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(saved[1], "synthwave")
         self.assertEqual(saved[2], "a" * 200)
         self.assertEqual(saved[-1], "q10")
+
+    async def test_get_status_exposes_search_history(self):
+        p = main_mod.Plugin()
+        p._settings = dict(common.DEFAULT_SETTINGS)
+        p._settings["search_history"] = ["Daft Punk", "Synthwave"]
+
+        status = await p.get_status()
+        self.assertEqual(status["settings"].get("search_history"), ["Daft Punk", "Synthwave"])
 
     async def test_search_spotify_empty_query_returns_empty_arrays(self):
         plugin = make_plugin("spotify_client")
