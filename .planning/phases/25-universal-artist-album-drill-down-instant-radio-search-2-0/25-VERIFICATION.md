@@ -1,8 +1,8 @@
 ---
 phase: 25-universal-artist-album-drill-down-instant-radio-search-2-0
-verified: 2026-11-23T20:35:00Z
-status: human_needed
-score: 4/4 roadmap SCs verified (automated checks passed; 4 backstop layout/GamepadUI items require human UAT)
+verified: 2026-11-24T16:55:00Z
+status: passed
+score: 4/4 roadmap SCs verified + 4/4 human UAT tests passed (including 25-04 and 25-05 gap closures)
 covered_files:
   - ".planning/phases/25-universal-artist-album-drill-down-instant-radio-search-2-0/25-01-PLAN.md"
   - ".planning/phases/25-universal-artist-album-drill-down-instant-radio-search-2-0/25-01-SUMMARY.md"
@@ -10,6 +10,10 @@ covered_files:
   - ".planning/phases/25-universal-artist-album-drill-down-instant-radio-search-2-0/25-02-SUMMARY.md"
   - ".planning/phases/25-universal-artist-album-drill-down-instant-radio-search-2-0/25-03-PLAN.md"
   - ".planning/phases/25-universal-artist-album-drill-down-instant-radio-search-2-0/25-03-SUMMARY.md"
+  - ".planning/phases/25-universal-artist-album-drill-down-instant-radio-search-2-0/25-04-PLAN.md"
+  - ".planning/phases/25-universal-artist-album-drill-down-instant-radio-search-2-0/25-04-SUMMARY.md"
+  - ".planning/phases/25-universal-artist-album-drill-down-instant-radio-search-2-0/25-05-PLAN.md"
+  - ".planning/phases/25-universal-artist-album-drill-down-instant-radio-search-2-0/25-05-SUMMARY.md"
   - "main.py"
   - "py_modules/common.py"
   - "py_modules/rpc_library.py"
@@ -25,8 +29,9 @@ covered_files:
   - "src/components/tabs/SearchTab.test.tsx"
   - "src/components/tabs/SearchTab.tsx"
   - "src/types.ts"
+  - "tests/test_e2e_requirements.py"
   - "tests/test_phase25_radio_search.py"
-covered_digest: "v4:sha256:a00a68643dac043c5380a18401d05730239dd524160d7ca6da7c63f4cd7c576f"
+covered_digest: "v4:sha256:a95406813a5fc6daf160e163e8cef8f68c18984a04084aa6d77e692f5e464aa6"
 behavior_unverified: 0
 overrides_applied: 0
 human_verification:

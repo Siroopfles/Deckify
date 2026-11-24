@@ -68,6 +68,7 @@ Rock-solid Spotify playback and responsive, reliable controller navigation on St
 - ✓ Spotify Connect Hub 2.0 & Native Crossfade (`CONNECT-01`, `RADIO-02`) — 1-click auto-waking *"Pull Playback to Steam Deck"*, host hardware detection (Steam Deck vs Steam Machine), engine badges, remote Connect volume, and Official Spotify Client CDP crossfade (`0–12s`) — shipped in v0.7 (Phase 22)
 - ✓ Lyrics 2.0: Offline `.lrc` Cache, Per-Track Sync Nudge & CJK Romanization (`LYRICS-01`, `LYRICS-02`) — Local `.lrc` disk cache (`~/.cache/deckify/lyrics/`), persistent per-track `-0.5s`/`+0.5s` sync offsets synced live with `DeckifyOverlay`, and zero-dependency pure-Python Romaji/Pinyin/Korean romanization — shipped in v0.7 (Phase 23)
 - ✓ Podcast & Audiobook Power Suite (`POD-01`, `POD-02`) — `0.5x`–`2.0x` CDP episode playback speed with automatic `1.0x` music reset and `preferred_podcast_speed` restore, `-15s`/`+15s` smart-skip transport & L2/R2 triggers, controller-selectable & touch-draggable `ProgressScrubBar`, show episode drill-down with resume progress bars, and *All*/*Unplayed*/*In Progress* filtering — shipped in v0.7 (Phase 24)
+- ✓ Universal Artist/Album Drill-Down, Instant Radio & Search 2.0 (`RADIO-01`, `SEARCH-01`, `SEARCH-02`) — Full Artist/Album detail views with `B`-button `navigationHistoryRef` backstack restoration, Dev-Mode-resilient 3-tier Song/Artist/Album Radio with multi-artist synthesis, Search 2.0 idle screen (persisted history pills with X/Y delete + 12 Gaming & Mood tiles), and 7 Podcasts/Episodes search filters — shipped in v0.7 (Phase 25)
 
 ### Active
 
@@ -76,9 +77,7 @@ Rock-solid Spotify playback and responsive, reliable controller navigation on St
 - [ ] **CDP-01**: Native Spotify CDP offline downloads via `OfflineAPI` with download progress, offline badges, and automatic Offline Filter / Travel Mode on Wi-Fi disconnect.
 - [ ] **DISC-04**: Personalized Spotify mixes in Discovery (*Daylist*, *Discover Weekly*, *Release Radar*, *Daily Mixes*) via hybrid CDP Pathfinder / Spotify Client discovery bridge.
 - [ ] **JAM-01**: Spotify Jam & Living Room QR-code session sharing and management.
-- [ ] **RADIO-01**: Instant Song/Artist Radio (`spotify:station:...` / seed mixes), deep `"Go to Artist"` & `"Go to Album"` drill-down from any view.
 - [ ] **STATS-01**: Local *"Deck Wrapped"* listening analytics (including *Top Game + Soundtrack* pairings), Last.fm / ListenBrainz scrobbler with offline retry queue, and JSON profile backup/restore.
-- [ ] **SEARCH-01**: Search 2.0 with recent search history pills, controller-friendly genre/gaming-mood tiles when query is empty, and Podcasts & Episodes search filters.
 
 ### Out of Scope
 
@@ -136,4 +135,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-11-23 after Phase 24*
+*Last updated: 2026-11-24 after Phase 25*

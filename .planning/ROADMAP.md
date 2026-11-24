@@ -61,7 +61,7 @@
 - [x] **Phase 22: Spotify Connect Hub 2.0 & Native Crossfade** - Upgrade `DevicesTab` with 1-click auto-waking *"Pull Playback to Steam Deck"*, device icons, engine badges, and remote volume control alongside configurable `0–12s` native crossfade. (completed 2026-11-22)
 - [x] **Phase 23: Lyrics 2.0 — Offline .lrc Cache, Per-Track Sync Nudge & CJK Romanization** - Cache `.lrc` lyrics locally for instant/offline loads, persist per-track `-0.5s`/`+0.5s` sync offset nudges synced live with `DeckifyOverlay`, and render dual-line Romaji/Pinyin/Korean romanization. (completed 2026-11-22)
 - [x] **Phase 24: Podcast & Audiobook Power Suite** - Expose `0.75x`–`2.0x` episode playback speed (auto-resetting to `1.0x` on music), `-15s`/`+15s` smart-skip transport & trigger controls, episode resume progress bars, and *Unplayed*/*In Progress* filters. (completed 2026-11-23)
-- [ ] **Phase 25: Universal Artist/Album Drill-Down, Instant Radio & Search 2.0** - Navigate to full Artist/Album views from any track with `B`-button backstack restoration, launch 3-tier Song/Artist Radio, and browse Search 2.0 with history pills, gaming/mood tiles, and podcast filters.
+- [x] **Phase 25: Universal Artist/Album Drill-Down, Instant Radio & Search 2.0** - Navigate to full Artist/Album views from any track with `B`-button backstack restoration, launch 3-tier Song/Artist Radio, and browse Search 2.0 with history pills, gaming/mood tiles, and podcast filters. (completed 2026-11-24)
 - [ ] **Phase 26: Unified CDP Platform Bridge & Deep Discovery 2.0** - Build the unified `py_modules/cdp_bridge.py` `Platform.Registry` evaluator and unlock personalized Spotify algorithmic mixes (*Daylist*, *Discover Weekly*, *Release Radar*, *Daily Mixes*) in `DiscoveryTab` across both engines.
 - [ ] **Phase 27: Interactive Queue Studio & Controller Playlist Management** - Reorder, remove, and clear upcoming tracks via controller Grab/Move Mode in `QueueTab` (with CDP `PlayerAPI` + `librespot` URI-slice fallback) and perform full controller playlist CRUD in `PlaylistsTab`.
 - [ ] **Phase 28: CDP Offline Downloads, Wi-Fi Travel Mode & Living Room Spotify Jam** - Download playlists, albums, and episodes via CDP `OfflineAPI` with a 3.0 GB free-space disk guardrail, auto-activate Offline Travel Mode on Wi-Fi disconnect, and share living-room Spotify Jam QR codes.
@@ -232,7 +232,7 @@ Plans:
   2. Selecting *"Start Song Radio"* or *"Start Artist Radio"* generates and starts a continuous radio queue on both `spotify_client` and `librespot` via the 3-tier radio waterfall (CDP station → Web API recommendations → Top-Tracks/Search synthesis fallback).
   3. When the search query in `SearchTab` is empty, user can launch searches from recent search history pills (with individual and clear-all options) or select from 12 controller-friendly Gaming & Mood browse tiles without opening the virtual keyboard.
   4. User can filter and browse search results specifically by `Podcasts` (`show`) and `Episodes` (`episode`) in `SearchTab` alongside Tracks, Artists, Albums, and Playlists.
-**Plans:** 5 plans (4 executed, 1 gap-closure planned)
+**Plans:** 5/5 plans complete (4 executed, 1 gap-closure planned)
 
 Plans:
 **Wave 1**
@@ -246,7 +246,7 @@ Plans:
 
 **Wave 1 (Gap Closure)**
 - [x] 25-04-PLAN.md — Close UAT gaps G-25-3 & G-25-4: omit `market="from_token"` and cap `limit=10` with `offset` pagination & error banner in `search_spotify`/`SearchTab`, and add `limit=10` + `artists/{id}/albums` fallback + warning logs in `start_radio`
-- [ ] 25-05-PLAN.md — Close UAT gaps G-25-3-2 & G-25-4-2: expose `search_history` in `get_status()`, wire gamepad X/Y recent-pill removal & footer hint in `SearchTab`/`DeckifyExpandedModal`, and upgrade `start_radio` Tier 3 to a multi-artist Radio mix
+- [x] 25-05-PLAN.md — Close UAT gaps G-25-3-2 & G-25-4-2: expose `search_history` in `get_status()`, wire gamepad X/Y recent-pill removal & footer hint in `SearchTab`/`DeckifyExpandedModal`, and upgrade `start_radio` Tier 3 to a multi-artist Radio mix
 **UI hint**: yes
 
 ### Phase 26: Unified CDP Platform Bridge & Deep Discovery 2.0
@@ -257,7 +257,7 @@ Plans:
   1. Backend `py_modules/cdp_bridge.py` dynamically resolves and caches the Official Spotify Client's internal React Fiber `Platform.Registry` on `window.__deckifyRegistry` over port `9229` with a 4.0-second timeout and clean error fallback.
   2. `DiscoveryTab` populates the *Made For You* section with the user's personalized algorithmic mixes (*Daylist*, *Discover Weekly*, *Release Radar*, *Daily Mix 1–6*) via the CDP Pathfinder/Rootlist bridge, bypassing Spotify Web API Development Mode `HTTP 403/404` blocks.
   3. Resolved algorithmic mix metadata and track URI lists are cached locally on disk so users can browse and play those mixes even after switching their active playback engine to `librespot`.
-  4. `py_modules/rpc_playback.py:_try_cdp_station_radio` (Phase 25 Tier 1 hook) is wired to `cdp_bridge.py` to start native Spotify `spotify:station:...` radio when `spotify_client` is active (falling back silently to Tier 2/3), and `SearchTab` optionally enriches its Browse Categories / Gaming & Mood tiles via CDP with the 12 static tiles as automatic fallback on `librespot` or when CDP is unavailable.
+  4. `py_modules/rpc_playback.py:_try_cdp_station_radio` (Phase 25 Tier 1 hook) is wired to `cdp_bridge.py` to start native Spotify `spotify:station:...` radio when `spotify_client` is active (falling back silently to Tier 2/3), `SearchTab` optionally enriches its Browse Categories / Gaming & Mood tiles via CDP with the 12 static tiles as automatic fallback on `librespot` or when CDP is unavailable, and pressing `B` while viewing search results in `SearchTab` (when `searchQuery` is non-empty) clears the search query/results and returns to the main Search idle view instead of closing the modal.
 **Plans:** TBD
 **UI hint**: yes
 
@@ -321,7 +321,7 @@ Phases execute in numeric order: 19 → 20 → 21 → 22 → 23 → 24 → 25 �
 | 22. Spotify Connect Hub 2.0 & Native Crossfade | v0.7 | 5/5 | Complete    | 2026-11-22 |
 | 23. Lyrics 2.0 — Offline .lrc Cache, Per-Track Sync Nudge & CJK Romanization | v0.7 | 5/5 | Complete    | 2026-11-22 |
 | 24. Podcast & Audiobook Power Suite | v0.7 | 8/8 | Complete    | 2026-11-23 |
-| 25. Universal Artist/Album Drill-Down, Instant Radio & Search 2.0 | v0.7 | 3/4 | In Progress | - |
+| 25. Universal Artist/Album Drill-Down, Instant Radio & Search 2.0 | v0.7 | 5/5 | Complete    | 2026-11-24 |
 | 26. Unified CDP Platform Bridge & Deep Discovery 2.0 | v0.7 | 0/TBD | Not started | - |
 | 27. Interactive Queue Studio & Controller Playlist Management | v0.7 | 0/TBD | Not started | - |
 | 28. CDP Offline Downloads, Wi-Fi Travel Mode & Living Room Spotify Jam | v0.7 | 0/TBD | Not started | - |
