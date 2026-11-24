@@ -258,7 +258,18 @@ Plans:
   2. `DiscoveryTab` populates the *Made For You* section with the user's personalized algorithmic mixes (*Daylist*, *Discover Weekly*, *Release Radar*, *Daily Mix 1–6*) via the CDP Pathfinder/Rootlist bridge, bypassing Spotify Web API Development Mode `HTTP 403/404` blocks.
   3. Resolved algorithmic mix metadata and track URI lists are cached locally on disk so users can browse and play those mixes even after switching their active playback engine to `librespot`.
   4. `py_modules/rpc_playback.py:_try_cdp_station_radio` (Phase 25 Tier 1 hook) is wired to `cdp_bridge.py` to start native Spotify `spotify:station:...` radio when `spotify_client` is active (falling back silently to Tier 2/3), `SearchTab` optionally enriches its Browse Categories / Gaming & Mood tiles via CDP with the 12 static tiles as automatic fallback on `librespot` or when CDP is unavailable, and pressing `B` while viewing search results in `SearchTab` (when `searchQuery` is non-empty) clears the search query/results and returns to the main Search idle view instead of closing the modal.
-**Plans:** TBD
+**Plans:** 4 plans
+
+Plans:
+**Wave 1**
+- [ ] 26-01-PLAN.md — Unified CDP Platform Bridge (`py_modules/cdp_bridge.py`) & `engine.py` / `rpc_library.py` delegation (tracer)
+
+**Wave 2** *(blocked on Wave 1)*
+- [ ] 26-02-PLAN.md — Algorithmic mixes (`Daylist`, `Discover Weekly`, `Release Radar`, `Daily Mix 1–6`), `~/.cache/deckify/discovery_mixes.json` persistence, `get_playlist_tracks` fallback & `get_search_browse_categories`
+- [ ] 26-03-PLAN.md — Tier 1 `_try_cdp_station_radio` CDP wiring, `play_tracks` / `quick_play_pinned` cached mix `uris[]` fallback, and `main.py` RPC exposure
+
+**Wave 3** *(blocked on Wave 2)*
+- [ ] 26-04-PLAN.md — `DiscoveryTab` `" · Cached"` badges, `SearchTab` optional CDP `Browse Categories` + `DeckifyExpandedModal` `B`-button clear-search & hint bar
 **UI hint**: yes
 
 ### Phase 27: Interactive Queue Studio & Controller Playlist Management
