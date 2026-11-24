@@ -9,8 +9,9 @@ interface VNode {
 
 const stateSlots: unknown[] = [];
 let stateIdx = 0;
-const { mockSearchSpotify } = vi.hoisted(() => ({
+const { mockSearchSpotify, mockGetSearchBrowseCategories } = vi.hoisted(() => ({
   mockSearchSpotify: vi.fn(),
+  mockGetSearchBrowseCategories: vi.fn(),
 }));
 
 function makeNode(type: unknown, props: Record<string, unknown>, key?: unknown): VNode {
@@ -54,6 +55,7 @@ vi.mock("react", () => ({
 vi.mock("@decky/api", () => ({
   callable: (name: string) => {
     if (name === "search_spotify") return mockSearchSpotify;
+    if (name === "get_search_browse_categories") return mockGetSearchBrowseCategories;
     return vi.fn();
   },
 }));
@@ -408,5 +410,56 @@ describe("SearchTab Search 2.0 tiles, filters & results", () => {
 
     (pill.props?.onBlur as () => void)();
     expect(onFocusHistoryPill).toHaveBeenLastCalledWith(null);
+  });
+
+  it("renders optional CDP Browse Categories below the 12 Gaming & Mood tiles and omits silently on empty or error", async () => {
+    // 1. Populated CDP Browse Categories
+    mockGetSearchBrowseCategories.mockResolvedValue({
+      ok: true,
+      categories: [
+        { id: "cat-1", name: "Gaming", image_url: "https://i.scdn.co/cat1" },
+        { id: "cat-2", name: "Electronic", image_url: "https://i.scdn.co/cat2" },
+      ],
+    });
+    const onSearchQueryChange = vi.fn();
+    renderSearchTab({ searchQuery: "", onSearchQueryChange });
+    await new Promise((r) => setTimeout(r, 0));
+    const populatedTree = renderSearchTab({ searchQuery: "", onSearchQueryChange });
+
+    const text = cleanText(populatedTree);
+    expect(text).toContain("Browse Gaming & Mood");
+    expect(text).toContain("Browse Categories");
+    expect(text.indexOf("Browse Gaming & Mood")).toBeLessThan(text.indexOf("Browse Categories"));
+    expect(text).toContain("Gaming");
+    expect(text).toContain("Electronic");
+
+    const rowFocusables = findNodes(populatedTree, (n) => n.props?.["flow-children"] === "row");
+    expect(rowFocusables).toHaveLength(0);
+    const images = findNodes(populatedTree, (n) => n.type === "DeckifyImage");
+    expect(images.length).toBeGreaterThanOrEqual(2);
+
+    const catTile = findNodes(populatedTree, (n) => n.type === "Focusable" && n.props?.["data-deckify-label"] === "Electronic")[0];
+    (catTile.props?.onClick as () => void)();
+    expect(onSearchQueryChange).toHaveBeenCalledWith("Electronic");
+
+    // 2. Empty categories -> silently omitted, 12 Gaming & Mood tiles still rendered
+    stateSlots.length = 0;
+    stateIdx = 0;
+    mockGetSearchBrowseCategories.mockResolvedValue({ ok: true, categories: [] });
+    renderSearchTab({ searchQuery: "" });
+    await new Promise((r) => setTimeout(r, 0));
+    const emptyTree = renderSearchTab({ searchQuery: "" });
+    expect(cleanText(emptyTree)).toContain("Browse Gaming & Mood");
+    expect(cleanText(emptyTree)).not.toContain("Browse Categories");
+
+    // 3. Rejection -> silently omitted, no error banner
+    stateSlots.length = 0;
+    stateIdx = 0;
+    mockGetSearchBrowseCategories.mockRejectedValue(new Error("CDP offline"));
+    renderSearchTab({ searchQuery: "" });
+    await new Promise((r) => setTimeout(r, 0));
+    const errTree = renderSearchTab({ searchQuery: "" });
+    expect(cleanText(errTree)).toContain("Browse Gaming & Mood");
+    expect(cleanText(errTree)).not.toContain("Browse Categories");
   });
 });

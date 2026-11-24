@@ -428,4 +428,42 @@ describe("DiscoveryTab", () => {
       "Play a few tracks or follow playlists on Spotify, then select Refresh Feed to populate your Discovery hub."
     );
   });
+
+  it("renders Made For You mixes with ' · Cached' subtitle when served from disk cache", () => {
+    const feed = {
+      ok: true,
+      time_range: "medium_term",
+      made_for_you_fallback: false,
+      made_for_you: [
+        {
+          id: "daylist",
+          name: "daylist",
+          uri: "spotify:playlist:daylist",
+          image_url: "https://i.scdn.co/daylist",
+          subtitle: "Made for You · Cached",
+        },
+        {
+          id: "dw",
+          name: "Discover Weekly",
+          uri: "spotify:playlist:dw",
+          image_url: "https://i.scdn.co/dw",
+          subtitle: "Made for You · Cached",
+        },
+      ],
+      top_tracks: [],
+      top_artists: [],
+      new_releases: [],
+    };
+
+    const { tree } = renderWithFeed(feed, false);
+    const heading = findNodes(tree, (n) => n.props?.["data-testid"] === "discovery-heading-made-for-you")[0];
+    expect(textOf(heading)).toBe("Made For You");
+
+    const mix0 = findNodes(tree, (n) => n.props?.["data-testid"] === "discovery-card-mix-0")[0];
+    const mix1 = findNodes(tree, (n) => n.props?.["data-testid"] === "discovery-card-mix-1")[0];
+    expect(textOf(mix0)).toContain("daylist");
+    expect(textOf(mix0)).toContain("Made for You · Cached");
+    expect(textOf(mix1)).toContain("Discover Weekly");
+    expect(textOf(mix1)).toContain("Made for You · Cached");
+  });
 });

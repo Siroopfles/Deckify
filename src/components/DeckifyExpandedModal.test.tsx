@@ -1610,3 +1610,92 @@ describe("Phase 25: navigationHistoryRef backstack & start_radio (25-02)", () =>
     expect(stateValues.includes("Could not start radio — please try again.")).toBe(true);
   });
 });
+
+describe("Phase 26: Search stepwise B-button clear-search & hintText (26-04)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    stateValues = [];
+    stateIdx = 0;
+    refValues = [];
+    refIdx = 0;
+    effectCleanups = [];
+    runEffectsInTest = false;
+  });
+
+  function textOf(node: any): string {
+    if (node === null || node === undefined || typeof node === "boolean") return "";
+    if (typeof node === "string" || typeof node === "number") return String(node);
+    if (Array.isArray(node)) return node.map(textOf).join("");
+    if (typeof node === "object" && node.props?.children !== undefined) {
+      return textOf(node.props.children);
+    }
+    return "";
+  }
+
+  it("clears searchQuery on B when mode === 'search' and searchQuery is non-empty, and shows 'B Clear Search' hint", () => {
+    const closeModal = vi.fn();
+    // Initialize hooks first
+    DeckifyExpandedModal({ closeModal });
+    // Find searchQuery slot (""), searchResults slot ({}), tileSearchMode slot (false)
+    stateValues[0] = "search";
+    const searchQueryIdx = stateValues.findIndex((v) => v === "");
+    expect(searchQueryIdx).toBeGreaterThan(-1);
+    stateValues[searchQueryIdx] = "daft punk";
+
+    stateIdx = 0;
+    refIdx = 0;
+    const tree = DeckifyExpandedModal({ closeModal });
+
+    expect(textOf(tree)).toContain("A Select · B Clear Search · L1/R1 Tabs");
+
+    const navDiv = findNodes(tree, (n) => n.type === "div" && typeof n.props?.ref === "function")[0];
+    const listeners: Record<string, (e: any) => void> = {};
+    navDiv.props.ref({
+      addEventListener: (ev: string, fn: (e: any) => void) => {
+        listeners[ev] = fn;
+      },
+    });
+
+    const ev = {
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+      stopImmediatePropagation: vi.fn(),
+    };
+    listeners["vgp_oncancel"](ev);
+
+    expect(ev.preventDefault).toHaveBeenCalledTimes(1);
+    expect(ev.stopPropagation).toHaveBeenCalledTimes(1);
+    expect(closeModal).not.toHaveBeenCalled();
+    expect(stateValues[searchQueryIdx]).toBe("");
+  });
+
+  it("does not intercept vgp_oncancel and shows 'B Close' hint when mode === 'search' and searchQuery is empty", () => {
+    const closeModal = vi.fn();
+    DeckifyExpandedModal({ closeModal });
+    stateValues[0] = "search";
+
+    stateIdx = 0;
+    refIdx = 0;
+    const tree = DeckifyExpandedModal({ closeModal });
+
+    expect(textOf(tree)).toContain("A Select · B Close · L1/R1 Tabs");
+
+    const navDiv = findNodes(tree, (n) => n.type === "div" && typeof n.props?.ref === "function")[0];
+    const listeners: Record<string, (e: any) => void> = {};
+    navDiv.props.ref({
+      addEventListener: (ev: string, fn: (e: any) => void) => {
+        listeners[ev] = fn;
+      },
+    });
+
+    const ev = {
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+      stopImmediatePropagation: vi.fn(),
+    };
+    listeners["vgp_oncancel"](ev);
+
+    expect(ev.preventDefault).not.toHaveBeenCalled();
+    expect(ev.stopPropagation).not.toHaveBeenCalled();
+  });
+});
