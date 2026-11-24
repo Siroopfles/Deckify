@@ -1436,6 +1436,9 @@ class Plugin:
     ) -> dict:
         return await rpc_library.get_discovery_feed(self, time_range, force_refresh)
 
+    async def get_search_browse_categories(self) -> dict:
+        return await rpc_library.get_search_browse_categories(self)
+
     async def search_spotify(
         self,
         query: str,
