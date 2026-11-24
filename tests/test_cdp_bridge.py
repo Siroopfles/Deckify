@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, os.path.dirname(__file__))
 from test_token_refresh import main  # noqa: F401
-from py_modules import cdp_bridge
+from py_modules import cdp_bridge, engine
 
 
 class TestCdpBridge(unittest.TestCase):
@@ -159,6 +159,36 @@ class TestCdpBridge(unittest.TestCase):
             with open(cache_path, "w", encoding="utf-8") as f:
                 f.write("{corrupt json")
             self.assertEqual(cdp_bridge.load_discovery_mixes_cache(cache_path), {})
+
+    def test_engine_wrappers_delegate_with_patchable_cdp_evaluate(self):
+        fake_tree = [{"id": "sp-1", "name": "Folder", "playlists": [], "subfolders": []}]
+        with patch.object(engine, "_cdp_evaluate", return_value={"ok": True, "tree": fake_tree}) as mock_eval:
+            self.assertEqual(engine._fetch_spotify_cdp_folder_tree(), fake_tree)
+            self.assertTrue(mock_eval.called)
+
+        with patch.object(engine, "_cdp_evaluate", return_value={"ok": True}) as mock_eval:
+            self.assertEqual(engine._cdp_toggle_like_track("spotify:track:1", True), {"ok": True})
+            self.assertTrue(mock_eval.called)
+
+        with patch.object(engine, "_cdp_evaluate", return_value={"ok": True, "tracks": [], "total": 0, "offset": 0}) as mock_eval:
+            res = engine._cdp_get_liked_tracks(offset=0, fetch_all=False)
+            self.assertTrue(res["ok"])
+            self.assertTrue(mock_eval.called)
+
+        with patch.object(engine, "_cdp_evaluate", return_value={"ok": True, "tracks": [], "total": 0, "offset": 0}) as mock_eval:
+            res = engine._cdp_get_playlist_tracks("pl1", offset=0, fetch_all=False)
+            self.assertTrue(res["ok"])
+            self.assertTrue(mock_eval.called)
+
+        with patch.object(engine, "_cdp_evaluate", return_value={"ok": True, "episodes": [], "total": 0, "offset": 0}) as mock_eval:
+            res = engine._cdp_get_saved_episodes(offset=0)
+            self.assertTrue(res["ok"])
+            self.assertTrue(mock_eval.called)
+
+        with patch.object(engine, "_cdp_evaluate", return_value={"ok": True, "speed": 1.5}) as mock_eval:
+            res = engine._cdp_set_playback_speed(1.5)
+            self.assertEqual(res, {"ok": True, "speed": 1.5})
+            self.assertTrue(mock_eval.called)
 
 
 if __name__ == "__main__":

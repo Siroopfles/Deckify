@@ -21,6 +21,7 @@ from py_modules.spotify import (
     _parse_spotify_error,
     _fetch_lyrics_sync,
 )
+from py_modules.cdp_bridge import cdp_set_playlist_mix
 from py_modules.engine import (
     _cdp_evaluate,
     _cdp_get_liked_tracks,
@@ -364,54 +365,8 @@ async def set_native_playlist_mix(plugin, playlist_id: str, enabled: bool = True
                 decky.logger.warning("Playback fallback for playlist mix failed: %s", ex)
         return {"ok": False, "error": "Native Spotify Mix requires the Official Spotify Client backend"}
 
-    enabled_js = "true" if enabled else "false"
-    play_js = "true" if play_now else "false"
-    expr = f"""
-    (async () => {{
-      const mainEl = document.getElementById('main');
-      if (!mainEl) return {{ ok: false, error: 'Spotify UI not ready' }};
-      const rk = Object.keys(mainEl).find(k => k.startsWith('__reactContainer') || k.startsWith('__reactFiber'));
-      const q = [mainEl[rk]];
-      const visited = new Set();
-      let mixApi = null;
-      let playerApi = null;
-      while (q.length > 0 && visited.size < 5000) {{
-        const curr = q.shift();
-        if (!curr || visited.has(curr)) continue;
-        visited.add(curr);
-        if (curr.memoizedProps?.platform) {{
-          const platform = curr.memoizedProps.platform;
-          const reg = platform.getRegistry();
-          const map = reg._map || reg;
-          for (const [k, v] of map.entries()) {{
-            const desc = String(k.description);
-            if (desc === 'PlaylistMixingAPI') mixApi = v.instance;
-            if (desc === 'PlayerAPI') playerApi = v.instance;
-          }}
-          break;
-        }}
-        if (curr.child) q.push(curr.child);
-        if (curr.sibling) q.push(curr.sibling);
-      }}
-      if (!mixApi) return {{ ok: false, error: 'PlaylistMixingAPI unavailable' }};
-      const uri = {json.dumps(uri)};
-      const enable = {enabled_js};
-      try {{
-        if (typeof mixApi.setAutoMix === 'function') await mixApi.setAutoMix(uri, enable);
-      }} catch (e) {{}}
-      try {{
-        if (typeof mixApi.setMixState === 'function') await mixApi.setMixState(uri, enable);
-      }} catch (e) {{}}
-      if ({play_js} && playerApi && typeof playerApi.play === 'function') {{
-        try {{
-          await playerApi.play({{ uri }}, {{}}, {{}});
-        }} catch (e) {{}}
-      }}
-      return {{ ok: true, playlist_id: {json.dumps(pid)}, uri, is_mixed: enable }};
-    }})()
-    """
     try:
-        res = await _exec(_cdp_evaluate, expr, SPOTIFY_CDP_PORT, None, 6.0, timeout=7)
+        res = await _exec(cdp_set_playlist_mix, pid, enabled, play_now, SPOTIFY_CDP_PORT, 6.0, timeout=7)
         if isinstance(res, dict) and res.get("ok"):
             def _update_mixed(nodes: list[dict]) -> None:
                 for folder in nodes:
