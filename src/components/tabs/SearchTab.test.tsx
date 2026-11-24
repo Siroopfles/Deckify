@@ -388,4 +388,25 @@ describe("SearchTab Search 2.0 tiles, filters & results", () => {
     expect(text).toContain("HTTP 403");
     expect(text).not.toContain("No Results Found");
   });
+
+  it("invokes onFocusHistoryPill(q) on pill focus and onFocusHistoryPill(null) on blur", () => {
+    const onFocusHistoryPill = vi.fn();
+    const tree = renderSearchTab({
+      searchQuery: "",
+      searchHistory: ["Daft Punk", "Synthwave"],
+      onFocusHistoryPill,
+    });
+
+    const pill = findNodes(
+      tree,
+      (n) => n.type === "Focusable" && n.props?.["data-deckify-label"] === "Daft Punk",
+    )[0];
+    expect(pill).toBeDefined();
+
+    (pill.props?.onFocus as () => void)();
+    expect(onFocusHistoryPill).toHaveBeenLastCalledWith("Daft Punk");
+
+    (pill.props?.onBlur as () => void)();
+    expect(onFocusHistoryPill).toHaveBeenLastCalledWith(null);
+  });
 });

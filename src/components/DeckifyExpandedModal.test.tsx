@@ -128,6 +128,7 @@ import { AlbumsTab } from "./tabs/AlbumsTab";
 import { LikedSongsTab } from "./tabs/LikedSongsTab";
 import { NowPlayingTab } from "./tabs/NowPlayingTab";
 import { Sidebar } from "./common/Sidebar";
+import { SearchTab } from "./tabs/SearchTab";
 import { TrackActionModal } from "./common/TrackActionModal";
 import { CollectionActionModal } from "./common/CollectionActionModal";
 import { InteractiveRow } from "./common/InteractiveRow";
@@ -588,6 +589,84 @@ describe("useTriggerNavigation & DeckifyExpandedModal controller dispatch", () =
     tree = DeckifyExpandedModal({ closeModal });
     hintBar = findNodes(tree, (n) => n.props?.["data-testid"] === "controller-hint-bar")[0];
     expect(hintBar).toBeUndefined();
+  });
+
+  it("hydrates searchHistory from status.settings.search_history and passes it to SearchTab", () => {
+    const closeModal = vi.fn();
+    DeckifyExpandedModal({ closeModal });
+
+    stateValues[0] = "search";
+    stateValues[1] = {
+      settings: {
+        show_controller_hints: true,
+        search_history: ["Daft Punk", "Synthwave"],
+      },
+    };
+    stateIdx = 0;
+    refIdx = 0;
+    // First render triggers useEffect to setSearchHistory
+    DeckifyExpandedModal({ closeModal });
+    stateIdx = 0;
+    refIdx = 0;
+    const tree = DeckifyExpandedModal({ closeModal });
+    const searchTabNode = findNodes(tree, (n) => n.type === SearchTab)[0];
+    expect(searchTabNode).toBeDefined();
+    expect(searchTabNode.props.searchHistory).toEqual(["Daft Punk", "Synthwave"]);
+  });
+
+  it("shows X/Y Remove footer hint and removes focused history pill on gamepad X or Y without opening TrackActionModal or toggling like", () => {
+    const closeModal = vi.fn();
+    DeckifyExpandedModal({ closeModal });
+
+    stateValues[0] = "search";
+    stateValues[1] = {
+      settings: {
+        trigger_nav_enabled: true,
+        show_controller_hints: true,
+        search_history: ["Daft Punk", "Synthwave"],
+      },
+      track_meta: { id: "trk-playing", name: "Playing", artist: "Artist" },
+    };
+    stateIdx = 0;
+    refIdx = 0;
+    DeckifyExpandedModal({ closeModal });
+    stateIdx = 0;
+    refIdx = 0;
+    let tree = DeckifyExpandedModal({ closeModal });
+
+    const searchTabNode = findNodes(tree, (n) => n.type === SearchTab)[0];
+    expect(searchTabNode.props.onFocusHistoryPill).toBeTypeOf("function");
+
+    // Focus "Daft Punk" history pill
+    searchTabNode.props.onFocusHistoryPill("Daft Punk");
+    stateIdx = 0;
+    refIdx = 0;
+    tree = DeckifyExpandedModal({ closeModal });
+
+    const hintBar = findNodes(tree, (n) => n.props?.["data-testid"] === "controller-hint-bar")[0];
+    expect(hintBar.props.children).toBe("A Search · X/Y Remove · L1/R1 Tabs");
+
+    // Press gamepad X (3) -> removes "Daft Punk" via set_setting, does NOT call toggle_like
+    downHandler!(3);
+    expect(mockSetSetting).toHaveBeenCalledWith("search_history", ["Synthwave"]);
+    expect(mockToggleLike).not.toHaveBeenCalled();
+
+    // Re-focus "Synthwave" and press gamepad Y (4) -> removes "Synthwave", does NOT open TrackActionModal
+    stateIdx = 0;
+    refIdx = 0;
+    tree = DeckifyExpandedModal({ closeModal });
+    const searchTabNode2 = findNodes(tree, (n) => n.type === SearchTab)[0];
+    searchTabNode2.props.onFocusHistoryPill("Synthwave");
+
+    vi.advanceTimersByTime(100);
+    downHandler!(4);
+    expect(mockSetSetting).toHaveBeenLastCalledWith("search_history", []);
+
+    stateIdx = 0;
+    refIdx = 0;
+    tree = DeckifyExpandedModal({ closeModal });
+    const actionModal = findNodes(tree, (n) => n.type === TrackActionModal)[0];
+    expect(actionModal.props.actionTrack).toBeNull();
   });
 
   it("enforces contentPaneRef focus guard, jumps list rows with scrollIntoView + focus, and shows position pill", () => {

@@ -129,6 +129,7 @@ export interface SearchTabProps {
   onTileSearchModeChange?: (val: boolean) => void;
   searchHistory?: string[];
   onUpdateSearchHistory?: (next: string[]) => void;
+  onFocusHistoryPill?: (query: string | null) => void;
 }
 
 const RecentSearchesSection: FC<{
@@ -136,7 +137,8 @@ const RecentSearchesSection: FC<{
   onSelectHistory: (q: string) => void;
   onRemoveHistory: (q: string) => void;
   onClearHistory: () => void;
-}> = ({ searchHistory, onSelectHistory, onRemoveHistory, onClearHistory }) => {
+  onFocusHistoryPill?: (query: string | null) => void;
+}> = ({ searchHistory, onSelectHistory, onRemoveHistory, onClearHistory, onFocusHistoryPill }) => {
   const visibleHistory = searchHistory.slice(0, 10);
   if (visibleHistory.length === 0) return null;
 
@@ -145,7 +147,10 @@ const RecentSearchesSection: FC<{
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
         <h3 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>Recent Searches</h3>
         <InteractiveRow
-          onClick={onClearHistory}
+          onClick={() => {
+            onFocusHistoryPill?.(null);
+            onClearHistory();
+          }}
           style={{ minHeight: 36, padding: "4px 16px", fontSize: 12, fontWeight: 700, width: "auto" }}
         >
           Clear All
@@ -157,10 +162,20 @@ const RecentSearchesSection: FC<{
             key={q}
             data-deckify-list-item="true"
             data-deckify-label={q}
+            onFocus={() => onFocusHistoryPill?.(q)}
+            onBlur={() => onFocusHistoryPill?.(null)}
             onClick={() => onSelectHistory(q)}
             onKeyDown={(e) => {
-              if (e?.key === "Delete" || e?.key === "Backspace" || e?.key === "y" || e?.key === "Y") {
+              if (
+                e?.key === "Delete" ||
+                e?.key === "Backspace" ||
+                e?.key === "y" ||
+                e?.key === "Y" ||
+                e?.key === "x" ||
+                e?.key === "X"
+              ) {
                 e.preventDefault?.();
+                onFocusHistoryPill?.(null);
                 onRemoveHistory(q);
               }
             }}
@@ -191,6 +206,7 @@ const RecentSearchesSection: FC<{
               aria-label={`Remove ${q}`}
               onClick={(e) => {
                 e.stopPropagation();
+                onFocusHistoryPill?.(null);
                 onRemoveHistory(q);
               }}
               style={{ cursor: "pointer", opacity: 0.7, fontWeight: 700, flexShrink: 0, fontSize: 13 }}
@@ -740,6 +756,17 @@ function useSearchController(props: SearchTabProps) {
 
 export const SearchTab: FC<SearchTabProps> = (props) => {
   const ctrl = useSearchController(props);
+  const { onFocusHistoryPill } = props;
+  const hasQuery = Boolean(ctrl.searchQuery.trim());
+
+  useEffect(() => {
+    if (hasQuery) {
+      onFocusHistoryPill?.(null);
+    }
+    return () => {
+      onFocusHistoryPill?.(null);
+    };
+  }, [hasQuery, onFocusHistoryPill]);
 
   return (
     <div>
@@ -759,6 +786,7 @@ export const SearchTab: FC<SearchTabProps> = (props) => {
             onSelectHistory={ctrl.handleSelectHistory}
             onRemoveHistory={ctrl.removeHistoryItem}
             onClearHistory={ctrl.clearHistory}
+            onFocusHistoryPill={onFocusHistoryPill}
           />
           <GamingMoodGrid onSelectTile={ctrl.handleSelectTile} />
         </div>

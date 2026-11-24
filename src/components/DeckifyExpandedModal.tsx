@@ -216,6 +216,7 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
   const [searchResults, setSearchResults] = useState<SearchResults>({});
   const [tileSearchMode, setTileSearchMode] = useState(false);
   const [searchHistory, setSearchHistory] = useState<string[]>([]);
+  const [focusedHistoryQuery, setFocusedHistoryQuery] = useState<string | null>(null);
 
   useEffect(() => {
     const persisted = status?.settings?.search_history;
@@ -232,6 +233,21 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
       console.error("Failed to persist search_history:", err);
     }
   }, []);
+
+  const handleFocusHistoryPill = useCallback((q: string | null) => {
+    focusedHistoryQueryRef.current = q;
+    setFocusedHistoryQuery(q);
+  }, []);
+
+  const handleRemoveHistoryQuery = useCallback(
+    (q: string) => {
+      const next = searchHistoryRef.current.filter((item) => item !== q);
+      focusedHistoryQueryRef.current = null;
+      setFocusedHistoryQuery(null);
+      void handleUpdateSearchHistory(next);
+    },
+    [handleUpdateSearchHistory],
+  );
   const pillTimerRef = useRef<any>(null);
   const pendingSeekDeltaSecRef = useRef(0);
   const seekDebounceTimerRef = useRef<any>(null);
@@ -255,6 +271,10 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
   const focusedCollectionRef = useRef<PinnedPlaylistItem | null>(null);
   const contentPaneRef = useRef<HTMLDivElement | null>(null);
   const navigationHistoryRef = useRef<NavHistoryEntry[]>([]);
+  const focusedHistoryQueryRef = useRef<string | null>(null);
+  focusedHistoryQueryRef.current = focusedHistoryQuery;
+  const searchHistoryRef = useRef<string[]>(searchHistory);
+  searchHistoryRef.current = searchHistory;
   const modeRef = useRef<ViewMode>(mode);
   modeRef.current = mode;
 
@@ -1045,6 +1065,8 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
     setPlaylistPickerOpen(false);
     focusedTrackRef.current = null;
     focusedCollectionRef.current = null;
+    focusedHistoryQueryRef.current = null;
+    setFocusedHistoryQuery(null);
     setMode(id);
   }, []);
 
@@ -1190,6 +1212,12 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
             e.stopPropagation?.();
           }
           handleNudgeOffset(action === "X" ? -500 : 500);
+        } else if (modeRef.current === "search" && focusedHistoryQueryRef.current && (action === "X" || action === "Y")) {
+          if (e) {
+            e.preventDefault?.();
+            e.stopPropagation?.();
+          }
+          handleRemoveHistoryQuery(focusedHistoryQueryRef.current);
         } else if (action === "Y") { // Gamepad Y button opens action menu
           if (focusedTrackRef.current || (modeRef.current !== "engine" && modeRef.current !== "devices")) {
             const isActiveTrackMode = modeRef.current === "now_playing";
@@ -1224,7 +1252,7 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
           }
         }
       },
-      [track, handleToggleLike, cycleMode, handleNudgeOffset]
+      [track, handleToggleLike, cycleMode, handleNudgeOffset, handleRemoveHistoryQuery]
     ),
   });
 
@@ -1305,6 +1333,8 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
       ? "A Play/Open · Y Options · L1/R1 Tabs"
       : mode === "devices" || mode === "engine"
       ? "L1/R1 Tabs · B Back"
+      : mode === "search" && focusedHistoryQuery
+      ? "A Search · X/Y Remove · L1/R1 Tabs"
       : "L2/R2 Page · X Like · Y Options · L1/R1 Tabs";
 
   return (
@@ -1596,6 +1626,7 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
                   onTileSearchModeChange={setTileSearchMode}
                   searchHistory={searchHistory}
                   onUpdateSearchHistory={handleUpdateSearchHistory}
+                  onFocusHistoryPill={handleFocusHistoryPill}
                 />
               )}
 
