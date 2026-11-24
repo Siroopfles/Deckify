@@ -228,6 +228,7 @@ Recent decisions affecting current work:
 - [Phase 24]: Delegated ProgressScrubBar pointer/touch drag to a native <div role=slider> hit-target inside <Focusable> with window-level pointermove/pointerup/pointercancel listeners and post-drag click deduplication
 - [Phase 24]: Registered ProgressScrubBar Focusable as a focusable/selectable leaf via onActivate and onCancelButton and returned true from handleGamepadDirection on DIR_LEFT/DIR_RIGHT
 - [Phase 25]: Removed premature setMode calls in TrackActionModal and initialized navigationHistoryRef to [] in DeckifyExpandedModal
+- [Phase 25 -> Phase 26 Handoff]: Wire `py_modules/rpc_playback.py:_try_cdp_station_radio` (Tier 1 native Spotify `spotify:station:...` radio via `cdp_bridge.py` when `spotify_client` is active) and optional CDP Browse Categories / Home sections enrichment for `SearchTab` (keeping the 12 Gaming & Mood tiles as fallback on `librespot` or when CDP is unavailable).
 
 ### Pending Todos
 

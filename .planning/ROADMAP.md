@@ -256,6 +256,7 @@ Plans:
   1. Backend `py_modules/cdp_bridge.py` dynamically resolves and caches the Official Spotify Client's internal React Fiber `Platform.Registry` on `window.__deckifyRegistry` over port `9229` with a 4.0-second timeout and clean error fallback.
   2. `DiscoveryTab` populates the *Made For You* section with the user's personalized algorithmic mixes (*Daylist*, *Discover Weekly*, *Release Radar*, *Daily Mix 1–6*) via the CDP Pathfinder/Rootlist bridge, bypassing Spotify Web API Development Mode `HTTP 403/404` blocks.
   3. Resolved algorithmic mix metadata and track URI lists are cached locally on disk so users can browse and play those mixes even after switching their active playback engine to `librespot`.
+  4. `py_modules/rpc_playback.py:_try_cdp_station_radio` (Phase 25 Tier 1 hook) is wired to `cdp_bridge.py` to start native Spotify `spotify:station:...` radio when `spotify_client` is active (falling back silently to Tier 2/3), and `SearchTab` optionally enriches its Browse Categories / Gaming & Mood tiles via CDP with the 12 static tiles as automatic fallback on `librespot` or when CDP is unavailable.
 **Plans:** TBD
 **UI hint**: yes
 
