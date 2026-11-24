@@ -1,5 +1,6 @@
 import io
 import json
+import os
 import tempfile
 import threading
 import unittest
@@ -14,7 +15,7 @@ with patch.dict("sys.modules", {"decky": SimpleNamespace(
     logger=MagicMock(),
     emit=AsyncMock(),
 )}):
-    from py_modules import common, rpc_library, spotify
+    from py_modules import cdp_bridge, common, rpc_library, spotify
 
 
 def make_plugin():
@@ -374,3 +375,135 @@ class TestDiscoveryCacheAndResilience(unittest.IsolatedAsyncioTestCase):
             for t in threads:
                 t.join()
         self.assertEqual(len(errors), 8)
+
+
+class TestDiscoveryAlgorithmicMixes(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        spotify._reset_rate_limit_breaker()
+        rpc_library._clear_discovery_cache()
+        self.tmp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp_dir.cleanup)
+        self.cache_file = os.path.join(self.tmp_dir.name, "discovery_mixes.json")
+        patcher = patch.object(cdp_bridge, "DISCOVERY_MIXES_CACHE_FILE", self.cache_file)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.plugin = make_plugin()
+
+    def test_sort_algorithmic_mixes_order_and_dedup(self):
+        raw = [
+            {"id": "other", "uri": "spotify:playlist:other", "name": "Chill Mix"},
+            {"id": "dm3", "uri": "spotify:playlist:dm3", "name": "Daily Mix 3"},
+            {"id": "or", "uri": "spotify:playlist:or", "name": "On Repeat"},
+            {"id": "rr", "uri": "spotify:playlist:rr", "name": "Release Radar"},
+            {"id": "dm1", "uri": "spotify:playlist:dm1", "name": "Daily Mix 1"},
+            {"id": "dw", "uri": "spotify:playlist:dw", "name": "Discover Weekly"},
+            {"id": "dl", "uri": "spotify:playlist:dl", "name": "daylist"},
+            {"id": "dl_dup", "uri": "spotify:playlist:dl", "name": "daylist", "image_url": "https://img/dl"},
+        ]
+        sorted_mixes = rpc_library._sort_algorithmic_mixes(raw)
+        names = [m["name"] for m in sorted_mixes]
+        self.assertEqual(
+            names,
+            ["daylist", "Discover Weekly", "Release Radar", "Daily Mix 1", "Daily Mix 3", "On Repeat", "Chill Mix"],
+        )
+        self.assertEqual(sorted_mixes[0]["image_url"], "https://img/dl")
+
+    async def test_cdp_mixes_merged_sorted_prefetched_and_persisted(self):
+        self.plugin._settings["audio_backend"] = "spotify_client"
+        self.plugin._spotify_client_process = SimpleNamespace(poll=lambda: None)
+
+        cdp_items = [
+            {"id": "or1", "uri": "spotify:playlist:or1", "name": "On Repeat", "subtitle": "Songs you love", "owner": "Spotify"},
+            {"id": "dl1", "uri": "spotify:playlist:dl1", "name": "daylist", "subtitle": "chill tuesday", "owner": "Spotify"},
+            {"id": "dw1", "uri": "spotify:playlist:dw1", "name": "Discover Weekly", "subtitle": "Your weekly mixtape", "owner": "Spotify"},
+        ]
+        long_tracklist = [{"id": f"t{i}", "uri": f"spotify:track:t{i}", "name": f"Track {i}"} for i in range(120)]
+
+        def fake_api(endpoint, token, method="GET", params=None, body=None):
+            if endpoint == "me/playlists":
+                return {"total": 1, "items": [_sample_mix("rr1", "spotify") | {"name": "Release Radar"}]}
+            if endpoint in ("me/top/tracks", "me/top/artists"):
+                return {"items": []}
+            if endpoint == "browse/new-releases":
+                return {"albums": {"items": []}}
+            return {}
+
+        with patch.object(rpc_library, "_spotify_api_request", side_effect=fake_api), \
+             patch.object(rpc_library, "cdp_fetch_discovery_mixes", return_value={"ok": True, "items": cdp_items}), \
+             patch.object(rpc_library, "cdp_get_playlist_tracks", return_value={"ok": True, "tracks": long_tracklist, "total": 120}) as mock_prefetch:
+            res = await rpc_library.get_discovery_feed(self.plugin, "medium_term")
+
+        self.assertTrue(res["ok"])
+        self.assertFalse(res["made_for_you_fallback"])
+        self.assertEqual([m["name"] for m in res["made_for_you"]], ["daylist", "Discover Weekly", "Release Radar", "On Repeat"])
+        self.assertEqual(mock_prefetch.call_count, 4)
+
+        disk = cdp_bridge.load_discovery_mixes_cache()
+        self.assertEqual(disk["version"], 1)
+        self.assertIn("updated_at", disk)
+        self.assertEqual(len(disk["mixes"]), 4)
+        self.assertEqual(len(disk["mixes"][0]["tracks"]), 100)
+        self.assertEqual(len(disk["mixes"][0]["uris"]), 100)
+
+    async def test_librespot_preserves_cache_and_appends_cached_subtitle(self):
+        # Seed disk cache as if spotify_client had previously populated it
+        seeded = {
+            "version": 1,
+            "updated_at": 1700000000,
+            "mixes": [
+                {
+                    "id": "dl1",
+                    "uri": "spotify:playlist:dl1",
+                    "name": "daylist",
+                    "subtitle": "chill tuesday",
+                    "tracks": [{"id": "t1", "uri": "spotify:track:t1", "name": "Track 1"}],
+                }
+            ],
+        }
+        cdp_bridge.save_discovery_mixes_cache(seeded)
+
+        # Switch to librespot
+        self.plugin._settings["audio_backend"] = "librespot"
+        self.plugin._spotify_client_process = None
+
+        def fake_api(endpoint, token, method="GET", params=None, body=None):
+            if endpoint == "me/playlists":
+                return {"total": 0, "items": []}
+            if endpoint in ("me/top/tracks", "me/top/artists"):
+                return {"items": []}
+            if endpoint == "browse/new-releases":
+                return {"albums": {"items": []}}
+            return {}
+
+        with patch.object(rpc_library, "_spotify_api_request", side_effect=fake_api), \
+             patch.object(rpc_library, "cdp_fetch_discovery_mixes") as mock_cdp_mixes, \
+             patch.object(rpc_library, "cdp_get_playlist_tracks") as mock_cdp_tracks:
+            res = await rpc_library.get_discovery_feed(self.plugin, "medium_term", force_refresh=True)
+
+        mock_cdp_mixes.assert_not_called()
+        mock_cdp_tracks.assert_not_called()
+        self.assertTrue(res["ok"])
+        self.assertFalse(res["made_for_you_fallback"])
+        self.assertEqual(len(res["made_for_you"]), 1)
+        self.assertEqual(res["made_for_you"][0]["subtitle"], "chill tuesday · Cached")
+
+        # Disk cache must remain untouched
+        disk = cdp_bridge.load_discovery_mixes_cache()
+        self.assertEqual(disk["updated_at"], 1700000000)
+        self.assertEqual(disk["mixes"][0]["subtitle"], "chill tuesday")
+
+    async def test_get_search_browse_categories(self):
+        # librespot -> 0ms empty list, no CDP call
+        self.plugin._settings["audio_backend"] = "librespot"
+        with patch.object(rpc_library, "cdp_fetch_browse_categories") as mock_cats:
+            res_lib = await rpc_library.get_search_browse_categories(self.plugin)
+        self.assertEqual(res_lib, {"ok": True, "categories": []})
+        mock_cats.assert_not_called()
+
+        # spotify_client -> returns CDP categories
+        self.plugin._settings["audio_backend"] = "spotify_client"
+        self.plugin._spotify_client_process = SimpleNamespace(poll=lambda: None)
+        cats = [{"id": "gaming", "name": "Gaming", "image_url": "https://img/g", "uri": "spotify:genre:gaming"}]
+        with patch.object(rpc_library, "cdp_fetch_browse_categories", return_value=cats):
+            res_cdp = await rpc_library.get_search_browse_categories(self.plugin)
+        self.assertEqual(res_cdp, {"ok": True, "categories": cats})

@@ -21,7 +21,15 @@ from py_modules.spotify import (
     _parse_spotify_error,
     _fetch_lyrics_sync,
 )
-from py_modules.cdp_bridge import cdp_set_playlist_mix
+from py_modules.cdp_bridge import (
+    cdp_fetch_browse_categories,
+    cdp_fetch_discovery_mixes,
+    cdp_get_playlist_tracks,
+    cdp_set_playlist_mix,
+    is_spotify_client_running,
+    load_discovery_mixes_cache,
+    save_discovery_mixes_cache,
+)
 from py_modules.engine import (
     _cdp_evaluate,
     _cdp_get_liked_tracks,
@@ -1363,25 +1371,152 @@ def _format_discovery_album(alb: dict) -> dict:
     }
 
 
-async def _fetch_made_for_you_section(token: str) -> tuple[list[dict], bool]:
-    pl_data = await _exec(
-        _spotify_api_request, "me/playlists", token, "GET", {"limit": 50, "offset": 0}
-    )
-    all_items = list((pl_data or {}).get("items", []))
-    total = (pl_data or {}).get("total", 0)
-    if total > 50:
-        page2 = await _exec(
-            _spotify_api_request, "me/playlists", token, "GET", {"limit": 50, "offset": 50}
-        )
-        all_items.extend((page2 or {}).get("items", []))
+def _mix_sort_key(mix: dict) -> tuple[int, int, str]:
+    name = str(mix.get("name") or "").strip().lower()
+    if "daylist" in name:
+        return (0, 0, name)
+    if "discover weekly" in name:
+        return (1, 0, name)
+    if "release radar" in name:
+        return (2, 0, name)
+    if "daily mix" in name:
+        num = 99
+        for part in name.split():
+            if part.isdigit():
+                num = int(part)
+                break
+        return (3, num, name)
+    if "on repeat" in name:
+        return (4, 0, name)
+    return (5, 0, name)
 
-    mixes = [
-        _format_discovery_playlist(p)
-        for p in all_items
-        if p and (p.get("owner") or {}).get("id") == "spotify"
-    ][:15]
-    if mixes:
-        return mixes, False
+
+def _sort_algorithmic_mixes(mixes: list[dict]) -> list[dict]:
+    """Deduplicate algorithmic mixes by URI and sort core Spotify mixes to the front."""
+    by_uri: dict[str, dict] = {}
+    for raw in mixes:
+        if not isinstance(raw, dict):
+            continue
+        uri = str(raw.get("uri") or "").strip()
+        pid = str(raw.get("id") or (uri.split(":")[-1] if ":" in uri else "")).strip()
+        if not uri and pid:
+            uri = f"spotify:playlist:{pid}"
+        if not uri:
+            continue
+        norm = dict(raw)
+        norm["id"] = pid or uri.split(":")[-1]
+        norm["uri"] = uri
+        if not norm.get("artwork_url") and norm.get("image_url"):
+            norm["artwork_url"] = norm["image_url"]
+        if not norm.get("image_url") and norm.get("artwork_url"):
+            norm["image_url"] = norm["artwork_url"]
+        if not norm.get("subtitle"):
+            norm["subtitle"] = "Made for you"
+        if not norm.get("owner_id") and norm.get("owner"):
+            norm["owner_id"] = str(norm["owner"])
+        norm.setdefault("type", "playlist")
+
+        existing = by_uri.get(uri)
+        if existing is None:
+            by_uri[uri] = norm
+        else:
+            for k in ("image_url", "artwork_url", "subtitle", "tracks", "uris", "track_count", "owner_id"):
+                if not existing.get(k) and norm.get(k):
+                    existing[k] = norm[k]
+    return sorted(by_uri.values(), key=_mix_sort_key)
+
+
+async def _fetch_made_for_you_section(token: str, plugin=None) -> tuple[list[dict], bool]:
+    cdp_active = bool(plugin is not None and is_spotify_client_running(plugin))
+    cdp_mixes: list[dict] = []
+    if cdp_active:
+        try:
+            cdp_res = await _exec(cdp_fetch_discovery_mixes)
+            if isinstance(cdp_res, dict) and cdp_res.get("ok"):
+                cdp_mixes = list(cdp_res.get("items") or [])
+        except Exception as e:
+            decky.logger.debug("cdp_fetch_discovery_mixes failed: %s", e)
+
+    web_mixes: list[dict] = []
+    try:
+        pl_data = await _exec(
+            _spotify_api_request, "me/playlists", token, "GET", {"limit": 50, "offset": 0}
+        )
+        all_items = list((pl_data or {}).get("items", []))
+        total = (pl_data or {}).get("total", 0)
+        if total > 50:
+            page2 = await _exec(
+                _spotify_api_request, "me/playlists", token, "GET", {"limit": 50, "offset": 50}
+            )
+            all_items.extend((page2 or {}).get("items", []))
+        web_mixes = [
+            _format_discovery_playlist(p)
+            for p in all_items
+            if p and (p.get("owner") or {}).get("id") == "spotify"
+        ]
+    except SpotifyRateLimitError:
+        if not cdp_mixes:
+            raise
+    except Exception as e:
+        if not cdp_mixes:
+            decky.logger.debug("me/playlists failed in _fetch_made_for_you_section: %s", e)
+
+    disk_cache = load_discovery_mixes_cache()
+    cached_mixes = disk_cache.get("mixes") if isinstance(disk_cache.get("mixes"), list) else []
+    cached_by_uri = {
+        m.get("uri"): m
+        for m in cached_mixes
+        if isinstance(m, dict) and m.get("uri")
+    }
+
+    combined = cdp_mixes + web_mixes
+    if cdp_active and combined:
+        sorted_mixes = _sort_algorithmic_mixes(combined)[:15]
+        for mix in sorted_mixes[:12]:
+            prev = cached_by_uri.get(mix["uri"])
+            if prev and not mix.get("tracks") and isinstance(prev.get("tracks"), list) and prev["tracks"]:
+                mix["tracks"] = list(prev["tracks"])[:100]
+                mix["uris"] = list(prev.get("uris") or [t.get("uri") for t in mix["tracks"] if isinstance(t, dict) and t.get("uri")])
+            if not mix.get("tracks"):
+                pid = mix.get("id") or mix["uri"].split(":")[-1]
+                if pid:
+                    try:
+                        cdp_tr = await _exec(cdp_get_playlist_tracks, pid, 0, True)
+                        if isinstance(cdp_tr, dict) and cdp_tr.get("ok") and cdp_tr.get("tracks"):
+                            capped = list(cdp_tr["tracks"])[:100]
+                            mix["tracks"] = capped
+                            mix["uris"] = [t["uri"] for t in capped if isinstance(t, dict) and t.get("uri")]
+                            if not mix.get("track_count"):
+                                mix["track_count"] = cdp_tr.get("total") or len(capped)
+                    except Exception as e:
+                        decky.logger.debug("Eager prefetch for mix %s failed: %s", pid, e)
+        try:
+            save_discovery_mixes_cache({
+                "version": 1,
+                "updated_at": int(time.time()),
+                "mixes": sorted_mixes[:12],
+            })
+        except Exception as e:
+            decky.logger.warning("Failed to save discovery_mixes.json: %s", e)
+        return sorted_mixes, False
+
+    if cached_mixes:
+        cached_out = []
+        for m in cached_mixes:
+            if not isinstance(m, dict):
+                continue
+            copy_m = dict(m)
+            sub = str(copy_m.get("subtitle") or "Made for you")
+            if not sub.endswith(" · Cached"):
+                sub = f"{sub} · Cached"
+            copy_m["subtitle"] = sub
+            cached_out.append(copy_m)
+        merged = _sort_algorithmic_mixes(web_mixes + cached_out)[:15]
+        if merged:
+            return merged, False
+
+    if web_mixes:
+        return _sort_algorithmic_mixes(web_mixes)[:15], False
 
     recent_data = await _exec(
         _spotify_api_request, "me/player/recently-played", token, "GET", {"limit": 30}
@@ -1641,7 +1776,7 @@ async def get_discovery_feed(
 
     try:
         made_for_you, made_for_you_fallback = await _get_section(
-            "made_for_you", _STATIC_TTL_SECONDS, lambda: _fetch_made_for_you_section(token)
+            "made_for_you", _STATIC_TTL_SECONDS, lambda: _fetch_made_for_you_section(token, plugin)
         )
         top_tracks, reauth_tracks = await _get_section(
             f"top_tracks:{valid_range}",
@@ -1674,3 +1809,17 @@ async def get_discovery_feed(
     except Exception as e:
         decky.logger.error("get_discovery_feed failed: %s", e)
         return {"ok": False, "error": str(e)}
+
+
+async def get_search_browse_categories(plugin) -> dict:
+    """Fetch live Spotify browse category tiles via CDP when spotify_client is running."""
+    if not is_spotify_client_running(plugin):
+        return {"ok": True, "categories": []}
+    try:
+        categories = await _exec(cdp_fetch_browse_categories)
+        if not isinstance(categories, list):
+            categories = []
+        return {"ok": True, "categories": categories}
+    except Exception as e:
+        decky.logger.debug("get_search_browse_categories failed: %s", e)
+        return {"ok": True, "categories": []}
