@@ -1012,3 +1012,223 @@ def cdp_reorder_queue(
     if res.get("ok"):
         return {"ok": True}
     return {"ok": False, "error": res.get("error") or "CDP PlayerAPI reorderQueue failed"}
+
+
+def _normalize_playlist_uri(playlist_uri: str) -> str:
+    val = str(playlist_uri or "").strip()
+    if val and not val.startswith("spotify:"):
+        return f"spotify:playlist:{val}"
+    return val
+
+
+def cdp_create_playlist(
+    name: str,
+    description: str = "",
+    port: int = SPOTIFY_CDP_PORT,
+    timeout: float = DEFAULT_CDP_TIMEOUT,
+    eval_fn=None,
+) -> dict:
+    """Create a playlist via Official Spotify Client CDP RootlistAPI/PlaylistAPI."""
+    clean_name = str(name or "").strip()
+    if not clean_name:
+        return {"ok": False, "error": "Playlist name cannot be empty"}
+    clean_desc = str(description or "").strip()
+    name_js = json.dumps(clean_name)
+    desc_js = json.dumps(clean_desc)
+    body_js = f"""
+    const playlistName = {name_js};
+    const playlistDesc = {desc_js};
+    const rootlistApi = getService('RootlistAPI');
+    if (!rootlistApi || typeof rootlistApi.createPlaylist !== 'function') {{
+      return {{ ok: false, error: 'RootlistAPI.createPlaylist not found' }};
+    }}
+    const created = await rootlistApi.createPlaylist(playlistName, {{ after: 'end' }});
+    const uri = typeof created === 'string' ? created : (created?.uri || '');
+    const id = uri.includes(':') ? uri.split(':').pop() : '';
+    if (!uri) {{
+      return {{ ok: false, error: 'RootlistAPI.createPlaylist returned empty URI' }};
+    }}
+    if (playlistDesc) {{
+      const playlistApi = getService('PlaylistAPI');
+      if (playlistApi && typeof playlistApi.updateDetails === 'function') {{
+        try {{
+          await playlistApi.updateDetails(uri, {{ name: playlistName, description: playlistDesc }});
+        }} catch (_e) {{}}
+      }}
+    }}
+    return {{ ok: true, uri, id, name: playlistName, description: playlistDesc }};
+    """
+    res = evaluate_with_registry(body_js, port=port, timeout=timeout, eval_fn=eval_fn)
+    if res.get("ok"):
+        return res
+    return {"ok": False, "error": res.get("error") or "CDP RootlistAPI createPlaylist failed"}
+
+
+def cdp_update_playlist_details(
+    playlist_uri: str,
+    name: str,
+    description: str = "",
+    port: int = SPOTIFY_CDP_PORT,
+    timeout: float = DEFAULT_CDP_TIMEOUT,
+    eval_fn=None,
+) -> dict:
+    """Update playlist name/description via CDP PlaylistAPI.updateDetails or RootlistAPI.renamePlaylist."""
+    uri = _normalize_playlist_uri(playlist_uri)
+    clean_name = str(name or "").strip()
+    if not uri:
+        return {"ok": False, "error": "Playlist URI cannot be empty"}
+    if not clean_name:
+        return {"ok": False, "error": "Playlist name cannot be empty"}
+    clean_desc = str(description or "").strip()
+    uri_js = json.dumps(uri)
+    name_js = json.dumps(clean_name)
+    desc_js = json.dumps(clean_desc)
+    body_js = f"""
+    const uri = {uri_js};
+    const playlistName = {name_js};
+    const playlistDesc = {desc_js};
+    const playlistApi = getService('PlaylistAPI');
+    if (playlistApi && typeof playlistApi.updateDetails === 'function') {{
+      await playlistApi.updateDetails(uri, {{ name: playlistName, description: playlistDesc }});
+      return {{ ok: true, uri, name: playlistName, description: playlistDesc }};
+    }}
+    const rootlistApi = getService('RootlistAPI');
+    if (rootlistApi && typeof rootlistApi.renamePlaylist === 'function') {{
+      await rootlistApi.renamePlaylist(uri, playlistName);
+      return {{ ok: true, uri, name: playlistName, description: playlistDesc }};
+    }}
+    return {{ ok: false, error: 'PlaylistAPI.updateDetails and RootlistAPI.renamePlaylist not found' }};
+    """
+    res = evaluate_with_registry(body_js, port=port, timeout=timeout, eval_fn=eval_fn)
+    if res.get("ok"):
+        return res
+    return {"ok": False, "error": res.get("error") or "CDP PlaylistAPI updateDetails failed"}
+
+
+def cdp_delete_playlist(
+    playlist_uri: str,
+    port: int = SPOTIFY_CDP_PORT,
+    timeout: float = DEFAULT_CDP_TIMEOUT,
+    eval_fn=None,
+) -> dict:
+    """Delete or unfollow a playlist via Official Spotify Client CDP RootlistAPI.remove."""
+    uri = _normalize_playlist_uri(playlist_uri)
+    if not uri:
+        return {"ok": False, "error": "Playlist URI cannot be empty"}
+    uri_js = json.dumps(uri)
+    body_js = f"""
+    const uri = {uri_js};
+    const rootlistApi = getService('RootlistAPI');
+    if (!rootlistApi || typeof rootlistApi.remove !== 'function') {{
+      return {{ ok: false, error: 'RootlistAPI.remove not found' }};
+    }}
+    await rootlistApi.remove([{{ uri }}]);
+    return {{ ok: true }};
+    """
+    res = evaluate_with_registry(body_js, port=port, timeout=timeout, eval_fn=eval_fn)
+    if res.get("ok"):
+        return {"ok": True}
+    return {"ok": False, "error": res.get("error") or "CDP RootlistAPI remove failed"}
+
+
+def cdp_reorder_playlist_track(
+    playlist_uri: str,
+    uid: str,
+    target_uid: str,
+    move_after: bool = False,
+    port: int = SPOTIFY_CDP_PORT,
+    timeout: float = DEFAULT_CDP_TIMEOUT,
+    eval_fn=None,
+) -> dict:
+    """Reorder a track inside a playlist via Official Spotify Client CDP PlaylistAPI.move."""
+    uri = _normalize_playlist_uri(playlist_uri)
+    item_uid = str(uid or "").strip()
+    dest_uid = str(target_uid or "").strip()
+    if not uri or not item_uid or not dest_uid:
+        return {"ok": False, "error": "Playlist URI, uid, and target_uid are required"}
+    uri_js = json.dumps(uri)
+    uid_js = json.dumps(item_uid)
+    target_uid_js = json.dumps(dest_uid)
+    move_after_js = "true" if move_after else "false"
+    body_js = f"""
+    const playlistUri = {uri_js};
+    const uid = {uid_js};
+    const targetUid = {target_uid_js};
+    const moveAfter = {move_after_js};
+    const playlistApi = getService('PlaylistAPI');
+    if (!playlistApi || typeof playlistApi.move !== 'function') {{
+      return {{ ok: false, error: 'PlaylistAPI.move not found' }};
+    }}
+    const anchor = moveAfter ? {{ after: targetUid }} : {{ before: targetUid }};
+    await playlistApi.move(playlistUri, [{{ uid }}], anchor);
+    return {{ ok: true }};
+    """
+    res = evaluate_with_registry(body_js, port=port, timeout=timeout, eval_fn=eval_fn)
+    if res.get("ok"):
+        return {"ok": True}
+    return {"ok": False, "error": res.get("error") or "CDP PlaylistAPI move failed"}
+
+
+def cdp_remove_from_playlist(
+    playlist_uri: str,
+    track_uri: str,
+    uid: str = "",
+    port: int = SPOTIFY_CDP_PORT,
+    timeout: float = DEFAULT_CDP_TIMEOUT,
+    eval_fn=None,
+) -> dict:
+    """Remove a track (or specific instance by uid) from a playlist via CDP PlaylistAPI.remove."""
+    uri = _normalize_playlist_uri(playlist_uri)
+    t_uri = str(track_uri or "").strip()
+    item_uid = str(uid or "").strip()
+    if not uri or not t_uri:
+        return {"ok": False, "error": "Playlist URI and track URI are required"}
+    uri_js = json.dumps(uri)
+    track_uri_js = json.dumps(t_uri)
+    uid_js = json.dumps(item_uid)
+    body_js = f"""
+    const playlistUri = {uri_js};
+    const trackUri = {track_uri_js};
+    const uid = {uid_js};
+    const playlistApi = getService('PlaylistAPI');
+    if (!playlistApi || typeof playlistApi.remove !== 'function') {{
+      return {{ ok: false, error: 'PlaylistAPI.remove not found' }};
+    }}
+    const entry = uid ? {{ uri: trackUri, uid }} : {{ uri: trackUri }};
+    await playlistApi.remove(playlistUri, [entry]);
+    return {{ ok: true }};
+    """
+    res = evaluate_with_registry(body_js, port=port, timeout=timeout, eval_fn=eval_fn)
+    if res.get("ok"):
+        return {"ok": True}
+    return {"ok": False, "error": res.get("error") or "CDP PlaylistAPI remove failed"}
+
+
+def cdp_add_to_playlist(
+    playlist_uri: str,
+    track_uris: list[str],
+    port: int = SPOTIFY_CDP_PORT,
+    timeout: float = DEFAULT_CDP_TIMEOUT,
+    eval_fn=None,
+) -> dict:
+    """Add tracks to a playlist via Official Spotify Client CDP PlaylistAPI.add."""
+    uri = _normalize_playlist_uri(playlist_uri)
+    clean_uris = [str(u).strip() for u in (track_uris or []) if str(u).strip()]
+    if not uri or not clean_uris:
+        return {"ok": False, "error": "Playlist URI and track URIs are required"}
+    uri_js = json.dumps(uri)
+    uris_js = json.dumps(clean_uris)
+    body_js = f"""
+    const playlistUri = {uri_js};
+    const uris = {uris_js};
+    const playlistApi = getService('PlaylistAPI');
+    if (!playlistApi || typeof playlistApi.add !== 'function') {{
+      return {{ ok: false, error: 'PlaylistAPI.add not found' }};
+    }}
+    await playlistApi.add(playlistUri, uris, {{ after: 'end' }});
+    return {{ ok: true }};
+    """
+    res = evaluate_with_registry(body_js, port=port, timeout=timeout, eval_fn=eval_fn)
+    if res.get("ok"):
+        return {"ok": True}
+    return {"ok": False, "error": res.get("error") or "CDP PlaylistAPI add failed"}
