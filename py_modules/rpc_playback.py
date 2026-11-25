@@ -4,6 +4,7 @@ import socket
 import time
 import urllib.error
 import urllib.parse
+from py_modules import cdp_bridge
 from py_modules.cdp_bridge import (
     cdp_fetch_station_radio_uris,
     cdp_play_context,
@@ -83,6 +84,8 @@ async def control_playback(plugin, action: str, device_id: str = "") -> dict:
             plugin._poll_play_state = "playing"
         elif action == "pause":
             plugin._poll_play_state = "paused"
+        elif action in ("next", "previous"):
+            _invalidate_optimistic_queue(plugin)
         mpris_bridge = getattr(plugin, "_mpris_bridge", None)
         if mpris_bridge is not None and hasattr(mpris_bridge, "sync_from_plugin"):
             await mpris_bridge.sync_from_plugin()
@@ -136,6 +139,7 @@ async def set_shuffle(plugin, state: bool, device_id: str = "") -> dict:
     try:
         await _exec(_spotify_api_request, "me/player/shuffle", token, "PUT", params)
         plugin._shuffle_state = state_bool
+        _invalidate_optimistic_queue(plugin)
         await decky.emit("playback_modes", {
             "shuffle_state": plugin._shuffle_state,
             "repeat_state": plugin._repeat_state,
@@ -301,11 +305,62 @@ async def toggle_like_track(plugin, track_id: str = "", liked: bool | None = Non
         return {"ok": False, "error": str(e)}
 
 
+def _invalidate_optimistic_queue(plugin) -> None:
+    """Clear any cached optimistic queue snapshot."""
+    if plugin is not None:
+        plugin._optimistic_queue_snapshot = None
+
+
+def _get_valid_optimistic_queue(plugin) -> list[dict] | None:
+    """Return cached optimistic queue items if within TTL and track/shuffle match."""
+    if plugin is None:
+        return None
+    snap = getattr(plugin, "_optimistic_queue_snapshot", None)
+    if not isinstance(snap, dict):
+        return None
+    if time.monotonic() >= float(snap.get("expires_at", 0.0)):
+        plugin._optimistic_queue_snapshot = None
+        return None
+    if snap.get("track_id") != getattr(plugin, "_poll_track_id", None):
+        plugin._optimistic_queue_snapshot = None
+        return None
+    if snap.get("shuffle") != getattr(plugin, "_shuffle_state", None):
+        plugin._optimistic_queue_snapshot = None
+        return None
+    return [dict(item) for item in (snap.get("queue") or []) if isinstance(item, dict)]
+
+
+def _set_optimistic_queue_snapshot(
+    plugin,
+    queue_items: list[dict],
+    ttl_s: float = 4.5,
+) -> None:
+    """Store an optimistic queue snapshot with a short TTL."""
+    if plugin is None:
+        return
+    plugin._optimistic_queue_snapshot = {
+        "queue": [dict(item) for item in (queue_items or []) if isinstance(item, dict)],
+        "expires_at": time.monotonic() + float(ttl_s),
+        "track_id": getattr(plugin, "_poll_track_id", None),
+        "shuffle": getattr(plugin, "_shuffle_state", None),
+    }
+
+
 async def get_queue(plugin) -> dict:
     """Fetch current user queue and currently playing item."""
     token = await plugin._ensure_token()
     if not token:
         return {"ok": False, "error": "Not authenticated"}
+    optimistic = _get_valid_optimistic_queue(plugin)
+    if optimistic is not None:
+        if optimistic and hasattr(plugin, "_annotate_tracks_liked"):
+            await plugin._annotate_tracks_liked(token, optimistic)
+        return {
+            "ok": True,
+            "currently_playing": getattr(plugin, "_last_queue_currently_playing", None),
+            "queue": optimistic,
+            "optimistic": True,
+        }
     try:
         data = await _exec(_spotify_api_request, "me/player/queue", token, "GET")
         if not data:
@@ -346,6 +401,7 @@ async def get_queue(plugin) -> dict:
             if formatted:
                 queue_items.append(formatted)
         curr = _fmt(data.get("currently_playing"))
+        plugin._last_queue_currently_playing = curr
         all_to_check = ([curr] if curr else []) + queue_items
         await plugin._annotate_tracks_liked(token, all_to_check)
         return {
@@ -372,6 +428,7 @@ async def add_to_queue(plugin, uri: str, device_id: str = "") -> dict:
         params["device_id"] = device_id
     try:
         await _exec(_spotify_api_request, "me/player/queue", token, "POST", params)
+        _invalidate_optimistic_queue(plugin)
         return {"ok": True}
     except urllib.error.HTTPError as e:
         if e.code == 404:
@@ -380,6 +437,180 @@ async def add_to_queue(plugin, uri: str, device_id: str = "") -> dict:
     except Exception as e:
         decky.logger.error("add_to_queue(%s) failed: %s", uri, e)
         return {"ok": False, "error": str(e)}
+
+
+async def _mutate_queue_via_uri_slice(
+    plugin,
+    token: str,
+    mutated_upcoming: list[dict],
+) -> dict:
+    """Rebuild active queue via PUT /v1/me/player/play while preserving current track, position, and paused state."""
+    player_data = None
+    try:
+        player_data = await _exec(_spotify_api_request, "me/player", token, "GET")
+    except urllib.error.HTTPError as e:
+        return {"ok": False, "error": _parse_spotify_error(e)}
+    except Exception as e:
+        decky.logger.warning("_mutate_queue_via_uri_slice GET me/player failed: %s", e)
+
+    if isinstance(player_data, dict):
+        item = player_data.get("item") or {}
+        current_track_uri = str(item.get("uri") or getattr(plugin, "_poll_track_uri", "") or "").strip()
+        try:
+            current_position_ms = max(0, int(player_data.get("progress_ms") or 0))
+        except (TypeError, ValueError):
+            current_position_ms = 0
+        was_paused = not bool(player_data.get("is_playing", False))
+    else:
+        current_track_uri = str(getattr(plugin, "_poll_track_uri", "") or "").strip()
+        current_position_ms = 0
+        was_paused = getattr(plugin, "_poll_play_state", "") != "playing"
+
+    if not current_track_uri:
+        return {"ok": False, "error": "No active track to preserve during queue update"}
+
+    upcoming_uris = [
+        str(t.get("uri") or "").strip()
+        for t in (mutated_upcoming or [])
+        if isinstance(t, dict) and str(t.get("uri") or "").strip()
+    ][:99]
+
+    body = {
+        "uris": [current_track_uri, *upcoming_uris],
+        "position_ms": current_position_ms,
+    }
+    try:
+        await _exec(_spotify_api_request, "me/player/play", token, "PUT", None, body)
+        if was_paused:
+            await _exec(_spotify_api_request, "me/player/pause", token, "PUT")
+        return {"ok": True}
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return {"ok": False, "error": "No active device found"}
+        return {"ok": False, "error": _parse_spotify_error(e)}
+    except Exception as e:
+        decky.logger.error("_mutate_queue_via_uri_slice failed: %s", e)
+        return {"ok": False, "error": str(e)}
+
+
+async def reorder_queue_track(
+    plugin,
+    from_index: int,
+    to_index: int,
+    upcoming_tracks: list[dict] | None = None,
+) -> dict:
+    """Reorder an upcoming queue track via CDP PlayerAPI first, falling back to URI-slice replacement."""
+    token = await plugin._ensure_token()
+    if not token:
+        return {"ok": False, "error": "Not authenticated"}
+    try:
+        src_idx = int(from_index)
+        dst_idx = int(to_index)
+    except (TypeError, ValueError):
+        return {"ok": False, "error": "Invalid queue indices"}
+
+    if upcoming_tracks is None:
+        q_res = await get_queue(plugin)
+        if not q_res.get("ok"):
+            return q_res
+        items = [dict(t) for t in (q_res.get("queue") or []) if isinstance(t, dict)]
+    else:
+        items = [dict(t) for t in upcoming_tracks if isinstance(t, dict)]
+
+    if not items or src_idx < 0 or src_idx >= len(items) or dst_idx < 0 or dst_idx >= len(items):
+        return {"ok": False, "error": "Queue index out of bounds"}
+
+    if src_idx == dst_idx:
+        return {"ok": True, "queue": items}
+
+    mutated = [dict(t) for t in items]
+    moved = mutated.pop(src_idx)
+    mutated.insert(dst_idx, moved)
+
+    used_cdp = False
+    if cdp_bridge.is_spotify_client_running(plugin):
+        uid = str(moved.get("uid") or "").strip()
+        target_uid = str(items[dst_idx].get("uid") or "").strip()
+        cdp_res = await _exec(cdp_bridge.cdp_reorder_queue, src_idx, dst_idx, uid, target_uid)
+        used_cdp = bool(isinstance(cdp_res, dict) and cdp_res.get("ok"))
+
+    if not used_cdp:
+        fallback_res = await _mutate_queue_via_uri_slice(plugin, token, mutated)
+        if not fallback_res.get("ok"):
+            return fallback_res
+
+    _set_optimistic_queue_snapshot(plugin, mutated)
+    return {"ok": True, "queue": mutated}
+
+
+async def remove_queue_track(
+    plugin,
+    index: int,
+    track_uri: str = "",
+    uid: str = "",
+    upcoming_tracks: list[dict] | None = None,
+) -> dict:
+    """Remove a single upcoming queue track via CDP PlayerAPI first, falling back to URI-slice replacement."""
+    token = await plugin._ensure_token()
+    if not token:
+        return {"ok": False, "error": "Not authenticated"}
+    try:
+        idx = int(index)
+    except (TypeError, ValueError):
+        return {"ok": False, "error": "Invalid queue index"}
+
+    if upcoming_tracks is None:
+        q_res = await get_queue(plugin)
+        if not q_res.get("ok"):
+            return q_res
+        items = [dict(t) for t in (q_res.get("queue") or []) if isinstance(t, dict)]
+    else:
+        items = [dict(t) for t in upcoming_tracks if isinstance(t, dict)]
+
+    if not items or idx < 0 or idx >= len(items):
+        return {"ok": False, "error": "Queue index out of bounds"}
+
+    mutated = [dict(t) for t in items]
+    removed = mutated.pop(idx)
+    target_uri = str(track_uri or removed.get("uri") or "").strip()
+    target_uid = str(uid or removed.get("uid") or "").strip()
+
+    used_cdp = False
+    if cdp_bridge.is_spotify_client_running(plugin) and target_uri:
+        cdp_res = await _exec(cdp_bridge.cdp_remove_from_queue, target_uri, target_uid)
+        used_cdp = bool(isinstance(cdp_res, dict) and cdp_res.get("ok"))
+
+    if not used_cdp:
+        fallback_res = await _mutate_queue_via_uri_slice(plugin, token, mutated)
+        if not fallback_res.get("ok"):
+            return fallback_res
+
+    _set_optimistic_queue_snapshot(plugin, mutated)
+    return {"ok": True, "queue": mutated}
+
+
+async def clear_queue(plugin) -> dict:
+    """Clear all upcoming tracks while keeping the currently playing track playing or paused."""
+    token = await plugin._ensure_token()
+    if not token:
+        return {"ok": False, "error": "Not authenticated"}
+
+    used_cdp = False
+    if cdp_bridge.is_spotify_client_running(plugin):
+        cdp_res = await _exec(cdp_bridge.cdp_clear_queue)
+        used_cdp = bool(isinstance(cdp_res, dict) and cdp_res.get("ok"))
+
+    if not used_cdp:
+        q_res = await get_queue(plugin)
+        if q_res.get("ok") and not (q_res.get("queue") or []):
+            _set_optimistic_queue_snapshot(plugin, [])
+            return {"ok": True, "queue": []}
+        fallback_res = await _mutate_queue_via_uri_slice(plugin, token, [])
+        if not fallback_res.get("ok"):
+            return fallback_res
+
+    _set_optimistic_queue_snapshot(plugin, [])
+    return {"ok": True, "queue": []}
 
 
 def _resolve_cached_mix_uris(context_uri: str) -> list[str]:
@@ -480,6 +711,7 @@ async def play_tracks(
         await _exec(
             _spotify_api_request, "me/player/play", token, "PUT", None, body,
         )
+        _invalidate_optimistic_queue(plugin)
         return {"ok": True}
     except urllib.error.HTTPError as e:
         if e.code in (403, 404) and body.get("context_uri"):
@@ -488,6 +720,7 @@ async def play_tracks(
                 body = _build_uris_body(cached_uris, offset_uri, position, position_ms)
                 try:
                     await _exec(_spotify_api_request, "me/player/play", token, "PUT", None, body)
+                    _invalidate_optimistic_queue(plugin)
                     return {"ok": True}
                 except urllib.error.HTTPError as retry_err:
                     e = retry_err
@@ -521,6 +754,7 @@ async def play_tracks(
                 try:
                     await asyncio.sleep(0.5)
                     await _exec(_spotify_api_request, "me/player/play", token, "PUT", None, body)
+                    _invalidate_optimistic_queue(plugin)
                     return {"ok": True}
                 except Exception:
                     pass

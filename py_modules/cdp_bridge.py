@@ -914,3 +914,101 @@ def cdp_fetch_browse_categories(
             }
         )
     return out
+
+
+def cdp_remove_from_queue(
+    uri: str,
+    uid: str = "",
+    port: int = SPOTIFY_CDP_PORT,
+    timeout: float = DEFAULT_CDP_TIMEOUT,
+    eval_fn=None,
+) -> dict:
+    """Remove a single upcoming track from the Spotify client queue via CDP PlayerAPI."""
+    target_uri = str(uri or "").strip()
+    if not target_uri:
+        return {"ok": False, "error": "Missing track URI"}
+    target_uri_js = json.dumps(target_uri)
+    target_uid_js = json.dumps(str(uid or "").strip())
+    body_js = f"""
+    const targetUri = {target_uri_js};
+    const targetUid = {target_uid_js};
+    const playerApi = getService('PlayerAPI');
+    if (!playerApi) return {{ ok: false, error: 'PlayerAPI not found' }};
+    if (typeof playerApi.removeFromQueue !== 'function') {{
+      return {{ ok: false, error: 'removeFromQueue not supported' }};
+    }}
+    const item = targetUid ? {{ uri: targetUri, uid: targetUid }} : {{ uri: targetUri }};
+    await playerApi.removeFromQueue([item]);
+    return {{ ok: true }};
+    """
+    res = evaluate_with_registry(body_js, port=port, timeout=timeout, eval_fn=eval_fn)
+    if res.get("ok"):
+        return {"ok": True}
+    return {"ok": False, "error": res.get("error") or "CDP PlayerAPI removeFromQueue failed"}
+
+
+def cdp_clear_queue(
+    port: int = SPOTIFY_CDP_PORT,
+    timeout: float = DEFAULT_CDP_TIMEOUT,
+    eval_fn=None,
+) -> dict:
+    """Clear all upcoming tracks from the Spotify client queue via CDP PlayerAPI."""
+    body_js = """
+    const playerApi = getService('PlayerAPI');
+    if (!playerApi) return { ok: false, error: 'PlayerAPI not found' };
+    if (typeof playerApi.clearQueue !== 'function') {
+      return { ok: false, error: 'clearQueue not supported' };
+    }
+    await playerApi.clearQueue();
+    return { ok: true };
+    """
+    res = evaluate_with_registry(body_js, port=port, timeout=timeout, eval_fn=eval_fn)
+    if res.get("ok"):
+        return {"ok": True}
+    return {"ok": False, "error": res.get("error") or "CDP PlayerAPI clearQueue failed"}
+
+
+def cdp_reorder_queue(
+    from_index: int,
+    to_index: int,
+    uid: str = "",
+    target_uid: str = "",
+    port: int = SPOTIFY_CDP_PORT,
+    timeout: float = DEFAULT_CDP_TIMEOUT,
+    eval_fn=None,
+) -> dict:
+    """Reorder an upcoming track in the Spotify client queue via CDP PlayerAPI."""
+    try:
+        safe_from = int(from_index)
+        safe_to = int(to_index)
+    except (TypeError, ValueError):
+        return {"ok": False, "error": "Invalid queue indices"}
+    if safe_from < 0 or safe_to < 0:
+        return {"ok": False, "error": "Queue indices must be non-negative"}
+    uid_js = json.dumps(str(uid or "").strip())
+    target_uid_js = json.dumps(str(target_uid or "").strip())
+    body_js = f"""
+    const fromIdx = {safe_from};
+    const toIdx = {safe_to};
+    const itemUid = {uid_js};
+    const targetUid = {target_uid_js};
+    const playerApi = getService('PlayerAPI');
+    if (!playerApi) return {{ ok: false, error: 'PlayerAPI not found' }};
+    if (typeof playerApi.reorderQueue === 'function') {{
+      if (itemUid && targetUid) {{
+        await playerApi.reorderQueue({{ uid: itemUid }}, {{ uid: targetUid }}, fromIdx, toIdx);
+      }} else {{
+        await playerApi.reorderQueue(fromIdx, toIdx);
+      }}
+      return {{ ok: true }};
+    }}
+    if (playerApi._queue && typeof playerApi._queue.reorder === 'function') {{
+      await playerApi._queue.reorder(fromIdx, toIdx);
+      return {{ ok: true }};
+    }}
+    return {{ ok: false, error: 'reorderQueue not supported' }};
+    """
+    res = evaluate_with_registry(body_js, port=port, timeout=timeout, eval_fn=eval_fn)
+    if res.get("ok"):
+        return {"ok": True}
+    return {"ok": False, "error": res.get("error") or "CDP PlayerAPI reorderQueue failed"}

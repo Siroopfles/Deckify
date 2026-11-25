@@ -1257,6 +1257,26 @@ class Plugin:
     async def add_to_queue(self, uri: str, device_id: str = "") -> dict:
         return await rpc_playback.add_to_queue(self, uri, device_id)
 
+    async def reorder_queue_track(
+        self,
+        from_index: int,
+        to_index: int,
+        upcoming_tracks: list[dict] | None = None,
+    ) -> dict:
+        return await rpc_playback.reorder_queue_track(self, from_index, to_index, upcoming_tracks)
+
+    async def remove_queue_track(
+        self,
+        index: int,
+        track_uri: str = "",
+        uid: str = "",
+        upcoming_tracks: list[dict] | None = None,
+    ) -> dict:
+        return await rpc_playback.remove_queue_track(self, index, track_uri, uid, upcoming_tracks)
+
+    async def clear_queue(self) -> dict:
+        return await rpc_playback.clear_queue(self)
+
     # ── Playlist / context-play callable methods ─────────────────
 
     async def get_playlists(self, offset: int = 0) -> dict:
