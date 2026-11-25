@@ -1,14 +1,17 @@
-import { FC, MutableRefObject, useEffect, useRef } from "react";
-import { Focusable } from "@decky/ui";
+import { FC, MutableRefObject, useEffect, useRef, useState } from "react";
+import { Focusable, TextField } from "@decky/ui";
 import {
-  FaPlay,
-  FaListUl,
-  FaFolder,
+  FaArrowsAltV,
   FaBroadcastTower,
-  FaUser,
   FaCompactDisc,
-  FaTrash,
+  FaFolder,
   FaHeart,
+  FaListUl,
+  FaPlay,
+  FaPlus,
+  FaTimes,
+  FaTrash,
+  FaUser,
 } from "react-icons/fa";
 import { PlaylistItem, TrackItem, ViewMode } from "../../types";
 import { isSpokenContent } from "../../utils/playback";
@@ -31,30 +34,46 @@ export interface TrackActionModalProps {
   onOpenAlbum: (album: { id: string; name: string; artist: string; uri: string }) => void;
   onRemoveFromPlaylist?: () => void;
   onToggleLike: (trackId?: string) => void;
+  mode?: ViewMode;
   setMode?: (mode: ViewMode) => void;
+  onMoveInQueue?: (track: TrackItem) => void;
+  onRemoveFromQueue?: (track: TrackItem) => void;
+  onMoveInPlaylist?: (track: TrackItem) => void;
+  onCreatePlaylistWithTrack?: (name: string, description: string, trackUri: string) => Promise<void>;
+  canReorderPlaylist?: boolean;
+  isEditablePlaylist?: boolean;
 }
 
-export const TrackActionModal: FC<TrackActionModalProps> = ({
-  actionTrack,
-  activePlaylist,
-  showAddToPlaylistModal,
-  allUserPlaylists,
-  onClose,
-  onPlayTrack,
-  onAddToQueue,
-  onOpenAddToPlaylist,
-  onCloseAddToPlaylist,
-  onAddTrackToPlaylist,
-  onStartRadio,
-  onOpenArtist,
-  onOpenAlbum,
-  onRemoveFromPlaylist,
-  onToggleLike,
-}) => {
-  const modalContainerRef = useRef<HTMLDivElement | null>(null);
-  const pickerContainerRef = useRef<HTMLDivElement | null>(null);
+const BACKDROP_STYLE = {
+  position: "absolute" as const,
+  top: 0,
+  left: 0,
+  right: 0,
+  bottom: 38,
+  background: "rgba(0,0,0,0.85)",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+};
+
+const CARD_STYLE = {
+  background: "#1c1c1c",
+  border: "1px solid rgba(255,255,255,0.15)",
+  borderRadius: 14,
+  padding: 20,
+  width: 380,
+  maxWidth: "90%",
+  display: "flex",
+  flexDirection: "column" as const,
+};
+
+function useTrackModalFocus(
+  hasActionTrack: boolean,
+  showAddToPlaylistModal: boolean,
+  modalContainerRef: MutableRefObject<HTMLDivElement | null>,
+  pickerContainerRef: MutableRefObject<HTMLDivElement | null>,
+) {
   const previousFocusRef = useRef<HTMLElement | null>(null);
-  const hasActionTrack = Boolean(actionTrack);
 
   useEffect(() => {
     if (hasActionTrack) {
@@ -62,9 +81,7 @@ export const TrackActionModal: FC<TrackActionModalProps> = ({
         previousFocusRef.current = document.activeElement as HTMLElement | null;
       }
       const rafId = requestAnimationFrame(() => {
-        const container = showAddToPlaylistModal
-          ? pickerContainerRef.current
-          : modalContainerRef.current;
+        const container = showAddToPlaylistModal ? pickerContainerRef.current : modalContainerRef.current;
         const target = container?.querySelector('[tabindex="0"]') as HTMLElement | null;
         target?.focus?.();
       });
@@ -74,7 +91,7 @@ export const TrackActionModal: FC<TrackActionModalProps> = ({
       previousFocusRef.current = null;
     }
     return undefined;
-  }, [hasActionTrack, showAddToPlaylistModal]);
+  }, [hasActionTrack, showAddToPlaylistModal, modalContainerRef, pickerContainerRef]);
 
   useEffect(() => {
     return () => {
@@ -84,6 +101,29 @@ export const TrackActionModal: FC<TrackActionModalProps> = ({
       }
     };
   }, []);
+}
+
+export const TrackActionModal: FC<TrackActionModalProps> = (props) => {
+  const { actionTrack, showAddToPlaylistModal } = props;
+  const modalContainerRef = useRef<HTMLDivElement | null>(null);
+  const pickerContainerRef = useRef<HTMLDivElement | null>(null);
+  const [pickerFilter, setPickerFilter] = useState("");
+  const [creatingNew, setCreatingNew] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newDescription, setNewDescription] = useState("");
+  const [createError, setCreateError] = useState("");
+
+  useTrackModalFocus(Boolean(actionTrack), showAddToPlaylistModal, modalContainerRef, pickerContainerRef);
+
+  useEffect(() => {
+    if (!showAddToPlaylistModal) {
+      setPickerFilter("");
+      setCreatingNew(false);
+      setNewName("");
+      setNewDescription("");
+      setCreateError("");
+    }
+  }, [showAddToPlaylistModal]);
 
   if (!actionTrack) return null;
 
@@ -91,27 +131,36 @@ export const TrackActionModal: FC<TrackActionModalProps> = ({
     <>
       {!showAddToPlaylistModal &&
         renderTrackActionsOverlay({
-          modalContainerRef,
-          actionTrack,
-          activePlaylist,
-          onClose,
-          onPlayTrack,
-          onAddToQueue,
-          onOpenAddToPlaylist,
-          onStartRadio,
-          onOpenArtist,
-          onOpenAlbum,
-          onRemoveFromPlaylist,
-          onToggleLike,
+          modalContainerRef, actionTrack, activePlaylist: props.activePlaylist, mode: props.mode,
+          isEditablePlaylist: props.isEditablePlaylist, canReorderPlaylist: props.canReorderPlaylist,
+          onClose: props.onClose, onPlayTrack: props.onPlayTrack, onAddToQueue: props.onAddToQueue,
+          onOpenAddToPlaylist: props.onOpenAddToPlaylist, onStartRadio: props.onStartRadio,
+          onOpenArtist: props.onOpenArtist, onOpenAlbum: props.onOpenAlbum,
+          onRemoveFromPlaylist: props.onRemoveFromPlaylist, onToggleLike: props.onToggleLike,
+          onMoveInQueue: props.onMoveInQueue, onRemoveFromQueue: props.onRemoveFromQueue,
+          onMoveInPlaylist: props.onMoveInPlaylist,
         })}
 
       {showAddToPlaylistModal &&
         renderPlaylistPickerOverlay({
-          pickerContainerRef,
-          actionTrack,
-          allUserPlaylists,
-          onAddTrackToPlaylist,
-          onCloseAddToPlaylist,
+          pickerContainerRef, actionTrack, allUserPlaylists: props.allUserPlaylists,
+          pickerFilter, creatingNew, newName, newDescription, createError,
+          onPickerFilterChange: setPickerFilter, onToggleCreatingNew: setCreatingNew,
+          onNewNameChange: (val) => { setNewName(val); if (createError) setCreateError(""); },
+          onNewDescriptionChange: setNewDescription,
+          onSubmitCreate: async () => {
+            if (!newName.trim()) {
+              setCreateError("Playlist name cannot be empty. Enter a name to continue.");
+              return;
+            }
+            await props.onCreatePlaylistWithTrack?.(newName.trim(), newDescription.trim(), actionTrack.uri || "");
+            setCreatingNew(false);
+            setNewName("");
+            setNewDescription("");
+            props.onCloseAddToPlaylist();
+          },
+          onAddTrackToPlaylist: props.onAddTrackToPlaylist,
+          onCloseAddToPlaylist: props.onCloseAddToPlaylist,
         })}
     </>
   );
@@ -121,6 +170,9 @@ interface TrackActionsOverlayArgs {
   modalContainerRef: MutableRefObject<HTMLDivElement | null>;
   actionTrack: TrackItem;
   activePlaylist: PlaylistItem | null;
+  mode?: ViewMode;
+  isEditablePlaylist?: boolean;
+  canReorderPlaylist?: boolean;
   onClose: () => void;
   onPlayTrack: (uri: string) => void;
   onAddToQueue: (track: TrackItem) => void;
@@ -130,15 +182,16 @@ interface TrackActionsOverlayArgs {
   onOpenAlbum: (album: { id: string; name: string; artist: string; uri: string }) => void;
   onRemoveFromPlaylist?: () => void;
   onToggleLike: (trackId?: string) => void;
+  onMoveInQueue?: (track: TrackItem) => void;
+  onRemoveFromQueue?: (track: TrackItem) => void;
+  onMoveInPlaylist?: (track: TrackItem) => void;
 }
 
 function renderTrackActionsHeader(actionTrack: TrackItem) {
   const coverSrc = actionTrack.artwork_url || actionTrack.image_url || undefined;
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
-      {coverSrc && (
-        <DeckifyImage src={coverSrc} width={44} height={44} style={{ borderRadius: 6 }} />
-      )}
+      {coverSrc && <DeckifyImage src={coverSrc} width={44} height={44} style={{ borderRadius: 6 }} />}
       <div style={{ overflow: "hidden", flex: 1 }}>
         <div style={{ fontSize: 15, fontWeight: 800, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           {actionTrack.name}
@@ -162,9 +215,7 @@ function renderTrackNavigationRows({
   onOpenArtist: (artist: { id: string; name: string }) => void;
   onOpenAlbum: (album: { id: string; name: string; artist: string; uri: string }) => void;
 }) {
-  const artistLabel = isSpoken
-    ? `Go to Show (${actionTrack.artist})`
-    : `Go to Artist (${actionTrack.artist})`;
+  const artistLabel = isSpoken ? `Go to Show (${actionTrack.artist})` : `Go to Artist (${actionTrack.artist})`;
   return (
     <>
       {(actionTrack.artist_id || actionTrack.artist) && (
@@ -200,76 +251,91 @@ function renderTrackNavigationRows({
   );
 }
 
-function renderTrackActionsOverlay({
-  modalContainerRef,
-  actionTrack,
-  activePlaylist,
-  onClose,
-  onPlayTrack,
-  onAddToQueue,
-  onOpenAddToPlaylist,
-  onStartRadio,
-  onOpenArtist,
-  onOpenAlbum,
-  onRemoveFromPlaylist,
-  onToggleLike,
-}: TrackActionsOverlayArgs) {
+function renderContextualContextRows({
+  actionTrack, activePlaylist, mode, isEditablePlaylist, canReorderPlaylist,
+  onClose, onMoveInQueue, onRemoveFromQueue, onMoveInPlaylist, onRemoveFromPlaylist,
+}: Pick<
+  TrackActionsOverlayArgs,
+  | "actionTrack" | "activePlaylist" | "mode" | "isEditablePlaylist" | "canReorderPlaylist"
+  | "onClose" | "onMoveInQueue" | "onRemoveFromQueue" | "onMoveInPlaylist" | "onRemoveFromPlaylist"
+>) {
+  const editable = isEditablePlaylist ?? (activePlaylist?.is_editable !== false);
+  return (
+    <>
+      {mode === "queue" && (
+        <>
+          <InteractiveRow onClick={() => { onClose(); onMoveInQueue?.(actionTrack); }} style={{ gap: 10 }}>
+            <FaArrowsAltV size={12} color="var(--deckify-accent, #1DB954)" />
+            <span>Move in Queue</span>
+          </InteractiveRow>
+          <InteractiveRow onClick={() => { onClose(); onRemoveFromQueue?.(actionTrack); }} style={{ gap: 10, color: "#ff5555" }}>
+            <FaTimes size={12} color="#ff5555" />
+            <span>Remove from Queue</span>
+          </InteractiveRow>
+        </>
+      )}
+      {mode === "playlists" && editable && (
+        <>
+          {canReorderPlaylist !== false && (
+            <InteractiveRow onClick={() => { onClose(); onMoveInPlaylist?.(actionTrack); }} style={{ gap: 10 }}>
+              <FaArrowsAltV size={12} color="var(--deckify-accent, #1DB954)" />
+              <span>Move Track</span>
+            </InteractiveRow>
+          )}
+          <InteractiveRow onClick={() => { onClose(); onRemoveFromPlaylist?.(); }} style={{ gap: 10, color: "#ff5555" }}>
+            <FaTrash size={12} color="#ff5555" />
+            <span>Remove from Playlist</span>
+          </InteractiveRow>
+        </>
+      )}
+      {mode !== "playlists" && activePlaylist && onRemoveFromPlaylist && (
+        <InteractiveRow onClick={onRemoveFromPlaylist} style={{ gap: 10, color: "#ff5555" }}>
+          <FaTrash size={12} color="#ff5555" />
+          <span>Remove from &apos;{activePlaylist.name}&apos;</span>
+        </InteractiveRow>
+      )}
+    </>
+  );
+}
+
+function renderTrackActionsOverlay(args: TrackActionsOverlayArgs) {
+  const { actionTrack } = args;
   const isSpoken = isSpokenContent(actionTrack);
   return (
-    <div
-      ref={modalContainerRef}
-      data-testid="track-action-modal"
-      style={{
-        position: "absolute", top: 0, left: 0, right: 0, bottom: 38,
-        background: "rgba(0,0,0,0.85)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100,
-      }}
-    >
-      <Focusable
-        flow-children="column"
-        style={{
-          background: "#1c1c1c", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 14,
-          padding: 20, width: 380, maxWidth: "90%", display: "flex", flexDirection: "column", gap: 8,
-        }}
-      >
+    <div ref={args.modalContainerRef} data-testid="track-action-modal" style={{ ...BACKDROP_STYLE, zIndex: 100 }}>
+      <Focusable flow-children="column" style={{ ...CARD_STYLE, gap: 8 }}>
         {renderTrackActionsHeader(actionTrack)}
-
-        <InteractiveRow tabIndex={0} onClick={() => onPlayTrack(actionTrack.uri || "")} style={{ gap: 10 }}>
+        <InteractiveRow tabIndex={0} onClick={() => args.onPlayTrack(actionTrack.uri || "")} style={{ gap: 10 }}>
           <FaPlay size={12} color="var(--deckify-accent, #1DB954)" />
           <span>{isSpoken ? "Play Episode" : "Play Track"}</span>
         </InteractiveRow>
-
-        <InteractiveRow onClick={() => onAddToQueue(actionTrack)} style={{ gap: 10 }}>
+        <InteractiveRow onClick={() => args.onAddToQueue(actionTrack)} style={{ gap: 10 }}>
           <FaListUl size={12} />
           <span>Add to Queue</span>
         </InteractiveRow>
-
-        <InteractiveRow onClick={onOpenAddToPlaylist} style={{ gap: 10 }}>
+        <InteractiveRow onClick={args.onOpenAddToPlaylist} style={{ gap: 10 }}>
           <FaFolder size={12} />
           <span>Add to Playlist...</span>
         </InteractiveRow>
-
         {!isSpoken && (
-          <InteractiveRow onClick={() => onStartRadio(actionTrack)} style={{ gap: 10 }}>
+          <InteractiveRow onClick={() => args.onStartRadio(actionTrack)} style={{ gap: 10 }}>
             <FaBroadcastTower size={12} color="var(--deckify-accent, #1DB954)" />
             <span>Start Song Radio</span>
           </InteractiveRow>
         )}
-
-        {renderTrackNavigationRows({ actionTrack, isSpoken, onClose, onOpenArtist, onOpenAlbum })}
-
-        {activePlaylist && onRemoveFromPlaylist && (
-          <InteractiveRow onClick={onRemoveFromPlaylist} style={{ gap: 10, color: "#ff5555" }}>
-            <FaTrash size={12} color="#ff5555" />
-            <span>Remove from &apos;{activePlaylist.name}&apos;</span>
-          </InteractiveRow>
-        )}
-
-        <InteractiveRow onClick={() => onToggleLike(actionTrack.id)} style={{ gap: 10 }}>
+        {renderTrackNavigationRows({
+          actionTrack,
+          isSpoken,
+          onClose: args.onClose,
+          onOpenArtist: args.onOpenArtist,
+          onOpenAlbum: args.onOpenAlbum,
+        })}
+        {renderContextualContextRows(args)}
+        <InteractiveRow onClick={() => args.onToggleLike(actionTrack.id)} style={{ gap: 10 }}>
           <FaHeart size={12} color="var(--deckify-accent, #1DB954)" />
           <span>Toggle Favorite (Like)</span>
         </InteractiveRow>
-
-        <InteractiveRow onClick={onClose} style={{ justifyContent: "center", marginTop: 4 }}>
+        <InteractiveRow onClick={args.onClose} style={{ justifyContent: "center", marginTop: 4 }}>
           <span>Close (B)</span>
         </InteractiveRow>
       </Focusable>
@@ -277,73 +343,118 @@ function renderTrackActionsOverlay({
   );
 }
 
-function renderPlaylistPickerOverlay({
-  pickerContainerRef,
-  actionTrack,
-  allUserPlaylists,
-  onAddTrackToPlaylist,
-  onCloseAddToPlaylist,
+function renderInlineNewPlaylistForm({
+  newName,
+  newDescription,
+  createError,
+  onNewNameChange,
+  onNewDescriptionChange,
+  onSubmitCreate,
+  onCancel,
 }: {
-  pickerContainerRef: MutableRefObject<HTMLDivElement | null>;
-  actionTrack: TrackItem;
-  allUserPlaylists: PlaylistItem[];
-  onAddTrackToPlaylist: (playlistId: string, playlistName: string) => void;
-  onCloseAddToPlaylist: () => void;
+  newName: string;
+  newDescription: string;
+  createError: string;
+  onNewNameChange: (val: string) => void;
+  onNewDescriptionChange: (val: string) => void;
+  onSubmitCreate: () => Promise<void>;
+  onCancel: () => void;
 }) {
   return (
     <div
-      ref={pickerContainerRef}
-      data-testid="playlist-picker-overlay"
+      data-testid="picker-new-playlist-form"
       style={{
-        position: "absolute",
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 38,
-        background: "rgba(0,0,0,0.85)",
+        padding: 10,
+        borderRadius: 8,
+        background: "rgba(255,255,255,0.06)",
         display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        zIndex: 101,
+        flexDirection: "column",
+        gap: 6,
+        marginBottom: 8,
       }}
     >
-      <Focusable
-        flow-children="column"
-        style={{
-          background: "#1c1c1c",
-          border: "1px solid rgba(255,255,255,0.15)",
-          borderRadius: 14,
-          padding: 20,
-          width: 380,
-          maxWidth: "90%",
-          maxHeight: "75%",
-          display: "flex",
-          flexDirection: "column",
-        }}
-      >
-        <h3 style={{ margin: "0 0 6px 0", fontSize: 16, fontWeight: 800 }}>Add to Playlist</h3>
-        <p style={{ fontSize: 12, opacity: 0.6, margin: "0 0 14px 0" }}>Add &apos;{actionTrack.name}&apos; to:</p>
+      <TextField label="Playlist Name" value={newName} onChange={(e) => onNewNameChange(e.target.value)} />
+      <TextField label="Description (Optional)" value={newDescription} onChange={(e) => onNewDescriptionChange(e.target.value)} />
+      {createError && <div style={{ fontSize: 11, color: "#FF5555", fontWeight: 600 }}>{createError}</div>}
+      <Focusable flow-children="horizontal" style={{ display: "flex", gap: 8 }}>
+        <InteractiveRow
+          onClick={() => void onSubmitCreate()}
+          style={{ background: "var(--deckify-accent, #1DB954)", color: "#000", fontWeight: 700, padding: "6px 12px" }}
+        >
+          Create & Add
+        </InteractiveRow>
+        <InteractiveRow onClick={onCancel} style={{ padding: "6px 12px" }}>
+          Back
+        </InteractiveRow>
+      </Focusable>
+    </div>
+  );
+}
 
+function renderPlaylistPickerOverlay(args: {
+  pickerContainerRef: MutableRefObject<HTMLDivElement | null>;
+  actionTrack: TrackItem;
+  allUserPlaylists: PlaylistItem[];
+  pickerFilter: string;
+  creatingNew: boolean;
+  newName: string;
+  newDescription: string;
+  createError: string;
+  onPickerFilterChange: (val: string) => void;
+  onToggleCreatingNew: (open: boolean) => void;
+  onNewNameChange: (val: string) => void;
+  onNewDescriptionChange: (val: string) => void;
+  onSubmitCreate: () => Promise<void>;
+  onAddTrackToPlaylist: (playlistId: string, playlistName: string) => void;
+  onCloseAddToPlaylist: () => void;
+}) {
+  const query = args.pickerFilter.trim().toLowerCase();
+  const editablePlaylists = args.allUserPlaylists.filter(
+    (pl) => pl.is_editable !== false && (!query || (pl.name || "").toLowerCase().includes(query)),
+  );
+  const hasPlaylists = editablePlaylists.length > 0;
+
+  return (
+    <div ref={args.pickerContainerRef} data-testid="playlist-picker-overlay" style={{ ...BACKDROP_STYLE, zIndex: 101 }}>
+      <Focusable flow-children="column" style={{ ...CARD_STYLE, maxHeight: "75%" }}>
+        <h3 style={{ margin: "0 0 6px 0", fontSize: 16, fontWeight: 800 }}>Add to Playlist</h3>
+        <p style={{ fontSize: 12, opacity: 0.6, margin: "0 0 10px 0" }}>Add &apos;{args.actionTrack.name}&apos; to:</p>
+        <div style={{ marginBottom: 8 }}>
+          <TextField label="Search playlists" value={args.pickerFilter} onChange={(e) => args.onPickerFilterChange(e.target.value)} />
+        </div>
+        <InteractiveRow
+          onClick={() => args.onToggleCreatingNew(!args.creatingNew)}
+          style={{ gap: 10, marginBottom: 8, background: "rgba(var(--deckify-accent-rgb, 29, 185, 84), 0.14)", color: "var(--deckify-accent, #1DB954)", fontWeight: 700 }}
+        >
+          <FaPlus size={12} />
+          <span>+ New Playlist with Track</span>
+        </InteractiveRow>
+        {args.creatingNew &&
+          renderInlineNewPlaylistForm({
+            newName: args.newName,
+            newDescription: args.newDescription,
+            createError: args.createError,
+            onNewNameChange: args.onNewNameChange,
+            onNewDescriptionChange: args.onNewDescriptionChange,
+            onSubmitCreate: args.onSubmitCreate,
+            onCancel: () => args.onToggleCreatingNew(false),
+          })}
         <Focusable flow-children="column" style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 3, marginBottom: 12 }}>
-          {allUserPlaylists.map((pl, idx) => (
-            <InteractiveRow
-              key={pl.id}
-              tabIndex={idx === 0 ? 0 : undefined}
-              onClick={() => onAddTrackToPlaylist(pl.id, pl.name)}
-              style={{ gap: 10 }}
-            >
+          {editablePlaylists.map((pl, idx) => (
+            <InteractiveRow key={pl.id} tabIndex={idx === 0 ? 0 : undefined} onClick={() => args.onAddTrackToPlaylist(pl.id, pl.name)} style={{ gap: 10 }}>
               <FaFolder size={12} color="var(--deckify-accent, #1DB954)" />
               <span style={{ fontSize: 13, fontWeight: 600 }}>{pl.name}</span>
             </InteractiveRow>
           ))}
-          {allUserPlaylists.length === 0 && (
+          {!hasPlaylists && (
             <div style={{ textAlign: "center", padding: 20, opacity: 0.5, fontSize: 12 }}>
-              No editable playlists found
+              {query
+                ? `No editable playlists match "${args.pickerFilter.trim()}". Select "+ New Playlist with Track" above to create one.`
+                : "No editable playlists found"}
             </div>
           )}
         </Focusable>
-
-        <InteractiveRow tabIndex={allUserPlaylists.length === 0 ? 0 : undefined} onClick={onCloseAddToPlaylist} style={{ justifyContent: "center" }}>
+        <InteractiveRow tabIndex={!hasPlaylists ? 0 : undefined} onClick={args.onCloseAddToPlaylist} style={{ justifyContent: "center" }}>
           <span>Cancel</span>
         </InteractiveRow>
       </Focusable>

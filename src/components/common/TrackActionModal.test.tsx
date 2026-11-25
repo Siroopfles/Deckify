@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 vi.mock("@decky/ui", () => ({
   Focusable: ({ children, ...props }: any) => ({ type: "Focusable", props: { children, ...props } }),
+  TextField: (props: any) => ({ type: "TextField", props }),
 }));
 
 vi.mock("./DeckifyImage", () => ({
@@ -23,6 +24,9 @@ vi.mock("react-icons/fa", () => {
     FaCompactDisc: Icon,
     FaTrash: Icon,
     FaHeart: Icon,
+    FaArrowsAltV: Icon,
+    FaPlus: Icon,
+    FaTimes: Icon,
   };
 });
 
@@ -46,11 +50,23 @@ vi.mock("react/jsx-runtime", () => ({
   }),
 }));
 
+let stateValues: any[] = [];
+let stateIdx = 0;
 let refValues: any[] = [];
 let refIdx = 0;
 let effectCleanups: Array<() => void> = [];
 
 vi.mock("react", () => ({
+  useState: (init: any) => {
+    const idx = stateIdx++;
+    if (!(idx in stateValues)) {
+      stateValues[idx] = typeof init === "function" ? init() : init;
+    }
+    const setter = (val: any) => {
+      stateValues[idx] = typeof val === "function" ? val(stateValues[idx]) : val;
+    };
+    return [stateValues[idx], setter];
+  },
   useEffect: (fn: () => void | (() => void)) => {
     const cleanup = fn();
     if (typeof cleanup === "function") effectCleanups.push(cleanup);
@@ -64,6 +80,7 @@ vi.mock("react", () => ({
   },
 }));
 
+import { TextField } from "@decky/ui";
 import { TrackActionModal, TrackActionModalProps } from "./TrackActionModal";
 import { InteractiveRow } from "./InteractiveRow";
 
@@ -109,6 +126,8 @@ describe("TrackActionModal focus management (Gap 3)", () => {
   let origCancelRaf: any;
 
   beforeEach(() => {
+    stateValues = [];
+    stateIdx = 0;
     refValues = [];
     refIdx = 0;
     effectCleanups = [];
@@ -192,8 +211,9 @@ describe("TrackActionModal focus management (Gap 3)", () => {
     expect(pickerNode).toBeDefined();
 
     const rows = findNodes(pickerNode, (n) => n.type === InteractiveRow);
-    expect(rows[0].props.tabIndex).toBe(0);
-    expect(rows[1].props.tabIndex).toBeUndefined(); // Cancel should not have tabIndex=0 when playlists exist
+    // rows[0] is "+ New Playlist with Track", rows[1] is first playlist, rows[2] is "Cancel"
+    expect(rows[1].props.tabIndex).toBe(0);
+    expect(rows[2].props.tabIndex).toBeUndefined(); // Cancel should not have tabIndex=0 when playlists exist
 
     pickerNode.props.ref.current = {
       querySelector: vi.fn((sel: string) => (sel === '[tabindex="0"]' ? firstPlaylistEl : null)),
@@ -202,12 +222,13 @@ describe("TrackActionModal focus management (Gap 3)", () => {
     expect(firstPlaylistEl.focus).toHaveBeenCalledTimes(1);
 
     // Empty playlists -> Cancel gets tabIndex=0
+    stateIdx = 0;
     refIdx = 0;
     const emptyTree = TrackActionModal(makeProps({ showAddToPlaylistModal: true, allUserPlaylists: [] }));
     const emptyPickerNode = findNodes(emptyTree, (n) => n.props?.["data-testid"] === "playlist-picker-overlay")[0];
     const emptyRows = findNodes(emptyPickerNode, (n) => n.type === InteractiveRow);
-    expect(emptyRows.length).toBe(1);
-    expect(emptyRows[0].props.tabIndex).toBe(0);
+    expect(emptyRows.length).toBe(2);
+    expect(emptyRows[1].props.tabIndex).toBe(0);
   });
 });
 
@@ -221,6 +242,8 @@ function collectText(tree: any): string {
 
 describe("TrackActionModal spoken content labels (G-24-2)", () => {
   beforeEach(() => {
+    stateValues = [];
+    stateIdx = 0;
     refValues = [];
     refIdx = 0;
     effectCleanups = [];
@@ -279,5 +302,94 @@ describe("TrackActionModal spoken content labels (G-24-2)", () => {
       expect(text).not.toContain("Go to Artist");
       expect(text).not.toContain("Go to Album");
     }
+  });
+});
+
+describe("TrackActionModal Phase 27 Queue & Playlist actions (27-04)", () => {
+  beforeEach(() => {
+    stateValues = [];
+    stateIdx = 0;
+    refValues = [];
+    refIdx = 0;
+    effectCleanups = [];
+    (globalThis as any).document = { activeElement: null };
+    (globalThis as any).requestAnimationFrame = vi.fn(() => 1);
+    (globalThis as any).cancelAnimationFrame = vi.fn();
+  });
+
+  it("renders Move in Queue and Remove from Queue in queue mode", () => {
+    const onMoveInQueue = vi.fn();
+    const onRemoveFromQueue = vi.fn();
+    const tree = TrackActionModal(
+      makeProps({
+        mode: "queue",
+        onMoveInQueue,
+        onRemoveFromQueue,
+      }),
+    );
+    const text = collectText(tree);
+    expect(text).toContain("Move in Queue");
+    expect(text).toContain("Remove from Queue");
+
+    const rows = findNodes(tree, (n) => n.type === InteractiveRow);
+    const moveRow = rows.find((r) => collectText(r).includes("Move in Queue"));
+    const removeRow = rows.find((r) => collectText(r).includes("Remove from Queue"));
+    moveRow.props.onClick();
+    removeRow.props.onClick();
+    expect(onMoveInQueue).toHaveBeenCalledTimes(1);
+    expect(onRemoveFromQueue).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders Move Track and Remove from Playlist only when playlist is editable", () => {
+    const editableTree = TrackActionModal(
+      makeProps({
+        mode: "playlists",
+        isEditablePlaylist: true,
+        canReorderPlaylist: true,
+        onMoveInPlaylist: vi.fn(),
+        onRemoveFromPlaylist: vi.fn(),
+      }),
+    );
+    expect(collectText(editableTree)).toContain("Move Track");
+    expect(collectText(editableTree)).toContain("Remove from Playlist");
+
+    stateValues = [];
+    stateIdx = 0;
+    refValues = [];
+    refIdx = 0;
+    const readOnlyTree = TrackActionModal(
+      makeProps({
+        mode: "playlists",
+        isEditablePlaylist: false,
+        onMoveInPlaylist: vi.fn(),
+        onRemoveFromPlaylist: vi.fn(),
+      }),
+    );
+    expect(collectText(readOnlyTree)).not.toContain("Move Track");
+    expect(collectText(readOnlyTree)).not.toContain("Remove from Playlist");
+  });
+
+  it("filters out non-editable playlists in picker, renders + New Playlist with Track at top, and includes TextField search", () => {
+    const tree = TrackActionModal(
+      makeProps({
+        showAddToPlaylistModal: true,
+        allUserPlaylists: [
+          { id: "pl-edit", name: "My Mix", uri: "spotify:playlist:pl-edit", is_editable: true },
+          { id: "pl-ro", name: "Discover Weekly", uri: "spotify:playlist:pl-ro", is_editable: false },
+        ],
+      }),
+    );
+    const picker = findNodes(tree, (n) => n.props?.["data-testid"] === "playlist-picker-overlay")[0];
+    const text = collectText(picker);
+    expect(text).toContain("+ New Playlist with Track");
+    expect(text).toContain("My Mix");
+    expect(text).not.toContain("Discover Weekly");
+
+    const textFields = findNodes(picker, (n) => n.type === TextField);
+    expect(textFields.length).toBeGreaterThanOrEqual(1);
+    expect(textFields[0].props.label).toBe("Search playlists");
+
+    const rows = findNodes(picker, (n) => n.type === InteractiveRow);
+    expect(collectText(rows[0])).toContain("+ New Playlist with Track");
   });
 });
