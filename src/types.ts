@@ -456,6 +456,7 @@ export type DiscoveryTimeRange = "short_term" | "medium_term" | "long_term";
 export interface DiscoveryMixItem extends PlaylistItem {
   subtitle?: string;
   is_album?: boolean;
+  kind?: "core" | "blend" | "dj" | "editorial";
 }
 
 export type SearchFilterTab =
@@ -492,6 +493,9 @@ export interface DiscoveryFeedResponse {
   time_range?: DiscoveryTimeRange;
   made_for_you?: DiscoveryMixItem[];
   made_for_you_fallback?: boolean;
+  blends?: DiscoveryMixItem[];
+  dj?: DiscoveryMixItem | null;
+  cdp_active?: boolean;
   top_tracks?: TrackItem[];
   top_artists?: ArtistItem[];
   new_releases?: AlbumItem[];

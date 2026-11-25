@@ -18,6 +18,10 @@ import { focusHalo } from "../common/InteractiveRow";
 const backendGetDiscoveryFeed = callable<[DiscoveryTimeRange, boolean?], DiscoveryFeedResponse>(
   "get_discovery_feed"
 );
+const backendPlayAiDj = callable<
+  [string?],
+  { ok: boolean; requires_spotify_client?: boolean; error?: string }
+>("play_ai_dj");
 
 const TIME_RANGES: { id: DiscoveryTimeRange; label: string }[] = [
   { id: "short_term", label: "4 Weeks" },
@@ -132,6 +136,83 @@ const DiscoveryCard: FC<DiscoveryCardProps> = ({
             {subtitle}
           </div>
         ) : null}
+      </div>
+    </Focusable>
+  );
+};
+
+interface AiDjCardProps {
+  dj: DiscoveryMixItem;
+  cdpActive: boolean;
+  onCardFocus: () => void;
+}
+
+const AiDjCard: FC<AiDjCardProps> = ({ dj, cdpActive, onCardFocus }) => {
+  const [focused, setFocused] = useState(false);
+  const [statusMsg, setStatusMsg] = useState<string>("");
+
+  const handleFocus = (e: any) => {
+    setFocused(true);
+    scrollCardIntoView(e);
+    onCardFocus();
+  };
+
+  const handleActivate = async () => {
+    if (!cdpActive) {
+      setStatusMsg("Requires Official Spotify Client");
+      return;
+    }
+    try {
+      const res = await backendPlayAiDj(dj.uri);
+      if (!res?.ok) {
+        setStatusMsg(res?.error || "Failed to start AI DJ");
+      } else {
+        setStatusMsg("Playing AI DJ");
+      }
+    } catch (e: any) {
+      setStatusMsg(e?.message || "Failed to start AI DJ");
+    }
+  };
+
+  const subtitle = !cdpActive
+    ? "Requires Official Spotify Client"
+    : statusMsg || dj.subtitle || "Play personalized AI DJ";
+
+  return (
+    <Focusable
+      noFocusRing
+      data-testid="discovery-card-ai-dj"
+      onClick={handleActivate}
+      onActivate={handleActivate}
+      onFocus={handleFocus}
+      onBlur={() => setFocused(false)}
+      onGamepadFocus={handleFocus}
+      onGamepadBlur={() => setFocused(false)}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 16,
+        padding: 12,
+        borderRadius: 10,
+        background: "#1C1C1C",
+        opacity: cdpActive ? 1 : 0.6,
+        cursor: cdpActive ? "pointer" : "default",
+        ...focusHalo(focused),
+      }}
+    >
+      <DeckifyImage
+        src={dj.image_url}
+        width={64}
+        height={64}
+        style={{ borderRadius: 8, objectFit: "cover", flexShrink: 0 }}
+      />
+      <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 0 }}>
+        <div style={{ fontSize: 15, fontWeight: 600, color: "#fff" }}>
+          {dj.name || "Spotify AI DJ"}
+        </div>
+        <div style={{ fontSize: 12, fontWeight: 500, color: "#fff", opacity: 0.75 }}>
+          {subtitle}
+        </div>
       </div>
     </Focusable>
   );
@@ -311,6 +392,9 @@ export const DiscoveryTab: FC<DiscoveryTabProps> = ({
 
   const greeting = getGreetingForHour(new Date().getHours());
   const madeForYou: DiscoveryMixItem[] = feed?.made_for_you || [];
+  const blends: DiscoveryMixItem[] = feed?.blends || [];
+  const dj: DiscoveryMixItem | null = feed?.dj || null;
+  const cdpActive = feed?.cdp_active !== false;
   const topTracks: TrackItem[] = feed?.top_tracks || [];
   const topArtists: ArtistItem[] = feed?.top_artists || [];
   const newReleases: AlbumItem[] = feed?.new_releases || [];
@@ -318,6 +402,8 @@ export const DiscoveryTab: FC<DiscoveryTabProps> = ({
 
   const hasAnyItems =
     madeForYou.length > 0 ||
+    blends.length > 0 ||
+    Boolean(dj) ||
     topTracks.length > 0 ||
     topArtists.length > 0 ||
     newReleases.length > 0;
@@ -441,6 +527,26 @@ export const DiscoveryTab: FC<DiscoveryTabProps> = ({
         </div>
       )}
 
+      {/* 0. Spotify AI DJ */}
+      {dj && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <div
+            data-testid="discovery-heading-ai-dj"
+            style={{ fontSize: 16, fontWeight: 600, lineHeight: 1.2, color: "#fff" }}
+          >
+            Spotify AI DJ
+          </div>
+          <AiDjCard
+            dj={dj}
+            cdpActive={cdpActive}
+            onCardFocus={() => {
+              onFocusTrack(null);
+              onFocusCollection(null);
+            }}
+          />
+        </div>
+      )}
+
       {/* 1. Made For You / Jump Back In */}
       {madeForYou.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -481,6 +587,42 @@ export const DiscoveryTab: FC<DiscoveryTabProps> = ({
                     name: mix.name,
                     image_url: mix.image_url,
                     type: mix.is_album ? "album" : "playlist",
+                  })
+                }
+              />
+            ))}
+          </Focusable>
+        </div>
+      )}
+
+      {/* 1b. Your Blends */}
+      {blends.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <div
+            data-testid="discovery-heading-blends"
+            style={{ fontSize: 16, fontWeight: 600, lineHeight: 1.2, color: "#fff" }}
+          >
+            Your Blends
+          </div>
+          <Focusable
+            flow-children="horizontal"
+            data-testid="discovery-carousel-blends"
+            style={{ display: "flex", gap: 16, overflowX: "auto", padding: "6px 4px 10px" }}
+          >
+            {blends.map((blend, idx) => (
+              <DiscoveryCard
+                key={blend.id || blend.uri || idx}
+                testId={`discovery-card-blend-${idx}`}
+                imageUrl={blend.image_url}
+                title={blend.name}
+                subtitle={blend.subtitle || "Blend"}
+                onActivate={() => onOpenPlaylist(blend)}
+                onCardFocus={() =>
+                  onFocusCollection({
+                    uri: blend.uri,
+                    name: blend.name,
+                    image_url: blend.image_url,
+                    type: "playlist",
                   })
                 }
               />

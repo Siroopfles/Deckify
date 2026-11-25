@@ -1,10 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const mockGetDiscoveryFeed = vi.fn();
+const mockPlayAiDj = vi.fn();
 
 vi.mock("@decky/api", () => ({
   callable: (name: string) => {
     if (name === "get_discovery_feed") return (...args: any[]) => mockGetDiscoveryFeed(...args);
+    if (name === "play_ai_dj") return (...args: any[]) => mockPlayAiDj(...args);
     return vi.fn().mockResolvedValue({ ok: true });
   },
 }));
@@ -148,6 +150,7 @@ describe("DiscoveryTab", () => {
       top_artists: [],
       new_releases: [],
     });
+    mockPlayAiDj.mockReset().mockResolvedValue({ ok: true });
   });
 
   afterEach(() => {
@@ -465,5 +468,57 @@ describe("DiscoveryTab", () => {
     expect(textOf(mix0)).toContain("Made for You · Cached");
     expect(textOf(mix1)).toContain("Discover Weekly");
     expect(textOf(mix1)).toContain("Made for You · Cached");
+  });
+
+  it("renders separate Your Blends carousel and play-only Spotify AI DJ card on spotify_client vs librespot", async () => {
+    const baseFeed = {
+      ok: true,
+      time_range: "medium_term",
+      made_for_you: [
+        { id: "dw", name: "Discover Weekly", uri: "spotify:playlist:dw", kind: "core" },
+      ],
+      blends: [
+        { id: "37i9dQZF1EJ1", name: "Alex + Sam", uri: "spotify:playlist:37i9dQZF1EJ1", subtitle: "Blend", kind: "blend" },
+      ],
+      dj: {
+        id: "37i9dQZF1EYkqdzj48dyYq",
+        name: "DJ",
+        uri: "spotify:playlist:37i9dQZF1EYkqdzj48dyYq",
+        subtitle: "Your personal AI DJ",
+        kind: "dj",
+      },
+      cdp_active: true,
+      top_tracks: [],
+      top_artists: [],
+      new_releases: [],
+    };
+
+    const { tree, props } = renderWithFeed(baseFeed, false);
+    const madeForYouCarousel = findNodes(tree, (n) => n.props?.["data-testid"] === "discovery-carousel-made-for-you")[0];
+    const blendsHeading = findNodes(tree, (n) => n.props?.["data-testid"] === "discovery-heading-blends")[0];
+    const blendsCarousel = findNodes(tree, (n) => n.props?.["data-testid"] === "discovery-carousel-blends")[0];
+    const djCard = findNodes(tree, (n) => n.props?.["data-testid"] === "discovery-card-ai-dj")[0];
+
+    expect(textOf(madeForYouCarousel)).toContain("Discover Weekly");
+    expect(textOf(madeForYouCarousel)).not.toContain("Alex + Sam");
+    expect(textOf(blendsHeading)).toBe("Your Blends");
+    expect(textOf(blendsCarousel)).toContain("Alex + Sam");
+    expect(djCard).toBeDefined();
+
+    await djCard.props.onActivate();
+    expect(mockPlayAiDj).toHaveBeenCalledWith("spotify:playlist:37i9dQZF1EYkqdzj48dyYq");
+    expect(props.onOpenPlaylist).not.toHaveBeenCalled();
+
+    // librespot (cdp_active=false) shows Requires Official Spotify Client hint and does not call play_ai_dj or onOpenPlaylist
+    mockPlayAiDj.mockClear();
+    const { tree: librespotTree, props: librespotProps } = renderWithFeed(
+      { ...baseFeed, cdp_active: false },
+      false
+    );
+    const librespotDjCard = findNodes(librespotTree, (n) => n.props?.["data-testid"] === "discovery-card-ai-dj")[0];
+    expect(textOf(librespotDjCard)).toContain("Requires Official Spotify Client");
+    await librespotDjCard.props.onActivate();
+    expect(mockPlayAiDj).not.toHaveBeenCalled();
+    expect(librespotProps.onOpenPlaylist).not.toHaveBeenCalled();
   });
 });
