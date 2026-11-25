@@ -258,7 +258,7 @@ Plans:
   2. `DiscoveryTab` populates the *Made For You* section with the user's personalized algorithmic mixes (*Daylist*, *Discover Weekly*, *Release Radar*, *Daily Mix 1–6*) via the CDP Pathfinder/Rootlist bridge, bypassing Spotify Web API Development Mode `HTTP 403/404` blocks.
   3. Resolved algorithmic mix metadata and track URI lists are cached locally on disk so users can browse and play those mixes even after switching their active playback engine to `librespot`.
   4. `py_modules/rpc_playback.py:_try_cdp_station_radio` (Phase 25 Tier 1 hook) is wired to `cdp_bridge.py` to start native Spotify `spotify:station:...` radio when `spotify_client` is active (falling back silently to Tier 2/3), `SearchTab` optionally enriches its Browse Categories / Gaming & Mood tiles via CDP with the 12 static tiles as automatic fallback on `librespot` or when CDP is unavailable, and pressing `B` while viewing search results in `SearchTab` (when `searchQuery` is non-empty) clears the search query/results and returns to the main Search idle view instead of closing the modal.
-**Plans:** 4/4 plans executed
+**Plans:** 7 plans (4 executed, 3 gap-closure planned)
 
 Plans:
 **Wave 1**
@@ -270,6 +270,13 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2)*
 - [x] 26-04-PLAN.md — `DiscoveryTab` `" · Cached"` badges, `SearchTab` optional CDP `Browse Categories` + `DeckifyExpandedModal` `B`-button clear-search & hint bar
+
+**Wave 1 (Gap Closure)**
+- [ ] 26-05-PLAN.md — Close UAT gap G-26-1: kind-tagged Discovery mixes (`core`/`blend`/`dj`), fixed DW/RR/Daily Mixes probing, `Your Blends` carousel, and play-only CDP Spotify AI DJ card
+- [ ] 26-06-PLAN.md — Close UAT gap G-26-2: per-section `SearchTab` Load More rows querying singular entity types
+
+**Wave 2 (Gap Closure)** *(blocked on 26-05)*
+- [ ] 26-07-PLAN.md — Close UAT gap G-26-3: guard `MprisBridge`, `_poll_playback` bookmarks, `handle_wake_recovery`, and `SoundtrackManager` against pausing/hijacking remote phone playback
 **UI hint**: yes
 
 ### Phase 27: Interactive Queue Studio & Controller Playlist Management
