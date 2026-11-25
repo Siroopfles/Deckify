@@ -287,7 +287,7 @@ Plans:
   1. User can press `A` / *"Move in Queue"* on any upcoming track in `QueueTab` to enter controller Grab/Move Mode, move the track up or down with `D-Pad Up/Down` while focus remains locked via stable `_rowKey` IDs, and press `A` to commit the new order in a single batched update.
   2. User can remove individual upcoming tracks or clear the upcoming queue in `QueueTab`, executing natively via CDP `PlayerAPI` when `spotify_client` is active and automatically falling back to virtual URI-slice playback mutation when `librespot` is active.
   3. User can create new playlists, rename or edit playlist descriptions, delete or unfollow playlists with a confirmation modal, and reorder or remove tracks inside user-owned playlists directly from the controller in `PlaylistsTab`.
-**Plans:** 4/5 plans executed
+**Plans:** 5/5 plans executed
 
 Plans:
 **Wave 1**
@@ -301,7 +301,7 @@ Plans:
 - [x] 27-04-PLAN.md — `PlaylistsTab` CRUD/filters/Grab-Move, `CollectionActionModal`, `TrackActionModal` searchable editable picker, and `PlaylistsTab.test.tsx` / `TrackActionModal.test.tsx`
 
 **Wave 4** *(blocked on Wave 3)*
-- [ ] 27-05-PLAN.md — `DeckifyExpandedModal.tsx` Queue & Playlist RPC wiring, `_rowKey` normalization, `vgp_oncancel` Grab/Move cancel, and full verification suite
+- [x] 27-05-PLAN.md — `DeckifyExpandedModal.tsx` Queue & Playlist RPC wiring, `_rowKey` normalization, `vgp_oncancel` Grab/Move cancel, and full verification suite
 **UI hint**: yes
 
 ### Phase 28: CDP Offline Downloads, Wi-Fi Travel Mode & Living Room Spotify Jam
@@ -355,7 +355,7 @@ Phases execute in numeric order: 19 → 20 → 21 → 22 → 23 → 24 → 25 �
 | 24. Podcast & Audiobook Power Suite | v0.7 | 8/8 | Complete    | 2026-11-23 |
 | 25. Universal Artist/Album Drill-Down, Instant Radio & Search 2.0 | v0.7 | 5/5 | Complete    | 2026-11-24 |
 | 26. Unified CDP Platform Bridge & Deep Discovery 2.0 | v0.7 | 4/4 | In Progress | - |
-| 27. Interactive Queue Studio & Controller Playlist Management | v0.7 | 4/5 | In Progress | - |
+| 27. Interactive Queue Studio & Controller Playlist Management | v0.7 | 5/5 | In Progress | - |
 | 28. CDP Offline Downloads, Wi-Fi Travel Mode & Living Room Spotify Jam | v0.7 | 0/TBD | Not started | - |
 | 29. 10-Foot Docked TV Split-View Mode & PipeWire Spectrum Visualizer | v0.7 | 0/TBD | Not started | - |
 | 30. "Deck Wrapped" Listening Stats, Last.fm / ListenBrainz Scrobbling & Profile Backup | v0.7 | 0/TBD | Not started | - |
