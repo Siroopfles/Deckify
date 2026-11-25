@@ -23,11 +23,12 @@ import {
 import { parseLrc } from "../utils";
 import { computeListJump } from "../utils/listNavigation";
 import { isSpokenContent } from "../utils/playback";
+import { assignStableRowKeys } from "../hooks/useGrabMoveOrder";
 import { usePlaybackStatus } from "../hooks/usePlaybackStatus";
 import { useTriggerNavigation } from "../hooks/useTriggerNavigation";
 import { Sidebar } from "./common/Sidebar";
 import { TrackActionModal } from "./common/TrackActionModal";
-import { CollectionActionModal } from "./common/CollectionActionModal";
+import { CollectionActionItem, CollectionActionModal } from "./common/CollectionActionModal";
 
 // Modular tab components
 import { NowPlayingTab } from "./tabs/NowPlayingTab";
@@ -71,9 +72,15 @@ const backendStartRadio = callable<[string, string, string, string, string], { o
 const backendGetArtistAllTracks = callable<[string, number, number], { ok: boolean; tracks?: TrackItem[]; next_album_offset?: number; has_more?: boolean; error?: string }>("get_artist_all_tracks");
 const backendGetArtistInfo = callable<[string], { ok: boolean; artist?: ArtistItem; error?: string }>("get_artist_info");
 const backendAddToQueue = callable<[string, string], { ok: boolean; error?: string }>("add_to_queue");
+const backendReorderQueueTrack = callable<[number, number, TrackItem[]], { ok: boolean; error?: string }>("reorder_queue_track");
+const backendRemoveQueueTrack = callable<[number, string, string, TrackItem[]], { ok: boolean; error?: string }>("remove_queue_track");
+const backendClearQueue = callable<[], { ok: boolean; error?: string }>("clear_queue");
 const backendAddTrackToPlaylist = callable<[string, string], { ok: boolean; error?: string }>("add_track_to_playlist");
-const backendRemoveTrackFromPlaylist = callable<[string, string], { ok: boolean; error?: string }>("remove_track_from_playlist");
-const backendCreatePlaylist = callable<[string, boolean], { ok: boolean; playlist?: PlaylistItem; error?: string }>("create_playlist");
+const backendRemoveTrackFromPlaylist = callable<[string, string, number | null, string], { ok: boolean; error?: string }>("remove_track_from_playlist");
+const backendCreatePlaylist = callable<[string, boolean, string], { ok: boolean; playlist?: PlaylistItem; error?: string }>("create_playlist");
+const backendUpdatePlaylistDetails = callable<[string, string, string], { ok: boolean; error?: string }>("update_playlist_details");
+const backendDeletePlaylist = callable<[string], { ok: boolean; playlist_id?: string; pinned_playlists?: PinnedPlaylistItem[]; folders?: FolderItem[]; error?: string }>("delete_playlist");
+const backendReorderPlaylistTracks = callable<[string, number, number, number, string, string, string], { ok: boolean; error?: string }>("reorder_playlist_tracks");
 const backendManagePlaylistFolder = callable<[string, string, string, string], { ok: boolean; error?: string }>("manage_playlist_folder");
 const backendGetPlaylistFolders = callable<[], { ok: boolean; folders?: FolderItem[]; error?: string }>("get_playlist_folders");
 const backendGetPlaylists = callable<[number], { ok: boolean; playlists?: PlaylistItem[]; total?: number; error?: string }>("get_playlists");
@@ -217,6 +224,13 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
   const [tileSearchMode, setTileSearchMode] = useState(false);
   const [searchHistory, setSearchHistory] = useState<string[]>([]);
   const [focusedHistoryQuery, setFocusedHistoryQuery] = useState<string | null>(null);
+  const [isGrabbing, setIsGrabbing] = useState(false);
+  const [isCrudModalOpen, setIsCrudModalOpen] = useState(false);
+  const [pendingEditPlaylist, setPendingEditPlaylist] = useState<PlaylistItem | null>(null);
+  const [pendingDeletePlaylist, setPendingDeletePlaylist] = useState<PlaylistItem | null>(null);
+  const grabCancelRef = useRef<(() => boolean) | null>(null);
+  const queueGrabTriggerRef = useRef<((track: TrackItem) => void) | null>(null);
+  const playlistGrabTriggerRef = useRef<((track: TrackItem) => void) | null>(null);
 
   useEffect(() => {
     const persisted = status?.settings?.search_history;
@@ -386,7 +400,7 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
   const loadQueue = useCallback(async () => {
     try {
       const res = await backendGetQueue();
-      if (res.ok && res.queue) setQueueTracks(res.queue);
+      if (res.ok && res.queue) setQueueTracks(assignStableRowKeys(res.queue, "q"));
     } catch {}
   }, []);
 
@@ -420,7 +434,7 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
     try {
       const res = await backendGetPlaylistTracks(pl.id, 0, true);
       if (res.ok && res.tracks) {
-        setPlaylistTracks(res.tracks);
+        setPlaylistTracks(assignStableRowKeys(res.tracks, "pl"));
         if (res.is_mixed !== undefined) {
           setActivePlaylist((prev) => (prev ? { ...prev, is_mixed: res.is_mixed } : null));
         }
@@ -878,6 +892,67 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
     }, 600);
   }, [queueTracks, setStatus, showToast, refreshStatus, loadQueue]);
 
+  const handleReorderQueueTrack = useCallback(
+    async (fromIndex: number, toIndex: number, nextTracks: TrackItem[]): Promise<boolean> => {
+      const prevTracks = queueTracks;
+      setQueueTracks(nextTracks);
+      try {
+        const res = await backendReorderQueueTrack(fromIndex, toIndex, nextTracks);
+        if (!res?.ok) {
+          setQueueTracks(prevTracks);
+          showToast(res?.error || "Failed to reorder queue");
+          return false;
+        }
+        return true;
+      } catch {
+        setQueueTracks(prevTracks);
+        showToast("Failed to reorder queue");
+        return false;
+      }
+    },
+    [queueTracks, showToast],
+  );
+
+  const handleRemoveQueueTrack = useCallback(
+    async (track: TrackItem, index: number): Promise<void> => {
+      const prevTracks = queueTracks;
+      const remaining = prevTracks.filter((q, i) =>
+        track._rowKey && q._rowKey ? q._rowKey !== track._rowKey : i !== index,
+      );
+      setQueueTracks(remaining);
+      try {
+        const res = await backendRemoveQueueTrack(index, track.uri || "", track.uid || "", remaining);
+        if (!res?.ok) {
+          setQueueTracks(prevTracks);
+          showToast(res?.error || "Failed to remove from queue");
+          return;
+        }
+        showToast("Removed from queue");
+      } catch {
+        setQueueTracks(prevTracks);
+        showToast("Failed to remove from queue");
+      }
+    },
+    [queueTracks, showToast],
+  );
+
+  const handleClearQueue = useCallback(async (): Promise<void> => {
+    const prevTracks = queueTracks;
+    setQueueTracks([]);
+    try {
+      const res = await backendClearQueue();
+      if (!res?.ok) {
+        setQueueTracks(prevTracks);
+        showToast(res?.error || "Failed to clear queue");
+        return;
+      }
+      showToast("Queue cleared");
+    } catch {
+      setQueueTracks(prevTracks);
+      showToast("Failed to clear queue");
+    }
+  }, [queueTracks, showToast]);
+
   const handleSeekDelta = useCallback((seconds: number) => {
     clock.scrubDelta(seconds * 1000);
   }, [clock]);
@@ -948,28 +1023,165 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
     setActionTrack(null);
   }, [actionTrack, showToast]);
 
+  const handleRemovePlaylistTrack = useCallback(
+    async (playlistId: string, track: TrackItem, originalIndex: number): Promise<void> => {
+      const prevTracks = playlistTracks;
+      setPlaylistTracks((prev) =>
+        prev.filter((t, idx) =>
+          track._rowKey && t._rowKey ? t._rowKey !== track._rowKey : idx !== originalIndex,
+        ),
+      );
+      try {
+        const res = await backendRemoveTrackFromPlaylist(
+          playlistId,
+          track.uri || "",
+          originalIndex,
+          track.uid || "",
+        );
+        if (!res?.ok) {
+          setPlaylistTracks(prevTracks);
+          showToast(`Error: ${res?.error || "Failed"}`);
+          return;
+        }
+        showToast("Removed from playlist");
+      } catch {
+        setPlaylistTracks(prevTracks);
+        showToast("Error: Failed to remove track");
+      }
+    },
+    [playlistTracks, showToast],
+  );
+
   const handleRemoveTrackFromActivePlaylist = useCallback(async () => {
     if (!activePlaylist?.id || !actionTrack?.uri) return;
-    const res = await backendRemoveTrackFromPlaylist(activePlaylist.id, actionTrack.uri);
-    if (res.ok) {
-      showToast("Removed from playlist");
-      setPlaylistTracks((prev) => prev.filter((t) => t.uri !== actionTrack.uri));
-    } else {
-      showToast(`Error: ${res.error || "Failed"}`);
+    const idx = playlistTracks.findIndex(
+      (t) => (actionTrack._rowKey && t._rowKey === actionTrack._rowKey) || t.uri === actionTrack.uri,
+    );
+    if (idx >= 0) {
+      await handleRemovePlaylistTrack(activePlaylist.id, actionTrack, idx);
     }
     setActionTrack(null);
-  }, [activePlaylist, actionTrack, showToast]);
+  }, [activePlaylist, actionTrack, playlistTracks, handleRemovePlaylistTrack]);
 
   // Playlist/Folder Management
-  const handleCreatePlaylist = useCallback(async (name: string) => {
-    const res = await backendCreatePlaylist(name, true);
-    if (res.ok) {
+  const handleCreatePlaylist = useCallback(async (name: string, description?: string) => {
+    const res = await backendCreatePlaylist(name, false, description || "");
+    if (res?.ok) {
+      if (res.playlist) {
+        setAllUserPlaylists((prev) => [res.playlist!, ...prev]);
+      }
       showToast(`Playlist '${name}' created!`);
-      loadFolders();
     } else {
-      showToast(`Error: ${res.error || "Failed"}`);
+      showToast(`Error: ${res?.error || "Failed"}`);
     }
-  }, [showToast, loadFolders]);
+  }, [showToast]);
+
+  const handleCreatePlaylistWithTrack = useCallback(
+    async (name: string, description: string, trackUri: string): Promise<void> => {
+      const res = await backendCreatePlaylist(name, false, description || "");
+      if (!res?.ok || !res.playlist) {
+        showToast(`Error: ${res?.error || "Failed to create playlist"}`);
+        return;
+      }
+      setAllUserPlaylists((prev) => [res.playlist!, ...prev]);
+      const addRes = await backendAddTrackToPlaylist(res.playlist.id, trackUri);
+      if (addRes?.ok) {
+        showToast(`Created '${name}' and added track`);
+      } else {
+        showToast(`Created '${name}', but failed to add track: ${addRes?.error || "Failed"}`);
+      }
+    },
+    [showToast],
+  );
+
+  const handleUpdatePlaylistDetails = useCallback(
+    async (playlistId: string, name: string, description: string): Promise<boolean> => {
+      const res = await backendUpdatePlaylistDetails(playlistId, name, description);
+      if (!res?.ok) {
+        showToast(res?.error || "Failed to update playlist");
+        return false;
+      }
+      setAllUserPlaylists((prev) =>
+        prev.map((p) => (p.id === playlistId ? { ...p, name, description } : p)),
+      );
+      setActivePlaylist((prev) =>
+        prev && prev.id === playlistId ? { ...prev, name, description } : prev,
+      );
+      showToast("Playlist updated");
+      return true;
+    },
+    [showToast],
+  );
+
+  const handleDeletePlaylist = useCallback(
+    async (playlist: PlaylistItem): Promise<boolean> => {
+      const res = await backendDeletePlaylist(playlist.id);
+      if (!res?.ok) {
+        showToast(res?.error || "Failed to delete playlist");
+        return false;
+      }
+      setAllUserPlaylists((prev) => prev.filter((p) => p.id !== playlist.id));
+      if (res.folders) {
+        setFolders(res.folders);
+      }
+      if (res.pinned_playlists) {
+        setStatus((prev) =>
+          prev?.settings
+            ? {
+                ...prev,
+                settings: {
+                  ...prev.settings,
+                  pinned_playlists: res.pinned_playlists,
+                },
+              }
+            : prev,
+        );
+      }
+      if (activePlaylist?.id === playlist.id) {
+        setActivePlaylist(null);
+        setPlaylistTracks([]);
+      }
+      showToast(`Deleted '${playlist.name}'`);
+      return true;
+    },
+    [activePlaylist, setStatus, showToast],
+  );
+
+  const handleReorderPlaylistTrack = useCallback(
+    async (
+      playlistId: string,
+      fromIndex: number,
+      toIndex: number,
+      nextTracks: TrackItem[],
+    ): Promise<boolean> => {
+      const prevTracks = playlistTracks;
+      const uid = prevTracks[fromIndex]?.uid || "";
+      const targetUid = prevTracks[toIndex]?.uid || "";
+      setPlaylistTracks(nextTracks);
+      try {
+        const res = await backendReorderPlaylistTracks(
+          playlistId,
+          fromIndex,
+          toIndex,
+          1,
+          "",
+          uid,
+          targetUid,
+        );
+        if (!res?.ok) {
+          setPlaylistTracks(prevTracks);
+          showToast(res?.error || "Failed to reorder playlist");
+          return false;
+        }
+        return true;
+      } catch {
+        setPlaylistTracks(prevTracks);
+        showToast("Failed to reorder playlist");
+        return false;
+      }
+    },
+    [playlistTracks, showToast],
+  );
 
   const handleCreateFolder = useCallback(async (name: string) => {
     const res = await backendManagePlaylistFolder("create", "", name, "");
@@ -1065,6 +1277,10 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
     setActionCollection(null);
     setShowAddToPlaylistModal(false);
     setPlaylistPickerOpen(false);
+    setIsGrabbing(false);
+    setIsCrudModalOpen(false);
+    setPendingEditPlaylist(null);
+    setPendingDeletePlaylist(null);
     focusedTrackRef.current = null;
     focusedCollectionRef.current = null;
     focusedHistoryQueryRef.current = null;
@@ -1087,7 +1303,14 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
   const triggerNavEnabled = (status?.settings as any)?.trigger_nav_enabled !== false;
   useTriggerNavigation({
     enabled: triggerNavEnabled,
-    suppressed: Boolean(actionTrack || showAddToPlaylistModal || actionCollection || playlistPickerOpen),
+    suppressed: Boolean(
+      isGrabbing ||
+        isCrudModalOpen ||
+        actionTrack ||
+        showAddToPlaylistModal ||
+        actionCollection ||
+        playlistPickerOpen,
+    ),
     onTrigger: useCallback(
       (side) => {
         if (!triggerNavEnabled) return;
@@ -1264,6 +1487,12 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
     (el as any).__deckifyNavAttached = true;
 
     el.addEventListener("vgp_oncancel", (e: Event) => {
+      if (typeof grabCancelRef.current === "function" && grabCancelRef.current()) {
+        e.preventDefault();
+        e.stopPropagation();
+        (e as unknown as { stopImmediatePropagation?: () => void }).stopImmediatePropagation?.();
+        return;
+      }
       if (actionTrackRef.current) {
         e.preventDefault();
         e.stopPropagation();
@@ -1335,8 +1564,9 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
   const { accent, animationsSuspended } = useAccentTheme();
   const artwork = track?.artwork_url || track?.image_url;
   const showHints = (status?.settings as any)?.show_controller_hints !== false;
-  const hintText =
-    mode === "now_playing"
+  const hintText = isGrabbing
+    ? "↑/↓ Move · A Drop · B Cancel"
+    : mode === "now_playing"
       ? "L2/R2 Seek · X Like · Y Options · L1/R1 Tabs"
       : mode === "lyrics"
       ? "L2/R2 Seek · X -0.5s · Y +0.5s · L1/R1 Tabs"
@@ -1535,6 +1765,21 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
                   onCreateFolder={handleCreateFolder}
                   onRenameFolder={handleRenameFolder}
                   onDeleteFolder={handleDeleteFolder}
+                  onUpdatePlaylistDetails={handleUpdatePlaylistDetails}
+                  onDeletePlaylist={handleDeletePlaylist}
+                  onReorderPlaylistTrack={handleReorderPlaylistTrack}
+                  onRemovePlaylistTrack={handleRemovePlaylistTrack}
+                  setPlaylistTracks={setPlaylistTracks}
+                  onGrabStateChange={setIsGrabbing}
+                  grabTriggerRef={playlistGrabTriggerRef}
+                  grabCancelRef={grabCancelRef}
+                  onModalStateChange={setIsCrudModalOpen}
+                  pendingEditPlaylist={pendingEditPlaylist}
+                  pendingDeletePlaylist={pendingDeletePlaylist}
+                  onClearPendingPlaylistAction={() => {
+                    setPendingEditPlaylist(null);
+                    setPendingDeletePlaylist(null);
+                  }}
                 />
               )}
 
@@ -1655,6 +1900,13 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
                   handleToggleLike={handleToggleLike}
                   onFocusTrack={(t) => { focusedTrackRef.current = t; }}
                   onOpenActions={(t) => setActionTrack(t)}
+                  onReorderQueueTrack={handleReorderQueueTrack}
+                  onRemoveQueueTrack={handleRemoveQueueTrack}
+                  onClearQueue={handleClearQueue}
+                  onGrabStateChange={setIsGrabbing}
+                  grabTriggerRef={queueGrabTriggerRef}
+                  grabCancelRef={grabCancelRef}
+                  setQueueTracks={setQueueTracks}
                 />
               )}
 
@@ -1722,7 +1974,19 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
             onOpenAlbum={handleOpenAlbum}
             onRemoveFromPlaylist={handleRemoveTrackFromActivePlaylist}
             onToggleLike={handleToggleLike}
+            mode={mode}
             setMode={handleSelectMode}
+            onMoveInQueue={(t) => queueGrabTriggerRef.current?.(t)}
+            onRemoveFromQueue={(t) => {
+              const idx = queueTracks.findIndex(
+                (q) => (t._rowKey && q._rowKey === t._rowKey) || q.uri === t.uri,
+              );
+              if (idx >= 0) void handleRemoveQueueTrack(t, idx);
+            }}
+            onMoveInPlaylist={(t) => playlistGrabTriggerRef.current?.(t)}
+            onCreatePlaylistWithTrack={handleCreatePlaylistWithTrack}
+            isEditablePlaylist={activePlaylist ? activePlaylist.is_editable !== false : undefined}
+            canReorderPlaylist={activePlaylist ? activePlaylist.is_editable !== false : undefined}
           />
 
           {/* Context Modal for Collection Actions (Play / Pin to QAM) */}
@@ -1734,6 +1998,46 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
               onClose={() => setActionCollection(null)}
               onPlay={(c) => handlePlayTrack("", c.uri)}
               onTogglePin={handleTogglePin}
+              onEditPlaylist={(collection: CollectionActionItem) => {
+                const target =
+                  allUserPlaylists.find(
+                    (p) =>
+                      (collection.id && p.id === collection.id) ||
+                      (collection.uri && p.uri === collection.uri),
+                  ) ||
+                  (collection.type === "playlist"
+                    ? {
+                        id: collection.id || collection.uri.split(":").pop() || "",
+                        name: collection.name,
+                        uri: collection.uri,
+                        description: collection.description,
+                        is_editable: collection.is_editable,
+                      }
+                    : null);
+                setActionCollection(null);
+                setMode("playlists");
+                if (target) setPendingEditPlaylist(target);
+              }}
+              onDeletePlaylist={(collection: CollectionActionItem) => {
+                const target =
+                  allUserPlaylists.find(
+                    (p) =>
+                      (collection.id && p.id === collection.id) ||
+                      (collection.uri && p.uri === collection.uri),
+                  ) ||
+                  (collection.type === "playlist"
+                    ? {
+                        id: collection.id || collection.uri.split(":").pop() || "",
+                        name: collection.name,
+                        uri: collection.uri,
+                        description: collection.description,
+                        is_editable: collection.is_editable,
+                      }
+                    : null);
+                setActionCollection(null);
+                setMode("playlists");
+                if (target) setPendingDeletePlaylist(target);
+              }}
             />
           )}
 
