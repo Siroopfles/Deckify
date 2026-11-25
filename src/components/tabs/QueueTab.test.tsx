@@ -18,12 +18,17 @@ vi.mock("react/jsx-runtime", () => ({
   }),
 }));
 
+let stateOverrideQueue: unknown[] = [];
+
 vi.mock("react", () => ({
-  useState: (init: any) => [init, vi.fn()],
-  useEffect: (fn: any) => fn(),
-  useCallback: (fn: any) => fn,
-  useRef: (init: any) => ({ current: init }),
-  useMemo: (fn: any) => fn(),
+  useState: (init: unknown) => {
+    const val = stateOverrideQueue.length > 0 ? stateOverrideQueue.shift() : init;
+    return [val, vi.fn()];
+  },
+  useEffect: (fn: () => void) => fn(),
+  useCallback: (fn: unknown) => fn,
+  useRef: (init: unknown) => ({ current: init }),
+  useMemo: (fn: () => unknown) => fn(),
 }));
 
 vi.mock("@decky/api", () => ({
@@ -35,6 +40,10 @@ vi.mock("@decky/ui", () => ({
     type: "Focusable",
     props: { children, ...props },
   }),
+  GamepadButton: {
+    DIR_UP: 9,
+    DIR_DOWN: 10,
+  },
 }));
 
 vi.mock("../common/DeckifyImage", () => ({
@@ -44,6 +53,7 @@ vi.mock("../common/DeckifyImage", () => ({
   }),
 }));
 
+import { Focusable } from "@decky/ui";
 import { QueueTab } from "./QueueTab";
 import { InteractiveRow } from "../common/InteractiveRow";
 import { TrackItem } from "../../types";
@@ -258,5 +268,137 @@ describe("QueueTab Component", () => {
 
     const fullText = cleanText(tree);
     expect(fullText).toContain("Next in Queue (50)");
+  });
+
+  it("assigns distinct data-row-key values for duplicate track URIs and renders inline reorder/remove controls", () => {
+    const dupQueue: TrackItem[] = [
+      { id: "d1", name: "Repeat Song", artist: "Artist", uri: "spotify:track:dup", duration_ms: 120000 },
+      { id: "d1", name: "Repeat Song", artist: "Artist", uri: "spotify:track:dup", duration_ms: 120000 },
+    ];
+
+    const tree = QueueTab({
+      queueTracks: dupQueue,
+      handleToggleLike: vi.fn(),
+      onReorderQueueTrack: vi.fn(),
+      onRemoveQueueTrack: vi.fn(),
+    });
+
+    const itemRows = findNodes(tree, (n) => n.type === InteractiveRow && n.props?.["data-deckify-list-item"] === "true");
+    expect(itemRows.length).toBe(2);
+    expect(itemRows[0].props["data-row-key"]).toBeTruthy();
+    expect(itemRows[1].props["data-row-key"]).toBeTruthy();
+    expect(itemRows[0].props["data-row-key"]).not.toBe(itemRows[1].props["data-row-key"]);
+
+    const reorderBtns = findNodes(tree, (n) => n.type === InteractiveRow && n.props?.["aria-label"] === "Reorder track");
+    const removeBtns = findNodes(tree, (n) => n.type === InteractiveRow && n.props?.["aria-label"] === "Remove track");
+    expect(reorderBtns.length).toBe(2);
+    expect(removeBtns.length).toBe(2);
+  });
+
+  it("invokes onRemoveQueueTrack for the specific row without triggering playback", () => {
+    const onRemoveQueueTrack = vi.fn();
+    const handlePlayQueueTrack = vi.fn();
+
+    const tree = QueueTab({
+      queueTracks: mockQueue,
+      handlePlayQueueTrack,
+      handleToggleLike: vi.fn(),
+      onRemoveQueueTrack,
+    });
+
+    const removeBtns = findNodes(tree, (n) => n.type === InteractiveRow && n.props?.["aria-label"] === "Remove track");
+    expect(removeBtns.length).toBe(3);
+
+    removeBtns[1].props.onClick();
+
+    expect(onRemoveQueueTrack).toHaveBeenCalledTimes(1);
+    expect(onRemoveQueueTrack).toHaveBeenCalledWith(mockQueue[1], 1);
+    expect(handlePlayQueueTrack).not.toHaveBeenCalled();
+  });
+
+  it("requires 2-tap Clear Queue confirmation before invoking onClearQueue", () => {
+    const onClearQueue = vi.fn();
+
+    // First render: confirmClear = false -> shows "Clear Queue", does not call onClearQueue on first tap
+    stateOverrideQueue = [];
+    const initialTree = QueueTab({
+      queueTracks: mockQueue,
+      handleToggleLike: vi.fn(),
+      onClearQueue,
+    });
+
+    const clearBtn = findNodes(initialTree, (n) => n.type === InteractiveRow && n.props?.["aria-label"] === "Clear Queue")[0];
+    expect(clearBtn).toBeDefined();
+    expect(cleanText(clearBtn)).toBe("Clear Queue");
+    clearBtn.props.onClick();
+    expect(onClearQueue).not.toHaveBeenCalled();
+
+    // Second render: confirmClear = true -> shows "Confirm Clear?" (#FF5555) and "Cancel"
+    stateOverrideQueue = [true];
+    const confirmTree = QueueTab({
+      queueTracks: mockQueue,
+      handleToggleLike: vi.fn(),
+      onClearQueue,
+    });
+
+    const confirmBtn = findNodes(confirmTree, (n) => n.type === InteractiveRow && n.props?.["aria-label"] === "Confirm Clear Queue")[0];
+    const cancelBtn = findNodes(confirmTree, (n) => n.type === InteractiveRow && n.props?.["aria-label"] === "Cancel Clear Queue")[0];
+    expect(confirmBtn).toBeDefined();
+    expect(cancelBtn).toBeDefined();
+    expect(confirmBtn.props.style?.color).toBe("#FF5555");
+    expect(cleanText(confirmBtn)).toBe("Confirm Clear?");
+    expect(cleanText(cancelBtn)).toBe("Cancel");
+
+    cancelBtn.props.onClick();
+    expect(onClearQueue).not.toHaveBeenCalled();
+
+    confirmBtn.props.onClick();
+    expect(onClearQueue).toHaveBeenCalledTimes(1);
+    stateOverrideQueue = [];
+  });
+
+  it("handles Grab/Move Mode highlight and DIR_UP/DIR_DOWN direction interception", () => {
+    const keyedQueue: TrackItem[] = [
+      { ...mockQueue[0], _rowKey: "q:1:track1" },
+      { ...mockQueue[1], _rowKey: "q:2:track2" },
+    ];
+    const setQueueTracks = vi.fn();
+    const onGrabStateChange = vi.fn();
+
+    // QueueTab useState(confirmClear=false), useGrabMoveOrder useState(grabbedKey="q:2:track2")
+    stateOverrideQueue = [false, "q:2:track2"];
+    const tree = QueueTab({
+      queueTracks: keyedQueue,
+      handleToggleLike: vi.fn(),
+      onReorderQueueTrack: vi.fn(),
+      setQueueTracks,
+      onGrabStateChange,
+    });
+
+    expect(onGrabStateChange).toHaveBeenCalledWith(true);
+
+    const rows = findNodes(tree, (n) => n.type === InteractiveRow && n.props?.["data-row-key"] === "q:2:track2");
+    expect(rows.length).toBe(1);
+    expect(rows[0].props.style?.border).toContain("1px solid");
+
+    const listFocusable = findNodes(tree, (n) => n.type === Focusable && typeof n.props?.onGamepadDirection === "function")[0];
+    expect(listFocusable).toBeDefined();
+
+    const preventDefault = vi.fn();
+    const stopPropagation = vi.fn();
+    const handled = listFocusable.props.onGamepadDirection({
+      detail: { button: 9 },
+      preventDefault,
+      stopPropagation,
+    });
+
+    expect(handled).toBe(true);
+    expect(preventDefault).toHaveBeenCalledTimes(1);
+    expect(stopPropagation).toHaveBeenCalledTimes(1);
+    expect(setQueueTracks).toHaveBeenCalledTimes(1);
+    const reordered = setQueueTracks.mock.calls[0][0];
+    expect(reordered[0]._rowKey).toBe("q:2:track2");
+    expect(reordered[1]._rowKey).toBe("q:1:track1");
+    stateOverrideQueue = [];
   });
 });
