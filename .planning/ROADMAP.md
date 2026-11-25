@@ -63,7 +63,7 @@
 - [x] **Phase 24: Podcast & Audiobook Power Suite** - Expose `0.75x`–`2.0x` episode playback speed (auto-resetting to `1.0x` on music), `-15s`/`+15s` smart-skip transport & trigger controls, episode resume progress bars, and *Unplayed*/*In Progress* filters. (completed 2026-11-23)
 - [x] **Phase 25: Universal Artist/Album Drill-Down, Instant Radio & Search 2.0** - Navigate to full Artist/Album views from any track with `B`-button backstack restoration, launch 3-tier Song/Artist Radio, and browse Search 2.0 with history pills, gaming/mood tiles, and podcast filters. (completed 2026-11-24)
 - [ ] **Phase 26: Unified CDP Platform Bridge & Deep Discovery 2.0** - Build the unified `py_modules/cdp_bridge.py` `Platform.Registry` evaluator and unlock personalized Spotify algorithmic mixes (*Daylist*, *Discover Weekly*, *Release Radar*, *Daily Mixes*) in `DiscoveryTab` across both engines.
-- [ ] **Phase 27: Interactive Queue Studio & Controller Playlist Management** - Reorder, remove, and clear upcoming tracks via controller Grab/Move Mode in `QueueTab` (with CDP `PlayerAPI` + `librespot` URI-slice fallback) and perform full controller playlist CRUD in `PlaylistsTab`.
+- [x] **Phase 27: Interactive Queue Studio & Controller Playlist Management** - Reorder, remove, and clear upcoming tracks via controller Grab/Move Mode in `QueueTab` (with CDP `PlayerAPI` + `librespot` URI-slice fallback) and perform full controller playlist CRUD in `PlaylistsTab`. (completed 2026-11-25)
 - [ ] **Phase 28: CDP Offline Downloads, Wi-Fi Travel Mode & Living Room Spotify Jam** - Download playlists, albums, and episodes via CDP `OfflineAPI` with a 3.0 GB free-space disk guardrail, auto-activate Offline Travel Mode on Wi-Fi disconnect, and share living-room Spotify Jam QR codes.
 - [ ] **Phase 29: 10-Foot Docked TV Split-View Mode & PipeWire Spectrum Visualizer** - Auto-activate a 10-foot Docked TV Split-View on HDMI/USB-DAC dock connection paired with an isolated 16-band real-time PipeWire audio spectrum visualizer (`parec --monitor-stream` at 15 Hz).
 - [ ] **Phase 30: "Deck Wrapped" Listening Stats, Last.fm / ListenBrainz Scrobbling & Profile Backup** - Browse local "Deck Wrapped" listening analytics (including *Top Game + Soundtrack Pairings*), scrobble to Last.fm and ListenBrainz with an offline retry queue, and export/import 1-click JSON profile backups.
@@ -287,7 +287,7 @@ Plans:
   1. User can press `A` / *"Move in Queue"* on any upcoming track in `QueueTab` to enter controller Grab/Move Mode, move the track up or down with `D-Pad Up/Down` while focus remains locked via stable `_rowKey` IDs, and press `A` to commit the new order in a single batched update.
   2. User can remove individual upcoming tracks or clear the upcoming queue in `QueueTab`, executing natively via CDP `PlayerAPI` when `spotify_client` is active and automatically falling back to virtual URI-slice playback mutation when `librespot` is active.
   3. User can create new playlists, rename or edit playlist descriptions, delete or unfollow playlists with a confirmation modal, and reorder or remove tracks inside user-owned playlists directly from the controller in `PlaylistsTab`.
-**Plans:** 5/5 plans executed
+**Plans:** 5/5 plans complete
 
 Plans:
 **Wave 1**
@@ -355,7 +355,7 @@ Phases execute in numeric order: 19 → 20 → 21 → 22 → 23 → 24 → 25 �
 | 24. Podcast & Audiobook Power Suite | v0.7 | 8/8 | Complete    | 2026-11-23 |
 | 25. Universal Artist/Album Drill-Down, Instant Radio & Search 2.0 | v0.7 | 5/5 | Complete    | 2026-11-24 |
 | 26. Unified CDP Platform Bridge & Deep Discovery 2.0 | v0.7 | 4/4 | In Progress | - |
-| 27. Interactive Queue Studio & Controller Playlist Management | v0.7 | 5/5 | In Progress | - |
+| 27. Interactive Queue Studio & Controller Playlist Management | v0.7 | 5/5 | Complete    | 2026-11-25 |
 | 28. CDP Offline Downloads, Wi-Fi Travel Mode & Living Room Spotify Jam | v0.7 | 0/TBD | Not started | - |
 | 29. 10-Foot Docked TV Split-View Mode & PipeWire Spectrum Visualizer | v0.7 | 0/TBD | Not started | - |
 | 30. "Deck Wrapped" Listening Stats, Last.fm / ListenBrainz Scrobbling & Profile Backup | v0.7 | 0/TBD | Not started | - |
