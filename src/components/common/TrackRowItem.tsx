@@ -1,5 +1,5 @@
 import { FC } from "react";
-import { FaMusic, FaHeart, FaRegHeart } from "react-icons/fa";
+import { FaArrowsAltV, FaHeart, FaMusic, FaRegHeart, FaTimes } from "react-icons/fa";
 import { TrackItem } from "../../types";
 import { DeckifyImage } from "./DeckifyImage";
 import { InteractiveRow, formatMs } from "./InteractiveRow";
@@ -13,31 +13,71 @@ export interface TrackRowItemProps {
   onToggleLike: (trackId?: string) => void;
   onOpenActions: (track: TrackItem) => void;
   onFocus?: (track: TrackItem) => void;
+  isGrabbed?: boolean;
+  canReorder?: boolean;
+  canRemove?: boolean;
+  onGrabTrack?: (track: TrackItem) => void;
+  onRemoveTrack?: (track: TrackItem, index: number) => void;
 }
 
-export const TrackRowItem: FC<TrackRowItemProps> = ({
+function renderInlineControlButtons({
   track,
   index,
-  contextUri,
-  allTracks,
-  onPlayTrack,
-  onToggleLike,
-  onOpenActions,
-  onFocus,
-}) => {
-  const img = track.artwork_url || track.image_url;
-  const allUris = allTracks ? (allTracks.map((x) => x.uri).filter(Boolean) as string[]) : undefined;
-
+  isGrabbed,
+  canReorder,
+  canRemove,
+  onGrabTrack,
+  onRemoveTrack,
+}: {
+  track: TrackItem;
+  index: number;
+  isGrabbed?: boolean;
+  canReorder?: boolean;
+  canRemove?: boolean;
+  onGrabTrack?: (track: TrackItem) => void;
+  onRemoveTrack?: (track: TrackItem, index: number) => void;
+}) {
   return (
-    <InteractiveRow
-      key={track.id || track.uri || index}
-      data-deckify-list-item="true"
-      data-deckify-label={track.name || ""}
-      onClick={() => onPlayTrack(track.uri || "", contextUri, allUris, index)}
-      onFocus={() => onFocus?.(track)}
-      style={{ gap: 12 }}
-    >
-      <span style={{ width: 22, fontSize: 12, opacity: 0.5, textAlign: "right" }}>{index + 1}</span>
+    <>
+      {canReorder && (
+        <InteractiveRow
+          aria-label="Reorder track"
+          onClick={() => onGrabTrack?.(track)}
+          style={{
+            width: "auto",
+            minWidth: "auto",
+            flexShrink: 0,
+            minHeight: 36,
+            padding: "4px 8px",
+            background: isGrabbed ? "rgba(var(--deckify-accent-rgb, 29, 185, 84), 0.35)" : "rgba(255,255,255,0.08)",
+          }}
+        >
+          <FaArrowsAltV size={12} color={isGrabbed ? "var(--deckify-accent, #1DB954)" : "#ccc"} />
+        </InteractiveRow>
+      )}
+      {canRemove && (
+        <InteractiveRow
+          aria-label="Remove track"
+          onClick={() => onRemoveTrack?.(track, index)}
+          style={{
+            width: "auto",
+            minWidth: "auto",
+            flexShrink: 0,
+            minHeight: 36,
+            padding: "4px 8px",
+            background: "rgba(255,255,255,0.08)",
+          }}
+        >
+          <FaTimes size={12} color="#ccc" />
+        </InteractiveRow>
+      )}
+    </>
+  );
+}
+
+function renderTrackMeta(track: TrackItem, img?: string | null) {
+  return (
+    <>
       {img ? (
         <DeckifyImage src={img} width={32} height={32} style={{ borderRadius: 4 }} />
       ) : (
@@ -51,6 +91,46 @@ export const TrackRowItem: FC<TrackRowItemProps> = ({
           {track.artist}
         </div>
       </div>
+    </>
+  );
+}
+
+export const TrackRowItem: FC<TrackRowItemProps> = ({
+  track,
+  index,
+  contextUri,
+  allTracks,
+  onPlayTrack,
+  onToggleLike,
+  onOpenActions,
+  onFocus,
+  isGrabbed,
+  canReorder,
+  canRemove,
+  onGrabTrack,
+  onRemoveTrack,
+}) => {
+  const img = track.artwork_url || track.image_url;
+  const allUris = allTracks ? (allTracks.map((x) => x.uri).filter(Boolean) as string[]) : undefined;
+  const grabbedStyle = isGrabbed
+    ? {
+        border: "1px solid var(--deckify-accent, #1DB954)",
+        background: "rgba(var(--deckify-accent-rgb, 29, 185, 84), 0.16)",
+      }
+    : undefined;
+
+  return (
+    <InteractiveRow
+      key={track._rowKey || track.id || track.uri || index}
+      data-deckify-list-item="true"
+      data-deckify-label={track.name || ""}
+      data-row-key={track._rowKey || ""}
+      onClick={() => (isGrabbed ? onGrabTrack?.(track) : onPlayTrack(track.uri || "", contextUri, allUris, index))}
+      onFocus={() => onFocus?.(track)}
+      style={{ gap: 12, ...grabbedStyle }}
+    >
+      <span style={{ width: 22, fontSize: 12, opacity: 0.5, textAlign: "right" }}>{index + 1}</span>
+      {renderTrackMeta(track, img)}
       <span
         onClick={(e) => {
           e.stopPropagation();
@@ -61,20 +141,13 @@ export const TrackRowItem: FC<TrackRowItemProps> = ({
         {track.is_liked ? <FaHeart size={13} color="var(--deckify-accent, #1DB954)" /> : <FaRegHeart size={13} color="#777" />}
       </span>
       <span style={{ fontSize: 12, opacity: 0.5 }}>{formatMs(track.duration_ms || 0)}</span>
-
-      {/* Action button */}
+      {renderInlineControlButtons({ track, index, isGrabbed, canReorder, canRemove, onGrabTrack, onRemoveTrack })}
       <span
         onClick={(e) => {
           e.stopPropagation();
           onOpenActions(track);
         }}
-        style={{
-          padding: "4px 8px",
-          borderRadius: 4,
-          background: "rgba(255,255,255,0.08)",
-          fontSize: 11,
-          color: "#aaa",
-        }}
+        style={{ padding: "4px 8px", borderRadius: 4, background: "rgba(255,255,255,0.08)", fontSize: 11, color: "#aaa" }}
       >
         Options (Y)
       </span>

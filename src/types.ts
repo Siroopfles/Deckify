@@ -64,6 +64,8 @@ export interface TrackItem {
   id?: string;
   track_id?: string;
   uri?: string;
+  _rowKey?: string;
+  uid?: string;
   name?: string;
   artist?: string;
   album?: string;
@@ -85,6 +87,9 @@ export interface PlaylistItem {
   can_mix?: boolean;
   is_mixed?: boolean;
   owner_id?: string;
+  description?: string;
+  is_editable?: boolean;
+  collaborative?: boolean;
 }
 
 export interface AlbumItem {
