@@ -1379,11 +1379,37 @@ class Plugin:
     async def get_client_window_status(self) -> dict:
         return await system.get_client_auth_status()
 
-    async def create_playlist(self, name: str, public: bool = False) -> dict:
-        return await rpc_library.create_playlist(self, name, public)
+    async def create_playlist(self, name: str, public: bool = False, description: str = "") -> dict:
+        return await rpc_library.create_playlist(self, name, public, description)
 
-    async def remove_track_from_playlist(self, playlist_id: str, track_uri: str) -> dict:
-        return await rpc_library.remove_track_from_playlist(self, playlist_id, track_uri)
+    async def update_playlist_details(self, playlist_id: str, name: str, description: str = "") -> dict:
+        return await rpc_library.update_playlist_details(self, playlist_id, name, description)
+
+    async def delete_playlist(self, playlist_id: str) -> dict:
+        return await rpc_library.delete_playlist(self, playlist_id)
+
+    async def reorder_playlist_tracks(
+        self,
+        playlist_id: str,
+        from_index: int,
+        to_index: int,
+        range_length: int = 1,
+        snapshot_id: str = "",
+        uid: str = "",
+        target_uid: str = "",
+    ) -> dict:
+        return await rpc_library.reorder_playlist_tracks(
+            self, playlist_id, from_index, to_index, range_length, snapshot_id, uid, target_uid
+        )
+
+    async def remove_track_from_playlist(
+        self,
+        playlist_id: str,
+        track_uri: str,
+        position: int | None = None,
+        uid: str = "",
+    ) -> dict:
+        return await rpc_library.remove_track_from_playlist(self, playlist_id, track_uri, position, uid)
 
     async def get_audio_sinks(self) -> dict:
         return await volume.get_audio_sinks(plugin=self)

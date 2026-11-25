@@ -21,6 +21,7 @@ from py_modules.spotify import (
     _parse_spotify_error,
     _fetch_lyrics_sync,
 )
+from py_modules import cdp_bridge
 from py_modules.cdp_bridge import (
     _classify_discovery_kind,
     cdp_fetch_browse_categories,
@@ -41,6 +42,21 @@ from py_modules.engine import (
 from py_modules.rpc_playback import annotate_tracks_liked
 
 
+async def _get_current_user_id(plugin, token: str) -> str:
+    """Return cached Spotify user ID, fetching /v1/me once per plugin session."""
+    cached = getattr(plugin, "_current_user_id", "")
+    if isinstance(cached, str) and cached.strip():
+        return cached.strip()
+    try:
+        me = await _exec(_spotify_api_request, "me", token, "GET")
+        uid = str((me or {}).get("id") or "").strip()
+        if uid:
+            plugin._current_user_id = uid
+        return uid
+    except Exception:
+        return ""
+
+
 async def get_playlists(plugin, offset: int = 0) -> dict:
     """Fetch current user's playlists."""
     token = await plugin._ensure_token()
@@ -49,19 +65,38 @@ async def get_playlists(plugin, offset: int = 0) -> dict:
     try:
         data = await _exec(_spotify_api_request, "me/playlists", token, "GET", {"limit": 50, "offset": offset})
         items = data.get("items", []) if data else []
+        needs_uid = any(
+            not p.get("collaborative")
+            and str((p.get("owner") or {}).get("id") or "") not in ("", "spotify")
+            for p in items
+            if p
+        )
+        current_user_id = await _get_current_user_id(plugin, token) if needs_uid else ""
         playlists = []
         for p in items:
             if not p:
                 continue
             images = p.get("images") or []
+            owner_id = str((p.get("owner") or {}).get("id") or "")
+            collaborative = bool(p.get("collaborative", False))
+            if owner_id == "spotify":
+                is_editable = False
+            else:
+                is_editable = bool(
+                    collaborative
+                    or (owner_id and current_user_id and owner_id == current_user_id)
+                )
             playlists.append({
                 "id": p["id"],
                 "uri": p.get("uri") or f"spotify:playlist:{p['id']}",
                 "name": p.get("name", ""),
+                "description": p.get("description") or "",
+                "collaborative": collaborative,
+                "owner_id": owner_id,
+                "is_editable": is_editable,
                 "image_url": _image_url(images),
                 "artwork_url": _image_url(images),
                 "track_count": (p.get("items") or p.get("tracks") or {}).get("total", 0),
-                "owner_id": p.get("owner", {}).get("id", ""),
             })
         total = data.get("total", 0) if data else 0
         return {"ok": True, "playlists": playlists, "total": total, "offset": offset}
@@ -277,7 +312,7 @@ async def get_playlist_tracks(
 
 
 async def add_track_to_playlist(plugin, playlist_id: str, track_uri: str) -> dict:
-    """Add a track URI to a playlist via Spotify's /playlists/{id}/items endpoint."""
+    """Add a track URI to a playlist via Spotify's /playlists/{id}/items endpoint with CDP fallback."""
     token = await plugin._ensure_token()
     if not token:
         return {"ok": False, "error": "Not authenticated"}
@@ -296,16 +331,28 @@ async def add_track_to_playlist(plugin, playlist_id: str, track_uri: str) -> dic
                 f"playlists/{pid}/items", token, "POST", None,
                 {"uris": [uri]},
             )
+            return {"ok": True, "playlist_id": pid, "track_uri": uri}
         except urllib.error.HTTPError as e:
-            if e.code in (400, 404):
+            if e.code not in (400, 403, 404):
+                raise
+            try:
                 await _exec(
                     _spotify_api_request,
                     f"playlists/{pid}/tracks", token, "POST", None,
                     {"uris": [uri]},
                 )
-            else:
+                return {"ok": True, "playlist_id": pid, "track_uri": uri}
+            except urllib.error.HTTPError as e2:
+                if e2.code in (400, 403, 404) and cdp_bridge.is_spotify_client_running(plugin):
+                    cdp_res = await _exec(
+                        cdp_bridge.cdp_add_to_playlist,
+                        f"spotify:playlist:{pid}",
+                        [uri],
+                    )
+                    if cdp_res.get("ok"):
+                        return {"ok": True, "playlist_id": pid, "track_uri": uri, "source": "cdp"}
+                    return {"ok": False, "error": cdp_res.get("error") or _parse_spotify_error(e2)}
                 raise
-        return {"ok": True, "playlist_id": pid, "track_uri": uri}
     except urllib.error.HTTPError as e:
         return {"ok": False, "error": _parse_spotify_error(e)}
     except Exception as e:
@@ -461,54 +508,310 @@ async def set_native_playlist_mix(plugin, playlist_id: str, enabled: bool = True
         return {"ok": False, "error": str(e)}
 
 
-async def create_playlist(plugin, name: str, public: bool = False) -> dict:
-    """Create a new playlist in user library."""
+def _normalize_playlist_id(playlist_id: str) -> str:
+    pid = (playlist_id or "").strip()
+    if pid.startswith("spotify:playlist:"):
+        return pid.split(":")[-1]
+    return pid
+
+
+def _cleanup_deleted_playlist_refs(plugin, pid: str) -> tuple[list, list]:
+    """Remove deleted playlist ID/URI from pinned_playlists and playlist_folders on disk."""
+    settings = getattr(plugin, "_settings", None)
+    if not isinstance(settings, dict):
+        return ([], [])
+    target_uri = f"spotify:playlist:{pid}"
+    targets = {pid, target_uri}
+
+    pinned = settings.get("pinned_playlists")
+    if isinstance(pinned, list):
+        cleaned_pinned = []
+        for entry in pinned:
+            if isinstance(entry, str):
+                if entry not in targets:
+                    cleaned_pinned.append(entry)
+            elif isinstance(entry, dict):
+                if entry.get("id") not in targets and entry.get("uri") not in targets:
+                    cleaned_pinned.append(entry)
+            else:
+                cleaned_pinned.append(entry)
+        settings["pinned_playlists"] = cleaned_pinned
+
+    def _clean_folders(folder_list: list) -> None:
+        for folder in folder_list:
+            if not isinstance(folder, dict):
+                continue
+            pids = folder.get("playlist_ids")
+            if isinstance(pids, list):
+                folder["playlist_ids"] = [x for x in pids if x not in targets]
+            nested = folder.get("folders")
+            if isinstance(nested, list):
+                _clean_folders(nested)
+
+    folders = settings.get("playlist_folders")
+    if isinstance(folders, list):
+        _clean_folders(folders)
+
+    _save_settings(settings)
+    return (
+        list(settings.get("pinned_playlists") or []),
+        list(settings.get("playlist_folders") or []),
+    )
+
+
+async def create_playlist(plugin, name: str, public: bool = False, description: str = "") -> dict:
+    """Create a new playlist in user library with optional description and CDP fallback."""
+    clean_name = (name or "").strip()
+    if not clean_name:
+        return {"ok": False, "error": "Playlist name cannot be empty"}
     token = await plugin._ensure_token()
     if not token:
         return {"ok": False, "error": "Not authenticated"}
-    name = (name or "").strip()
-    if not name:
-        return {"ok": False, "error": "Playlist name cannot be empty"}
+    clean_desc = (description or "").strip()
     try:
         res = await _exec(
             _spotify_api_request, "me/playlists", token, "POST", None,
-            {"name": name, "public": bool(public)},
+            {"name": clean_name, "public": bool(public), "description": clean_desc},
         )
-        return {"ok": True, "playlist": res}
+        res = res or {}
+        pid = str(res.get("id") or "")
+        uri = str(res.get("uri") or (f"spotify:playlist:{pid}" if pid else ""))
+        owner_id = str((res.get("owner") or {}).get("id") or getattr(plugin, "_current_user_id", "") or "")
+        images = res.get("images") or []
+        playlist_obj = {
+            "id": pid,
+            "uri": uri,
+            "name": res.get("name") or clean_name,
+            "description": res.get("description") if res.get("description") is not None else clean_desc,
+            "owner_id": owner_id,
+            "collaborative": bool(res.get("collaborative", False)),
+            "is_editable": True,
+            "track_count": ((res.get("items") or res.get("tracks") or {}).get("total", 0)),
+            "image_url": _image_url(images) if images else None,
+        }
+        return {"ok": True, "playlist": playlist_obj}
+    except urllib.error.HTTPError as e:
+        if e.code in (400, 403, 404) and cdp_bridge.is_spotify_client_running(plugin):
+            cdp_res = await _exec(cdp_bridge.cdp_create_playlist, clean_name, clean_desc)
+            if cdp_res.get("ok"):
+                pid = str(cdp_res.get("id") or "")
+                uri = str(cdp_res.get("uri") or (f"spotify:playlist:{pid}" if pid else ""))
+                playlist_obj = {
+                    "id": pid,
+                    "uri": uri,
+                    "name": cdp_res.get("name") or clean_name,
+                    "description": cdp_res.get("description") if cdp_res.get("description") is not None else clean_desc,
+                    "owner_id": str(getattr(plugin, "_current_user_id", "") or ""),
+                    "collaborative": False,
+                    "is_editable": True,
+                    "track_count": 0,
+                    "image_url": None,
+                }
+                return {"ok": True, "playlist": playlist_obj, "source": "cdp"}
+            return {"ok": False, "error": cdp_res.get("error") or _parse_spotify_error(e)}
+        return {"ok": False, "error": _parse_spotify_error(e)}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+async def update_playlist_details(plugin, playlist_id: str, name: str, description: str = "") -> dict:
+    """Update playlist name and description via Web API with CDP fallback."""
+    clean_name = (name or "").strip()
+    if not clean_name:
+        return {"ok": False, "error": "Playlist name cannot be empty"}
+    pid = _normalize_playlist_id(playlist_id)
+    if not pid:
+        return {"ok": False, "error": "Missing playlist_id"}
+    token = await plugin._ensure_token()
+    if not token:
+        return {"ok": False, "error": "Not authenticated"}
+    clean_desc = (description or "").strip()
+    try:
+        await _exec(
+            _spotify_api_request,
+            f"playlists/{pid}",
+            token,
+            "PUT",
+            None,
+            {"name": clean_name, "description": clean_desc},
+        )
+        return {"ok": True, "playlist_id": pid, "name": clean_name, "description": clean_desc}
+    except urllib.error.HTTPError as e:
+        if e.code in (400, 403, 404) and cdp_bridge.is_spotify_client_running(plugin):
+            cdp_res = await _exec(
+                cdp_bridge.cdp_update_playlist_details,
+                f"spotify:playlist:{pid}",
+                clean_name,
+                clean_desc,
+            )
+            if cdp_res.get("ok"):
+                return {
+                    "ok": True,
+                    "playlist_id": pid,
+                    "name": clean_name,
+                    "description": clean_desc,
+                    "source": "cdp",
+                }
+            return {"ok": False, "error": cdp_res.get("error") or _parse_spotify_error(e)}
+        return {"ok": False, "error": _parse_spotify_error(e)}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+async def delete_playlist(plugin, playlist_id: str) -> dict:
+    """Delete/unfollow a playlist and clean up pinned_playlists and playlist_folders."""
+    pid = _normalize_playlist_id(playlist_id)
+    if not pid:
+        return {"ok": False, "error": "Missing playlist_id"}
+    token = await plugin._ensure_token()
+    if not token:
+        return {"ok": False, "error": "Not authenticated"}
+    source = "web_api"
+    try:
+        await _exec(_spotify_api_request, f"playlists/{pid}/followers", token, "DELETE")
+    except urllib.error.HTTPError as e:
+        if e.code in (400, 403, 404) and cdp_bridge.is_spotify_client_running(plugin):
+            cdp_res = await _exec(cdp_bridge.cdp_delete_playlist, f"spotify:playlist:{pid}")
+            if not cdp_res.get("ok"):
+                return {"ok": False, "error": cdp_res.get("error") or _parse_spotify_error(e)}
+            source = "cdp"
+        else:
+            return {"ok": False, "error": _parse_spotify_error(e)}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+    pinned, folders = _cleanup_deleted_playlist_refs(plugin, pid)
+    return {
+        "ok": True,
+        "playlist_id": pid,
+        "pinned_playlists": pinned,
+        "folders": folders,
+        "source": source,
+    }
+
+
+async def reorder_playlist_tracks(
+    plugin,
+    playlist_id: str,
+    from_index: int,
+    to_index: int,
+    range_length: int = 1,
+    snapshot_id: str = "",
+    uid: str = "",
+    target_uid: str = "",
+) -> dict:
+    """Reorder tracks in a playlist via Web API (/items then /tracks) with CDP fallback."""
+    pid = _normalize_playlist_id(playlist_id)
+    if not pid:
+        return {"ok": False, "error": "Missing playlist_id"}
+    try:
+        src = int(from_index)
+        dst = int(to_index)
+        length = max(1, int(range_length))
+    except (TypeError, ValueError):
+        return {"ok": False, "error": "Invalid playlist indices"}
+    if src < 0 or dst < 0:
+        return {"ok": False, "error": "Playlist indices must be non-negative"}
+    token = await plugin._ensure_token()
+    if not token:
+        return {"ok": False, "error": "Not authenticated"}
+    insert_before = dst + 1 if dst > src else dst
+    payload: dict = {
+        "range_start": src,
+        "insert_before": insert_before,
+        "range_length": length,
+    }
+    if snapshot_id:
+        payload["snapshot_id"] = str(snapshot_id)
+
+    try:
+        try:
+            res = await _exec(
+                _spotify_api_request, f"playlists/{pid}/items", token, "PUT", None, payload,
+            )
+            return {"ok": True, "snapshot_id": (res or {}).get("snapshot_id", ""), "insert_before": insert_before}
+        except urllib.error.HTTPError as e:
+            if e.code not in (400, 403, 404):
+                raise
+            try:
+                res = await _exec(
+                    _spotify_api_request, f"playlists/{pid}/tracks", token, "PUT", None, payload,
+                )
+                return {"ok": True, "snapshot_id": (res or {}).get("snapshot_id", ""), "insert_before": insert_before}
+            except urllib.error.HTTPError as e2:
+                if (
+                    e2.code in (400, 403, 404)
+                    and cdp_bridge.is_spotify_client_running(plugin)
+                    and uid
+                    and target_uid
+                ):
+                    cdp_res = await _exec(
+                        cdp_bridge.cdp_reorder_playlist_track,
+                        f"spotify:playlist:{pid}",
+                        str(uid),
+                        str(target_uid),
+                        dst > src,
+                    )
+                    if cdp_res.get("ok"):
+                        return {"ok": True, "insert_before": insert_before, "source": "cdp"}
+                    return {"ok": False, "error": cdp_res.get("error") or _parse_spotify_error(e2)}
+                raise
     except urllib.error.HTTPError as e:
         return {"ok": False, "error": _parse_spotify_error(e)}
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
 
-async def remove_track_from_playlist(plugin, playlist_id: str, track_uri: str) -> dict:
-    """Remove a track URI from a playlist."""
+async def remove_track_from_playlist(
+    plugin,
+    playlist_id: str,
+    track_uri: str,
+    position: int | None = None,
+    uid: str = "",
+) -> dict:
+    """Remove a track URI (or single instance by position/uid) from a playlist."""
     token = await plugin._ensure_token()
     if not token:
         return {"ok": False, "error": "Not authenticated"}
-    pid = (playlist_id or "").strip()
-    if pid.startswith("spotify:playlist:"):
-        pid = pid.split(":")[-1]
+    pid = _normalize_playlist_id(playlist_id)
     uri = (track_uri or "").strip()
     if uri and not uri.startswith("spotify:"):
         uri = f"spotify:track:{uri}"
     if not pid or not uri:
         return {"ok": False, "error": "Missing playlist_id or track_uri"}
+
+    item_obj: dict = {"uri": uri}
+    if position is not None:
+        item_obj["positions"] = [int(position)]
+
     try:
         try:
             await _exec(
                 _spotify_api_request, f"playlists/{pid}/items", token, "DELETE", None,
-                {"items": [{"uri": uri}]},
+                {"items": [item_obj]},
             )
+            return {"ok": True}
         except urllib.error.HTTPError as e:
-            if e.code in (400, 403, 404):
+            if e.code not in (400, 403, 404):
+                raise
+            try:
                 await _exec(
                     _spotify_api_request, f"playlists/{pid}/tracks", token, "DELETE", None,
-                    {"tracks": [{"uri": uri}]},
+                    {"tracks": [item_obj]},
                 )
-            else:
+                return {"ok": True}
+            except urllib.error.HTTPError as e2:
+                if e2.code in (400, 403, 404) and cdp_bridge.is_spotify_client_running(plugin):
+                    cdp_res = await _exec(
+                        cdp_bridge.cdp_remove_from_playlist,
+                        f"spotify:playlist:{pid}",
+                        uri,
+                        str(uid or ""),
+                    )
+                    if cdp_res.get("ok"):
+                        return {"ok": True, "source": "cdp"}
+                    return {"ok": False, "error": cdp_res.get("error") or _parse_spotify_error(e2)}
                 raise
-        return {"ok": True}
     except urllib.error.HTTPError as e:
         return {"ok": False, "error": _parse_spotify_error(e)}
     except Exception as e:
