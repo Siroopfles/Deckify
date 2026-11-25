@@ -1,0 +1,282 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("react/jsx-dev-runtime", () => ({
+  Fragment: "Fragment",
+  jsxDEV: (type: any, props: any, key: any) => ({
+    type,
+    props: { ...props, ...(key !== undefined ? { key } : {}) },
+  }),
+}));
+
+vi.mock("react/jsx-runtime", () => ({
+  Fragment: "Fragment",
+  jsx: (type: any, props: any, key: any) => ({
+    type,
+    props: { ...props, ...(key !== undefined ? { key } : {}) },
+  }),
+  jsxs: (type: any, props: any, key: any) => ({
+    type,
+    props: { ...props, ...(key !== undefined ? { key } : {}) },
+  }),
+}));
+
+let stateValues: any[] = [];
+let stateIdx = 0;
+let refValues: any[] = [];
+let refIdx = 0;
+
+vi.mock("react", () => ({
+  useState: (init: any) => {
+    const idx = stateIdx++;
+    if (!(idx in stateValues)) {
+      stateValues[idx] = typeof init === "function" ? init() : init;
+    }
+    const setter = (val: any) => {
+      stateValues[idx] = typeof val === "function" ? val(stateValues[idx]) : val;
+    };
+    return [stateValues[idx], setter];
+  },
+  useEffect: (fn: () => void | (() => void)) => fn(),
+  useCallback: (fn: any) => fn,
+  useMemo: (fn: () => any) => fn(),
+  useRef: (init: any) => {
+    const idx = refIdx++;
+    if (!(idx in refValues)) {
+      refValues[idx] = { current: init };
+    }
+    return refValues[idx];
+  },
+}));
+
+vi.mock("@decky/api", () => ({
+  callable: () => vi.fn(),
+}));
+
+vi.mock("@decky/ui", () => ({
+  Focusable: ({ children, ...props }: any) => ({ type: "Focusable", props: { children, ...props } }),
+  TextField: (props: any) => ({ type: "TextField", props }),
+  GamepadButton: { DIR_UP: 9, DIR_DOWN: 10 },
+}));
+
+vi.mock("../common/DeckifyImage", () => ({
+  DeckifyImage: (props: any) => ({ type: "DeckifyImage", props }),
+}));
+
+import { Focusable, TextField } from "@decky/ui";
+import { PlaylistsTab, PlaylistDeleteConfirmModal, PlaylistsTabProps } from "./PlaylistsTab";
+import { InteractiveRow } from "../common/InteractiveRow";
+import { TrackRowItem } from "../common/TrackRowItem";
+
+function expandTree(node: any): any {
+  if (!node || typeof node !== "object") return node;
+  if (Array.isArray(node)) return node.map(expandTree);
+  if (
+    typeof node.type === "function" &&
+    node.type !== InteractiveRow &&
+    node.type !== TrackRowItem &&
+    node.type !== TextField &&
+    node.type !== Focusable
+  ) {
+    return expandTree(node.type(node.props));
+  }
+  if (node.props?.children) {
+    return { ...node, props: { ...node.props, children: expandTree(node.props.children) } };
+  }
+  return node;
+}
+
+function findNodes(tree: any, predicate: (node: any) => boolean, results: any[] = []): any[] {
+  if (!tree) return results;
+  if (Array.isArray(tree)) {
+    for (const child of tree) findNodes(child, predicate, results);
+    return results;
+  }
+  if (predicate(tree)) results.push(tree);
+  if (tree.props?.children) findNodes(tree.props.children, predicate, results);
+  return results;
+}
+
+function collectText(tree: any): string {
+  if (tree == null || typeof tree === "boolean") return "";
+  if (typeof tree === "string" || typeof tree === "number") return String(tree);
+  if (Array.isArray(tree)) return tree.map(collectText).join(" ");
+  if (typeof tree === "object" && tree.props) return collectText(tree.props.children);
+  return "";
+}
+
+function makeProps(overrides: Partial<PlaylistsTabProps> = {}): PlaylistsTabProps {
+  return {
+    folders: [],
+    allUserPlaylists: [
+      { id: "pl-1", name: "My Playlist", uri: "spotify:playlist:pl-1", is_editable: true, track_count: 2 },
+    ],
+    activePlaylist: null,
+    playlistTracks: [
+      { id: "t1", name: "Alpha", artist: "Artist 1", uri: "spotify:track:t1", duration_ms: 180000 },
+      { id: "t2", name: "Beta", artist: "Artist 2", uri: "spotify:track:t2", duration_ms: 200000 },
+    ],
+    loadingContent: false,
+    audioBackend: "librespot",
+    mixingBusy: false,
+    onOpenPlaylist: vi.fn(),
+    onClosePlaylist: vi.fn(),
+    onPlayTrack: vi.fn(),
+    onToggleMix: vi.fn(),
+    onToggleLike: vi.fn(),
+    onOpenActions: vi.fn(),
+    onCreatePlaylist: vi.fn(async () => {}),
+    onCreateFolder: vi.fn(async () => {}),
+    onRenameFolder: vi.fn(async () => {}),
+    onDeleteFolder: vi.fn(async () => {}),
+    ...overrides,
+  };
+}
+
+describe("PlaylistsTab Phase 27 CRUD, filtering, ownership & Grab/Move (27-04)", () => {
+  let origDoc: any;
+  let origRaf: any;
+  let origCancelRaf: any;
+
+  beforeEach(() => {
+    stateValues = [];
+    stateIdx = 0;
+    refValues = [];
+    refIdx = 0;
+    origDoc = (globalThis as any).document;
+    origRaf = (globalThis as any).requestAnimationFrame;
+    origCancelRaf = (globalThis as any).cancelAnimationFrame;
+    (globalThis as any).document = { activeElement: null };
+    (globalThis as any).requestAnimationFrame = vi.fn(() => 1);
+    (globalThis as any).cancelAnimationFrame = vi.fn();
+  });
+
+  afterEach(() => {
+    (globalThis as any).document = origDoc;
+    (globalThis as any).requestAnimationFrame = origRaf;
+    (globalThis as any).cancelAnimationFrame = origCancelRaf;
+  });
+
+  it("renders Name + Description TextFields in Create Playlist and rejects empty name", async () => {
+    const onCreatePlaylist = vi.fn(async () => {});
+    const props = makeProps({ onCreatePlaylist });
+    const initialTree = expandTree(PlaylistsTab(props));
+    const newPlBtn = findNodes(initialTree, (n) => n.type === InteractiveRow && collectText(n).includes("New Playlist"))[0];
+    newPlBtn.props.onClick();
+
+    stateIdx = 0;
+    refIdx = 0;
+    const formTree = expandTree(PlaylistsTab(props));
+    const formPanel = findNodes(formTree, (n) => n.props?.["data-testid"] === "playlist-form-panel")[0];
+    expect(formPanel).toBeDefined();
+
+    const fields = findNodes(formPanel, (n) => n.type === TextField);
+    expect(fields.map((f) => f.props.label)).toEqual(["Playlist Name", "Description (Optional)"]);
+
+    const createBtn = findNodes(formPanel, (n) => n.type === InteractiveRow && collectText(n).includes("Create"))[0];
+    await createBtn.props.onClick();
+    expect(onCreatePlaylist).not.toHaveBeenCalled();
+
+    stateIdx = 0;
+    refIdx = 0;
+    const errorTree = expandTree(PlaylistsTab(props));
+    expect(collectText(errorTree)).toContain("Playlist name cannot be empty. Enter a name to continue.");
+  });
+
+  it("hides Edit Details, Reorder, and Remove on read-only playlists and labels delete as Unfollow Playlist", () => {
+    const tree = expandTree(
+      PlaylistsTab(
+        makeProps({
+          activePlaylist: { id: "pl-ro", name: "Discover Weekly", uri: "spotify:playlist:pl-ro", is_editable: false },
+        }),
+      ),
+    );
+    expect(collectText(tree)).not.toContain("Edit Details");
+    expect(collectText(tree)).toContain("Unfollow Playlist");
+
+    const rows = findNodes(tree, (n) => n.type === TrackRowItem);
+    expect(rows.length).toBe(2);
+    expect(rows[0].props.canReorder).toBe(false);
+    expect(rows[0].props.canRemove).toBe(false);
+  });
+
+  it("disables Grab/Move when trackFilter is non-empty and preserves originalIndex", () => {
+    const onRemovePlaylistTrack = vi.fn(async () => {});
+    const props = makeProps({
+      activePlaylist: { id: "pl-1", name: "My Playlist", uri: "spotify:playlist:pl-1", is_editable: true },
+      onRemovePlaylistTrack,
+    });
+    const tree1 = expandTree(PlaylistsTab(props));
+    const filterField = findNodes(tree1, (n) => n.type === TextField && n.props.label === "Filter tracks")[0];
+    filterField.props.onChange({ target: { value: "Beta" } });
+
+    stateIdx = 0;
+    refIdx = 0;
+    const filteredTree = expandTree(PlaylistsTab(props));
+    const rows = findNodes(filteredTree, (n) => n.type === TrackRowItem);
+    expect(rows.length).toBe(1);
+    expect(rows[0].props.track.name).toBe("Beta");
+    expect(rows[0].props.index).toBe(1);
+    expect(rows[0].props.canReorder).toBe(false);
+
+    rows[0].props.onRemoveTrack(rows[0].props.track, rows[0].props.index);
+    expect(onRemovePlaylistTrack).toHaveBeenCalledWith("pl-1", rows[0].props.track, 1);
+  });
+
+  it("renders empty states for overview filter and track filter", () => {
+    const props = makeProps();
+    const overviewTree1 = expandTree(PlaylistsTab(props));
+    const ovField = findNodes(overviewTree1, (n) => n.type === TextField && n.props.label === "Filter playlists & folders")[0];
+    ovField.props.onChange({ target: { value: "zzzz" } });
+
+    stateIdx = 0;
+    refIdx = 0;
+    const overviewEmpty = expandTree(PlaylistsTab(props));
+    const ovText = collectText(overviewEmpty);
+    expect(ovText).toContain("No playlists or folders match");
+    expect(ovText).toContain("zzzz");
+    expect(ovText).toContain("Clear the filter to view all playlists.");
+
+    stateValues = [];
+    stateIdx = 0;
+    refIdx = 0;
+    const detailProps = makeProps({
+      activePlaylist: { id: "pl-1", name: "My Playlist", uri: "spotify:playlist:pl-1", is_editable: true },
+    });
+    const detailTree1 = expandTree(PlaylistsTab(detailProps));
+    const trField = findNodes(detailTree1, (n) => n.type === TextField && n.props.label === "Filter tracks")[0];
+    trField.props.onChange({ target: { value: "zzzz" } });
+
+    stateIdx = 0;
+    refIdx = 0;
+    const detailEmpty = expandTree(PlaylistsTab(detailProps));
+    const trText = collectText(detailEmpty);
+    expect(trText).toContain("No tracks match");
+    expect(trText).toContain("zzzz");
+    expect(trText).toContain("Clear the track filter to view all songs.");
+  });
+
+  it("sets initial focus on Cancel in PlaylistDeleteConfirmModal", () => {
+    const cancelEl = { focus: vi.fn() };
+    let rafCb: FrameRequestCallback | null = null;
+    (globalThis as any).requestAnimationFrame = vi.fn((cb: FrameRequestCallback) => {
+      rafCb = cb;
+      return 1;
+    });
+
+    const tree = PlaylistDeleteConfirmModal({
+      playlist: { id: "pl-1", name: "My Playlist", uri: "spotify:playlist:pl-1", is_editable: true },
+      onConfirm: vi.fn(async () => {}),
+      onCancel: vi.fn(),
+    });
+    const modalNode = findNodes(tree, (n) => n.props?.["data-testid"] === "playlist-delete-modal")[0];
+    expect(collectText(modalNode)).toContain("Delete Playlist");
+    const cancelBtn = findNodes(modalNode, (n) => n.props?.["data-testid"] === "playlist-delete-cancel")[0];
+    expect(cancelBtn.props.tabIndex).toBe(0);
+
+    modalNode.props.ref.current = {
+      querySelector: vi.fn((sel: string) => (sel === '[data-testid="playlist-delete-cancel"]' ? cancelEl : null)),
+    };
+    rafCb!(16);
+    expect(cancelEl.focus).toHaveBeenCalledTimes(1);
+  });
+});
