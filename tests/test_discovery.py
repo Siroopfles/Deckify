@@ -15,7 +15,7 @@ with patch.dict("sys.modules", {"decky": SimpleNamespace(
     logger=MagicMock(),
     emit=AsyncMock(),
 )}):
-    from py_modules import cdp_bridge, common, rpc_library, spotify
+    from py_modules import cdp_bridge, common, rpc_library, rpc_playback, spotify
 
 
 def make_plugin():
@@ -567,3 +567,71 @@ class TestDiscoveryAlgorithmicMixes(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(disk["mixes"][0]["tracks"][0]["id"], "new0")
         self.assertEqual(len(disk["mixes"][0]["uris"]), 100)
         self.assertEqual(disk["mixes"][0]["uris"][0], "spotify:track:new0")
+
+    async def test_blends_dj_split_skips_prefetch_and_web_search_fallback(self):
+        self.plugin._settings["audio_backend"] = "spotify_client"
+        self.plugin._spotify_client_process = SimpleNamespace(poll=lambda: None)
+
+        cdp_items = [
+            {"id": "dl1", "uri": "spotify:playlist:dl1", "name": "daylist", "owner": "Spotify", "kind": "core"},
+            {"id": "37i9dQZF1EJabc", "uri": "spotify:playlist:37i9dQZF1EJabc", "name": "Alex + Sam", "owner": "Spotify", "kind": "blend"},
+            {"id": "37i9dQZF1EYkqdzj48dyYq", "uri": "spotify:playlist:37i9dQZF1EYkqdzj48dyYq", "name": "DJ", "owner": "Spotify", "kind": "dj"},
+        ]
+
+        def fake_api(endpoint, token, method="GET", params=None, body=None):
+            if endpoint == "me/playlists":
+                return {"total": 0, "items": []}
+            if endpoint == "search":
+                q = (params or {}).get("q", "")
+                if q == "Discover Weekly":
+                    return {"playlists": {"items": [{"id": "dw1", "uri": "spotify:playlist:dw1", "name": "Discover Weekly", "owner": {"id": "spotify"}, "images": []}]}}
+                if q == "Release Radar":
+                    return {"playlists": {"items": [{"id": "rr1", "uri": "spotify:playlist:rr1", "name": "Release Radar", "owner": {"id": "spotify"}, "images": []}]}}
+                if q == "Daily Mix":
+                    return {"playlists": {"items": [{"id": "dm1", "uri": "spotify:playlist:dm1", "name": "Daily Mix 1", "owner": {"id": "spotify"}, "images": []}]}}
+                return {"playlists": {"items": []}}
+            if endpoint in ("me/top/tracks", "me/top/artists"):
+                return {"items": []}
+            if endpoint == "browse/new-releases":
+                return {"albums": {"items": []}}
+            return {}
+
+        prefetched_ids = []
+
+        def fake_prefetch(pid, offset=0, fetch_all=False):
+            prefetched_ids.append(pid)
+            return {"ok": True, "tracks": [{"id": "t1", "uri": "spotify:track:t1", "name": "T1"}], "total": 1}
+
+        with patch.object(rpc_library, "_spotify_api_request", side_effect=fake_api), \
+             patch.object(rpc_library, "cdp_fetch_discovery_mixes", return_value={"ok": True, "items": cdp_items}), \
+             patch.object(rpc_library, "cdp_get_playlist_tracks", side_effect=fake_prefetch):
+            res = await rpc_library.get_discovery_feed(self.plugin, "medium_term")
+
+        self.assertTrue(res["ok"])
+        self.assertTrue(res["cdp_active"])
+        self.assertEqual([m["name"] for m in res["made_for_you"]], ["daylist", "Discover Weekly", "Release Radar", "Daily Mix 1"])
+        self.assertEqual([b["name"] for b in res["blends"]], ["Alex + Sam"])
+        self.assertIsNotNone(res["dj"])
+        self.assertEqual(res["dj"]["id"], "37i9dQZF1EYkqdzj48dyYq")
+        # Blend and DJ must NEVER be prefetched
+        self.assertNotIn("37i9dQZF1EJabc", prefetched_ids)
+        self.assertNotIn("37i9dQZF1EYkqdzj48dyYq", prefetched_ids)
+        self.assertEqual(set(prefetched_ids), {"dl1", "dw1", "rr1", "dm1"})
+
+    async def test_play_ai_dj_engine_gating(self):
+        # librespot -> fast-fail requires_spotify_client=True without calling CDP
+        self.plugin._settings["audio_backend"] = "librespot"
+        self.plugin._spotify_client_process = None
+        with patch.object(rpc_playback, "cdp_play_context") as mock_play:
+            res_lib = await rpc_playback.play_ai_dj(self.plugin)
+        self.assertFalse(res_lib["ok"])
+        self.assertTrue(res_lib.get("requires_spotify_client"))
+        mock_play.assert_not_called()
+
+        # spotify_client -> calls cdp_play_context
+        self.plugin._settings["audio_backend"] = "spotify_client"
+        self.plugin._spotify_client_process = SimpleNamespace(poll=lambda: None)
+        with patch.object(rpc_playback, "cdp_play_context", return_value={"ok": True, "uri": "spotify:playlist:37i9dQZF1EYkqdzj48dyYq"}) as mock_play:
+            res_cdp = await rpc_playback.play_ai_dj(self.plugin)
+        self.assertTrue(res_cdp["ok"])
+        mock_play.assert_called_once_with("spotify:playlist:37i9dQZF1EYkqdzj48dyYq")

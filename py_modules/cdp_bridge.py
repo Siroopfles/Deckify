@@ -1,5 +1,6 @@
 import json
 import os
+import re
 
 from py_modules.common import ALLOWED_PLAYBACK_SPEEDS, DECK_HOME, SPOTIFY_CDP_PORT, decky
 
@@ -503,16 +504,93 @@ def cdp_set_playlist_mix(
     return {"ok": False, "error": res.get("error") or "Official Spotify Client did not respond over CDP"}
 
 
+_AI_DJ_PLAYLIST_ID = "37i9dQZF1EYkqdzj48dyYq"
+_AI_DJ_NAME_RE = re.compile(r"^(?:spotify\s+)?(?:ai\s+)?dj$", re.IGNORECASE)
+_BLEND_NAME_RE = re.compile(r"\bblend\b", re.IGNORECASE)
+_CORE_MIX_NAME_RE = re.compile(
+    r"\b(daylist|discover weekly|release radar|daily mix(?:\s*\d+)?|on repeat|repeat rewind)\b",
+    re.IGNORECASE,
+)
+_GENERIC_MIX_NAME_RE = re.compile(r"\bmix\b", re.IGNORECASE)
+
+
+def _classify_discovery_kind(pid: str, uri: str, name: str, owner: str = "") -> str:
+    """Classify a discovery playlist as 'dj', 'blend', 'core', or 'editorial'."""
+    clean_uri = str(uri or "").strip()
+    clean_pid = str(pid or (clean_uri.split(":")[-1] if ":" in clean_uri else "")).strip()
+    clean_name = str(name or "").strip()
+    clean_owner = str(owner or "").strip().lower()
+
+    if clean_pid == _AI_DJ_PLAYLIST_ID or clean_uri == f"spotify:playlist:{_AI_DJ_PLAYLIST_ID}" or _AI_DJ_NAME_RE.match(clean_name):
+        return "dj"
+    if clean_pid.startswith("37i9dQZF1EJ") or _BLEND_NAME_RE.search(clean_name):
+        return "blend"
+    if _CORE_MIX_NAME_RE.search(clean_name):
+        return "core"
+    if clean_owner == "spotify" and _GENERIC_MIX_NAME_RE.search(clean_name):
+        return "core"
+    return "editorial"
+
+
+def cdp_play_context(
+    uri: str,
+    port: int = SPOTIFY_CDP_PORT,
+    timeout: float = DEFAULT_CDP_TIMEOUT,
+    eval_fn=None,
+) -> dict:
+    """Start playback of a Spotify playlist/context URI via CDP PlayerAPI.play."""
+    clean_uri = str(uri or "").strip()
+    if not clean_uri.startswith("spotify:playlist:"):
+        return {"ok": False, "error": "Invalid playlist URI"}
+
+    body_js = f"""
+    const uri = {json.dumps(clean_uri)};
+    const playerApi = getService('PlayerAPI');
+    if (!playerApi || typeof playerApi.play !== 'function') {{
+      return {{ ok: false, error: 'PlayerAPI.play unavailable' }};
+    }}
+    try {{
+      await playerApi.play({{ uri }}, {{}}, {{}});
+      return {{ ok: true, uri }};
+    }} catch (e) {{
+      return {{ ok: false, error: e?.message || String(e) }};
+    }}
+    """
+    res = evaluate_with_registry(body_js, port=port, timeout=timeout, eval_fn=eval_fn)
+    if res.get("ok"):
+        return res
+    return {"ok": False, "error": res.get("error") or "CDP PlayerAPI.play failed"}
+
+
 def cdp_fetch_discovery_mixes(
     port: int = SPOTIFY_CDP_PORT,
     timeout: float = DEFAULT_CDP_TIMEOUT,
     eval_fn=None,
 ) -> dict:
-    """Probe HomeAPI / GraphQL / RootlistAPI for Spotify-owned personalized discovery mixes."""
+    """Probe HomeAPI / GraphQL / RootlistAPI / SearchAPI for personalized discovery mixes."""
     body_js = """
     const seen = new Set();
     const items = [];
-    const mixNameRe = /(daylist|discover weekly|release radar|daily mix|on repeat|repeat rewind|dj|made for)/i;
+    const warnings = [];
+    const djRe = /^(?:spotify\\s+)?(?:ai\\s+)?dj$/i;
+    const blendRe = /\\bblend\\b/i;
+    const coreRe = /\\b(daylist|discover weekly|release radar|daily mix(?:\\s*\\d+)?|on repeat|repeat rewind)\\b/i;
+    const genericMixRe = /\\bmix\\b/i;
+    const classifyKind = (id, uri, name, owner) => {
+      if (id === '37i9dQZF1EYkqdzj48dyYq' || uri === 'spotify:playlist:37i9dQZF1EYkqdzj48dyYq' || djRe.test(name)) {
+        return 'dj';
+      }
+      if (id.startsWith('37i9dQZF1EJ') || blendRe.test(name)) {
+        return 'blend';
+      }
+      if (coreRe.test(name)) {
+        return 'core';
+      }
+      if (String(owner).toLowerCase() === 'spotify' && genericMixRe.test(name)) {
+        return 'core';
+      }
+      return 'editorial';
+    };
     const pushItem = (raw) => {
       if (!raw) return;
       const uri = raw.uri || '';
@@ -522,49 +600,71 @@ def cdp_fetch_discovery_mixes(
       const normUri = uri || (id ? 'spotify:playlist:' + id : '');
       if (!normUri.includes(':playlist:')) return;
       const owner = raw.owner?.username || raw.owner?.id || raw.owner?.name || raw.owner || '';
-      const isSpotifyOwned = String(owner).toLowerCase() === 'spotify' || id.startsWith('37i9dQZF1') || mixNameRe.test(name);
-      if (!isSpotifyOwned || !name || seen.has(normUri)) return;
+      if (!name || seen.has(normUri)) return;
+      const pid = id || normUri.split(':').pop();
+      const kind = classifyKind(pid, normUri, name, owner);
+      if (kind === 'editorial') return;
       seen.add(normUri);
       items.push({
-        id: id || normUri.split(':').pop(),
+        id: pid,
         name,
         uri: normUri,
         image_url: parseImg(raw.images || raw.coverArt?.sources || raw.image),
         subtitle: raw.description || raw.subtitle || (owner ? 'Made by ' + owner : 'Made for you'),
         type: 'playlist',
-        owner: owner || 'Spotify'
+        owner: owner || 'Spotify',
+        kind
       });
+    };
+    const extractHomeSections = (home) => {
+      const sections = home?.sections || home?.items || home?.data?.home?.sectionContainer?.sections?.items || [];
+      for (const sec of (Array.isArray(sections) ? sections : [])) {
+        const secItems = sec?.items || sec?.sectionItems?.items || sec?.content?.items || [];
+        for (const entry of (Array.isArray(secItems) ? secItems : [])) {
+          const node = entry?.content?.data || entry?.data || entry?.item || entry;
+          pushItem(node);
+        }
+      }
     };
 
     const homeApi = getService('HomeAPI');
     if (homeApi) {
-      try {
-        let home = null;
-        if (typeof homeApi.getHome === 'function') home = await homeApi.getHome({});
-        else if (typeof homeApi.getSections === 'function') home = await homeApi.getSections({});
-        const sections = home?.sections || home?.data?.home?.sectionContainer?.sections?.items || [];
-        for (const sec of (Array.isArray(sections) ? sections : [])) {
-          const secItems = sec?.items || sec?.sectionItems?.items || [];
-          for (const entry of (Array.isArray(secItems) ? secItems : [])) {
-            const node = entry?.content?.data || entry?.data || entry;
-            pushItem(node);
-          }
+      const tz = (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch (e) { return 'UTC'; } })();
+      const attempts = [
+        () => typeof homeApi.getHome === 'function' ? homeApi.getHome({ timeZone: tz }) : null,
+        () => typeof homeApi.getHome === 'function' ? homeApi.getHome({}) : null,
+        () => typeof homeApi.getSections === 'function' ? homeApi.getSections({ timeZone: tz }) : null,
+        () => typeof homeApi.getSections === 'function' ? homeApi.getSections({}) : null,
+        () => typeof homeApi.getHomeSections === 'function' ? homeApi.getHomeSections({ timeZone: tz }) : null,
+      ];
+      for (const fn of attempts) {
+        try {
+          const home = await fn();
+          if (home) extractHomeSections(home);
+        } catch (e) {
+          warnings.push('HomeAPI: ' + (e?.message || String(e)));
         }
-      } catch (e) {}
+      }
     }
 
-    const gql = getService('GraphQL');
-    if (gql && typeof gql.query === 'function' && items.length === 0) {
-      try {
-        const res = await gql.query({ name: 'home', variables: {} });
-        const sections = res?.data?.home?.sectionContainer?.sections?.items || [];
-        for (const sec of (Array.isArray(sections) ? sections : [])) {
-          const secItems = sec?.sectionItems?.items || [];
-          for (const entry of (Array.isArray(secItems) ? secItems : [])) {
-            pushItem(entry?.content?.data || entry?.data || entry);
+    const hasCoreMix = (needle) => items.some((it) => it.kind === 'core' && it.name.toLowerCase().includes(needle));
+    const missingCore = () => ['discover weekly', 'release radar', 'daily mix', 'daylist'].filter((n) => !hasCoreMix(n));
+
+    if (missingCore().length > 0) {
+      const gql = getService('GraphQL');
+      if (gql && typeof gql.query === 'function') {
+        try {
+          const defs = gql.Definitions || gql.definitions || window.Spicetify?.GraphQL?.Definitions || {};
+          const homeDef = defs.home || defs.Home || null;
+          if (homeDef) {
+            const tz = (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch (e) { return 'UTC'; } })();
+            const res = await gql.query(homeDef, { timeZone: tz, sectionItemsLimit: 20 });
+            extractHomeSections(res);
           }
+        } catch (e) {
+          warnings.push('GraphQL: ' + (e?.message || String(e)));
         }
-      } catch (e) {}
+      }
     }
 
     const rootlistApi = getService('RootlistAPI');
@@ -574,14 +674,52 @@ def cdp_fetch_discovery_mixes(
         for (const child of (root?.items || [])) {
           if (child?.type === 'playlist') pushItem(child);
         }
-      } catch (e) {}
+      } catch (e) {
+        warnings.push('RootlistAPI: ' + (e?.message || String(e)));
+      }
     }
 
-    return { ok: true, items };
+    const stillMissing = missingCore();
+    if (stillMissing.length > 0) {
+      const searchApi = getService('SearchAPI');
+      if (searchApi) {
+        const queryMap = {
+          'discover weekly': 'Discover Weekly',
+          'release radar': 'Release Radar',
+          'daily mix': 'Daily Mix',
+          'daylist': 'Daylist'
+        };
+        for (const key of stillMissing) {
+          const q = queryMap[key];
+          try {
+            let res = null;
+            if (typeof searchApi.search === 'function') {
+              res = await searchApi.search({ searchTerm: q, limit: 10 });
+            } else if (typeof searchApi.getSearchResults === 'function') {
+              res = await searchApi.getSearchResults({ query: q, limit: 10 });
+            } else if (typeof searchApi.searchPlaylists === 'function') {
+              res = await searchApi.searchPlaylists(q, { limit: 10 });
+            }
+            const plList = res?.playlists?.items || res?.playlists || res?.results?.playlists?.items || res?.items || [];
+            for (const p of (Array.isArray(plList) ? plList : [])) {
+              pushItem(p);
+            }
+          } catch (e) {
+            warnings.push('SearchAPI(' + q + '): ' + (e?.message || String(e)));
+          }
+        }
+      }
+    }
+
+    return { ok: true, items, warnings };
     """
     res = evaluate_with_registry(body_js, port=port, timeout=timeout, eval_fn=eval_fn)
     if not res.get("ok"):
         return {"ok": False, "items": [], "error": res.get("error") or "CDP discovery mixes unavailable"}
+
+    warnings = res.get("warnings") or []
+    if warnings:
+        decky.logger.debug("cdp_fetch_discovery_mixes warnings: %s", warnings)
 
     raw_items = res.get("items") or []
     normalized = []
@@ -592,18 +730,25 @@ def cdp_fetch_discovery_mixes(
         pid = str(item.get("id") or (uri.split(":")[-1] if ":" in uri else ""))
         if not pid and not uri:
             continue
+        norm_uri = uri or f"spotify:playlist:{pid}"
+        name = str(item.get("name") or "")
+        owner = str(item.get("owner") or "Spotify")
+        kind = _classify_discovery_kind(pid, norm_uri, name, owner)
+        if kind == "editorial":
+            continue
         normalized.append(
             {
                 "id": pid,
-                "name": str(item.get("name") or ""),
-                "uri": uri or f"spotify:playlist:{pid}",
+                "name": name,
+                "uri": norm_uri,
                 "image_url": item.get("image_url"),
                 "subtitle": str(item.get("subtitle") or "Made for you"),
                 "type": "playlist",
-                "owner": str(item.get("owner") or "Spotify"),
+                "owner": owner,
+                "kind": kind,
             }
         )
-    return {"ok": True, "items": normalized}
+    return {"ok": True, "items": normalized, "warnings": warnings}
 
 
 def cdp_fetch_station_radio_uris(

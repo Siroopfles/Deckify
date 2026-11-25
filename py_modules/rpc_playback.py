@@ -6,6 +6,7 @@ import urllib.error
 import urllib.parse
 from py_modules.cdp_bridge import (
     cdp_fetch_station_radio_uris,
+    cdp_play_context,
     is_spotify_client_running,
     load_discovery_mixes_cache,
 )
@@ -754,6 +755,30 @@ async def set_playback_speed(plugin, speed: float) -> dict:
     _save_settings(plugin._settings)
     await decky.emit("playback_speed_changed", {"speed": target_speed})
     return {"ok": True, "speed": target_speed}
+
+
+async def play_ai_dj(
+    plugin,
+    uri: str = "spotify:playlist:37i9dQZF1EYkqdzj48dyYq",
+) -> dict:
+    """Start Spotify AI DJ playback via Official Spotify Client CDP PlayerAPI.play."""
+    if not is_spotify_client_running(plugin):
+        return {
+            "ok": False,
+            "requires_spotify_client": True,
+            "error": "Spotify AI DJ requires the Official Spotify Client engine.",
+        }
+    clean_uri = str(uri or "spotify:playlist:37i9dQZF1EYkqdzj48dyYq").strip()
+    if not clean_uri.startswith("spotify:playlist:"):
+        return {"ok": False, "error": "Invalid AI DJ playlist URI"}
+    try:
+        res = await _exec(cdp_play_context, clean_uri)
+    except Exception as e:
+        decky.logger.error("play_ai_dj failed: %s", e)
+        return {"ok": False, "error": str(e)}
+    if isinstance(res, dict) and res.get("ok"):
+        return {"ok": True, "uri": clean_uri}
+    return res if isinstance(res, dict) else {"ok": False, "error": "Failed to start AI DJ"}
 
 
 async def _try_cdp_station_radio(

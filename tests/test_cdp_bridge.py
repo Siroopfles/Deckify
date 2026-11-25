@@ -180,6 +180,100 @@ class TestCdpBridge(unittest.TestCase):
             self.assertTrue(res["ok"])
             self.assertTrue(mock_eval.called)
 
+    def test_discovery_kind_classification_and_cdp_play_context(self):
+        # _classify_discovery_kind
+        self.assertEqual(
+            cdp_bridge._classify_discovery_kind("37i9dQZF1EP6YuccBxUyC1", "spotify:playlist:37i9dQZF1EP6YuccBxUyC1", "daylist", "Spotify"),
+            "core",
+        )
+        self.assertEqual(
+            cdp_bridge._classify_discovery_kind("dw1", "spotify:playlist:dw1", "Discover Weekly", "Spotify"),
+            "core",
+        )
+        self.assertEqual(
+            cdp_bridge._classify_discovery_kind("rr1", "spotify:playlist:rr1", "Release Radar", "Spotify"),
+            "core",
+        )
+        self.assertEqual(
+            cdp_bridge._classify_discovery_kind("dm4", "spotify:playlist:dm4", "Daily Mix 4", "Spotify"),
+            "core",
+        )
+        self.assertEqual(
+            cdp_bridge._classify_discovery_kind("or1", "spotify:playlist:or1", "On Repeat", "Spotify"),
+            "core",
+        )
+        self.assertEqual(
+            cdp_bridge._classify_discovery_kind("rw1", "spotify:playlist:rw1", "Repeat Rewind", "Spotify"),
+            "core",
+        )
+        self.assertEqual(
+            cdp_bridge._classify_discovery_kind("37i9dQZF1EJabc123", "spotify:playlist:37i9dQZF1EJabc123", "Alice + Bob", "Spotify"),
+            "blend",
+        )
+        self.assertEqual(
+            cdp_bridge._classify_discovery_kind("bl1", "spotify:playlist:bl1", "Weekend Blend", "Spotify"),
+            "blend",
+        )
+        self.assertEqual(
+            cdp_bridge._classify_discovery_kind("37i9dQZF1EYkqdzj48dyYq", "spotify:playlist:37i9dQZF1EYkqdzj48dyYq", "DJ", "Spotify"),
+            "dj",
+        )
+        # Editorial clutter and false-positive substrings like "Djent" must be editorial
+        self.assertEqual(
+            cdp_bridge._classify_discovery_kind("37i9dQZF1DX1", "spotify:playlist:37i9dQZF1DX1", "Djent", "Spotify"),
+            "editorial",
+        )
+        self.assertEqual(
+            cdp_bridge._classify_discovery_kind("37i9dQZF1DX2", "spotify:playlist:37i9dQZF1DX2", "Today's Top Hits", "Spotify"),
+            "editorial",
+        )
+        self.assertEqual(
+            cdp_bridge._classify_discovery_kind("37i9dQZF1DX3", "spotify:playlist:37i9dQZF1DX3", "Made for Gaming", "Spotify"),
+            "editorial",
+        )
+
+        # cdp_fetch_discovery_mixes filters editorial and tags kinds
+        payload = {
+            "ok": True,
+            "warnings": [],
+            "items": [
+                {"id": "dl1", "name": "daylist", "uri": "spotify:playlist:dl1", "owner": "Spotify"},
+                {"id": "37i9dQZF1EJ1", "name": "A + B", "uri": "spotify:playlist:37i9dQZF1EJ1", "owner": "Spotify"},
+                {"id": "37i9dQZF1EYkqdzj48dyYq", "name": "DJ", "uri": "spotify:playlist:37i9dQZF1EYkqdzj48dyYq", "owner": "Spotify"},
+                {"id": "37i9dQZF1DX9", "name": "Djent", "uri": "spotify:playlist:37i9dQZF1DX9", "owner": "Spotify"},
+            ],
+        }
+        captured_mixes_js = {}
+
+        def fake_mixes_eval(expr, port=9229, timeout=4.0):
+            captured_mixes_js["expr"] = expr
+            return payload
+
+        res = cdp_bridge.cdp_fetch_discovery_mixes(eval_fn=fake_mixes_eval)
+        self.assertTrue(res["ok"])
+        self.assertEqual([(it["name"], it["kind"]) for it in res["items"]], [
+            ("daylist", "core"),
+            ("A + B", "blend"),
+            ("DJ", "dj"),
+        ])
+        self.assertIn("SearchAPI", captured_mixes_js["expr"])
+        self.assertIn("getHomeSections", captured_mixes_js["expr"])
+
+        # cdp_play_context validates prefix, escapes URI, and calls PlayerAPI.play
+        bad_uri_res = cdp_bridge.cdp_play_context("spotify:track:123", eval_fn=lambda *a, **kw: {"ok": True})
+        self.assertFalse(bad_uri_res["ok"])
+
+        captured_play = {}
+
+        def fake_play_eval(expr, port=9229, timeout=4.0):
+            captured_play["expr"] = expr
+            return {"ok": True, "uri": "spotify:playlist:37i9dQZF1EYkqdzj48dyYq"}
+
+        play_res = cdp_bridge.cdp_play_context("spotify:playlist:37i9dQZF1EYkqdzj48dyYq", eval_fn=fake_play_eval)
+        self.assertTrue(play_res["ok"])
+        self.assertIn("PlayerAPI", captured_play["expr"])
+        self.assertIn(json.dumps("spotify:playlist:37i9dQZF1EYkqdzj48dyYq"), captured_play["expr"])
+
         with patch.object(engine, "_cdp_evaluate", return_value={"ok": True, "episodes": [], "total": 0, "offset": 0}) as mock_eval:
             res = engine._cdp_get_saved_episodes(offset=0)
             self.assertTrue(res["ok"])

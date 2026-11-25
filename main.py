@@ -1551,6 +1551,9 @@ class Plugin:
     async def quick_play_pinned(self, uri: str, item_type: str = "playlist") -> dict:
         return await rpc_playback.quick_play_pinned(self, uri, item_type)
 
+    async def play_ai_dj(self, uri: str = "spotify:playlist:37i9dQZF1EYkqdzj48dyYq") -> dict:
+        return await rpc_playback.play_ai_dj(self, uri)
+
     # ── OAuth callable methods ─────────────────────────────────
 
     async def start_oauth(self) -> dict:

@@ -22,6 +22,7 @@ from py_modules.spotify import (
     _fetch_lyrics_sync,
 )
 from py_modules.cdp_bridge import (
+    _classify_discovery_kind,
     cdp_fetch_browse_categories,
     cdp_fetch_discovery_mixes,
     cdp_get_playlist_tracks,
@@ -1489,7 +1490,94 @@ def _sort_algorithmic_mixes(mixes: list[dict]) -> list[dict]:
     return sorted(by_uri.values(), key=_mix_sort_key)
 
 
-async def _fetch_made_for_you_section(token: str, plugin=None) -> tuple[list[dict], bool]:
+def _partition_discovery_mixes(mixes: list[dict]) -> tuple[list[dict], list[dict], dict | None]:
+    """Classify mixes into (core_mixes, blends, dj) and drop editorial clutter."""
+    core_raw: list[dict] = []
+    blend_raw: list[dict] = []
+    dj_item: dict | None = None
+
+    for raw in mixes:
+        if not isinstance(raw, dict):
+            continue
+        uri = str(raw.get("uri") or "").strip()
+        pid = str(raw.get("id") or (uri.split(":")[-1] if ":" in uri else "")).strip()
+        name = str(raw.get("name") or "").strip()
+        owner = str(raw.get("owner_id") or raw.get("owner") or "").strip()
+        kind = str(raw.get("kind") or "").strip().lower()
+        if kind not in ("core", "blend", "dj", "editorial"):
+            kind = _classify_discovery_kind(pid, uri, name, owner)
+        if kind == "editorial":
+            continue
+        item = dict(raw)
+        item["kind"] = kind
+        if kind == "dj":
+            if dj_item is None:
+                dj_item = item
+            else:
+                for k in ("image_url", "artwork_url", "subtitle", "owner_id"):
+                    if not dj_item.get(k) and item.get(k):
+                        dj_item[k] = item[k]
+        elif kind == "blend":
+            blend_raw.append(item)
+        else:
+            core_raw.append(item)
+
+    return _sort_algorithmic_mixes(core_raw)[:15], _sort_algorithmic_mixes(blend_raw)[:15], dj_item
+
+
+async def _search_missing_core_mixes(
+    token: str,
+    existing_core: list[dict],
+) -> list[dict]:
+    """Fallback to Web API /v1/search for non-followed Discover Weekly / Release Radar / Daily Mix."""
+    names_lower = [str(m.get("name") or "").lower() for m in existing_core]
+    missing_queries = [
+        q
+        for q, needle in (
+            ("Discover Weekly", "discover weekly"),
+            ("Release Radar", "release radar"),
+            ("Daily Mix", "daily mix"),
+            ("Daylist", "daylist"),
+        )
+        if not any(needle in n for n in names_lower)
+    ]
+    if not missing_queries or not token:
+        return []
+
+    found: list[dict] = []
+    for query in missing_queries:
+        try:
+            search_res = await _exec(
+                _spotify_api_request,
+                "search",
+                token,
+                "GET",
+                {"q": query, "type": "playlist", "limit": 10},
+            )
+        except SpotifyRateLimitError:
+            break
+        except Exception as e:
+            decky.logger.debug("Web search fallback for %s failed: %s", query, e)
+            continue
+        pl_items = ((search_res or {}).get("playlists") or {}).get("items") or []
+        for p in pl_items:
+            if not isinstance(p, dict):
+                continue
+            owner_id = str((p.get("owner") or {}).get("id") or "").strip().lower()
+            if owner_id != "spotify":
+                continue
+            pid = str(p.get("id") or "")
+            uri = str(p.get("uri") or (f"spotify:playlist:{pid}" if pid else ""))
+            name = str(p.get("name") or "")
+            if _classify_discovery_kind(pid, uri, name, owner_id) != "core":
+                continue
+            fmt = _format_discovery_playlist(p)
+            fmt["kind"] = "core"
+            found.append(fmt)
+    return found
+
+
+async def _fetch_made_for_you_section(token: str, plugin=None) -> dict:
     cdp_active = bool(plugin is not None and is_spotify_client_running(plugin))
     cdp_mixes: list[dict] = []
     if cdp_active:
@@ -1526,6 +1614,8 @@ async def _fetch_made_for_you_section(token: str, plugin=None) -> tuple[list[dic
 
     disk_cache = load_discovery_mixes_cache()
     cached_mixes = disk_cache.get("mixes") if isinstance(disk_cache.get("mixes"), list) else []
+    cached_blends = disk_cache.get("blends") if isinstance(disk_cache.get("blends"), list) else []
+    cached_dj = disk_cache.get("dj") if isinstance(disk_cache.get("dj"), dict) else None
     cached_by_uri = {
         m.get("uri"): m
         for m in cached_mixes
@@ -1533,9 +1623,16 @@ async def _fetch_made_for_you_section(token: str, plugin=None) -> tuple[list[dic
     }
 
     combined = cdp_mixes + web_mixes
-    if cdp_active and combined:
-        sorted_mixes = _sort_algorithmic_mixes(combined)[:15]
-        for mix in sorted_mixes[:12]:
+    core_pre, _, _ = _partition_discovery_mixes(combined)
+    if cdp_active or (not web_mixes and not cached_mixes):
+        extra_core = await _search_missing_core_mixes(token, core_pre)
+        if extra_core:
+            combined = combined + extra_core
+
+    core_mixes, blends, dj = _partition_discovery_mixes(combined)
+
+    if cdp_active and (core_mixes or blends or dj):
+        for mix in core_mixes[:12]:
             prev = cached_by_uri.get(mix["uri"])
             if prev and not mix.get("tracks") and isinstance(prev.get("tracks"), list) and prev["tracks"]:
                 mix["tracks"] = list(prev["tracks"])[:100]
@@ -1554,32 +1651,54 @@ async def _fetch_made_for_you_section(token: str, plugin=None) -> tuple[list[dic
                     except Exception as e:
                         decky.logger.debug("Eager prefetch for mix %s failed: %s", pid, e)
         try:
-            save_discovery_mixes_cache({
+            cache_payload = {
                 "version": 1,
                 "updated_at": int(time.time()),
-                "mixes": sorted_mixes[:12],
-            })
+                "mixes": core_mixes[:12],
+            }
+            if blends:
+                cache_payload["blends"] = blends[:15]
+            if dj is not None:
+                cache_payload["dj"] = dj
+            save_discovery_mixes_cache(cache_payload)
         except Exception as e:
             decky.logger.warning("Failed to save discovery_mixes.json: %s", e)
-        return sorted_mixes, False
+        return {
+            "made_for_you": core_mixes,
+            "blends": blends,
+            "dj": dj,
+            "fallback": False,
+        }
 
-    if cached_mixes:
-        cached_out = []
-        for m in cached_mixes:
-            if not isinstance(m, dict):
-                continue
-            copy_m = dict(m)
-            sub = str(copy_m.get("subtitle") or "Made for you")
-            if not sub.endswith(" · Cached"):
-                sub = f"{sub} · Cached"
-            copy_m["subtitle"] = sub
-            cached_out.append(copy_m)
-        merged = _sort_algorithmic_mixes(web_mixes + cached_out)[:15]
-        if merged:
-            return merged, False
+    def _with_cached_suffix(entry: dict) -> dict:
+        copy_m = dict(entry)
+        sub = str(copy_m.get("subtitle") or "Made for you")
+        if not sub.endswith(" · Cached"):
+            sub = f"{sub} · Cached"
+        copy_m["subtitle"] = sub
+        return copy_m
 
-    if web_mixes:
-        return _sort_algorithmic_mixes(web_mixes)[:15], False
+    if cached_mixes or cached_blends or cached_dj:
+        cached_raw = [_with_cached_suffix(m) for m in cached_mixes if isinstance(m, dict)]
+        cached_raw.extend(_with_cached_suffix(b) for b in cached_blends if isinstance(b, dict))
+        if isinstance(cached_dj, dict):
+            cached_raw.append(dict(cached_dj))
+        merged_core, merged_blends, merged_dj = _partition_discovery_mixes(combined + cached_raw)
+        if merged_core or merged_blends or merged_dj:
+            return {
+                "made_for_you": merged_core,
+                "blends": merged_blends,
+                "dj": merged_dj,
+                "fallback": False,
+            }
+
+    if core_mixes or blends or dj:
+        return {
+            "made_for_you": core_mixes,
+            "blends": blends,
+            "dj": dj,
+            "fallback": False,
+        }
 
     recent_data = await _exec(
         _spotify_api_request, "me/player/recently-played", token, "GET", {"limit": 30}
@@ -1680,7 +1799,12 @@ async def _fetch_made_for_you_section(token: str, plugin=None) -> tuple[list[dic
 
         if len(fallback_items) >= 12:
             break
-    return fallback_items, True
+    return {
+        "made_for_you": fallback_items,
+        "blends": [],
+        "dj": None,
+        "fallback": True,
+    }
 
 
 async def _fetch_top_tracks_section(plugin, token: str, valid_range: str) -> tuple[list[dict], bool]:
@@ -1838,9 +1962,18 @@ async def get_discovery_feed(
             return [], False
 
     try:
-        made_for_you, made_for_you_fallback = await _get_section(
+        made_for_you_data, made_for_you_fallback = await _get_section(
             "made_for_you", _STATIC_TTL_SECONDS, lambda: _fetch_made_for_you_section(token, plugin)
         )
+        if isinstance(made_for_you_data, dict):
+            made_for_you = list(made_for_you_data.get("made_for_you") or [])
+            blends = list(made_for_you_data.get("blends") or [])
+            dj = made_for_you_data.get("dj")
+            made_for_you_fallback = bool(made_for_you_data.get("fallback", made_for_you_fallback))
+        else:
+            made_for_you = list(made_for_you_data or [])
+            blends = []
+            dj = None
         top_tracks, reauth_tracks = await _get_section(
             f"top_tracks:{valid_range}",
             _TOP_TTL_SECONDS,
@@ -1861,6 +1994,9 @@ async def get_discovery_feed(
             "time_range": valid_range,
             "made_for_you": made_for_you,
             "made_for_you_fallback": bool(made_for_you_fallback),
+            "blends": blends,
+            "dj": dj,
+            "cdp_active": bool(is_spotify_client_running(plugin)),
             "top_tracks": top_tracks,
             "top_artists": top_artists,
             "new_releases": new_releases,
