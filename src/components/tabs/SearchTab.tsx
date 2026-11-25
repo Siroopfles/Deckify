@@ -1,4 +1,4 @@
-import { FC, useState, useEffect, useRef, useCallback } from "react";
+import { FC, ReactNode, useState, useEffect, useRef, useCallback } from "react";
 import { Focusable, TextField } from "@decky/ui";
 import { callable } from "@decky/api";
 import {
@@ -54,6 +54,23 @@ const getSearchBrowseCategories = callable<[], SearchBrowseCategoriesResponse>(
 
 const SEARCH_TYPES = "track,artist,album,playlist,show,episode";
 const SEARCH_PAGE_LIMIT = 10;
+
+type SearchSectionKey = Exclude<SearchFilterTab, "all">;
+type SearchApiEntityType = "track" | "playlist" | "artist" | "album" | "show" | "episode";
+
+const SECTION_CONFIG: Record<
+  SearchSectionKey,
+  { apiType: SearchApiEntityType; resultKey: keyof SearchResults; label: string }
+> = {
+  tracks: { apiType: "track", resultKey: "tracks", label: "Load More Tracks" },
+  playlists: { apiType: "playlist", resultKey: "playlists", label: "Load More Playlists" },
+  artists: { apiType: "artist", resultKey: "artists", label: "Load More Artists" },
+  albums: { apiType: "album", resultKey: "albums", label: "Load More Albums" },
+  podcasts: { apiType: "show", resultKey: "shows", label: "Load More Podcasts" },
+  episodes: { apiType: "episode", resultKey: "episodes", label: "Load More Episodes" },
+};
+
+const SEARCH_SECTIONS = Object.keys(SECTION_CONFIG) as SearchSectionKey[];
 
 const FILTER_CHIPS: readonly SearchFilterTab[] = [
   "all",
@@ -275,9 +292,39 @@ const GamingMoodGrid: FC<{ onSelectTile: (tile: GamingMoodTile) => void }> = ({ 
   );
 };
 
+function renderSectionLoadMore(
+  section: SearchSectionKey,
+  hasMore: boolean,
+  isLoading: boolean,
+  onLoadMore: (section: SearchSectionKey) => void,
+) {
+  if (!hasMore) return null;
+  return (
+    <InteractiveRow
+      key={`load-more-${section}`}
+      data-testid={`search-load-more-${section}`}
+      onClick={() => {
+        if (!isLoading) onLoadMore(section);
+      }}
+      style={{
+        justifyContent: "center",
+        marginTop: 6,
+        padding: "8px 16px",
+        background: "rgba(255,255,255,0.08)",
+        fontSize: 12,
+        fontWeight: 700,
+        opacity: isLoading ? 0.6 : 1,
+      }}
+    >
+      {isLoading ? "Loading..." : SECTION_CONFIG[section].label}
+    </InteractiveRow>
+  );
+}
+
 function renderPlaylistsSection(
   playlists: PlaylistItem[] | undefined,
   onOpenPlaylist: (playlist: PlaylistItem) => void,
+  loadMoreNode?: ReactNode,
 ) {
   if (!playlists || playlists.length === 0) return null;
   return (
@@ -305,6 +352,7 @@ function renderPlaylistsSection(
             </div>
           </InteractiveRow>
         ))}
+        {loadMoreNode}
       </Focusable>
     </div>
   );
@@ -312,9 +360,8 @@ function renderPlaylistsSection(
 
 function renderTracksSection(
   tracks: TrackItem[] | undefined,
-  onPlayTrack: SearchTabProps["onPlayTrack"],
-  onToggleLike: SearchTabProps["onToggleLike"],
-  onOpenActions: SearchTabProps["onOpenActions"],
+  handlers: Pick<SearchTabProps, "onPlayTrack" | "onToggleLike" | "onOpenActions">,
+  loadMoreNode?: ReactNode,
 ) {
   if (!tracks || tracks.length === 0) return null;
   return (
@@ -327,11 +374,12 @@ function renderTracksSection(
             track={t}
             index={idx}
             allTracks={tracks}
-            onPlayTrack={onPlayTrack}
-            onToggleLike={onToggleLike}
-            onOpenActions={onOpenActions}
+            onPlayTrack={handlers.onPlayTrack}
+            onToggleLike={handlers.onToggleLike}
+            onOpenActions={handlers.onOpenActions}
           />
         ))}
+        {loadMoreNode}
       </Focusable>
     </div>
   );
@@ -340,6 +388,7 @@ function renderTracksSection(
 function renderArtistsSection(
   artists: ArtistItem[] | undefined,
   onOpenArtist: (artist: ArtistItem) => void,
+  loadMoreNode?: ReactNode,
 ) {
   if (!artists || artists.length === 0) return null;
   return (
@@ -360,6 +409,7 @@ function renderArtistsSection(
             </span>
           </InteractiveRow>
         ))}
+        {loadMoreNode}
       </Focusable>
     </div>
   );
@@ -368,6 +418,7 @@ function renderArtistsSection(
 function renderAlbumsSection(
   albums: AlbumItem[] | undefined,
   onOpenAlbum: (album: AlbumItem) => void,
+  loadMoreNode?: ReactNode,
 ) {
   if (!albums || albums.length === 0) return null;
   return (
@@ -391,6 +442,7 @@ function renderAlbumsSection(
             </div>
           </InteractiveRow>
         ))}
+        {loadMoreNode}
       </Focusable>
     </div>
   );
@@ -399,6 +451,7 @@ function renderAlbumsSection(
 function renderPodcastsSection(
   shows: ShowItem[] | undefined,
   onOpenShow?: (show: ShowItem) => void,
+  loadMoreNode?: ReactNode,
 ) {
   if (!shows || shows.length === 0) return null;
   return (
@@ -430,6 +483,7 @@ function renderPodcastsSection(
             </div>
           </InteractiveRow>
         ))}
+        {loadMoreNode}
       </Focusable>
     </div>
   );
@@ -438,6 +492,7 @@ function renderPodcastsSection(
 function renderEpisodesSection(
   episodes: EpisodeItem[] | undefined,
   onPlayTrack: SearchTabProps["onPlayTrack"],
+  loadMoreNode?: ReactNode,
 ) {
   if (!episodes || episodes.length === 0) return null;
   return (
@@ -451,6 +506,7 @@ function renderEpisodesSection(
             onPlayTrack={(uri) => onPlayTrack(uri)}
           />
         ))}
+        {loadMoreNode}
       </Focusable>
     </div>
   );
@@ -474,22 +530,39 @@ type SearchHandlers = Pick<
   "onPlayTrack" | "onToggleLike" | "onOpenActions" | "onOpenPlaylist" | "onOpenArtist" | "onOpenAlbum" | "onOpenShow"
 >;
 
+type SectionLoadMoreControl = {
+  isSectionHasMore: (section: SearchSectionKey) => boolean;
+  loadingSection: SearchSectionKey | null;
+  onLoadMoreSection: (section: SearchSectionKey) => void;
+};
+
 function buildOrderedSections(
   searchTab: SearchFilterTab,
   searchResults: SearchResults,
   tileSearchMode: boolean,
-  handlers: SearchHandlers,
+  context: { handlers: SearchHandlers; loadMoreControl?: SectionLoadMoreControl },
 ) {
-  const byKey: Record<Exclude<SearchFilterTab, "all">, ReturnType<typeof renderTracksSection>> = {
-    playlists: renderPlaylistsSection(searchResults.playlists, handlers.onOpenPlaylist),
-    tracks: renderTracksSection(searchResults.tracks, handlers.onPlayTrack, handlers.onToggleLike, handlers.onOpenActions),
-    artists: renderArtistsSection(searchResults.artists, handlers.onOpenArtist),
-    albums: renderAlbumsSection(searchResults.albums, handlers.onOpenAlbum),
-    podcasts: renderPodcastsSection(searchResults.shows, handlers.onOpenShow),
-    episodes: renderEpisodesSection(searchResults.episodes, handlers.onPlayTrack),
+  const { handlers, loadMoreControl } = context;
+  const loadMoreFor = (section: SearchSectionKey) =>
+    loadMoreControl
+      ? renderSectionLoadMore(
+          section,
+          loadMoreControl.isSectionHasMore(section),
+          loadMoreControl.loadingSection === section,
+          loadMoreControl.onLoadMoreSection,
+        )
+      : null;
+
+  const byKey: Record<SearchSectionKey, ReturnType<typeof renderTracksSection>> = {
+    playlists: renderPlaylistsSection(searchResults.playlists, handlers.onOpenPlaylist, loadMoreFor("playlists")),
+    tracks: renderTracksSection(searchResults.tracks, handlers, loadMoreFor("tracks")),
+    artists: renderArtistsSection(searchResults.artists, handlers.onOpenArtist, loadMoreFor("artists")),
+    albums: renderAlbumsSection(searchResults.albums, handlers.onOpenAlbum, loadMoreFor("albums")),
+    podcasts: renderPodcastsSection(searchResults.shows, handlers.onOpenShow, loadMoreFor("podcasts")),
+    episodes: renderEpisodesSection(searchResults.episodes, handlers.onPlayTrack, loadMoreFor("episodes")),
   };
   if (searchTab !== "all") return [byKey[searchTab]];
-  const order: Exclude<SearchFilterTab, "all">[] = tileSearchMode
+  const order: SearchSectionKey[] = tileSearchMode
     ? ["playlists", "tracks", "artists", "albums", "podcasts", "episodes"]
     : ["tracks", "playlists", "artists", "albums", "podcasts", "episodes"];
   return order.map((key) => byKey[key]);
@@ -503,7 +576,9 @@ const SearchResultsView: FC<{
   tileSearchMode: boolean;
   loadingSearch: boolean;
   searchError?: string | null;
-  onLoadMore: () => void;
+  sectionHasMore: Partial<Record<SearchSectionKey, boolean>>;
+  loadingSection: SearchSectionKey | null;
+  onLoadMoreSection: (section: SearchSectionKey) => void;
   handlers: SearchHandlers;
 }> = ({
   searchQuery,
@@ -513,11 +588,26 @@ const SearchResultsView: FC<{
   tileSearchMode,
   loadingSearch,
   searchError,
-  onLoadMore,
+  sectionHasMore,
+  loadingSection,
+  onLoadMoreSection,
   handlers,
 }) => {
   const visibleAny = hasVisibleResults(searchTab, searchResults);
-  const sections = buildOrderedSections(searchTab, searchResults, tileSearchMode, handlers);
+  const isSectionHasMore = (section: SearchSectionKey): boolean => {
+    const explicit = sectionHasMore[section];
+    if (explicit !== undefined) return explicit;
+    const { resultKey } = SECTION_CONFIG[section];
+    return (searchResults[resultKey]?.length ?? 0) >= SEARCH_PAGE_LIMIT;
+  };
+  const sections = buildOrderedSections(searchTab, searchResults, tileSearchMode, {
+    handlers,
+    loadMoreControl: {
+      isSectionHasMore,
+      loadingSection,
+      onLoadMoreSection,
+    },
+  });
 
   return (
     <>
@@ -575,22 +665,6 @@ const SearchResultsView: FC<{
           </div>
         </div>
       )}
-
-      {visibleAny && (
-        <InteractiveRow
-          onClick={onLoadMore}
-          style={{
-            justifyContent: "center",
-            marginTop: 14,
-            padding: "8px 16px",
-            background: "rgba(255,255,255,0.08)",
-            fontSize: 12,
-            fontWeight: 700,
-          }}
-        >
-          Load More Results
-        </InteractiveRow>
-      )}
     </>
   );
 };
@@ -640,37 +714,39 @@ function dedupeByKey<T extends { id?: string; uri?: string }>(prev: T[] = [], ne
   return merged;
 }
 
-function mergeSearchResults(prev: SearchResults, next: SearchResults): SearchResults {
-  return {
-    tracks: dedupeByKey(prev.tracks, next.tracks),
-    artists: dedupeByKey(prev.artists, next.artists),
-    albums: dedupeByKey(prev.albums, next.albums),
-    playlists: dedupeByKey(prev.playlists, next.playlists),
-    shows: dedupeByKey(prev.shows, next.shows),
-    episodes: dedupeByKey(prev.episodes, next.episodes),
-  };
-}
-
 async function executeSearchQuery(
   query: string,
+  types: string,
   offset: number,
-  onSuccess: (res: SearchResults, trimmed: string) => void,
-  onError: (msg: string) => void,
 ) {
   const trimmed = query.trim();
-  if (!trimmed) return;
+  if (!trimmed) return null;
   try {
-    const res = await backendSearchSpotify(trimmed, SEARCH_TYPES, SEARCH_PAGE_LIMIT, offset);
-    if (res.ok) onSuccess(res, trimmed);
-    else onError(res.error || "Search failed — check your connection and try again.");
+    const res = await backendSearchSpotify(trimmed, types, SEARCH_PAGE_LIMIT, offset);
+    if (res.ok) return { ok: true as const, res, trimmed };
+    return { ok: false as const, error: res.error || "Search failed — check your connection and try again." };
   } catch (err) {
-    onError(err instanceof Error && err.message ? err.message : "Search failed — check your connection and try again.");
+    return {
+      ok: false as const,
+      error: err instanceof Error && err.message ? err.message : "Search failed — check your connection and try again.",
+    };
   }
+}
+
+function buildInitialHasMore(res: SearchResults): Partial<Record<SearchSectionKey, boolean>> {
+  const next: Partial<Record<SearchSectionKey, boolean>> = {};
+  for (const section of SEARCH_SECTIONS) {
+    const { resultKey } = SECTION_CONFIG[section];
+    next[section] = (res[resultKey]?.length ?? 0) >= SEARCH_PAGE_LIMIT;
+  }
+  return next;
 }
 
 function useSearchController(props: SearchTabProps) {
   const [searchQuery, setSearchQuery] = useControlledState(props.searchQuery, props.onSearchQueryChange, "");
-  const [searchOffset, setSearchOffset] = useState(0);
+  const [sectionOffsets, setSectionOffsets] = useState<Partial<Record<SearchSectionKey, number>>>({});
+  const [sectionHasMore, setSectionHasMore] = useState<Partial<Record<SearchSectionKey, boolean>>>({});
+  const [loadingSection, setLoadingSection] = useState<SearchSectionKey | null>(null);
   const [searchTab, setSearchTab] = useControlledState<SearchFilterTab>(props.searchTab, props.onSearchTabChange, "all");
   const [searchResults, setSearchResults] = useControlledState<SearchResults>(props.searchResults, props.onSearchResultsChange, {});
   const [tileSearchMode, setTileSearchMode] = useControlledState(props.tileSearchMode, props.onTileSearchModeChange, false);
@@ -689,27 +765,71 @@ function useSearchController(props: SearchTabProps) {
   resultsRef.current = searchResults;
   const recordHistoryRef = useRef(recordHistory);
   recordHistoryRef.current = recordHistory;
+  const searchEpochRef = useRef(0);
 
-  const runSearch = useCallback(async (query: string, offset: number) => {
+  const resetPaging = useCallback(() => {
+    searchEpochRef.current += 1;
+    setSectionOffsets({});
+    setSectionHasMore({});
+    setLoadingSection(null);
+  }, []);
+
+  const runSearch = useCallback(async (query: string) => {
     if (!query.trim()) return;
+    const epoch = searchEpochRef.current;
     setLoadingSearch(true);
     setSearchError(null);
-    await executeSearchQuery(
-      query,
-      offset,
-      (res, trimmed) => {
-        const nextResults = offset > 0 ? mergeSearchResults(resultsRef.current, res) : res;
-        resultsRef.current = nextResults;
-        setResultsRef.current(nextResults);
-        recordHistoryRef.current(trimmed);
-      },
-      (msg) => {
-        setSearchError(msg);
-        showToastRef.current?.(msg);
-      },
-    );
+    const outcome = await executeSearchQuery(query, SEARCH_TYPES, 0);
+    if (searchEpochRef.current !== epoch || !outcome) {
+      setLoadingSearch(false);
+      return;
+    }
+    if (outcome.ok) {
+      resultsRef.current = outcome.res;
+      setResultsRef.current(outcome.res);
+      setSectionOffsets({});
+      setSectionHasMore(buildInitialHasMore(outcome.res));
+      recordHistoryRef.current(outcome.trimmed);
+    } else {
+      setSearchError(outcome.error);
+      showToastRef.current?.(outcome.error);
+    }
     setLoadingSearch(false);
   }, []);
+
+  const handleLoadMoreSection = useCallback(async (section: SearchSectionKey) => {
+    const trimmed = searchQuery.trim();
+    if (!trimmed || loadingSection === section) return;
+    const epoch = searchEpochRef.current;
+    const { apiType, resultKey } = SECTION_CONFIG[section];
+    const nextOffset = (sectionOffsets[section] ?? 0) + SEARCH_PAGE_LIMIT;
+    setLoadingSection(section);
+    setSearchError(null);
+    const outcome = await executeSearchQuery(trimmed, apiType, nextOffset);
+    if (searchEpochRef.current !== epoch || !outcome) {
+      setLoadingSection((prev) => (prev === section ? null : prev));
+      return;
+    }
+    if (outcome.ok) {
+      const prevItems = (resultsRef.current[resultKey] ?? []) as Array<{ id?: string; uri?: string }>;
+      const nextItems = (outcome.res[resultKey] ?? []) as Array<{ id?: string; uri?: string }>;
+      const nextResults: SearchResults = {
+        ...resultsRef.current,
+        [resultKey]: dedupeByKey(prevItems, nextItems),
+      };
+      resultsRef.current = nextResults;
+      setResultsRef.current(nextResults);
+      setSectionOffsets((prev) => ({ ...prev, [section]: nextOffset }));
+      setSectionHasMore((prev) => ({
+        ...prev,
+        [section]: (outcome.res[resultKey]?.length ?? 0) >= SEARCH_PAGE_LIMIT,
+      }));
+    } else {
+      setSearchError(outcome.error);
+      showToastRef.current?.(outcome.error);
+    }
+    setLoadingSection((prev) => (prev === section ? null : prev));
+  }, [searchQuery, loadingSection, sectionOffsets]);
 
   const prevQueryRef = useRef(searchQuery);
   const skipNextDebounceRef = useRef<string | null>(null);
@@ -718,7 +838,7 @@ function useSearchController(props: SearchTabProps) {
     const queryChanged = searchQuery !== prevQueryRef.current;
     prevQueryRef.current = searchQuery;
     if (!queryChanged) return;
-    setSearchOffset(0);
+    resetPaging();
     if (!searchQuery.trim()) {
       setResultsRef.current({});
       setSearchError(null);
@@ -729,33 +849,30 @@ function useSearchController(props: SearchTabProps) {
       skipNextDebounceRef.current = null;
       return;
     }
-    const timer = setTimeout(() => void runSearch(searchQuery, 0), 350);
+    const timer = setTimeout(() => void runSearch(searchQuery), 350);
     return () => clearTimeout(timer);
-  }, [searchQuery, runSearch]);
+  }, [searchQuery, runSearch, resetPaging]);
 
   return {
-    searchQuery, setSearchQuery, searchOffset, setSearchOffset,
+    searchQuery, setSearchQuery,
     searchTab, setSearchTab, searchResults, tileSearchMode, setTileSearchMode,
-    searchHistory, loadingSearch, searchError, removeHistoryItem, clearHistory,
-    handleLoadMore: () => {
-      const nextOffset = searchOffset + SEARCH_PAGE_LIMIT;
-      setSearchOffset(nextOffset);
-      void runSearch(searchQuery, nextOffset);
-    },
+    searchHistory, loadingSearch, searchError, sectionHasMore, loadingSection,
+    removeHistoryItem, clearHistory,
+    handleLoadMoreSection,
     handleSelectHistory: (q: string) => {
       skipNextDebounceRef.current = q;
       setTileSearchMode(false);
-      setSearchOffset(0);
+      resetPaging();
       setSearchQuery(q);
-      void runSearch(q, 0);
+      void runSearch(q);
     },
     handleSelectTile: (tile: GamingMoodTile) => {
       skipNextDebounceRef.current = tile.query;
       setTileSearchMode(true);
       setSearchTab("all");
-      setSearchOffset(0);
+      resetPaging();
       setSearchQuery(tile.query);
-      void runSearch(tile.query, 0);
+      void runSearch(tile.query);
     },
   };
 }
@@ -901,7 +1018,9 @@ export const SearchTab: FC<SearchTabProps> = (props) => {
           tileSearchMode={ctrl.tileSearchMode}
           loadingSearch={ctrl.loadingSearch}
           searchError={ctrl.searchError}
-          onLoadMore={ctrl.handleLoadMore}
+          sectionHasMore={ctrl.sectionHasMore}
+          loadingSection={ctrl.loadingSection}
+          onLoadMoreSection={ctrl.handleLoadMoreSection}
           handlers={{
             onPlayTrack: props.onPlayTrack,
             onToggleLike: props.onToggleLike,

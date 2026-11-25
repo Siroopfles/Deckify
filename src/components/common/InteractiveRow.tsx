@@ -25,6 +25,7 @@ export interface InteractiveRowProps {
   onKeyDown?: (e: any) => void;
   "data-deckify-list-item"?: string;
   "data-deckify-label"?: string;
+  "data-testid"?: string;
   "aria-label"?: string;
 }
 
@@ -106,6 +107,7 @@ export function InteractiveRow({
   onKeyDown,
   "data-deckify-list-item": dataDeckifyListItem,
   "data-deckify-label": dataDeckifyLabel,
+  "data-testid": dataTestId,
   "aria-label": ariaLabel,
 }: InteractiveRowProps) {
   const [focused, setFocused] = useState(false);
@@ -115,6 +117,7 @@ export function InteractiveRow({
       aria-label={ariaLabel}
       data-deckify-list-item={dataDeckifyListItem}
       data-deckify-label={dataDeckifyLabel}
+      data-testid={dataTestId}
       data-deckify-focused={focused ? "true" : undefined}
       onClick={onClick}
       onActivate={onClick}

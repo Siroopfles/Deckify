@@ -331,44 +331,193 @@ describe("SearchTab Search 2.0 tiles, filters & results", () => {
     expect(text).toContain("podcasts");
   });
 
-  it("Load More Results paginates via offset=10 and appends deduplicated results", async () => {
+function makeTenTracks(prefix = "t", start = 1): TrackItem[] {
+  return Array.from({ length: 10 }, (_, idx) => {
+    const n = start + idx;
+    return {
+      id: `${prefix}${n}`,
+      name: `Track ${n}`,
+      artist: `Artist ${n}`,
+      uri: `spotify:track:${prefix}${n}`,
+    };
+  });
+}
+
+function makeTenPlaylists(prefix = "pl", start = 1): PlaylistItem[] {
+  return Array.from({ length: 10 }, (_, idx) => {
+    const n = start + idx;
+    return {
+      id: `${prefix}${n}`,
+      name: `Playlist ${n}`,
+      track_count: 10,
+      uri: `spotify:playlist:${prefix}${n}`,
+    };
+  });
+}
+
+describe("SearchTab per-section Load More paging (G-26-2)", () => {
+  beforeEach(() => {
+    stateSlots.length = 0;
+    stateIdx = 0;
+    mockSearchSpotify.mockReset();
+  });
+
+  it("renders per-section Load More rows for categories with >= 10 items and removes global Load More Results", () => {
+    const tenTracks = makeTenTracks();
+    const tenPlaylists = makeTenPlaylists();
+    const tree = renderSearchTab({
+      searchQuery: "lofi",
+      searchTab: "all",
+      searchResults: {
+        tracks: tenTracks,
+        playlists: tenPlaylists,
+        shows: mockShows,
+      },
+    });
+
+    const text = cleanText(tree);
+    expect(text).not.toContain("Load More Results");
+    expect(findNodes(tree, (n) => n.type === "Focusable" && n.props?.["data-testid"] === "search-load-more-tracks")).toHaveLength(1);
+    expect(findNodes(tree, (n) => n.type === "Focusable" && n.props?.["data-testid"] === "search-load-more-playlists")).toHaveLength(1);
+    expect(findNodes(tree, (n) => n.type === "Focusable" && n.props?.["data-testid"] === "search-load-more-podcasts")).toHaveLength(0);
+    expect(text).toContain("Load More Tracks");
+    expect(text).toContain("Load More Playlists");
+    expect(text).not.toContain("Load More Podcasts");
+  });
+
+  it("clicking Load More Tracks queries singular 'track' type at offset=10 and appends only tracks", async () => {
+    const tenTracks = makeTenTracks();
     const onSearchResultsChange = vi.fn();
     mockSearchSpotify.mockResolvedValueOnce({
       ok: true,
       tracks: [
-        mockTracks[0],
+        tenTracks[0],
         {
-          id: "t2",
-          name: "Track Two",
-          artist: "Artist Two",
-          album: "Album Two",
-          artist_id: "ar2",
-          album_id: "al2",
-          duration_ms: 190000,
-          uri: "spotify:track:t2",
+          id: "t11",
+          name: "Track 11",
+          artist: "Artist 11",
+          uri: "spotify:track:t11",
         },
       ],
-      playlists: [],
     });
 
     const tree = renderSearchTab({
       searchQuery: "lofi",
       searchTab: "all",
-      searchResults: { tracks: mockTracks, playlists: mockPlaylists },
+      searchResults: { tracks: tenTracks, playlists: mockPlaylists, shows: mockShows },
       onSearchResultsChange,
     });
 
-    const loadMoreBtn = findNodes(tree, (n) => n.type === "Focusable" && cleanText(n) === "Load More Results")[0];
-    expect(loadMoreBtn).toBeDefined();
-    (loadMoreBtn.props?.onClick as () => void)();
+    const loadMoreTracks = findNodes(
+      tree,
+      (n) => n.type === "Focusable" && n.props?.["data-testid"] === "search-load-more-tracks",
+    )[0];
+    expect(loadMoreTracks).toBeDefined();
+    (loadMoreTracks.props?.onClick as () => void)();
     await new Promise((r) => setTimeout(r, 0));
 
-    expect(mockSearchSpotify).toHaveBeenCalledWith("lofi", "track,artist,album,playlist,show,episode", 10, 10);
-    expect(onSearchResultsChange).toHaveBeenCalled();
+    expect(mockSearchSpotify).toHaveBeenCalledWith("lofi", "track", 10, 10);
+    expect(onSearchResultsChange).toHaveBeenCalledTimes(1);
     const merged = onSearchResultsChange.mock.calls[0][0];
-    expect(merged.tracks.map((t: TrackItem) => t.id)).toEqual(["t1", "t2"]);
-    expect(merged.playlists.map((p: PlaylistItem) => p.id)).toEqual(["pl1"]);
+    expect(merged.tracks).toHaveLength(11);
+    expect(merged.tracks[10].id).toBe("t11");
+    expect(merged.playlists).toEqual(mockPlaylists);
+    expect(merged.shows).toEqual(mockShows);
   });
+
+  it("hides only the exhausted section's Load More row when fewer than 10 items return", async () => {
+    const tenTracks = makeTenTracks();
+    const tenPlaylists = makeTenPlaylists();
+    let results = { tracks: tenTracks, playlists: tenPlaylists };
+    const onSearchResultsChange = vi.fn((next) => {
+      results = next;
+    });
+    mockSearchSpotify.mockResolvedValueOnce({
+      ok: true,
+      tracks: [{ id: "t11", name: "Track 11", artist: "Artist 11", uri: "spotify:track:t11" }],
+    });
+
+    const tree1 = renderSearchTab({
+      searchQuery: "lofi",
+      searchTab: "all",
+      searchResults: results,
+      onSearchResultsChange,
+    });
+    const loadMoreTracks = findNodes(
+      tree1,
+      (n) => n.type === "Focusable" && n.props?.["data-testid"] === "search-load-more-tracks",
+    )[0];
+    (loadMoreTracks.props?.onClick as () => void)();
+    await new Promise((r) => setTimeout(r, 0));
+
+    const tree2 = renderSearchTab({
+      searchQuery: "lofi",
+      searchTab: "all",
+      searchResults: results,
+      onSearchResultsChange,
+    });
+    expect(findNodes(tree2, (n) => n.type === "Focusable" && n.props?.["data-testid"] === "search-load-more-tracks")).toHaveLength(0);
+    expect(findNodes(tree2, (n) => n.type === "Focusable" && n.props?.["data-testid"] === "search-load-more-playlists")).toHaveLength(1);
+  });
+
+  it("resets per-section offsets and hasMore flags when starting a new search", async () => {
+    const tenTracks = makeTenTracks();
+    let results = { tracks: tenTracks };
+    const onSearchResultsChange = vi.fn((next) => {
+      results = next;
+    });
+    mockSearchSpotify
+      .mockResolvedValueOnce({
+        ok: true,
+        tracks: [{ id: "t11", name: "Track 11", artist: "Artist 11", uri: "spotify:track:t11" }],
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        tracks: makeTenTracks("newt", 1),
+      });
+
+    // 1. Exhaust tracks on initial query
+    const tree1 = renderSearchTab({
+      searchQuery: "lofi",
+      searchTab: "all",
+      searchResults: results,
+      onSearchResultsChange,
+    });
+    const loadMore1 = findNodes(
+      tree1,
+      (n) => n.type === "Focusable" && n.props?.["data-testid"] === "search-load-more-tracks",
+    )[0];
+    (loadMore1.props?.onClick as () => void)();
+    await new Promise((r) => setTimeout(r, 0));
+
+    // 2. Trigger a new search via Gaming & Mood tile
+    const idleTree = renderSearchTab({
+      searchQuery: "",
+      searchResults: results,
+      onSearchResultsChange,
+    });
+    const epicTile = findNodes(
+      idleTree,
+      (n) => n.type === "Focusable" && n.props?.["data-deckify-label"] === "Epic Gaming",
+    )[0];
+    (epicTile.props?.onClick as () => void)();
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(mockSearchSpotify).toHaveBeenLastCalledWith(
+      "epic gaming soundtrack",
+      "track,artist,album,playlist,show,episode",
+      10,
+      0,
+    );
+    const tree3 = renderSearchTab({
+      searchQuery: "epic gaming soundtrack",
+      searchTab: "all",
+      searchResults: results,
+      onSearchResultsChange,
+    });
+    expect(findNodes(tree3, (n) => n.type === "Focusable" && n.props?.["data-testid"] === "search-load-more-tracks")).toHaveLength(1);
+  });
+});
 
   it("renders explicit Search Error banner instead of No Results Found when search_spotify returns ok: false", async () => {
     mockSearchSpotify.mockResolvedValueOnce({ ok: false, error: "HTTP 403" });
