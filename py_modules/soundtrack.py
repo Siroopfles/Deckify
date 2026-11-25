@@ -8,7 +8,7 @@ import asyncio
 import inspect
 import random
 
-from py_modules import vdf_parser
+from py_modules import resilience, vdf_parser
 from py_modules.common import _exec, _save_settings, decky
 from py_modules.equalizer import EQ_PRESETS, clamp_eq_bands
 from py_modules.spotify import _spotify_api_request
@@ -502,7 +502,7 @@ class SoundtrackManager:
             else:
                 if self._settings.get("soundtrack_unbound_policy") == "pause":
                     snap = self._pre_game_snapshot
-                    if snap is None or snap.get("is_playing"):
+                    if (snap is None or snap.get("is_playing")) and resilience.is_local_device_active(self.plugin):
                         await self._pause()
                         self._playback_altered = True
                 return
@@ -510,7 +510,7 @@ class SoundtrackManager:
         if not profile.get("playlists"):
             if not persisted and self._settings.get("soundtrack_unbound_policy") == "pause":
                 snap = self._pre_game_snapshot
-                if snap is None or snap.get("is_playing"):
+                if (snap is None or snap.get("is_playing")) and resilience.is_local_device_active(self.plugin):
                     await self._pause()
                     self._playback_altered = True
             return

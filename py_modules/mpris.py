@@ -1289,10 +1289,14 @@ class MprisBridge:
             if method == "Play":
                 await self._plugin.control_playback("play")
             elif method == "Pause":
+                if not resilience.is_local_device_active(self._plugin):
+                    return
                 await self._plugin.control_playback("pause")
             elif method == "PlayPause":
                 await self._plugin.control_playback("play_pause")
             elif method == "Stop":
+                if not resilience.is_local_device_active(self._plugin):
+                    return
                 await self._plugin.control_playback("pause")
             elif method == "Next":
                 await self._plugin.control_playback("next")
@@ -1382,13 +1386,16 @@ class MprisBridge:
                 pass
 
     async def sync_from_plugin(self) -> None:
-        play_state = getattr(self._plugin, "_poll_play_state", None)
-        if play_state == "playing":
-            playback_status = "Playing"
-        elif play_state == "paused":
-            playback_status = "Paused"
-        else:
+        if not resilience.is_local_device_active(self._plugin):
             playback_status = "Stopped"
+        else:
+            play_state = getattr(self._plugin, "_poll_play_state", None)
+            if play_state == "playing":
+                playback_status = "Playing"
+            elif play_state == "paused":
+                playback_status = "Paused"
+            else:
+                playback_status = "Stopped"
 
         repeat_state = getattr(self._plugin, "_repeat_state", "off")
         loop_status = {"off": "None", "track": "Track", "context": "Playlist"}.get(repeat_state, "None")

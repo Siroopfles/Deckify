@@ -2129,16 +2129,6 @@ class Plugin:
             track_id, bool(is_playing), int(progress_ms or 0), int(duration_ms or 0)
         )
 
-        if getattr(self, "_bookmark_manager", None):
-            self._bookmark_manager.snapshot_from_state(
-                track_uri=item.get("uri") or (f"spotify:track:{track_id}" if track_id else ""),
-                context_uri=self._context_uri,
-                position_ms=self._poll_progress_ms,
-                was_playing=bool(is_playing),
-                track_name=(self._track_meta or {}).get("name") or item.get("name", ""),
-                artist=(self._track_meta or {}).get("artist", ""),
-            )
-
         device = data.get("device", {})
         if device.get("id"):
             new_device = {
@@ -2152,6 +2142,22 @@ class Plugin:
                 if getattr(self, "_poll_wake_event", None):
                     self._poll_wake_event.set()
                 await decky.emit("device_changed", new_device)
+
+        if getattr(self, "_bookmark_manager", None):
+            is_local = (
+                resilience.is_device_dict_local(self, device)
+                if device
+                else resilience.is_local_device_active(self)
+            )
+            self._bookmark_manager.snapshot_from_state(
+                track_uri=item.get("uri") or (f"spotify:track:{track_id}" if track_id else ""),
+                context_uri=self._context_uri,
+                position_ms=self._poll_progress_ms,
+                was_playing=bool(is_playing and is_local),
+                track_name=(self._track_meta or {}).get("name") or item.get("name", ""),
+                artist=(self._track_meta or {}).get("artist", ""),
+            )
+
         volume_percent = device.get("volume_percent")
         if volume_percent is not None and volume_percent != self._poll_volume:
             self._poll_volume = volume_percent

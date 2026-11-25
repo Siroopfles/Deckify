@@ -529,6 +529,33 @@ class TestMprisBridgeIntegration(unittest.IsolatedAsyncioTestCase):
                 mock_save.assert_called_once()
                 mock_chg.assert_awaited_once_with("mpris_enabled", False)
 
+    async def test_remote_active_device_suppresses_playing_and_ignores_pause_stop(self):
+        plugin = self._make_fake_plugin()
+        plugin._poll_play_state = "playing"
+        plugin._active_device = {"id": "phone1", "name": "iPhone", "type": "Smartphone"}
+        plugin._track_meta = {"track_id": "4uLU6hMCjMI75M1A2tKUQC", "name": "Song", "artist": "Artist"}
+        plugin._poll_track_id = "4uLU6hMCjMI75M1A2tKUQC"
+        bridge = mpris.MprisBridge(plugin)
+        fake_session = MagicMock()
+        fake_session.update_position_anchor = MagicMock()
+        fake_session.emit_properties_changed = AsyncMock()
+        bridge._session = fake_session
+
+        await bridge.sync_from_plugin()
+        self.assertEqual(fake_session._playback_status, "Stopped")
+        self.assertEqual(fake_session._metadata, {"mpris:trackid": ("o", mpris.NO_TRACK_PATH)})
+
+        await bridge.handle_dbus_command({"type": "method", "method": "Pause"})
+        await bridge.handle_dbus_command({"type": "method", "method": "Stop"})
+        plugin.control_playback.assert_not_awaited()
+
+        # Local device restores normal Playing status and Pause/Stop forwarding
+        plugin._active_device = {"id": "local1", "name": "Deckify", "type": "Computer"}
+        await bridge.sync_from_plugin()
+        self.assertEqual(fake_session._playback_status, "Playing")
+        await bridge.handle_dbus_command({"type": "method", "method": "Pause"})
+        plugin.control_playback.assert_awaited_once_with("pause")
+
 
 if __name__ == "__main__":
     unittest.main()

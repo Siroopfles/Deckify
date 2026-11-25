@@ -499,3 +499,69 @@ class TestSessionBookmarkManager(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(r_dismiss["ok"])
             self.assertIsNone(plugin._bookmark_manager._held_bookmark)
 
+    async def test_g26_3_remote_device_guards_and_poll_playback_bookmark(self):
+        # 1. is_device_dict_local(plugin, None) -> False; is_local_device_active(None) -> True, remote -> False
+        self.assertFalse(resilience.is_device_dict_local(self.plugin, None))
+        self.assertFalse(resilience.is_device_dict_local(self.plugin, {}))
+        self.plugin._active_device = None
+        self.assertTrue(resilience.is_local_device_active(self.plugin))
+        self.plugin._active_device = {"id": "phone1", "name": "iPhone", "type": "Smartphone"}
+        self.assertFalse(resilience.is_local_device_active(self.plugin))
+
+        # 2. handle_wake_recovery yields when player_data has is_playing=True and device=None
+        mgr = resilience.SessionBookmarkManager(self.plugin, bookmark_file=self.bookmark_path, cooldown_s=0.0)
+        mgr.snapshot_from_state(was_playing=True, position_ms=55000, force=True)
+        self.plugin._active_device = None
+        self.plugin._fetch_current_player = AsyncMock(return_value={"is_playing": True, "device": None})
+        with patch.object(resilience.decky, "emit", new_callable=AsyncMock):
+            res_missing_dev = await mgr.handle_wake_recovery(source="dbus")
+        self.assertTrue(res_missing_dev["held"])
+        self.assertEqual(res_missing_dev["held_reason"], "remote_active")
+        self.plugin.play_tracks.assert_not_awaited()
+
+        # 3. handle_wake_recovery yields when _fetch_current_player returns None while remote device was active
+        self.plugin._active_device = {"id": "phone1", "name": "iPhone", "type": "Smartphone"}
+        self.plugin._fetch_current_player = AsyncMock(return_value=None)
+        with patch.object(resilience.decky, "emit", new_callable=AsyncMock):
+            res_transient_none = await mgr.handle_wake_recovery(source="dbus")
+        self.assertTrue(res_transient_none["held"])
+        self.assertEqual(res_transient_none["held_reason"], "remote_active")
+        self.plugin.play_tracks.assert_not_awaited()
+
+        # 4. _poll_playback updates _active_device before snapshot_from_state and passes was_playing=False for remote
+        from test_token_refresh import main
+
+        p = main.Plugin()
+        p._settings = dict(main.DEFAULT_SETTINGS)
+        p._access_token = "tok"
+        p._ensure_token = AsyncMock(return_value="tok")
+        p._check_tracks_liked = AsyncMock(return_value={"4uLU6hMCjMI75M1A2tKUQC": False})
+        p._bookmark_manager = MagicMock()
+        p._bookmark_manager.on_poll_network_result = AsyncMock()
+        p._mpris_bridge = MagicMock()
+        p._mpris_bridge.sync_from_plugin = AsyncMock()
+        p._maybe_trigger_local_crossfade = AsyncMock()
+        player_payload = {
+            "is_playing": True,
+            "progress_ms": 12000,
+            "shuffle_state": False,
+            "repeat_state": "off",
+            "device": {"id": "phone1", "name": "iPhone", "type": "Smartphone", "volume_percent": 50},
+            "item": {
+                "id": "4uLU6hMCjMI75M1A2tKUQC",
+                "uri": "spotify:track:4uLU6hMCjMI75M1A2tKUQC",
+                "name": "Track",
+                "duration_ms": 180000,
+                "artists": [{"name": "Artist"}],
+                "album": {"name": "Album", "images": []},
+            },
+        }
+        with patch.object(main.decky, "emit", new_callable=AsyncMock), \
+             patch.object(main, "_exec", AsyncMock(return_value=player_payload)):
+            ok = await p._poll_playback()
+        self.assertTrue(ok)
+        self.assertEqual(p._active_device["id"], "phone1")
+        p._bookmark_manager.snapshot_from_state.assert_called_once()
+        self.assertFalse(p._bookmark_manager.snapshot_from_state.call_args.kwargs["was_playing"])
+        p._mpris_bridge.sync_from_plugin.assert_awaited_once()
+

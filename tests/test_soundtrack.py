@@ -1118,6 +1118,26 @@ class TestPerGameAudioProfiles(SoundtrackBase):
             self.assertTrue(res_existing["ok"])
             self.assertEqual(res_existing["profile"]["app_name"], "Explicit Game")
 
+    async def test_unbound_pause_policy_skips_remote_active_device(self):
+        self.plugin._settings["soundtrack_unbound_policy"] = "pause"
+        self.plugin._active_device = {"id": "phone1", "name": "iPhone", "type": "Smartphone"}
+        self.mgr._pre_game_snapshot = {"is_playing": True}
+        self.mgr._pause = AsyncMock()
+
+        await self.mgr._run_launch(999555)
+        self.mgr._pause.assert_not_awaited()
+        self.assertFalse(self.mgr._playback_altered)
+
+        # Also verify profile with empty playlists + not persisted skips remote device
+        await self.mgr._run_launch(999556)
+        self.mgr._pause.assert_not_awaited()
+
+        # When local device is active, unbound pause policy still pauses
+        self.plugin._active_device = {"id": "local1", "name": "Deckify", "type": "Computer"}
+        await self.mgr._run_launch(999557)
+        self.mgr._pause.assert_awaited_once()
+        self.assertTrue(self.mgr._playback_altered)
+
 
 if __name__ == "__main__":
     unittest.main()

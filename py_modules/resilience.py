@@ -214,16 +214,18 @@ def _get_local_device_names(plugin) -> set[str]:
 def is_device_dict_local(plugin, device: dict | None) -> bool:
     """Return True if a Spotify Connect device dict refers to the local librespot instance."""
     if not device or not isinstance(device, dict):
-        return True
+        return False
     dev_name = str(device.get("name") or "").strip().lower()
     if not dev_name:
-        return True
+        return False
     return dev_name in _get_local_device_names(plugin)
 
 
 def is_local_device_active(plugin) -> bool:
     """Return True when active Spotify Connect device is local librespot or no remote device is active."""
     active_dev = getattr(plugin, "_active_device", None)
+    if active_dev is None:
+        return True
     return is_device_dict_local(plugin, active_dev)
 
 
@@ -884,9 +886,14 @@ class SessionBookmarkManager:
 
                 # Step 5: Poll GET me/player once (D-06) — yield if another device is actively playing
                 player_data = await self._fetch_current_player(token or getattr(self._plugin, "_access_token", None))
+                if player_data is None and not is_local_device_active(self._plugin):
+                    self._held_bookmark = dict(bookmark)
+                    self._held_reason = "remote_active"
+                    await self.emit_status()
+                    return {"ok": True, "restored": False, "held": True, "held_reason": "remote_active"}
                 if isinstance(player_data, dict) and player_data.get("is_playing"):
                     remote_dev = player_data.get("device")
-                    if isinstance(remote_dev, dict) and not is_device_dict_local(self._plugin, remote_dev):
+                    if not is_device_dict_local(self._plugin, remote_dev):
                         self._held_bookmark = dict(bookmark)
                         self._held_reason = "remote_active"
                         await self.emit_status()
