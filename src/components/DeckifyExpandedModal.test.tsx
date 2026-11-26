@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-const { mockToast, mockScrubTo, mockToggleLike, mockSetSetting, mockSetNativeMix, mockPlayTracks, mockGetRecentlyPlayed, mockStartRadio } = vi.hoisted(() => ({
+const { mockToast, mockScrubTo, mockToggleLike, mockSetSetting, mockSetNativeMix, mockPlayTracks, mockGetRecentlyPlayed, mockStartRadio, mockGetPlaylistTracks } = vi.hoisted(() => ({
   mockToast: vi.fn(),
   mockScrubTo: vi.fn(),
   mockToggleLike: vi.fn().mockResolvedValue({ ok: true, is_liked: true }),
@@ -9,6 +9,7 @@ const { mockToast, mockScrubTo, mockToggleLike, mockSetSetting, mockSetNativeMix
   mockPlayTracks: vi.fn().mockResolvedValue({ ok: true }),
   mockGetRecentlyPlayed: vi.fn().mockResolvedValue({ ok: true, tracks: [] }),
   mockStartRadio: vi.fn().mockResolvedValue({ ok: true, count: 20 }),
+  mockGetPlaylistTracks: vi.fn().mockResolvedValue({ ok: true, tracks: [] }),
 }));
 
 vi.mock("@decky/api", () => ({
@@ -19,6 +20,7 @@ vi.mock("@decky/api", () => ({
     if (name === "play_tracks") return mockPlayTracks;
     if (name === "get_recently_played") return mockGetRecentlyPlayed;
     if (name === "start_radio") return mockStartRadio;
+    if (name === "get_playlist_tracks") return mockGetPlaylistTracks;
     return vi.fn().mockResolvedValue({ ok: true });
   },
   addEventListener: vi.fn(),
@@ -1697,5 +1699,45 @@ describe("Phase 26: Search stepwise B-button clear-search & hintText (26-04)", (
 
     expect(ev.preventDefault).not.toHaveBeenCalled();
     expect(ev.stopPropagation).not.toHaveBeenCalled();
+  });
+
+  it("updates activePlaylist.name and description when get_playlist_tracks returns dynamic Daylist metadata (G-26-1)", async () => {
+    mockGetPlaylistTracks.mockResolvedValueOnce({
+      ok: true,
+      tracks: [{ id: "t1", name: "Track 1", artist: "Artist 1", uri: "spotify:track:t1" }],
+      playlist_name: "hyperpop thursday morning",
+      playlist_description: "Your Thursday morning mix",
+      is_mixed: false,
+    });
+    const closeModal = vi.fn();
+    DeckifyExpandedModal({ closeModal });
+    stateValues[0] = "discovery";
+    stateIdx = 0;
+    refIdx = 0;
+    const discoveryTree = DeckifyExpandedModal({ closeModal });
+
+    const discoveryNode = findNodes(
+      discoveryTree,
+      (n) => typeof n.props?.onOpenPlaylist === "function"
+    )[0];
+    expect(discoveryNode).toBeDefined();
+
+    await (discoveryNode.props.onOpenPlaylist as (pl: { id: string; name: string; uri: string; description?: string }) => Promise<void>)({
+      id: "37i9dQZF1EP6YuccBxUcC1",
+      name: "daylist",
+      uri: "spotify:playlist:37i9dQZF1EP6YuccBxUcC1",
+      description: "old desc",
+    });
+
+    expect(mockGetPlaylistTracks).toHaveBeenCalledWith("37i9dQZF1EP6YuccBxUcC1", 0, true);
+    stateIdx = 0;
+    refIdx = 0;
+    const playlistsTree = DeckifyExpandedModal({ closeModal });
+    const playlistsNode = findNodes(
+      playlistsTree,
+      (n) => n.props?.activePlaylist !== undefined && n.props?.activePlaylist !== null
+    )[0];
+    expect(playlistsNode.props.activePlaylist.name).toBe("hyperpop thursday morning");
+    expect(playlistsNode.props.activePlaylist.description).toBe("Your Thursday morning mix");
   });
 });

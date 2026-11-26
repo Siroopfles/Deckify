@@ -556,3 +556,53 @@ describe("ProgressScrubBar G-24-3 native div pointer-drag, window listeners, and
     expect(onSeekPlayback).not.toHaveBeenCalled();
   });
 });
+
+describe("NowPlayingTab AI DJ indicator & button (G-26-1)", () => {
+  const baseProps: NowPlayingTabProps = {
+    status: {
+      authenticated: true,
+      librespot_running: false,
+      audio_backend: "spotify_client",
+      play_state: "playing",
+      track: { name: "Test Track", artist: "Test Artist", album: "Test Album", duration_ms: 180000 },
+      position_ms: 10000,
+      is_playing: true,
+      volume: 75,
+    },
+    currentPositionMs: 10000,
+    handlePlayPause: vi.fn(),
+    handleNext: vi.fn(),
+    handlePrev: vi.fn(),
+    handleToggleRepeat: vi.fn(),
+    handleToggleLike: vi.fn(),
+    handleSeekDelta: vi.fn(),
+    handleVolumeDelta: vi.fn(),
+    onSetShuffle: vi.fn(),
+  };
+
+  it("renders 'AI DJ Speaking...' indicator when status.ai_dj_speaking is true", () => {
+    const tree = NowPlayingTab({
+      ...baseProps,
+      status: { ...baseProps.status!, ai_dj_active: true, ai_dj_speaking: true },
+    }) as unknown as MockNode;
+
+    const indicator = findNodes(tree, (n) => n.props?.["data-testid"] === "ai-dj-indicator");
+    expect(indicator).toHaveLength(1);
+    expect(indicator[0].props?.children).toBe("AI DJ Speaking...");
+  });
+
+  it("renders AI DJ button and invokes onPlayAiDj when clicked", () => {
+    const onPlayAiDj = vi.fn();
+    const tree = NowPlayingTab({
+      ...baseProps,
+      status: { ...baseProps.status!, ai_dj_active: false, ai_dj_speaking: false },
+      onPlayAiDj,
+    }) as unknown as MockNode;
+
+    const btn = findNodes(tree, (n) => n.props?.["data-testid"] === "now-playing-ai-dj-btn");
+    expect(btn).toHaveLength(1);
+    expect(btn[0].props?.children).toBe("AI DJ");
+    (btn[0].props?.onClick as () => void)();
+    expect(onPlayAiDj).toHaveBeenCalledTimes(1);
+  });
+});

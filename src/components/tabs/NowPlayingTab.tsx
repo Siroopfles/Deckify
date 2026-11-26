@@ -502,6 +502,69 @@ function resolveIsLossless(status: StatusResponse | null): boolean {
   return Boolean((legacyStream || status?.audio_stream_info)?.is_lossless_rate);
 }
 
+function renderAiDjIndicator(aiDjActive: boolean, aiDjSpeaking: boolean) {
+  if (!aiDjActive && !aiDjSpeaking) return null;
+  const label = aiDjSpeaking ? "AI DJ Speaking..." : "AI DJ Active";
+  return (
+    <div
+      data-testid="ai-dj-indicator"
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 6,
+        padding: "3px 10px",
+        borderRadius: 999,
+        marginBottom: 8,
+        fontSize: 11,
+        fontWeight: 700,
+        letterSpacing: 0.3,
+        color: aiDjSpeaking ? "var(--deckify-accent, #1DB954)" : "#fff",
+        border: `1px solid ${aiDjSpeaking ? "var(--deckify-accent, #1DB954)" : "rgba(255,255,255,0.28)"}`,
+        background: aiDjSpeaking ? "rgba(29, 185, 84, 0.14)" : "rgba(255,255,255,0.08)",
+      }}
+    >
+      {label}
+    </div>
+  );
+}
+
+function renderAiDjButton({
+  aiDjActive,
+  isSpotifyClient,
+  onPlayAiDj,
+}: {
+  aiDjActive: boolean;
+  isSpotifyClient: boolean;
+  onPlayAiDj?: () => void;
+}) {
+  if (!onPlayAiDj) return null;
+  return (
+    <div style={{ marginTop: 12, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+      <InteractiveRow
+        data-testid="now-playing-ai-dj-btn"
+        onClick={() => onPlayAiDj()}
+        style={{
+          width: "auto",
+          minWidth: 110,
+          padding: "6px 14px",
+          borderRadius: 999,
+          fontSize: 12,
+          fontWeight: 700,
+          background: aiDjActive ? "rgba(29, 185, 84, 0.2)" : "rgba(255,255,255,0.1)",
+          border: `1px solid ${aiDjActive ? "var(--deckify-accent, #1DB954)" : "rgba(255,255,255,0.2)"}`,
+          color: isSpotifyClient ? "#fff" : "rgba(255,255,255,0.55)",
+          opacity: isSpotifyClient ? 1 : 0.7,
+        }}
+      >
+        {aiDjActive ? "Next DJ Vibe" : "AI DJ"}
+      </InteractiveRow>
+      {!isSpotifyClient && (
+        <span style={{ fontSize: 11, opacity: 0.6 }}>Requires Official Spotify Client</span>
+      )}
+    </div>
+  );
+}
+
 function resolveNowPlayingMeta(status: StatusResponse | null, playbackSpeed?: number) {
   const track = status?.track_meta || status?.track;
   return {
@@ -531,9 +594,12 @@ export const NowPlayingTab: FC<NowPlayingTabProps> = ({
   onOpenActions,
   playbackSpeed,
   onSetPlaybackSpeed,
+  onPlayAiDj,
 }) => {
   const meta = resolveNowPlayingMeta(status, playbackSpeed);
   const { track, artwork, isPlaying, isLossless, isSpoken, isSpotifyClient, resolvedSpeed, volume } = meta;
+  const aiDjActive = Boolean(status?.ai_dj_active);
+  const aiDjSpeaking = Boolean(status?.ai_dj_speaking);
 
   return (
     <div
@@ -549,14 +615,13 @@ export const NowPlayingTab: FC<NowPlayingTabProps> = ({
       }}
     >
       <TrackArtwork artwork={artwork} isLossless={isLossless} />
-
+      {renderAiDjIndicator(aiDjActive, aiDjSpeaking)}
       <h1 style={{ fontSize: 22, fontWeight: 800, margin: "0 0 4px 0", color: "#fff" }}>
         {track?.name || "No active track"}
       </h1>
       <p style={{ fontSize: 15, opacity: 0.7, margin: "0 0 16px 0" }}>
         {track?.artist || "Choose a playlist or album"}
       </p>
-
       {track?.duration_ms && track.duration_ms > 0 && (
         <ProgressScrubBar
           durationMs={track.duration_ms}
@@ -565,29 +630,16 @@ export const NowPlayingTab: FC<NowPlayingTabProps> = ({
           onSeekPlayback={onSeekPlayback}
         />
       )}
-
       {renderTransportRow({
-        isSpoken,
-        isPlaying,
-        status,
-        track,
-        handlePlayPause,
-        handleNext,
-        handlePrev,
-        handleToggleRepeat,
-        handleToggleLike,
-        handleSeekDelta,
-        onSetShuffle,
-        onOpenActions,
+        isSpoken, isPlaying, status, track, handlePlayPause, handleNext,
+        handlePrev, handleToggleRepeat, handleToggleLike, handleSeekDelta, onSetShuffle, onOpenActions,
       })}
-
-      {isSpoken &&
-        renderSpokenSpeedDropdown({
-          playbackSpeed: resolvedSpeed,
-          disabled: !isSpotifyClient,
-          onSelect: (speed) => onSetPlaybackSpeed?.(speed),
-        })}
-
+      {renderAiDjButton({ aiDjActive, isSpotifyClient, onPlayAiDj })}
+      {isSpoken && renderSpokenSpeedDropdown({
+        playbackSpeed: resolvedSpeed,
+        disabled: !isSpotifyClient,
+        onSelect: (speed) => onSetPlaybackSpeed?.(speed),
+      })}
       <VolumeBar volume={volume} handleVolumeDelta={handleVolumeDelta} />
     </div>
   );
