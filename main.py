@@ -2349,8 +2349,20 @@ class Plugin:
         is_playing = bool(data.get("is_playing", False))
 
         item = data.get("item")
-        if item is None:
-            is_dj_ctx = bool("37i9dQZF1EYkqdzj48dyYq" in ctx_uri or ctx_uri.startswith("spotify:dj:"))
+        is_dj_ctx = bool("37i9dQZF1EYkqdzj48dyYq" in ctx_uri or ctx_uri.startswith("spotify:dj:"))
+        item_name_norm = str(item.get("name") or "").strip().lower() if isinstance(item, dict) else ""
+        is_dj_interlude_candidate = (
+            item is None
+            or (
+                is_dj_ctx
+                and (
+                    currently_playing_type == "unknown"
+                    or not item.get("id")
+                    or item_name_norm in ("", "dj", "dj x")
+                )
+            )
+        )
+        if is_dj_interlude_candidate:
             cdp_dj_speaking = False
             cdp_ctx_uri = ""
             cdp_title = ""
@@ -2411,15 +2423,16 @@ class Plugin:
                     await decky.emit("librespot_event", event)
                 return True
 
-            if getattr(self, "_ai_dj_active", False) or getattr(self, "_ai_dj_speaking", False):
-                self._ai_dj_active = False
-                self._ai_dj_speaking = False
-                await decky.emit("ai_dj_state", {
-                    "ai_dj_active": False,
-                    "ai_dj_speaking": False,
-                    "context_uri": ctx_uri,
-                })
-            return True
+            if item is None:
+                if getattr(self, "_ai_dj_active", False) or getattr(self, "_ai_dj_speaking", False):
+                    self._ai_dj_active = False
+                    self._ai_dj_speaking = False
+                    await decky.emit("ai_dj_state", {
+                        "ai_dj_active": False,
+                        "ai_dj_speaking": False,
+                        "context_uri": ctx_uri,
+                    })
+                return True
 
         progress_ms = data.get("progress_ms", 0)
         track_id = item.get("id", "")

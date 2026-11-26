@@ -587,6 +587,36 @@ class TestCdpBridge(unittest.TestCase):
         self.assertIn("TokenProvider", captured_cats["expr"])
         self.assertIn("pathfinder/v1/query", captured_cats["expr"])
 
+    def test_cdp_get_player_state_extracts_dj_x_interlude_and_strips_html(self):
+        captured = {}
+
+        def fake_eval(expr, port=9229, timeout=3.0):
+            captured["expr"] = expr
+            return {
+                "ok": True,
+                "is_playing": True,
+                "context_uri": "spotify:playlist:37i9dQZF1EYkqdzj48dyYq",
+                "track_uri": "",
+                "track_name": "",
+                "media_type": "unknown",
+                "is_dj_interlude": True,
+                "image_url": "https://i.scdn.co/image/djx123",
+                "title": "<span>Welcome</span>",
+                "subtitle": "Up next: <b>Synthwave</b> &amp; Chill",
+            }
+
+        res = cdp_bridge.cdp_get_player_state(eval_fn=fake_eval)
+        self.assertTrue(res["ok"])
+        self.assertTrue(res["is_dj_interlude"])
+        self.assertEqual(res["title"], "Welcome")
+        self.assertEqual(res["subtitle"], "Up next: Synthwave & Chill")
+        expr = captured["expr"]
+        self.assertIn("context?.metadata", expr)
+        self.assertIn("nextItems", expr)
+        self.assertIn("future", expr)
+        self.assertIn("now-playing-widget", expr)
+        self.assertIn("document.title", expr)
+
 
 if __name__ == "__main__":
     unittest.main()

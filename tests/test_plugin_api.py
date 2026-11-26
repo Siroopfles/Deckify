@@ -574,3 +574,76 @@ class PluginApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(settings["trigger_page_size"], 25)
         self.assertEqual(settings["show_controller_hints"], False)
         self.assertNotIn("_internal_secret", settings)
+
+    async def test_poll_playback_emits_live_dj_x_interlude_metadata(self):
+        async def fake_exec(fn, *a, **k):
+            return fn(*a)
+
+        self.execute.side_effect = fake_exec
+        self.plugin._poll_play_state = "playing"
+        self.plugin._ensure_token = AsyncMock(return_value="tok-dj")
+        self.plugin._is_spotify_client_running = MagicMock(return_value=True)
+
+        # Case 1: item is None during DJ X spoken intro
+        player_data_none = {
+            "is_playing": True,
+            "currently_playing_type": "unknown",
+            "context": {"uri": "spotify:playlist:37i9dQZF1EYkqdzj48dyYq"},
+            "item": None,
+        }
+        cdp_state_welcome = {
+            "ok": True,
+            "is_playing": True,
+            "context_uri": "spotify:playlist:37i9dQZF1EYkqdzj48dyYq",
+            "track_uri": "",
+            "track_name": "",
+            "media_type": "unknown",
+            "is_dj_interlude": True,
+            "image_url": "https://i.scdn.co/image/djx-welcome",
+            "title": "Welcome",
+            "subtitle": "Up next: Synthwave Mix",
+        }
+        with patch.object(main, "_spotify_api_request", return_value=player_data_none), \
+             patch.object(main, "_cdp_get_player_state", return_value=cdp_state_welcome) as m_cdp:
+            ok = await self.plugin._poll_playback()
+        self.assertTrue(ok)
+        m_cdp.assert_called_once()
+        meta_calls = [c for c in self.emit.await_args_list if c.args and c.args[0] == "track_metadata"]
+        self.assertTrue(meta_calls)
+        emitted_meta = meta_calls[-1].args[1]
+        self.assertEqual(emitted_meta["name"], "Welcome")
+        self.assertEqual(emitted_meta["artist"], "Up next: Synthwave Mix")
+        self.assertEqual(emitted_meta["image_url"], "https://i.scdn.co/image/djx-welcome")
+        self.assertEqual(emitted_meta["media_type"], "dj_interlude")
+
+        # Case 2: item is non-None with currently_playing_type == "unknown" during DJ X transition
+        self.emit.reset_mock()
+        player_data_unknown_item = {
+            "is_playing": True,
+            "currently_playing_type": "unknown",
+            "context": {"uri": "spotify:playlist:37i9dQZF1EYkqdzj48dyYq"},
+            "item": {"id": "", "name": "", "uri": "", "artists": [], "album": {"name": "", "images": []}},
+        }
+        cdp_state_up_next = {
+            "ok": True,
+            "is_playing": True,
+            "context_uri": "spotify:playlist:37i9dQZF1EYkqdzj48dyYq",
+            "track_uri": "",
+            "track_name": "",
+            "media_type": "unknown",
+            "is_dj_interlude": True,
+            "image_url": "https://i.scdn.co/image/djx-vibe",
+            "title": "Up next",
+            "subtitle": "Late Night Indie",
+        }
+        with patch.object(main, "_spotify_api_request", return_value=player_data_unknown_item), \
+             patch.object(main, "_cdp_get_player_state", return_value=cdp_state_up_next) as m_cdp2:
+            ok2 = await self.plugin._poll_playback()
+        self.assertTrue(ok2)
+        m_cdp2.assert_called_once()
+        meta_calls2 = [c for c in self.emit.await_args_list if c.args and c.args[0] == "track_metadata"]
+        self.assertTrue(meta_calls2)
+        emitted_meta2 = meta_calls2[-1].args[1]
+        self.assertEqual(emitted_meta2["name"], "Up next")
+        self.assertEqual(emitted_meta2["artist"], "Late Night Indie")
+        self.assertEqual(emitted_meta2["media_type"], "dj_interlude")

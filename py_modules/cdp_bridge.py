@@ -545,19 +545,80 @@ def cdp_get_player_state(
     const mediaType = String(state.item?.type || '');
     const isPlaying = !state.isPaused;
     const isDjContext = ctxUri === 'spotify:playlist:37i9dQZF1EYkqdzj48dyYq' || ctxUri.startsWith('spotify:dj:');
+    const itemMeta = state.item?.metadata || {};
+    const ctxMeta = state.context?.metadata || {};
     const isDjInterlude = Boolean(
       isDjContext &&
       isPlaying &&
-      (mediaType === 'unknown' || !trackUri || Boolean(state.item?.metadata?.is_dj_interlude))
+      (mediaType === 'unknown' || !trackUri || Boolean(itemMeta.is_dj_interlude) || String(ctxMeta.is_context_loading || '') === 'true')
     );
-    const rawImg = state.item?.images || state.item?.album?.images || state.item?.metadata?.image_url || state.item?.metadata?.image_xlarge_url || state.item?.metadata?.image_large_url;
+    const rawImg =
+      state.item?.images ||
+      state.item?.album?.images ||
+      itemMeta.image_url ||
+      itemMeta.image_xlarge_url ||
+      itemMeta.image_large_url ||
+      ctxMeta.image_url ||
+      ctxMeta.image_xlarge_url ||
+      ctxMeta.image_large_url;
     const imageUrl = String((typeof rawImg === 'string' ? parseImg([rawImg]) : parseImg(rawImg)) || '');
-    const title = String(state.item?.metadata?.title || state.item?.name || (isDjInterlude ? 'DJ X' : ''));
-    const subtitle = String(
-      state.item?.metadata?.subtitle ||
+
+    const nextEntry = (Array.isArray(state.nextItems) && state.nextItems[0]) || (Array.isArray(state.future) && state.future[0]) || null;
+    const nextName = String(nextEntry?.name || nextEntry?.metadata?.title || '').trim();
+    const nextArtist = String(
+      (Array.isArray(nextEntry?.artists) ? nextEntry.artists.map((a) => a?.name).filter(Boolean).join(', ') : '') ||
+      nextEntry?.metadata?.subtitle ||
+      ''
+    ).trim();
+    const upNextText = nextName ? ('Up next: ' + nextName + (nextArtist ? ' — ' + nextArtist : '')) : '';
+
+    let title = String(
+      itemMeta.title ||
+      itemMeta.narration_title ||
+      itemMeta.dj_vibe ||
+      itemMeta.vibe_name ||
+      ctxMeta.title ||
+      state.item?.name ||
+      ''
+    ).trim();
+    let subtitle = String(
+      itemMeta.subtitle ||
+      itemMeta.context_description ||
+      ctxMeta.context_description ||
+      ctxMeta.subtitle ||
       (Array.isArray(state.item?.artists) ? state.item.artists.map((a) => a?.name).filter(Boolean).join(', ') : '') ||
-      (isDjInterlude ? 'Spotify AI DJ' : '')
-    );
+      upNextText ||
+      ''
+    ).trim();
+
+    if (isDjInterlude || (isDjContext && !trackUri)) {
+      if (!title || !subtitle) {
+        try {
+          const widget = document.querySelector('[data-testid="now-playing-widget"]');
+          if (widget) {
+            const trackEl = widget.querySelector('[data-testid="context-item-info-title"], a[href*="/track/"], [data-testid="now-playing-track-name"]');
+            const artistEl = widget.querySelector('[data-testid="context-item-info-subtitles"], a[href*="/artist/"], [data-testid="now-playing-artist"]');
+            const domTitle = String(trackEl?.textContent || '').trim();
+            const domSub = String(artistEl?.textContent || '').trim();
+            if (!title && domTitle) title = domTitle;
+            if (!subtitle && domSub) subtitle = domSub;
+            if (!title) {
+              const aria = String(widget.getAttribute('aria-label') || '').trim();
+              if (aria) title = aria;
+            }
+          }
+          if (!title && typeof document.title === 'string') {
+            const docTitle = document.title.trim();
+            if (docTitle && docTitle !== 'Spotify' && docTitle !== 'Spotify Premium') {
+              title = docTitle;
+            }
+          }
+        } catch (e) {}
+      }
+      if (!title) title = 'DJ X';
+      if (!subtitle) subtitle = upNextText || 'Spotify AI DJ';
+    }
+
     return {
       ok: true,
       is_playing: isPlaying,
@@ -582,8 +643,8 @@ def cdp_get_player_state(
             "media_type": str(res.get("media_type") or ""),
             "is_dj_interlude": bool(res.get("is_dj_interlude", False)),
             "image_url": str(res.get("image_url") or ""),
-            "title": str(res.get("title") or ""),
-            "subtitle": str(res.get("subtitle") or ""),
+            "title": _strip_html(res.get("title") or ""),
+            "subtitle": _strip_html(res.get("subtitle") or ""),
         }
     return {"ok": False, "error": res.get("error") or "CDP PlayerAPI.getState failed"}
 
