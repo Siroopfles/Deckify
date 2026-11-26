@@ -541,7 +541,7 @@ function renderAiDjButton({
   isSpotifyClient: boolean;
   onPlayAiDj?: () => void;
 }) {
-  if (!onPlayAiDj) return null;
+  if (!onPlayAiDj || !aiDjActive) return null;
   return (
     <div style={{ marginTop: 12, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
       <InteractiveRow

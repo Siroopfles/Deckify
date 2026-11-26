@@ -592,19 +592,32 @@ describe("NowPlayingTab AI DJ indicator & button (G-26-1)", () => {
     expect(indicator[0].props?.children).toBe("AI DJ Speaking...");
   });
 
-  it("renders AI DJ button and invokes onPlayAiDj when clicked", () => {
+  it("renders Next DJ Vibe button when status.ai_dj_active is true and invokes onPlayAiDj when clicked", () => {
     const onPlayAiDj = vi.fn();
     const tree = NowPlayingTab({
       ...baseProps,
-      status: { ...baseProps.status!, ai_dj_active: false, ai_dj_speaking: false },
+      status: { ...baseProps.status!, ai_dj_active: true, ai_dj_speaking: false },
       onPlayAiDj,
     }) as unknown as MockNode;
 
     const btn = findNodes(tree, (n) => n.props?.["data-testid"] === "now-playing-ai-dj-btn");
     expect(btn).toHaveLength(1);
-    expect(btn[0].props?.children).toBe("AI DJ");
+    expect(btn[0].props?.children).toBe("Next DJ Vibe");
     (btn[0].props?.onClick as () => void)();
     expect(onPlayAiDj).toHaveBeenCalledTimes(1);
+  });
+
+  it("hides AI DJ button and notice when status.ai_dj_active is false", () => {
+    const onPlayAiDj = vi.fn();
+    const tree = NowPlayingTab({
+      ...baseProps,
+      status: { ...baseProps.status!, audio_backend: "librespot", ai_dj_active: false, ai_dj_speaking: false },
+      onPlayAiDj,
+    }) as unknown as MockNode;
+
+    const btn = findNodes(tree, (n) => n.props?.["data-testid"] === "now-playing-ai-dj-btn");
+    expect(btn).toHaveLength(0);
+    expect(collectText(tree)).not.toContain("Requires Official Spotify Client");
   });
 });
 
