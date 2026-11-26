@@ -113,11 +113,30 @@ function subscribeDeckyPlaybackEvents(setStatus: SetStatusFn): () => void {
     setStatus((prev) => ({ ...(prev ?? createBaseStatus()), playback_speed: speed }));
   });
 
+  const unsubAiDj = subscribe("ai_dj_state", (ev) => {
+    if (!ev || typeof ev !== "object") return;
+    const payload = ev as Record<string, unknown>;
+    setStatus((prev) => {
+      const next: StatusResponse = { ...(prev ?? createBaseStatus()) };
+      if (typeof payload.ai_dj_active === "boolean") {
+        next.ai_dj_active = payload.ai_dj_active;
+      }
+      if (typeof payload.ai_dj_speaking === "boolean") {
+        next.ai_dj_speaking = payload.ai_dj_speaking;
+      }
+      if (typeof payload.context_uri === "string") {
+        next.context_uri = payload.context_uri;
+      }
+      return next;
+    });
+  });
+
   return () => {
     if (!unsubscribe) return;
     if (unsubLibre !== null) unsubscribe("librespot_event", unsubLibre);
     if (unsubMeta !== null) unsubscribe("track_metadata", unsubMeta);
     if (unsubSpeed !== null) unsubscribe("playback_speed_changed", unsubSpeed);
+    if (unsubAiDj !== null) unsubscribe("ai_dj_state", unsubAiDj);
   };
 }
 

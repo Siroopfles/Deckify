@@ -1072,3 +1072,95 @@ class TestAiDjPollAndStatus(unittest.IsolatedAsyncioTestCase):
         meta_call = next(c for c in emit_mock.call_args_list if c.args[0] == "track_metadata")
         self.assertEqual(meta_call.args[1]["name"], "Welcome")
         self.assertEqual(meta_call.args[1]["image_url"], "https://i.scdn.co/image/djx_art")
+
+    async def test_poll_playback_preserves_ai_dj_and_catches_later_interludes(self):
+        import test_token_refresh
+        main_mod = test_token_refresh.main
+
+        plugin = main_mod.Plugin()
+        plugin._settings = dict(common.DEFAULT_SETTINGS)
+        plugin._access_token = "tok"
+        plugin._ensure_token = AsyncMock(return_value="tok")
+        plugin._is_engine_running = MagicMock(return_value=True)
+        plugin._is_librespot_running = MagicMock(return_value=False)
+        plugin._is_spotify_client_running = MagicMock(return_value=True)
+        plugin._last_event = None
+        plugin._track_meta = None
+        plugin._ai_dj_active = True
+        plugin._ai_dj_speaking = False
+        plugin._poll_track_id = "track_prev"
+        plugin._shuffle_state = False
+        plugin._repeat_state = "off"
+
+        # 1) Normal track during AI DJ where Web API omits context (context: None)
+        normal_track_payload = {
+            "is_playing": True,
+            "currently_playing_type": "track",
+            "progress_ms": 12000,
+            "context": None,
+            "item": {
+                "id": "track_prev",
+                "name": "Normal Song",
+                "duration_ms": 180000,
+                "uri": "spotify:track:track_prev",
+                "type": "track",
+                "artists": [{"name": "Artist"}],
+                "album": {"name": "Album", "images": []},
+            },
+        }
+        cdp_normal = {
+            "ok": True,
+            "is_playing": True,
+            "context_uri": "",
+            "track_uri": "spotify:track:track_prev",
+            "track_name": "Normal Song",
+            "media_type": "track",
+            "is_dj_interlude": False,
+            "duration_ms": 180000,
+            "position_ms": 12000,
+        }
+        with patch.object(main_mod, "_spotify_api_request", return_value=normal_track_payload), \
+             patch.object(main_mod, "_cdp_get_player_state", return_value=cdp_normal), \
+             patch.object(main_mod.decky, "emit", new=AsyncMock()):
+            ok1 = await plugin._poll_playback()
+
+        self.assertTrue(ok1)
+        self.assertTrue(plugin._ai_dj_active)
+        self.assertFalse(plugin._ai_dj_speaking)
+
+        # 2) Later AI DJ interlude where Web API still returns stale previous item
+        cdp_later_interlude = {
+            "ok": True,
+            "is_playing": True,
+            "context_uri": "spotify:playlist:37i9dQZF1EYkqdzj48dyYq",
+            "track_uri": "spotify:narration:up_next_2",
+            "track_name": "DJ X",
+            "media_type": "track",
+            "is_dj_interlude": True,
+            "duration_ms": 22000,
+            "position_ms": 6500,
+            "image_url": "https://i.scdn.co/image/djx2",
+            "title": "Up next: Night Drive",
+            "subtitle": "DJ X",
+        }
+        emit_mock = AsyncMock()
+        with patch.object(main_mod, "_spotify_api_request", return_value=normal_track_payload), \
+             patch.object(main_mod, "_cdp_get_player_state", return_value=cdp_later_interlude), \
+             patch.object(main_mod.decky, "emit", new=emit_mock):
+            ok2 = await plugin._poll_playback()
+
+        self.assertTrue(ok2)
+        self.assertTrue(plugin._ai_dj_active)
+        self.assertTrue(plugin._ai_dj_speaking)
+        self.assertEqual(plugin._poll_duration_ms, 22000)
+        self.assertEqual(plugin._poll_progress_ms, 6500)
+        self.assertEqual(plugin._track_meta["duration_ms"], 22000)
+        self.assertEqual(plugin._track_meta["name"], "Up next: Night Drive")
+
+        playing_events = [
+            c.args[1] for c in emit_mock.call_args_list
+            if c.args[0] == "librespot_event" and c.args[1].get("event") == "playing"
+        ]
+        self.assertEqual(len(playing_events), 1)
+        self.assertEqual(playing_events[0]["position_ms"], 6500)
+        self.assertEqual(playing_events[0]["duration_ms"], 22000)

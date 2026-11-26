@@ -677,6 +677,39 @@ class TestCdpBridge(unittest.TestCase):
         self.assertIn("unwrapJson", expr)
         self.assertIn("https://api.spotify.com/v1/browse/categories?limit=30", expr)
 
+    def test_cdp_get_player_state_duration_position_and_later_interlude(self):
+        captured = {}
+
+        def fake_eval(expr, port=9229, timeout=3.0):
+            captured["expr"] = expr
+            return {
+                "ok": True,
+                "is_playing": True,
+                "context_uri": "spotify:playlist:37i9dQZF1EYkqdzj48dyYq:segment",
+                "track_uri": "spotify:narration:seg123",
+                "track_name": "DJ X",
+                "media_type": "track",
+                "is_dj_interlude": True,
+                "duration_ms": 18500,
+                "position_ms": 4200,
+                "image_url": "https://i.scdn.co/image/djx_later",
+                "title": "Up next: Synthwave",
+                "subtitle": "DJ X",
+            }
+
+        res = cdp_bridge.cdp_get_player_state(eval_fn=fake_eval)
+        self.assertTrue(res["ok"])
+        self.assertTrue(res["is_dj_interlude"])
+        self.assertEqual(res["duration_ms"], 18500)
+        self.assertEqual(res["position_ms"], 4200)
+        self.assertEqual(res["title"], "Up next: Synthwave")
+        expr = captured["expr"]
+        self.assertIn("spotify:narration:", expr)
+        self.assertIn("positionAsOfTimestamp", expr)
+        self.assertIn("duration_ms: durationMs", expr)
+        self.assertIn("position_ms: positionMs", expr)
+        self.assertIn("hasExplicitItemTitle", expr)
+
 
 if __name__ == "__main__":
     unittest.main()

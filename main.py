@@ -2358,81 +2358,106 @@ class Plugin:
                 and (
                     currently_playing_type == "unknown"
                     or not item.get("id")
-                    or item_name_norm in ("", "dj", "dj x")
+                    or item_name_norm in ("", "dj", "dj x", "spotify ai dj")
                 )
             )
         )
-        if is_dj_interlude_candidate:
-            cdp_dj_speaking = False
-            cdp_ctx_uri = ""
-            cdp_title = ""
-            cdp_subtitle = ""
-            cdp_image_url = ""
-            cdp_track_uri = ""
-            if (is_dj_ctx or currently_playing_type == "unknown") and self._is_spotify_client_running():
-                try:
-                    cdp_state = prefetched_cdp_state if prefetched_cdp_state is not None else await _exec(_cdp_get_player_state)
-                    if isinstance(cdp_state, dict) and cdp_state.get("ok"):
-                        cdp_ctx_uri = str(cdp_state.get("context_uri") or "")
-                        is_dj_ctx = is_dj_ctx or bool(
-                            "37i9dQZF1EYkqdzj48dyYq" in cdp_ctx_uri
-                            or cdp_ctx_uri.startswith("spotify:dj:")
-                        )
-                        cdp_dj_speaking = bool(cdp_state.get("is_dj_interlude"))
-                        cdp_title = str(cdp_state.get("title") or cdp_state.get("track_name") or "").strip()
-                        cdp_subtitle = str(cdp_state.get("subtitle") or "").strip()
-                        cdp_image_url = str(cdp_state.get("image_url") or "").strip()
-                        cdp_track_uri = str(cdp_state.get("track_uri") or "").strip()
-                        if cdp_state.get("is_playing") is not None:
-                            is_playing = bool(cdp_state.get("is_playing"))
-                except Exception as e:
-                    decky.logger.debug("cdp_get_player_state failed during interlude poll: %s", e)
 
-            if is_dj_ctx and (is_playing or cdp_dj_speaking):
-                prev_active = bool(getattr(self, "_ai_dj_active", False))
-                prev_speaking = bool(getattr(self, "_ai_dj_speaking", False))
-                self._ai_dj_active = True
-                self._ai_dj_speaking = True
-                self._poll_play_state = "playing"
-                self._context_uri = ctx_uri or cdp_ctx_uri or getattr(self, "_context_uri", "")
-                if not prev_active or not prev_speaking:
-                    await decky.emit("ai_dj_state", {
-                        "ai_dj_active": True,
-                        "ai_dj_speaking": True,
-                        "context_uri": self._context_uri,
-                    })
-                interlude_meta = {
-                    "name": cdp_title or "DJ X",
-                    "artist": cdp_subtitle or "Spotify AI DJ",
-                    "album": "AI DJ",
-                    "image_url": cdp_image_url,
-                    "track_id": cdp_track_uri or "ai_dj_interlude",
-                    "uri": cdp_track_uri,
-                    "duration_ms": 0,
-                    "media_type": "dj_interlude",
+        cdp_state = None
+        cdp_dj_speaking = False
+        cdp_ctx_uri = ""
+        cdp_title = ""
+        cdp_subtitle = ""
+        cdp_image_url = ""
+        cdp_track_uri = ""
+        cdp_duration_ms = 0
+        cdp_position_ms = 0
+        if self._is_spotify_client_running() and (
+            getattr(self, "_ai_dj_active", False)
+            or is_dj_ctx
+            or currently_playing_type == "unknown"
+            or item is None
+        ):
+            try:
+                cdp_state = prefetched_cdp_state if prefetched_cdp_state is not None else await _exec(_cdp_get_player_state)
+                if isinstance(cdp_state, dict) and cdp_state.get("ok"):
+                    cdp_ctx_uri = str(cdp_state.get("context_uri") or "")
+                    cdp_dj_speaking = bool(cdp_state.get("is_dj_interlude"))
+                    cdp_title = str(cdp_state.get("title") or cdp_state.get("track_name") or "").strip()
+                    cdp_subtitle = str(cdp_state.get("subtitle") or "").strip()
+                    cdp_image_url = str(cdp_state.get("image_url") or "").strip()
+                    cdp_track_uri = str(cdp_state.get("track_uri") or "").strip()
+                    cdp_duration_ms = max(0, int(cdp_state.get("duration_ms") or 0))
+                    cdp_position_ms = max(0, int(cdp_state.get("position_ms") or 0))
+                    if cdp_state.get("is_playing") is not None:
+                        is_playing = bool(cdp_state.get("is_playing"))
+            except Exception as e:
+                decky.logger.debug("cdp_get_player_state failed during interlude poll: %s", e)
+
+        is_dj_ctx = bool(
+            "37i9dQZF1EYkqdzj48dyYq" in ctx_uri
+            or ctx_uri.startswith("spotify:dj:")
+            or "37i9dQZF1EYkqdzj48dyYq" in cdp_ctx_uri
+            or cdp_ctx_uri.startswith("spotify:dj:")
+            or (getattr(self, "_ai_dj_active", False) and not ctx_uri)
+        )
+
+        if is_dj_ctx and (cdp_dj_speaking or (is_dj_interlude_candidate and is_playing)):
+            prev_active = bool(getattr(self, "_ai_dj_active", False))
+            prev_speaking = bool(getattr(self, "_ai_dj_speaking", False))
+            self._ai_dj_active = True
+            self._ai_dj_speaking = True
+            self._poll_play_state = "playing" if is_playing else "paused"
+            self._poll_progress_ms = cdp_position_ms
+            self._poll_duration_ms = cdp_duration_ms
+            self._poll_updated_at = time.time()
+            self._context_uri = ctx_uri or cdp_ctx_uri or getattr(self, "_context_uri", "")
+            if not prev_active or not prev_speaking:
+                await decky.emit("ai_dj_state", {
+                    "ai_dj_active": True,
+                    "ai_dj_speaking": True,
+                    "context_uri": self._context_uri,
+                })
+            interlude_meta = {
+                "name": cdp_title or "DJ X",
+                "artist": cdp_subtitle or "Spotify AI DJ",
+                "album": "AI DJ",
+                "image_url": cdp_image_url,
+                "track_id": cdp_track_uri or "ai_dj_interlude",
+                "uri": cdp_track_uri,
+                "duration_ms": cdp_duration_ms,
+                "media_type": "dj_interlude",
+            }
+            if interlude_meta != getattr(self, "_track_meta", None):
+                self._track_meta = interlude_meta
+                self._current_track_id = interlude_meta["track_id"]
+                await decky.emit("track_metadata", interlude_meta)
+                track_event = {
+                    "event": "track_changed",
+                    "track_id": interlude_meta["track_id"],
                 }
-                if interlude_meta != getattr(self, "_track_meta", None):
-                    self._track_meta = interlude_meta
-                    self._current_track_id = interlude_meta["track_id"]
-                    await decky.emit("track_metadata", interlude_meta)
-                    event = {
-                        "event": "track_changed",
-                        "track_id": interlude_meta["track_id"],
-                    }
-                    self._last_event = event
-                    await decky.emit("librespot_event", event)
-                return True
+                self._last_event = track_event
+                await decky.emit("librespot_event", track_event)
+            play_event = {
+                "event": "playing" if is_playing else "paused",
+                "track_id": interlude_meta["track_id"],
+                "position_ms": cdp_position_ms,
+                "duration_ms": cdp_duration_ms,
+            }
+            self._last_event = play_event
+            await decky.emit("librespot_event", play_event)
+            return True
 
-            if item is None:
-                if getattr(self, "_ai_dj_active", False) or getattr(self, "_ai_dj_speaking", False):
-                    self._ai_dj_active = False
-                    self._ai_dj_speaking = False
-                    await decky.emit("ai_dj_state", {
-                        "ai_dj_active": False,
-                        "ai_dj_speaking": False,
-                        "context_uri": ctx_uri,
-                    })
-                return True
+        if item is None:
+            if getattr(self, "_ai_dj_active", False) or getattr(self, "_ai_dj_speaking", False):
+                self._ai_dj_active = False
+                self._ai_dj_speaking = False
+                await decky.emit("ai_dj_state", {
+                    "ai_dj_active": False,
+                    "ai_dj_speaking": False,
+                    "context_uri": ctx_uri,
+                })
+            return True
 
         progress_ms = data.get("progress_ms", 0)
         track_id = item.get("id", "")
@@ -2440,11 +2465,15 @@ class Plugin:
         self._poll_progress_ms = int(progress_ms or 0)
         self._poll_duration_ms = int(duration_ms or 0)
         self._poll_updated_at = time.time()
-        self._context_uri = ctx_uri
-        self._ai_dj_active = bool(
-            "37i9dQZF1EYkqdzj48dyYq" in self._context_uri
-            or self._context_uri.startswith("spotify:dj:")
-        )
+        effective_ctx_uri = ctx_uri or cdp_ctx_uri
+        self._context_uri = effective_ctx_uri
+        if effective_ctx_uri:
+            self._ai_dj_active = bool(
+                "37i9dQZF1EYkqdzj48dyYq" in effective_ctx_uri
+                or effective_ctx_uri.startswith("spotify:dj:")
+            )
+        else:
+            self._ai_dj_active = bool(getattr(self, "_ai_dj_active", False))
         self._ai_dj_speaking = bool(
             self._ai_dj_active
             and is_playing
