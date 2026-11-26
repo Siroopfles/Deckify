@@ -485,6 +485,22 @@ def _format_track_uri(raw_uri_or_id: str | None) -> str:
     return f"spotify:track:{norm}" if norm else ""
 
 
+def filter_items_for_travel_mode(
+    items: list[dict] | None,
+    downloaded_uris: set[str] | list[str] | None,
+    travel_mode_enabled: bool,
+) -> list[dict]:
+    """Filter library collections/episodes to downloaded URIs when Travel Mode is active."""
+    if not travel_mode_enabled:
+        return list(items or [])
+    uri_set = {u for u in (downloaded_uris or []) if isinstance(u, str) and u}
+    return [
+        item
+        for item in (items or [])
+        if isinstance(item, dict) and (item.get("uri") in uri_set or item.get("offline_state") == "downloaded")
+    ]
+
+
 class SessionBookmarkManager:
     """Manages atomic playback session bookmarking and unified suspend/Wi-Fi wake recovery."""
 

@@ -131,5 +131,41 @@ class TestTravelModeStateMachine(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.events, [])
 
 
+class TestTravelModeFiltering(unittest.TestCase):
+    def test_filter_items_active_keeps_downloaded_preserving_order(self):
+        items = [
+            {"uri": "spotify:playlist:1", "name": "Online Only"},
+            {"uri": "spotify:playlist:2", "name": "Downloaded By Uri"},
+            {"uri": "spotify:playlist:3", "name": "Downloaded By State", "offline_state": "downloaded"},
+            {"uri": "spotify:playlist:4", "name": "Also Online", "offline_state": "none"},
+        ]
+        filtered = resilience.filter_items_for_travel_mode(
+            items,
+            downloaded_uris={"spotify:playlist:2"},
+            travel_mode_enabled=True,
+        )
+        self.assertEqual(
+            [item["uri"] for item in filtered],
+            ["spotify:playlist:2", "spotify:playlist:3"],
+        )
+
+    def test_filter_items_inactive_returns_all_items(self):
+        items = [
+            {"uri": "spotify:album:1", "name": "A1"},
+            {"uri": "spotify:album:2", "name": "A2"},
+        ]
+        result = resilience.filter_items_for_travel_mode(
+            items,
+            downloaded_uris=set(),
+            travel_mode_enabled=False,
+        )
+        self.assertEqual(result, items)
+
+    def test_filter_items_empty_or_none_returns_empty_list(self):
+        self.assertEqual(resilience.filter_items_for_travel_mode(None, None, True), [])
+        self.assertEqual(resilience.filter_items_for_travel_mode([], ["spotify:track:1"], True), [])
+        self.assertEqual(resilience.filter_items_for_travel_mode(None, None, False), [])
+
+
 if __name__ == "__main__":
     unittest.main()
