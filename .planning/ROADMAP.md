@@ -258,7 +258,7 @@ Plans:
   2. `DiscoveryTab` populates the *Made For You* section with the user's personalized algorithmic mixes (*Daylist*, *Discover Weekly*, *Release Radar*, *Daily Mix 1–6*) via the CDP Pathfinder/Rootlist bridge, bypassing Spotify Web API Development Mode `HTTP 403/404` blocks.
   3. Resolved algorithmic mix metadata and track URI lists are cached locally on disk so users can browse and play those mixes even after switching their active playback engine to `librespot`.
   4. `py_modules/rpc_playback.py:_try_cdp_station_radio` (Phase 25 Tier 1 hook) is wired to `cdp_bridge.py` to start native Spotify `spotify:station:...` radio when `spotify_client` is active (falling back silently to Tier 2/3), `SearchTab` optionally enriches its Browse Categories / Gaming & Mood tiles via CDP with the 12 static tiles as automatic fallback on `librespot` or when CDP is unavailable, and pressing `B` while viewing search results in `SearchTab` (when `searchQuery` is non-empty) clears the search query/results and returns to the main Search idle view instead of closing the modal.
-**Plans:** 11 plans (9 executed, 2 gap-closure planned)
+**Plans:** 10/11 plans executed (9 executed, 2 gap-closure planned)
 
 Plans:
 **Wave 1**
@@ -285,7 +285,7 @@ Plans:
 - [x] 26-09-PLAN.md — Close UAT gap G-26-1 (Frontend): dynamic `activePlaylist` title/description in `handleOpenPlaylist` and AI DJ speaking indicator + AI DJ button in `NowPlayingTab`
 
 **Wave 1 (Gap Closure - G-26-2)**
-- [ ] 26-10-PLAN.md — Close UAT gap G-26-2: Daylist subtitle/URI classification & non-destructive discovery cache merge, DJ X interlude cover/title/subtitle emission, and `aiDjActive`-gated AI DJ button in `NowPlayingTab`
+- [x] 26-10-PLAN.md — Close UAT gap G-26-2: Daylist subtitle/URI classification & non-destructive discovery cache merge, DJ X interlude cover/title/subtitle emission, and `aiDjActive`-gated AI DJ button in `NowPlayingTab`
 
 **Wave 2 (Gap Closure - G-26-3)** *(blocked on 26-10)*
 - [ ] 26-11-PLAN.md — Close UAT gap G-26-3: app-wide Spotify Web API rate limiter/GET cache/dedup, `spotify_client`/paused poll backoff, `SpotifyRateLimitError` propagation & caching in `start_radio`, CDP-first `search()`, and relaxed 30s Queue/Recent polling
@@ -299,7 +299,7 @@ Plans:
   1. User can press `A` / *"Move in Queue"* on any upcoming track in `QueueTab` to enter controller Grab/Move Mode, move the track up or down with `D-Pad Up/Down` while focus remains locked via stable `_rowKey` IDs, and press `A` to commit the new order in a single batched update.
   2. User can remove individual upcoming tracks or clear the upcoming queue in `QueueTab`, executing natively via CDP `PlayerAPI` when `spotify_client` is active and automatically falling back to virtual URI-slice playback mutation when `librespot` is active.
   3. User can create new playlists, rename or edit playlist descriptions, delete or unfollow playlists with a confirmation modal, and reorder or remove tracks inside user-owned playlists directly from the controller in `PlaylistsTab`.
-**Plans:** 8/8 plans complete (5 executed, 3 gap-closure planned)
+**Plans:** 11 plans (8 executed, 3 gap-closure planned)
 
 Plans:
 **Wave 1**
@@ -321,6 +321,13 @@ Plans:
 
 **Wave 2 (Gap Closure)** *(blocked on 27-06 & 27-07)*
 - [x] 27-08-PLAN.md — Close UAT gaps G-27-1, G-27-2 (frontend), G-27-3 (modal guard), & G-27-5: `useGrabMoveOrder` focus lock & reconciliation, `loadQueue` grab guard, `prevTracks` fix, `isCrudModalOpenRef` guard, and `TrackActionModal` cover art + frequency sort
+
+**Wave 1 (Gap Closure - G-27-6, G-27-7, G-27-8)**
+- [ ] 27-09-PLAN.md — Close UAT gaps G-27-7 & G-27-8 (backend): `cdp_remove_from_queue` `futureTracks`/`uid` matching, `cdp_clear_queue`/`clear_queue` active context clearing, and `get_playlist_tracks` `added_at` extraction
+- [ ] 27-10-PLAN.md — Close UAT gaps G-27-6 & G-27-8 (shared Grab/Move): `InteractiveRow` `suppressFocusHalo`, `useGrabMoveOrder` `preGrabSnapshot` + focus lock, and `TrackRowItem`/`QueueTab` inline button suppression + A-drop gating
+
+**Wave 2 (Gap Closure - G-27-6, G-27-8)** *(blocked on 27-09 & 27-10)*
+- [ ] 27-11-PLAN.md — Close UAT gaps G-27-6 & G-27-8 (`PlaylistsTab` & Modal): 6-chip track sort bar, `canReorder` gating on `sortBy === "custom"`, `handleReorderPlaylistTrack` `preGrabTracks` fix, and global `vgp_onok` `grabCommitRef`
 **UI hint**: yes
 
 ### Phase 28: CDP Offline Downloads, Wi-Fi Travel Mode & Living Room Spotify Jam
@@ -331,7 +338,7 @@ Plans:
   1. User can toggle *"Download for Offline"* on playlists, albums, and podcast episodes via Official Spotify Client CDP `OfflineAPI` (with a 1-click engine switch prompt when on `librespot`), viewing live `0–100%` download progress and green offline badges while protected by an `os.statvfs` 3.0 GB minimum free-space disk guardrail.
   2. User can manually toggle **Offline / Travel Mode** or have it activate automatically upon sustained Wi-Fi disconnect (after the 10-second wake-from-suspend grace window) to filter library views strictly to locally downloaded content and cached `.lrc` lyrics.
   3. User can start or share a Spotify Jam / group session from `NowPlayingTab`, `DevicesTab`, or `TvSplitView`, rendering a high-contrast scannable `QRCodeSVG` modal/card for living-room guests (with a shareable track/playlist deep-link QR fallback when `librespot` is active).
-**Plans:** 7/7 plans executed
+**Plans:** 10 plans (7 executed, 3 gap-closure planned)
 
 Plans:
 **Wave 1**
@@ -346,6 +353,13 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2)*
 - [x] 28-07-PLAN.md — `DeckifyExpandedModal.tsx` & QAM (`src/index.tsx`) wiring, `EngineSwitchDownloadModal`, `vgp_oncancel` guards, & full suite verification
+
+**Wave 1 (Gap Closure)**
+- [ ] 28-08-PLAN.md — Close UAT gaps G-28-1, G-28-2, G-28-3 (Backend): CDP readiness wait (`wait_for_cdp_ready`), `AlbumAPI`/`OfflineAPI` fallbacks, nested/polled Jam `join_url`, `travel_mode_show_when_online` setting, and `travel_mode_changed` deduplication
+- [ ] 28-09-PLAN.md — Close UAT gaps G-28-2 & G-28-3 (Frontend Leaf/Common): `JamQrCard` explicit error/retry (no track deep-link fallback), QAM top-level Travel Mode toggle, `SettingsTab` header visibility toggle, and `DiscoveryTab` exit refresh
+
+**Wave 2 (Gap Closure)** *(blocked on 28-08 & 28-09)*
+- [ ] 28-10-PLAN.md — Close UAT gaps G-28-1, G-28-2, G-28-3 (`DeckifyExpandedModal.tsx`): `EngineSwitchDownloadModal` wrap + focus trap + B-cancel, `travel-mode-header-pill` focus halo + conditional visibility + exit focus restore, Jam `onRetryJam` wiring, & full suite verification
 **UI hint**: yes
 
 ### Phase 29: 10-Foot Docked TV Split-View Mode & PipeWire Spectrum Visualizer
@@ -415,7 +429,7 @@ Phases execute in numeric order: 19 → 20 → 21 → 22 → 23 → 24 → 25 �
 | 23. Lyrics 2.0 — Offline .lrc Cache, Per-Track Sync Nudge & CJK Romanization | v0.7 | 5/5 | Complete    | 2026-11-22 |
 | 24. Podcast & Audiobook Power Suite | v0.7 | 8/8 | Complete    | 2026-11-23 |
 | 25. Universal Artist/Album Drill-Down, Instant Radio & Search 2.0 | v0.7 | 5/5 | Complete    | 2026-11-24 |
-| 26. Unified CDP Platform Bridge & Deep Discovery 2.0 | v0.7 | 9/9 | In Progress | - |
+| 26. Unified CDP Platform Bridge & Deep Discovery 2.0 | v0.7 | 10/11 | In Progress | - |
 | 27. Interactive Queue Studio & Controller Playlist Management | v0.7 | 8/8 | Complete    | 2026-11-26 |
 | 28. CDP Offline Downloads, Wi-Fi Travel Mode & Living Room Spotify Jam | v0.7 | 7/7 | In Progress | - |
 | 29. 10-Foot Docked TV Split-View Mode & PipeWire Spectrum Visualizer | v0.7 | 0/TBD | Not started | - |
