@@ -573,6 +573,42 @@ function buildOrderedSections(
   return order.map((key) => byKey[key]);
 }
 
+function renderSearchFilterBar(
+  searchTab: SearchFilterTab,
+  onSearchTabChange: (tab: SearchFilterTab) => void,
+) {
+  return (
+    <Focusable
+      flow-children="horizontal"
+      style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8, marginBottom: 16 }}
+    >
+      {FILTER_CHIPS.map((tab) => {
+        const isActive = searchTab === tab;
+        return (
+          <InteractiveRow
+            key={tab}
+            onClick={() => onSearchTabChange(tab)}
+            active={isActive}
+            style={{
+              minHeight: 36,
+              padding: "4px 16px",
+              fontSize: 12,
+              fontWeight: 700,
+              textTransform: "capitalize",
+              width: "auto",
+              background: isActive ? "rgba(var(--deckify-accent-rgb, 29, 185, 84), 0.18)" : undefined,
+              color: isActive ? "var(--deckify-accent, #1DB954)" : undefined,
+              border: isActive ? "1px solid var(--deckify-accent, #1DB954)" : undefined,
+            }}
+          >
+            {tab}
+          </InteractiveRow>
+        );
+      })}
+    </Focusable>
+  );
+}
+
 const SearchResultsView: FC<{
   searchQuery: string;
   searchTab: SearchFilterTab;
@@ -616,34 +652,7 @@ const SearchResultsView: FC<{
 
   return (
     <>
-      <Focusable
-        flow-children="horizontal"
-        style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8, marginBottom: 16 }}
-      >
-        {FILTER_CHIPS.map((tab) => {
-          const isActive = searchTab === tab;
-          return (
-            <InteractiveRow
-              key={tab}
-              onClick={() => onSearchTabChange(tab)}
-              active={isActive}
-              style={{
-                minHeight: 36,
-                padding: "4px 16px",
-                fontSize: 12,
-                fontWeight: 700,
-                textTransform: "capitalize",
-                width: "auto",
-                background: isActive ? "rgba(var(--deckify-accent-rgb, 29, 185, 84), 0.18)" : undefined,
-                color: isActive ? "var(--deckify-accent, #1DB954)" : undefined,
-                border: isActive ? "1px solid var(--deckify-accent, #1DB954)" : undefined,
-              }}
-            >
-              {tab}
-            </InteractiveRow>
-          );
-        })}
-      </Focusable>
+      {renderSearchFilterBar(searchTab, onSearchTabChange)}
 
       {loadingSearch && <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 12 }}>Searching...</div>}
       {!loadingSearch && searchError && (
@@ -774,74 +783,74 @@ function buildOfflineSearchResults(
   return { playlists, albums, shows, episodes };
 }
 
-function useSearchController(props: SearchTabProps) {
-  const [searchQuery, setSearchQuery] = useControlledState(props.searchQuery, props.onSearchQueryChange, "");
+function useSearchDebounceEffect(params: {
+  searchQuery: string;
+  runSearch: (query: string) => Promise<void>;
+  resetPaging: () => void;
+  setResultsRef: { current: (next: SearchResults) => void };
+  setSearchError: (err: string | null) => void;
+  setLoadingSearch: (loading: boolean) => void;
+  prevQueryRef: { current: string };
+  skipNextDebounceRef: { current: string | null };
+}) {
+  const {
+    searchQuery,
+    runSearch,
+    resetPaging,
+    setResultsRef,
+    setSearchError,
+    setLoadingSearch,
+    prevQueryRef,
+    skipNextDebounceRef,
+  } = params;
+  useEffect(() => {
+    const queryChanged = searchQuery !== prevQueryRef.current;
+    prevQueryRef.current = searchQuery;
+    if (!queryChanged) {
+      if (skipNextDebounceRef.current === searchQuery) {
+        skipNextDebounceRef.current = null;
+      }
+      return;
+    }
+    if (!searchQuery.trim()) {
+      resetPaging();
+      setResultsRef.current({});
+      setSearchError(null);
+      setLoadingSearch(false);
+      if (skipNextDebounceRef.current === searchQuery) {
+        skipNextDebounceRef.current = null;
+      }
+      return;
+    }
+    if (skipNextDebounceRef.current === searchQuery) {
+      skipNextDebounceRef.current = null;
+      return;
+    }
+    resetPaging();
+    const timer = setTimeout(() => void runSearch(searchQuery), 350);
+    return () => clearTimeout(timer);
+  }, [searchQuery, runSearch, resetPaging, setResultsRef, setSearchError, setLoadingSearch, prevQueryRef, skipNextDebounceRef]);
+}
+
+function useSearchPaging(params: {
+  searchQuery: string;
+  searchEpochRef: { current: number };
+  resultsRef: { current: SearchResults };
+  setResultsRef: { current: (next: SearchResults) => void };
+  showToastRef: { current: ((msg: string) => void) | undefined };
+  setSearchError: (err: string | null) => void;
+}) {
+  const { searchQuery, searchEpochRef, resultsRef, setResultsRef, showToastRef, setSearchError } = params;
   const [sectionOffsets, setSectionOffsets] = useState<Partial<Record<SearchSectionKey, number>>>({});
   const [sectionHasMore, setSectionHasMore] = useState<Partial<Record<SearchSectionKey, boolean>>>({});
   const [loadingSection, setLoadingSection] = useState<SearchSectionKey | null>(null);
-  const [searchTab, setSearchTab] = useControlledState<SearchFilterTab>(props.searchTab, props.onSearchTabChange, "all");
-  const [searchResults, setSearchResults] = useControlledState<SearchResults>(props.searchResults, props.onSearchResultsChange, {});
-  const [tileSearchMode, setTileSearchMode] = useControlledState(props.tileSearchMode, props.onTileSearchModeChange, false);
-  const [loadingSearch, setLoadingSearch] = useState(false);
-  const [searchError, setSearchError] = useState<string | null>(null);
-  const { searchHistory, recordHistory, removeHistoryItem, clearHistory } = useSearchHistory(
-    props.searchHistory,
-    props.onUpdateSearchHistory,
-  );
-
-  const showToastRef = useRef(props.showToast);
-  showToastRef.current = props.showToast;
-  const setResultsRef = useRef(setSearchResults);
-  setResultsRef.current = setSearchResults;
-  const resultsRef = useRef(searchResults);
-  resultsRef.current = searchResults;
-  const recordHistoryRef = useRef(recordHistory);
-  recordHistoryRef.current = recordHistory;
-  const searchEpochRef = useRef(0);
-  const travelModeRef = useRef(props.travelModeEnabled);
-  travelModeRef.current = props.travelModeEnabled;
-  const offlineDownloadsRef = useRef(props.offlineDownloads);
-  offlineDownloadsRef.current = props.offlineDownloads;
 
   const resetPaging = useCallback(() => {
     searchEpochRef.current += 1;
     setSectionOffsets({});
     setSectionHasMore({});
     setLoadingSection(null);
-  }, []);
-
-  const runSearch = useCallback(async (query: string) => {
-    if (!query.trim()) return;
-    if (travelModeRef.current) {
-      const localRes = buildOfflineSearchResults(query, offlineDownloadsRef.current);
-      resultsRef.current = localRes;
-      setResultsRef.current(localRes);
-      setSectionOffsets({});
-      setSectionHasMore({});
-      setSearchError(null);
-      setLoadingSearch(false);
-      return;
-    }
-    const epoch = searchEpochRef.current;
-    setLoadingSearch(true);
-    setSearchError(null);
-    const outcome = await executeSearchQuery(query, SEARCH_TYPES, 0);
-    if (searchEpochRef.current !== epoch || !outcome) {
-      setLoadingSearch(false);
-      return;
-    }
-    if (outcome.ok) {
-      resultsRef.current = outcome.res;
-      setResultsRef.current(outcome.res);
-      setSectionOffsets({});
-      setSectionHasMore(buildInitialHasMore(outcome.res));
-      recordHistoryRef.current(outcome.trimmed);
-    } else {
-      setSearchError(outcome.error);
-      showToastRef.current?.(outcome.error);
-    }
-    setLoadingSearch(false);
-  }, []);
+  }, [searchEpochRef]);
 
   const handleLoadMoreSection = useCallback(async (section: SearchSectionKey) => {
     const trimmed = searchQuery.trim();
@@ -875,41 +884,123 @@ function useSearchController(props: SearchTabProps) {
       showToastRef.current?.(outcome.error);
     }
     setLoadingSection((prev) => (prev === section ? null : prev));
-  }, [searchQuery, loadingSection, sectionOffsets]);
+  }, [searchQuery, loadingSection, sectionOffsets, searchEpochRef, resultsRef, setResultsRef, showToastRef, setSearchError]);
 
-  const prevQueryRef = useRef(searchQuery);
-  const skipNextDebounceRef = useRef<string | null>(null);
+  return {
+    sectionHasMore,
+    loadingSection,
+    setSectionOffsets,
+    setSectionHasMore,
+    resetPaging,
+    handleLoadMoreSection,
+  };
+}
 
-  useEffect(() => {
-    const queryChanged = searchQuery !== prevQueryRef.current;
-    prevQueryRef.current = searchQuery;
-    if (!queryChanged) {
-      if (skipNextDebounceRef.current === searchQuery) {
-        skipNextDebounceRef.current = null;
-      }
-      return;
-    }
-    resetPaging();
-    if (!searchQuery.trim()) {
-      setResultsRef.current({});
+function useRunSearchCallback(params: {
+  searchEpochRef: { current: number };
+  travelModeRef: { current: boolean | undefined };
+  offlineDownloadsRef: { current: Record<string, OfflineDownloadItem> | undefined };
+  resultsRef: { current: SearchResults };
+  setResultsRef: { current: (next: SearchResults) => void };
+  recordHistoryRef: { current: (q: string) => void };
+  showToastRef: { current: ((msg: string) => void) | undefined };
+  setSectionOffsets: (next: Partial<Record<SearchSectionKey, number>>) => void;
+  setSectionHasMore: (next: Partial<Record<SearchSectionKey, boolean>>) => void;
+  setSearchError: (err: string | null) => void;
+  setLoadingSearch: (loading: boolean) => void;
+}) {
+  const {
+    searchEpochRef, travelModeRef, offlineDownloadsRef, resultsRef, setResultsRef,
+    recordHistoryRef, showToastRef, setSectionOffsets, setSectionHasMore,
+    setSearchError, setLoadingSearch,
+  } = params;
+  return useCallback(async (query: string) => {
+    if (!query.trim()) return;
+    if (travelModeRef.current) {
+      const localRes = buildOfflineSearchResults(query, offlineDownloadsRef.current);
+      resultsRef.current = localRes;
+      setResultsRef.current(localRes);
+      setSectionOffsets({});
+      setSectionHasMore({});
       setSearchError(null);
       setLoadingSearch(false);
       return;
     }
-    if (skipNextDebounceRef.current === searchQuery) {
-      skipNextDebounceRef.current = null;
+    const epoch = searchEpochRef.current;
+    setLoadingSearch(true);
+    setSearchError(null);
+    const outcome = await executeSearchQuery(query, SEARCH_TYPES, 0);
+    if (searchEpochRef.current !== epoch || !outcome) {
+      setLoadingSearch(false);
       return;
     }
-    const timer = setTimeout(() => void runSearch(searchQuery), 350);
-    return () => clearTimeout(timer);
-  }, [searchQuery, runSearch, resetPaging]);
+    if (outcome.ok) {
+      resultsRef.current = outcome.res;
+      setResultsRef.current(outcome.res);
+      setSectionOffsets({});
+      setSectionHasMore(buildInitialHasMore(outcome.res));
+      recordHistoryRef.current(outcome.trimmed);
+    } else {
+      setSearchError(outcome.error);
+      showToastRef.current?.(outcome.error);
+    }
+    setLoadingSearch(false);
+  }, [
+    searchEpochRef, travelModeRef, offlineDownloadsRef, resultsRef, setResultsRef,
+    recordHistoryRef, showToastRef, setSectionOffsets, setSectionHasMore,
+    setSearchError, setLoadingSearch,
+  ]);
+}
+
+function useSearchController(props: SearchTabProps) {
+  const [searchQuery, setSearchQuery] = useControlledState(props.searchQuery, props.onSearchQueryChange, "");
+  const [searchTab, setSearchTab] = useControlledState<SearchFilterTab>(props.searchTab, props.onSearchTabChange, "all");
+  const [searchResults, setSearchResults] = useControlledState<SearchResults>(props.searchResults, props.onSearchResultsChange, {});
+  const [tileSearchMode, setTileSearchMode] = useControlledState(props.tileSearchMode, props.onTileSearchModeChange, false);
+  const [loadingSearch, setLoadingSearch] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const { searchHistory, recordHistory, removeHistoryItem, clearHistory } = useSearchHistory(
+    props.searchHistory,
+    props.onUpdateSearchHistory,
+  );
+
+  const showToastRef = useRef(props.showToast);
+  showToastRef.current = props.showToast;
+  const setResultsRef = useRef(setSearchResults);
+  setResultsRef.current = setSearchResults;
+  const resultsRef = useRef(searchResults);
+  resultsRef.current = searchResults;
+  const recordHistoryRef = useRef(recordHistory);
+  recordHistoryRef.current = recordHistory;
+  const searchEpochRef = useRef(0);
+  const travelModeRef = useRef(props.travelModeEnabled);
+  travelModeRef.current = props.travelModeEnabled;
+  const offlineDownloadsRef = useRef(props.offlineDownloads);
+  offlineDownloadsRef.current = props.offlineDownloads;
+
+  const {
+    sectionHasMore, loadingSection, setSectionOffsets,
+    setSectionHasMore, resetPaging, handleLoadMoreSection,
+  } = useSearchPaging({ searchQuery, searchEpochRef, resultsRef, setResultsRef, showToastRef, setSearchError });
+
+  const runSearch = useRunSearchCallback({
+    searchEpochRef, travelModeRef, offlineDownloadsRef, resultsRef, setResultsRef,
+    recordHistoryRef, showToastRef, setSectionOffsets, setSectionHasMore,
+    setSearchError, setLoadingSearch,
+  });
+
+  const prevQueryRef = useRef(searchQuery);
+  const skipNextDebounceRef = useRef<string | null>(null);
+  useSearchDebounceEffect({
+    searchQuery, runSearch, resetPaging, setResultsRef,
+    setSearchError, setLoadingSearch, prevQueryRef, skipNextDebounceRef,
+  });
 
   return {
     searchQuery, setSearchQuery,
     searchTab, setSearchTab, searchResults, tileSearchMode, setTileSearchMode,
     searchHistory, loadingSearch, searchError, sectionHasMore, loadingSection,
-    removeHistoryItem, clearHistory,
-    handleLoadMoreSection,
+    removeHistoryItem, clearHistory, handleLoadMoreSection,
     handleSelectHistory: (q: string) => {
       skipNextDebounceRef.current = q;
       setTileSearchMode(false);
@@ -992,12 +1083,113 @@ const BrowseCategoriesSection: FC<{
   );
 };
 
+function useBrowseCategories(hasQuery: boolean, travelModeEnabled: boolean | undefined) {
+  const [browseCategories, setBrowseCategories] = useState<SearchBrowseCategory[]>([]);
+  const fetchedBrowseRef = useRef(false);
+
+  useEffect(() => {
+    if (hasQuery || fetchedBrowseRef.current || travelModeEnabled) return;
+    fetchedBrowseRef.current = true;
+    let cancelled = false;
+    let populated = false;
+    (async () => {
+      try {
+        const res = await getSearchBrowseCategories?.();
+        if (cancelled) return;
+        if (res?.ok && Array.isArray(res.categories) && res.categories.length > 0) {
+          populated = true;
+          fetchedBrowseRef.current = true;
+          setBrowseCategories(res.categories);
+        } else {
+          fetchedBrowseRef.current = false;
+          setBrowseCategories([]);
+        }
+      } catch {
+        if (!cancelled) {
+          fetchedBrowseRef.current = false;
+          setBrowseCategories([]);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (!populated) {
+        fetchedBrowseRef.current = false;
+      }
+    };
+  }, [hasQuery, travelModeEnabled]);
+
+  return browseCategories;
+}
+
+function buildSearchHandlers(props: SearchTabProps): SearchHandlers {
+  return {
+    onPlayTrack: props.onPlayTrack,
+    onToggleLike: props.onToggleLike,
+    onOpenActions: props.onOpenActions,
+    onOpenPlaylist: props.onOpenPlaylist,
+    onOpenArtist: props.onOpenArtist,
+    onOpenAlbum: props.onOpenAlbum,
+    onOpenShow: props.onOpenShow,
+  };
+}
+
+function renderIdleSearchView(params: {
+  ctrl: ReturnType<typeof useSearchController>;
+  props: SearchTabProps;
+  browseCategories: SearchBrowseCategory[];
+  handlers: SearchHandlers;
+}) {
+  const { ctrl, props, browseCategories, handlers } = params;
+  if (props.travelModeEnabled) {
+    return (
+      <div style={{ marginTop: 16 }}>
+        <SearchResultsView
+          searchQuery=""
+          searchTab={ctrl.searchTab}
+          onSearchTabChange={ctrl.setSearchTab}
+          searchResults={buildOfflineSearchResults("", props.offlineDownloads)}
+          tileSearchMode={false}
+          loadingSearch={false}
+          searchError={null}
+          sectionHasMore={{}}
+          loadingSection={null}
+          onLoadMoreSection={ctrl.handleLoadMoreSection}
+          handlers={handlers}
+        />
+      </div>
+    );
+  }
+  return (
+    <div style={{ marginTop: 16 }}>
+      <RecentSearchesSection
+        searchHistory={ctrl.searchHistory}
+        onSelectHistory={ctrl.handleSelectHistory}
+        onRemoveHistory={ctrl.removeHistoryItem}
+        onClearHistory={ctrl.clearHistory}
+        onFocusHistoryPill={props.onFocusHistoryPill}
+      />
+      <GamingMoodGrid onSelectTile={ctrl.handleSelectTile} />
+      <BrowseCategoriesSection
+        categories={browseCategories}
+        onSelectCategory={(cat) =>
+          ctrl.handleSelectTile({
+            id: cat.id,
+            label: cat.name,
+            query: cat.name,
+            tint: "rgba(255,255,255,0.08)",
+          })
+        }
+      />
+    </div>
+  );
+}
+
 export const SearchTab: FC<SearchTabProps> = (props) => {
   const ctrl = useSearchController(props);
   const { onFocusHistoryPill } = props;
   const hasQuery = Boolean(ctrl.searchQuery.trim());
-  const [browseCategories, setBrowseCategories] = useState<SearchBrowseCategory[]>([]);
-  const fetchedBrowseRef = useRef(false);
+  const browseCategories = useBrowseCategories(hasQuery, props.travelModeEnabled);
 
   useEffect(() => {
     if (hasQuery) {
@@ -1008,24 +1200,7 @@ export const SearchTab: FC<SearchTabProps> = (props) => {
     };
   }, [hasQuery, onFocusHistoryPill]);
 
-  useEffect(() => {
-    if (hasQuery || fetchedBrowseRef.current || props.travelModeEnabled) return;
-    fetchedBrowseRef.current = true;
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await getSearchBrowseCategories?.();
-        if (!cancelled && res?.ok && Array.isArray(res.categories)) {
-          setBrowseCategories(res.categories);
-        }
-      } catch {
-        if (!cancelled) setBrowseCategories([]);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [hasQuery, props.travelModeEnabled]);
+  const handlers = buildSearchHandlers(props);
 
   return (
     <div>
@@ -1045,53 +1220,7 @@ export const SearchTab: FC<SearchTabProps> = (props) => {
         }}
       />
       {!ctrl.searchQuery.trim() ? (
-        props.travelModeEnabled ? (
-          <div style={{ marginTop: 16 }}>
-            <SearchResultsView
-              searchQuery=""
-              searchTab={ctrl.searchTab}
-              onSearchTabChange={ctrl.setSearchTab}
-              searchResults={buildOfflineSearchResults("", props.offlineDownloads)}
-              tileSearchMode={false}
-              loadingSearch={false}
-              searchError={null}
-              sectionHasMore={{}}
-              loadingSection={null}
-              onLoadMoreSection={ctrl.handleLoadMoreSection}
-              handlers={{
-                onPlayTrack: props.onPlayTrack,
-                onToggleLike: props.onToggleLike,
-                onOpenActions: props.onOpenActions,
-                onOpenPlaylist: props.onOpenPlaylist,
-                onOpenArtist: props.onOpenArtist,
-                onOpenAlbum: props.onOpenAlbum,
-                onOpenShow: props.onOpenShow,
-              }}
-            />
-          </div>
-        ) : (
-        <div style={{ marginTop: 16 }}>
-          <RecentSearchesSection
-            searchHistory={ctrl.searchHistory}
-            onSelectHistory={ctrl.handleSelectHistory}
-            onRemoveHistory={ctrl.removeHistoryItem}
-            onClearHistory={ctrl.clearHistory}
-            onFocusHistoryPill={onFocusHistoryPill}
-          />
-          <GamingMoodGrid onSelectTile={ctrl.handleSelectTile} />
-          <BrowseCategoriesSection
-            categories={browseCategories}
-            onSelectCategory={(cat) =>
-              ctrl.handleSelectTile({
-                id: cat.id,
-                label: cat.name,
-                query: cat.name,
-                tint: "rgba(255,255,255,0.08)",
-              })
-            }
-          />
-        </div>
-        )
+        renderIdleSearchView({ ctrl, props, browseCategories, handlers })
       ) : (
         <SearchResultsView
           searchQuery={ctrl.searchQuery}
@@ -1104,15 +1233,7 @@ export const SearchTab: FC<SearchTabProps> = (props) => {
           sectionHasMore={ctrl.sectionHasMore}
           loadingSection={ctrl.loadingSection}
           onLoadMoreSection={ctrl.handleLoadMoreSection}
-          handlers={{
-            onPlayTrack: props.onPlayTrack,
-            onToggleLike: props.onToggleLike,
-            onOpenActions: props.onOpenActions,
-            onOpenPlaylist: props.onOpenPlaylist,
-            onOpenArtist: props.onOpenArtist,
-            onOpenAlbum: props.onOpenAlbum,
-            onOpenShow: props.onOpenShow,
-          }}
+          handlers={handlers}
         />
       )}
     </div>
