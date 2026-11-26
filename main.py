@@ -2273,16 +2273,24 @@ class Plugin:
             is_dj_ctx = bool("37i9dQZF1EYkqdzj48dyYq" in ctx_uri or ctx_uri.startswith("spotify:dj:"))
             cdp_dj_speaking = False
             cdp_ctx_uri = ""
-            if not is_dj_ctx and currently_playing_type == "unknown" and self._is_spotify_client_running():
+            cdp_title = ""
+            cdp_subtitle = ""
+            cdp_image_url = ""
+            cdp_track_uri = ""
+            if (is_dj_ctx or currently_playing_type == "unknown") and self._is_spotify_client_running():
                 try:
                     cdp_state = await _exec(_cdp_get_player_state)
                     if isinstance(cdp_state, dict) and cdp_state.get("ok"):
                         cdp_ctx_uri = str(cdp_state.get("context_uri") or "")
-                        is_dj_ctx = bool(
+                        is_dj_ctx = is_dj_ctx or bool(
                             "37i9dQZF1EYkqdzj48dyYq" in cdp_ctx_uri
                             or cdp_ctx_uri.startswith("spotify:dj:")
                         )
                         cdp_dj_speaking = bool(cdp_state.get("is_dj_interlude"))
+                        cdp_title = str(cdp_state.get("title") or cdp_state.get("track_name") or "").strip()
+                        cdp_subtitle = str(cdp_state.get("subtitle") or "").strip()
+                        cdp_image_url = str(cdp_state.get("image_url") or "").strip()
+                        cdp_track_uri = str(cdp_state.get("track_uri") or "").strip()
                         if cdp_state.get("is_playing") is not None:
                             is_playing = bool(cdp_state.get("is_playing"))
                 except Exception as e:
@@ -2301,6 +2309,26 @@ class Plugin:
                         "ai_dj_speaking": True,
                         "context_uri": self._context_uri,
                     })
+                interlude_meta = {
+                    "name": cdp_title or "DJ X",
+                    "artist": cdp_subtitle or "Spotify AI DJ",
+                    "album": "AI DJ",
+                    "image_url": cdp_image_url,
+                    "track_id": cdp_track_uri or "ai_dj_interlude",
+                    "uri": cdp_track_uri,
+                    "duration_ms": 0,
+                    "media_type": "dj_interlude",
+                }
+                if interlude_meta != getattr(self, "_track_meta", None):
+                    self._track_meta = interlude_meta
+                    self._current_track_id = interlude_meta["track_id"]
+                    await decky.emit("track_metadata", interlude_meta)
+                    event = {
+                        "event": "track_changed",
+                        "track_id": interlude_meta["track_id"],
+                    }
+                    self._last_event = event
+                    await decky.emit("librespot_event", event)
                 return True
 
             if getattr(self, "_ai_dj_active", False) or getattr(self, "_ai_dj_speaking", False):

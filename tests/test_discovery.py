@@ -811,3 +811,54 @@ class TestAiDjPollAndStatus(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(plugin._ai_dj_active)
         self.assertTrue(plugin._ai_dj_speaking)
         self.assertEqual(plugin._context_uri, "spotify:dj:session1")
+
+    async def test_poll_playback_emits_dj_x_interlude_metadata_when_context_already_dj(self):
+        import test_token_refresh
+        main_mod = test_token_refresh.main
+
+        plugin = main_mod.Plugin()
+        plugin._settings = dict(common.DEFAULT_SETTINGS)
+        plugin._access_token = "tok"
+        plugin._ensure_token = AsyncMock(return_value="tok")
+        plugin._is_engine_running = MagicMock(return_value=True)
+        plugin._is_librespot_running = MagicMock(return_value=False)
+        plugin._is_spotify_client_running = MagicMock(return_value=True)
+        plugin._last_event = None
+        plugin._track_meta = {"name": "Old Song", "artist": "Old Artist", "track_id": "old1"}
+
+        interlude_payload = {
+            "is_playing": True,
+            "currently_playing_type": "unknown",
+            "item": None,
+            "context": {"uri": "spotify:playlist:37i9dQZF1EYkqdzj48dyYq"},
+        }
+        cdp_state = {
+            "ok": True,
+            "is_playing": True,
+            "context_uri": "spotify:playlist:37i9dQZF1EYkqdzj48dyYq",
+            "track_uri": "spotify:track:dj_intro_1",
+            "track_name": "",
+            "media_type": "unknown",
+            "is_dj_interlude": True,
+            "image_url": "https://i.scdn.co/image/djx_art",
+            "title": "Welcome",
+            "subtitle": "Up next: Indie Mix",
+        }
+        emit_mock = AsyncMock()
+        with patch.object(main_mod, "_spotify_api_request", return_value=interlude_payload), \
+             patch.object(main_mod, "_cdp_get_player_state", return_value=cdp_state) as mock_cdp, \
+             patch.object(main_mod.decky, "emit", new=emit_mock):
+            ok = await plugin._poll_playback()
+
+        self.assertTrue(ok)
+        mock_cdp.assert_called_once()
+        self.assertEqual(plugin._track_meta["name"], "Welcome")
+        self.assertEqual(plugin._track_meta["artist"], "Up next: Indie Mix")
+        self.assertEqual(plugin._track_meta["image_url"], "https://i.scdn.co/image/djx_art")
+        self.assertEqual(plugin._track_meta["media_type"], "dj_interlude")
+        emitted_events = [call.args[0] for call in emit_mock.call_args_list]
+        self.assertIn("track_metadata", emitted_events)
+        self.assertIn("librespot_event", emitted_events)
+        meta_call = next(c for c in emit_mock.call_args_list if c.args[0] == "track_metadata")
+        self.assertEqual(meta_call.args[1]["name"], "Welcome")
+        self.assertEqual(meta_call.args[1]["image_url"], "https://i.scdn.co/image/djx_art")
