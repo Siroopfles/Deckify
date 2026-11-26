@@ -258,7 +258,7 @@ Plans:
   2. `DiscoveryTab` populates the *Made For You* section with the user's personalized algorithmic mixes (*Daylist*, *Discover Weekly*, *Release Radar*, *Daily Mix 1–6*) via the CDP Pathfinder/Rootlist bridge, bypassing Spotify Web API Development Mode `HTTP 403/404` blocks.
   3. Resolved algorithmic mix metadata and track URI lists are cached locally on disk so users can browse and play those mixes even after switching their active playback engine to `librespot`.
   4. `py_modules/rpc_playback.py:_try_cdp_station_radio` (Phase 25 Tier 1 hook) is wired to `cdp_bridge.py` to start native Spotify `spotify:station:...` radio when `spotify_client` is active (falling back silently to Tier 2/3), `SearchTab` optionally enriches its Browse Categories / Gaming & Mood tiles via CDP with the 12 static tiles as automatic fallback on `librespot` or when CDP is unavailable, and pressing `B` while viewing search results in `SearchTab` (when `searchQuery` is non-empty) clears the search query/results and returns to the main Search idle view instead of closing the modal.
-**Plans:** 11/11 plans executed (9 executed, 2 gap-closure planned)
+**Plans:** 11/14 plans executed (11 executed, 3 gap-closure planned)
 
 Plans:
 **Wave 1**
@@ -289,6 +289,13 @@ Plans:
 
 **Wave 2 (Gap Closure - G-26-3)** *(blocked on 26-10)*
 - [x] 26-11-PLAN.md — Close UAT gap G-26-3: app-wide Spotify Web API rate limiter/GET cache/dedup, `spotify_client`/paused poll backoff, `SpotifyRateLimitError` propagation & caching in `start_radio`, CDP-first `search()`, and relaxed 30s Queue/Recent polling
+
+**Wave 1 (Gap Closure - UAT Round 2)**
+- [ ] 26-12-PLAN.md — Close UAT gaps G-26-4, G-26-5 (CDP), G-26-6, G-26-9: Spotify `1.2.95.453` `RecentlyPlayedAPI`/`RootlistAPI`/`PlaylistAPI`/`TokenProvider` mix & browse discovery, HTML stripping, and live DJ X interlude metadata
+- [ ] 26-13-PLAN.md — Close UAT gaps G-26-7 (playback) & G-26-8: `auto_transfer_and_play(play=False)` + `device_id`, `play_tracks` retry error propagation, and `spotify_client` CDP playback fallback
+
+**Wave 2 (Gap Closure - UAT Round 2)** *(blocked on 26-12, 26-13)*
+- [ ] 26-14-PLAN.md — Close UAT gaps G-26-4, G-26-5, G-26-7 (library & UI): `audio_backend`-keyed `_DISCOVERY_CACHE`, `DiscoveryTab` backend-switch refresh, and HTML stripping in `rpc_library.py`, `DiscoveryTab.tsx`, and `PlaylistsTab.tsx`
 **UI hint**: yes
 
 ### Phase 27: Interactive Queue Studio & Controller Playlist Management
