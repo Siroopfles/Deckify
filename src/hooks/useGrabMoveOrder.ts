@@ -1,4 +1,4 @@
-import { Dispatch, SetStateAction, useCallback, useRef, useState } from "react";
+import { Dispatch, SetStateAction, useCallback, useEffect, useRef, useState } from "react";
 import { GamepadButton } from "@decky/ui";
 import { TrackItem } from "../types";
 
@@ -93,6 +93,14 @@ export function useGrabMoveOrder({
   const callbacksRef = useRef({ setItems, onCommit, onCancelToast });
   callbacksRef.current = { setItems, onCommit, onCancelToast };
 
+  useEffect(() => {
+    if (grabbedKeyRef.current && !items.some((item) => item._rowKey === grabbedKeyRef.current)) {
+      grabbedKeyRef.current = null;
+      startGrabIndexRef.current = -1;
+      setGrabbedKey(null);
+    }
+  }, [items]);
+
   const enterGrabMode = useCallback((rowKey: string) => {
     if (busyRef.current || !rowKey) return;
     const current = itemsRef.current;
@@ -119,6 +127,7 @@ export function useGrabMoveOrder({
     itemsRef.current = next;
     callbacksRef.current.setItems?.(next);
     scheduleRowScroll(key);
+    scheduleRowFocus(key);
   }, []);
 
   const commitGrab = useCallback(async () => {

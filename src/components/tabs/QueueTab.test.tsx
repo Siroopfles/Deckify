@@ -56,6 +56,7 @@ vi.mock("../common/DeckifyImage", () => ({
 import { Focusable } from "@decky/ui";
 import { QueueTab } from "./QueueTab";
 import { InteractiveRow } from "../common/InteractiveRow";
+import { useGrabMoveOrder } from "../../hooks/useGrabMoveOrder";
 import { TrackItem } from "../../types";
 
 function findNodes(tree: any, predicate: (node: any) => boolean, results: any[] = []): any[] {
@@ -399,6 +400,63 @@ describe("QueueTab Component", () => {
     const reordered = setQueueTracks.mock.calls[0][0];
     expect(reordered[0]._rowKey).toBe("q:2:track2");
     expect(reordered[1]._rowKey).toBe("q:1:track1");
+    stateOverrideQueue = [];
+  });
+});
+
+describe("useGrabMoveOrder hook", () => {
+  it("schedules row focus and scroll when moveGrabbed swaps items", () => {
+    const focusMock = vi.fn();
+    const scrollIntoViewMock = vi.fn();
+    const querySelectorMock = vi.fn(() => ({
+      focus: focusMock,
+      scrollIntoView: scrollIntoViewMock,
+    }));
+
+    vi.stubGlobal("document", { querySelector: querySelectorMock });
+    vi.stubGlobal("requestAnimationFrame", (cb: () => void) => {
+      cb();
+      return 1;
+    });
+
+    try {
+      const keyedQueue: TrackItem[] = [
+        { ...mockQueue[0], _rowKey: "q:1:track1" },
+        { ...mockQueue[1], _rowKey: "q:2:track2" },
+      ];
+      const setItems = vi.fn();
+      stateOverrideQueue = ["q:2:track2"];
+      const hook = useGrabMoveOrder({ items: keyedQueue, setItems });
+
+      hook.moveGrabbed(-1);
+
+      expect(setItems).toHaveBeenCalledTimes(1);
+      expect(querySelectorMock).toHaveBeenCalledWith('[data-row-key="q:2:track2"]');
+      expect(scrollIntoViewMock).toHaveBeenCalledWith({ block: "nearest" });
+      expect(focusMock).toHaveBeenCalledTimes(1);
+    } finally {
+      stateOverrideQueue = [];
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("exits Grab/Move Mode cleanly when items no longer contains grabbedKey", () => {
+    const replacementQueue: TrackItem[] = [
+      { ...mockQueue[0], _rowKey: "q:9:other1" },
+      { ...mockQueue[1], _rowKey: "q:10:other2" },
+    ];
+    const setItems = vi.fn();
+    stateOverrideQueue = ["q:missing:track"];
+
+    const hook = useGrabMoveOrder({ items: replacementQueue, setItems });
+    const handled = hook.handleGamepadDirection({
+      detail: { button: 9 },
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    });
+
+    expect(handled).toBe(false);
+    expect(setItems).not.toHaveBeenCalled();
     stateOverrideQueue = [];
   });
 });
