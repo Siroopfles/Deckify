@@ -5,16 +5,16 @@ milestone_name: Studio, Living Room TV, Offline Travel & Ultimate Immersion (In 
 current_phase: 28
 current_phase_name: CDP Offline Downloads, Wi-Fi Travel Mode & Living Room Spotify Jam
 status: executing
-stopped_at: Phase 28 context gathered
-last_updated: "2026-11-26T10:17:52.282Z"
+stopped_at: Completed 28-01-PLAN.md
+last_updated: "2026-11-26T10:25:14.149Z"
 last_activity: 2026-11-26
-last_activity_desc: Phase 27 complete, transitioned to Phase 26
-state_head: df8c39634fbe14ac1f5b360e2a8e1a450410704f
+last_activity_desc: Phase 28 execution started
+state_head: 842a70fe99bb3e3d9f78d3753fed15804f6d3e06
 progress:
   total_phases: 12
   completed_phases: 8
   total_plans: 65
-  completed_plans: 58
+  completed_plans: 59
   percent: 67
 ---
 
@@ -25,14 +25,14 @@ progress:
 See: [.planning/PROJECT.md](file:///C:/Users/djdje/Deckify/.planning/PROJECT.md) (updated 2026-11-23)
 
 **Core value:** Rock-solid Spotify playback and responsive, reliable controller navigation on Steam Deck without UI lag, broken images, or desynchronized playback states.
-**Current focus:** Phase 27 — Interactive Queue Studio & Controller Playlist Management
+**Current focus:** Phase 28 — CDP Offline Downloads, Wi-Fi Travel Mode & Living Room Spotify Jam
 
 ## Current Position
 
-Phase: 28 (CDP Offline Downloads, Wi-Fi Travel Mode & Living Room Spotify Jam) — READY TO EXECUTE
-Plan: 9
+Phase: 28 (CDP Offline Downloads, Wi-Fi Travel Mode & Living Room Spotify Jam) — EXECUTING
+Plan: 2 of 7
 Status: Ready to execute
-Last activity: 2026-11-26 — Phase 27 complete, transitioned to Phase 26
+Last activity: 2026-11-26 — Phase 28 execution started
 
 
 ## Performance Metrics
@@ -159,6 +159,7 @@ Last activity: 2026-11-26 — Phase 27 complete, transitioned to Phase 26
 | Phase 27 P06 | 4min | 2 tasks | 3 files |
 | Phase 27 P07 | 5min | 2 tasks | 2 files |
 | Phase 27 P08 | 4min | 3 tasks | 5 files |
+| Phase 28 P01 | 5min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -259,6 +260,7 @@ Recent decisions affecting current work:
 - [Phase 26]: Extracted renderAiDjIndicator and renderAiDjButton as plain helpers in NowPlayingTab.tsx to satisfy ESLint complexity and length limits
 - [Phase 27]: Trapped vgp_oncancel/onCancelButton in PlaylistDeleteConfirmModal and added horizontal metadata filter chips in PlaylistsTab
 - [Phase 27]: Check isGrabbingRef.current before and after backendGetQueue in loadQueue and preserve _rowKey via mergeQueueRowKeys
+- [Phase 28]: Serialized offline_downloads.json under _OFFLINE_CACHE_LOCK with per-thread .tmp + os.replace and enforced check_disk_guardrail before OfflineAPI download probes
 
 ### Pending Todos
 
@@ -289,9 +291,9 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-26T09:59:37.240Z
-Stopped at: Phase 28 context gathered
-Resume file: C:\Users\djdje\Deckify\.planning\phases\28-cdp-offline-downloads-wi-fi-travel-mode-living-room-spotify/28-CONTEXT.md
+Last session: 2026-11-26T10:25:04.881Z
+Stopped at: Completed 28-01-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 
