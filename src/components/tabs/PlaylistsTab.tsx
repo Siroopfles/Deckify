@@ -8,7 +8,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { Focusable, TextField } from "@decky/ui";
+import { DialogButton, Focusable, TextField } from "@decky/ui";
 import {
   FaCheck,
   FaEdit,
@@ -256,16 +256,126 @@ export const PlaylistDeleteConfirmModal: FC<PlaylistDeleteConfirmModalProps> = (
   );
 };
 
+type PlaylistMetaFilter = "all" | "editable" | "followed" | "collaborative" | "pinned";
+type TrackMetaFilter = "all" | "liked";
+
+const OVERVIEW_META_CHIPS: ReadonlyArray<{ id: PlaylistMetaFilter; label: string }> = [
+  { id: "all", label: "All" },
+  { id: "editable", label: "Editable" },
+  { id: "followed", label: "Followed" },
+  { id: "collaborative", label: "Collaborative" },
+  { id: "pinned", label: "Pinned" },
+];
+
+const TRACK_META_CHIPS: ReadonlyArray<{ id: TrackMetaFilter; label: string }> = [
+  { id: "all", label: "All" },
+  { id: "liked", label: "Liked" },
+];
+
+function renderMetaFilterBar<T extends string>({
+  chips,
+  activeId,
+  onSelect,
+  testId,
+  onClear,
+}: {
+  chips: ReadonlyArray<{ id: T; label: string }>;
+  activeId: T;
+  onSelect: (id: T) => void;
+  testId: string;
+  onClear?: () => void;
+}) {
+  return (
+    <Focusable
+      flow-children="horizontal"
+      data-testid={testId}
+      style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}
+    >
+      {chips.map((chip) => {
+        const active = activeId === chip.id;
+        return (
+          <DialogButton
+            key={chip.id}
+            onClick={() => onSelect(chip.id)}
+            style={{
+              width: "auto",
+              minWidth: "auto",
+              minHeight: 32,
+              padding: "4px 12px",
+              fontSize: 12,
+              fontWeight: active ? 700 : 500,
+              background: active ? "var(--deckify-accent, #1DB954)" : "rgba(255,255,255,0.08)",
+              color: active ? "#000" : "#fff",
+            }}
+          >
+            {chip.label}
+          </DialogButton>
+        );
+      })}
+      {onClear && (
+        <DialogButton
+          onClick={onClear}
+          style={{
+            width: "auto",
+            minWidth: "auto",
+            minHeight: 32,
+            padding: "4px 12px",
+            fontSize: 12,
+            background: "rgba(255,255,255,0.04)",
+            color: "#ccc",
+          }}
+        >
+          Clear
+        </DialogButton>
+      )}
+    </Focusable>
+  );
+}
+
 function matchesQuery(text: string | undefined, query: string): boolean {
   if (!query) return true;
   return (text || "").toLowerCase().includes(query);
 }
 
-function filterFolderTree(folder: FolderItem, query: string): FolderItem | null {
-  if (!query || matchesQuery(folder.name, query)) return folder;
-  const matchingPlaylists = (folder.playlists || []).filter((pl) => matchesQuery(pl.name, query));
+function matchesPlaylistMeta(
+  pl: PlaylistItem,
+  metaFilter: PlaylistMetaFilter,
+  pinnedUris?: Set<string>,
+): boolean {
+  if (metaFilter === "editable") return pl.is_editable !== false;
+  if (metaFilter === "followed") return pl.is_editable === false;
+  if (metaFilter === "collaborative") return Boolean(pl.collaborative);
+  if (metaFilter === "pinned") {
+    const uri = pl.uri || (pl.id ? `spotify:playlist:${pl.id}` : "");
+    return Boolean(pinnedUris?.has(uri));
+  }
+  return true;
+}
+
+function matchesPlaylist(
+  pl: PlaylistItem,
+  query: string,
+  metaFilter: PlaylistMetaFilter,
+  pinnedUris?: Set<string>,
+): boolean {
+  if (!matchesPlaylistMeta(pl, metaFilter, pinnedUris)) return false;
+  if (!query) return true;
+  return matchesQuery(pl.name, query) || matchesQuery(pl.description, query) || matchesQuery(pl.owner_id, query);
+}
+
+function filterFolderTree(
+  folder: FolderItem,
+  query: string,
+  metaFilter: PlaylistMetaFilter,
+  pinnedUris?: Set<string>,
+): FolderItem | null {
+  if (!query && metaFilter === "all") return folder;
+  if (query && metaFilter === "all" && matchesQuery(folder.name, query)) return folder;
+  const matchingPlaylists = (folder.playlists || []).filter((pl) =>
+    matchesPlaylist(pl, query, metaFilter, pinnedUris),
+  );
   const matchingSubfolders = (folder.subfolders || [])
-    .map((sf) => filterFolderTree(sf, query))
+    .map((sf) => filterFolderTree(sf, query, metaFilter, pinnedUris))
     .filter((sf): sf is FolderItem => sf !== null);
   if (matchingPlaylists.length === 0 && matchingSubfolders.length === 0) return null;
   return { ...folder, playlists: matchingPlaylists, subfolders: matchingSubfolders };
@@ -367,7 +477,7 @@ const FolderTreeItem: FC<{
   activePlaylistId?: string;
   pinnedUris?: Set<string>;
   expandedFolderIds: Set<string>;
-  overviewQuery: string;
+  isOverviewFiltered: boolean;
   renamingFolderId: string | null;
   onToggleFolder: (id: string) => void;
   onStartRename: (id: string, name: string) => void;
@@ -432,7 +542,7 @@ const FolderTreeItem: FC<{
               {...props}
               folder={sf}
               depth={depth + 1}
-              isOpen={props.expandedFolderIds.has(sf.id) || Boolean(props.overviewQuery)}
+              isOpen={props.expandedFolderIds.has(sf.id) || props.isOverviewFiltered}
               isRenaming={props.renamingFolderId === sf.id}
             />
           ))}
@@ -595,7 +705,7 @@ const CreateFolderBar: FC<{
 
 function useGrabWiring({
   activePlaylist,
-  trackFilter,
+  isTrackFilterActive,
   stableTracks,
   grabTriggerRef,
   grabCancelRef,
@@ -605,7 +715,7 @@ function useGrabWiring({
   onGrabStateChange,
 }: {
   activePlaylist: PlaylistItem | null;
-  trackFilter: string;
+  isTrackFilterActive: boolean;
   stableTracks: TrackItem[];
   grabTriggerRef?: MutableRefObject<((track: TrackItem) => void) | null>;
   grabCancelRef?: MutableRefObject<(() => boolean) | null>;
@@ -617,7 +727,7 @@ function useGrabWiring({
   useEffect(() => {
     if (grabTriggerRef) {
       grabTriggerRef.current = (track: TrackItem) => {
-        if (activePlaylist?.is_editable === false || trackFilter.trim() !== "") return;
+        if (activePlaylist?.is_editable === false || isTrackFilterActive) return;
         const match =
           stableTracks.find((item) => item === track || (track._rowKey && item._rowKey === track._rowKey)) ||
           stableTracks.find((item) => (track.uri && item.uri === track.uri) || (track.id && item.id === track.id));
@@ -625,7 +735,7 @@ function useGrabWiring({
       };
     }
     if (grabCancelRef) grabCancelRef.current = cancelGrab;
-  }, [grabTriggerRef, grabCancelRef, stableTracks, enterGrabMode, cancelGrab, activePlaylist, trackFilter]);
+  }, [grabTriggerRef, grabCancelRef, stableTracks, enterGrabMode, cancelGrab, activePlaylist, isTrackFilterActive]);
 
   useEffect(() => {
     onGrabStateChange?.(Boolean(grabbedKey));
@@ -642,9 +752,11 @@ function renderPlaylistDetailView(props: {
   mixingBusy: boolean;
   pinnedUris?: Set<string>;
   trackFilter: string;
+  trackMetaFilter: TrackMetaFilter;
   editingPlaylist: PlaylistItem | null;
   grabbedKey: string | null;
   onTrackFilterChange: (val: string) => void;
+  onTrackMetaFilterChange: (val: TrackMetaFilter) => void;
   onClosePlaylist: () => void;
   onPlayTrack: (uri: string, contextUri?: string, allUris?: string[], startIdx?: number) => void;
   onTogglePin?: (item: PinnedPlaylistItem) => void;
@@ -660,13 +772,16 @@ function renderPlaylistDetailView(props: {
   onGrabTrack: (track: TrackItem) => void;
   onRemovePlaylistTrack?: (playlistId: string, track: TrackItem, originalIndex: number) => Promise<void>;
 }) {
-  const { activePlaylist, stableTracks, trackFilter } = props;
+  const { activePlaylist, stableTracks, trackFilter, trackMetaFilter } = props;
   const trackQuery = trackFilter.trim().toLowerCase();
-  const isTrackFilterActive = trackQuery !== "";
+  const isTrackFilterActive = trackQuery !== "" || trackMetaFilter !== "all";
   const isPlaylistEditable = activePlaylist.is_editable !== false;
   const indexedTracks = stableTracks
     .map((t, originalIndex) => ({ t, originalIndex }))
-    .filter(({ t }) => matchesQuery(t.name, trackQuery) || matchesQuery(t.artist, trackQuery));
+    .filter(({ t }) => {
+      if (trackMetaFilter === "liked" && !t.is_liked) return false;
+      return matchesQuery(t.name, trackQuery) || matchesQuery(t.artist, trackQuery) || matchesQuery(t.album, trackQuery);
+    });
 
   return (
     <div>
@@ -684,14 +799,26 @@ function renderPlaylistDetailView(props: {
           onCancel={props.onCancelEdit}
         />
       )}
-      <div style={{ marginBottom: 12 }}>
+      <div style={{ marginBottom: 8 }}>
         <TextField label="Filter tracks" value={trackFilter} onChange={(e) => props.onTrackFilterChange(e.target.value)} />
       </div>
+      {renderMetaFilterBar({
+        chips: TRACK_META_CHIPS,
+        activeId: trackMetaFilter,
+        onSelect: props.onTrackMetaFilterChange,
+        testId: "track-meta-filter-bar",
+        onClear: isTrackFilterActive
+          ? () => {
+              props.onTrackFilterChange("");
+              props.onTrackMetaFilterChange("all");
+            }
+          : undefined,
+      })}
       {props.loadingContent ? (
         <p style={{ opacity: 0.5 }}>Loading...</p>
       ) : indexedTracks.length === 0 && isTrackFilterActive ? (
         <div data-testid="track-filter-empty" style={{ textAlign: "center", padding: "32px 16px", opacity: 0.6, fontSize: 13 }}>
-          No tracks match &quot;{trackFilter.trim()}&quot;. Clear the track filter to view all songs.
+          No tracks match{trackFilter.trim() ? ` "${trackFilter.trim()}"` : " this filter"}. Clear the track filter to view all songs.
         </div>
       ) : (
         <Focusable flow-children="column" onGamepadDirection={props.onGamepadDirection} style={{ display: "flex", flexDirection: "column", gap: 3 }}>
@@ -734,16 +861,24 @@ const PlaylistsOverview: FC<{
   const [renamingFolderId, setRenamingFolderId] = useState<string | null>(null);
   const [renameFolderName, setRenameFolderName] = useState("");
   const [overviewFilter, setOverviewFilter] = useState("");
+  const [overviewMetaFilter, setOverviewMetaFilter] = useState<PlaylistMetaFilter>("all");
 
   const overviewQuery = overviewFilter.trim().toLowerCase();
+  const isOverviewFiltered = overviewQuery !== "" || overviewMetaFilter !== "all";
   const categorizedIds = useMemo(() => collectCategorizedIds(props.folders), [props.folders]);
   const filteredFolders = useMemo(
-    () => props.folders.map((f) => filterFolderTree(f, overviewQuery)).filter((f): f is FolderItem => f !== null),
-    [props.folders, overviewQuery],
+    () =>
+      props.folders
+        .map((f) => filterFolderTree(f, overviewQuery, overviewMetaFilter, props.pinnedUris))
+        .filter((f): f is FolderItem => f !== null),
+    [props.folders, overviewQuery, overviewMetaFilter, props.pinnedUris],
   );
   const uncategorized = useMemo(
-    () => props.allUserPlaylists.filter((pl) => !categorizedIds.has(pl.id) && matchesQuery(pl.name, overviewQuery)),
-    [props.allUserPlaylists, categorizedIds, overviewQuery],
+    () =>
+      props.allUserPlaylists.filter(
+        (pl) => !categorizedIds.has(pl.id) && matchesPlaylist(pl, overviewQuery, overviewMetaFilter, props.pinnedUris),
+      ),
+    [props.allUserPlaylists, categorizedIds, overviewQuery, overviewMetaFilter, props.pinnedUris],
   );
 
   const toggleFolder = (id: string) =>
@@ -757,9 +892,21 @@ const PlaylistsOverview: FC<{
   return (
     <div>
       <OverviewHeader onToggleCreatePlaylist={() => setCreatingPlaylist((v) => !v)} onToggleCreateFolder={() => setCreatingFolder((v) => !v)} />
-      <div style={{ marginBottom: 12 }}>
+      <div style={{ marginBottom: 8 }}>
         <TextField label="Filter playlists & folders" value={overviewFilter} onChange={(e) => setOverviewFilter(e.target.value)} />
       </div>
+      {renderMetaFilterBar({
+        chips: OVERVIEW_META_CHIPS,
+        activeId: overviewMetaFilter,
+        onSelect: setOverviewMetaFilter,
+        testId: "overview-meta-filter-bar",
+        onClear: isOverviewFiltered
+          ? () => {
+              setOverviewFilter("");
+              setOverviewMetaFilter("all");
+            }
+          : undefined,
+      })}
       {creatingPlaylist && (
         <PlaylistFormPanel
           title="New Playlist"
@@ -787,7 +934,7 @@ const PlaylistsOverview: FC<{
         />
       )}
       <OverviewLists
-        filteredFolders={filteredFolders} uncategorized={uncategorized} overviewFilter={overviewFilter} overviewQuery={overviewQuery}
+        filteredFolders={filteredFolders} uncategorized={uncategorized} overviewFilter={overviewFilter} isOverviewFiltered={isOverviewFiltered}
         expandedFolderIds={expandedFolderIds} renamingFolderId={renamingFolderId} renameFolderName={renameFolderName} pinnedUris={props.pinnedUris}
         onToggleFolder={toggleFolder}
         onStartRename={(id, name) => { setRenamingFolderId(id); setRenameFolderName(name); }}
@@ -804,7 +951,7 @@ const OverviewLists: FC<{
   filteredFolders: FolderItem[];
   uncategorized: PlaylistItem[];
   overviewFilter: string;
-  overviewQuery: string;
+  isOverviewFiltered: boolean;
   expandedFolderIds: Set<string>;
   renamingFolderId: string | null;
   renameFolderName: string;
@@ -825,12 +972,12 @@ const OverviewLists: FC<{
         key={f.id}
         folder={f}
         depth={0}
-        isOpen={props.expandedFolderIds.has(f.id) || Boolean(props.overviewQuery)}
+        isOpen={props.expandedFolderIds.has(f.id) || props.isOverviewFiltered}
         isRenaming={props.renamingFolderId === f.id}
         renameFolderName={props.renameFolderName}
         pinnedUris={props.pinnedUris}
         expandedFolderIds={props.expandedFolderIds}
-        overviewQuery={props.overviewQuery}
+        isOverviewFiltered={props.isOverviewFiltered}
         renamingFolderId={props.renamingFolderId}
         onToggleFolder={props.onToggleFolder}
         onStartRename={props.onStartRename}
@@ -860,9 +1007,9 @@ const OverviewLists: FC<{
         ))}
       </div>
     )}
-    {props.overviewQuery && props.filteredFolders.length === 0 && props.uncategorized.length === 0 && (
+    {props.isOverviewFiltered && props.filteredFolders.length === 0 && props.uncategorized.length === 0 && (
       <div data-testid="overview-filter-empty" style={{ textAlign: "center", padding: "32px 16px", opacity: 0.6, fontSize: 13 }}>
-        No playlists or folders match &quot;{props.overviewFilter.trim()}&quot;. Clear the filter to view all playlists.
+        No playlists or folders match{props.overviewFilter.trim() ? ` "${props.overviewFilter.trim()}"` : " this filter"}. Clear the filter to view all playlists.
       </div>
     )}
   </Focusable>
@@ -878,6 +1025,7 @@ function usePendingPlaylistEffects({
   setEditingPlaylist,
   setConfirmDeletePlaylist,
   setTrackFilter,
+  setTrackMetaFilter,
 }: {
   activePlaylistId?: string;
   pendingEditPlaylist?: PlaylistItem | null;
@@ -888,6 +1036,7 @@ function usePendingPlaylistEffects({
   setEditingPlaylist: Dispatch<SetStateAction<PlaylistItem | null>>;
   setConfirmDeletePlaylist: Dispatch<SetStateAction<PlaylistItem | null>>;
   setTrackFilter: Dispatch<SetStateAction<string>>;
+  setTrackMetaFilter: Dispatch<SetStateAction<TrackMetaFilter>>;
 }) {
   useEffect(() => {
     if (pendingEditPlaylist && pendingEditPlaylist.is_editable !== false) {
@@ -909,8 +1058,9 @@ function usePendingPlaylistEffects({
 
   useEffect(() => {
     setTrackFilter("");
+    setTrackMetaFilter("all");
     setEditingPlaylist(null);
-  }, [activePlaylistId, setTrackFilter, setEditingPlaylist]);
+  }, [activePlaylistId, setTrackFilter, setTrackMetaFilter, setEditingPlaylist]);
 }
 
 export const PlaylistsTab: FC<PlaylistsTabProps> = (props) => {
@@ -918,6 +1068,8 @@ export const PlaylistsTab: FC<PlaylistsTabProps> = (props) => {
   const [editingPlaylist, setEditingPlaylist] = useState<PlaylistItem | null>(null);
   const [confirmDeletePlaylist, setConfirmDeletePlaylist] = useState<PlaylistItem | null>(null);
   const [trackFilter, setTrackFilter] = useState("");
+  const [trackMetaFilter, setTrackMetaFilter] = useState<TrackMetaFilter>("all");
+  const isTrackFilterActive = trackFilter.trim() !== "" || trackMetaFilter !== "all";
 
   const playlistUri = activePlaylist ? activePlaylist.uri || (activePlaylist.id ? `spotify:playlist:${activePlaylist.id}` : "") : "";
   const stableTracks = useMemo(() => assignStableRowKeys(playlistTracks, "pl"), [playlistTracks]);
@@ -929,7 +1081,7 @@ export const PlaylistsTab: FC<PlaylistsTabProps> = (props) => {
   });
 
   useGrabWiring({
-    activePlaylist, trackFilter, stableTracks, grabTriggerRef: props.grabTriggerRef,
+    activePlaylist, isTrackFilterActive, stableTracks, grabTriggerRef: props.grabTriggerRef,
     grabCancelRef: props.grabCancelRef, enterGrabMode, cancelGrab, grabbedKey, onGrabStateChange: props.onGrabStateChange,
   });
 
@@ -943,6 +1095,7 @@ export const PlaylistsTab: FC<PlaylistsTabProps> = (props) => {
     setEditingPlaylist,
     setConfirmDeletePlaylist,
     setTrackFilter,
+    setTrackMetaFilter,
   });
 
   return (
@@ -967,9 +1120,11 @@ export const PlaylistsTab: FC<PlaylistsTabProps> = (props) => {
           mixingBusy: props.mixingBusy,
           pinnedUris: props.pinnedUris,
           trackFilter,
+          trackMetaFilter,
           editingPlaylist,
           grabbedKey,
           onTrackFilterChange: setTrackFilter,
+          onTrackMetaFilterChange: setTrackMetaFilter,
           onClosePlaylist: props.onClosePlaylist,
           onPlayTrack: props.onPlayTrack,
           onTogglePin: props.onTogglePin,

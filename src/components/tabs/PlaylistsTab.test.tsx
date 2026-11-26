@@ -53,6 +53,7 @@ vi.mock("@decky/api", () => ({
 }));
 
 vi.mock("@decky/ui", () => ({
+  DialogButton: ({ children, ...props }: any) => ({ type: "DialogButton", props: { children, ...props } }),
   Focusable: ({ children, ...props }: any) => ({ type: "Focusable", props: { children, ...props } }),
   TextField: (props: any) => ({ type: "TextField", props }),
   GamepadButton: { DIR_UP: 9, DIR_DOWN: 10 },
@@ -62,7 +63,7 @@ vi.mock("../common/DeckifyImage", () => ({
   DeckifyImage: (props: any) => ({ type: "DeckifyImage", props }),
 }));
 
-import { Focusable, TextField } from "@decky/ui";
+import { DialogButton, Focusable, TextField } from "@decky/ui";
 import { PlaylistsTab, PlaylistDeleteConfirmModal, PlaylistsTabProps } from "./PlaylistsTab";
 import { InteractiveRow } from "../common/InteractiveRow";
 import { TrackRowItem } from "../common/TrackRowItem";
@@ -75,7 +76,8 @@ function expandTree(node: any): any {
     node.type !== InteractiveRow &&
     node.type !== TrackRowItem &&
     node.type !== TextField &&
-    node.type !== Focusable
+    node.type !== Focusable &&
+    node.type !== DialogButton
   ) {
     return expandTree(node.type(node.props));
   }
@@ -321,5 +323,174 @@ describe("PlaylistsTab Phase 27 CRUD, filtering, ownership & Grab/Move (27-04)",
     expect(typeof outerFocusable.props.onCancelButton).toBe("function");
     outerFocusable.props.onCancelButton();
     expect(onCancel).toHaveBeenCalledTimes(2);
+  });
+
+  it("renders horizontal overview metadata filter chips, filters folders/uncategorized playlists, and searches description/owner_id", () => {
+    const folderPlEditable: any = {
+      id: "pl-f1",
+      name: "Gym Mix",
+      uri: "spotify:playlist:pl-f1",
+      is_editable: true,
+      collaborative: true,
+      description: "High BPM workout",
+      owner_id: "user-abc",
+    };
+    const folderPlFollowed: any = {
+      id: "pl-f2",
+      name: "Editorial Chill",
+      uri: "spotify:playlist:pl-f2",
+      is_editable: false,
+      collaborative: false,
+      description: "Curated beats",
+      owner_id: "spotify",
+    };
+    const uncatEditable: any = {
+      id: "pl-u1",
+      name: "Late Night",
+      uri: "spotify:playlist:pl-u1",
+      is_editable: true,
+      collaborative: false,
+      description: "Synthwave favorites",
+      owner_id: "me",
+    };
+    const uncatFollowed: any = {
+      id: "pl-u2",
+      name: "Release Radar",
+      uri: "spotify:playlist:pl-u2",
+      is_editable: false,
+      collaborative: false,
+      description: "Weekly drops",
+      owner_id: "spotify",
+    };
+
+    const props = makeProps({
+      folders: [{ id: "folder-1", name: "Workouts", playlist_ids: ["pl-f1", "pl-f2"], playlists: [folderPlEditable, folderPlFollowed], subfolders: [] }],
+      allUserPlaylists: [folderPlEditable, folderPlFollowed, uncatEditable, uncatFollowed],
+      pinnedUris: new Set(["spotify:playlist:pl-u1"]),
+    });
+
+    const tree1 = expandTree(PlaylistsTab(props));
+    const chipBar = findNodes(tree1, (n) => n.props?.["data-testid"] === "overview-meta-filter-bar")[0];
+    expect(chipBar).toBeDefined();
+    expect(chipBar.props["flow-children"]).toBe("horizontal");
+
+    const chips = findNodes(chipBar, (n) => n.type === DialogButton);
+    expect(chips.map((c) => collectText(c).trim())).toEqual(["All", "Editable", "Followed", "Collaborative", "Pinned"]);
+    expect(chips[0].props.style.width).toBe("auto");
+    expect(chips[0].props.style.minWidth).toBe("auto");
+
+    // Click Followed -> only folderPlFollowed & uncatFollowed remain
+    chips.find((c) => collectText(c).trim() === "Followed")!.props.onClick();
+    stateIdx = 0;
+    refIdx = 0;
+    const followedTree = expandTree(PlaylistsTab(props));
+    expect(collectText(followedTree)).toContain("Editorial Chill");
+    expect(collectText(followedTree)).toContain("Release Radar");
+    expect(collectText(followedTree)).not.toContain("Gym Mix");
+    expect(collectText(followedTree)).not.toContain("Late Night");
+
+    // Click Collaborative -> only folderPlEditable remains
+    const followedBar = findNodes(followedTree, (n) => n.props?.["data-testid"] === "overview-meta-filter-bar")[0];
+    findNodes(followedBar, (n) => n.type === DialogButton && collectText(n).trim() === "Collaborative")[0].props.onClick();
+    stateIdx = 0;
+    refIdx = 0;
+    const collabTree = expandTree(PlaylistsTab(props));
+    expect(collectText(collabTree)).toContain("Gym Mix");
+    expect(collectText(collabTree)).not.toContain("Editorial Chill");
+    expect(collectText(collabTree)).not.toContain("Late Night");
+
+    // Click Pinned -> only uncatEditable remains
+    const collabBar = findNodes(collabTree, (n) => n.props?.["data-testid"] === "overview-meta-filter-bar")[0];
+    findNodes(collabBar, (n) => n.type === DialogButton && collectText(n).trim() === "Pinned")[0].props.onClick();
+    stateIdx = 0;
+    refIdx = 0;
+    const pinnedTree = expandTree(PlaylistsTab(props));
+    expect(collectText(pinnedTree)).toContain("Late Night");
+    expect(collectText(pinnedTree)).not.toContain("Gym Mix");
+
+    // Clear back to All and search by description + owner_id
+    const pinnedBar = findNodes(pinnedTree, (n) => n.props?.["data-testid"] === "overview-meta-filter-bar")[0];
+    findNodes(pinnedBar, (n) => n.type === DialogButton && collectText(n).trim() === "Clear")[0].props.onClick();
+    stateIdx = 0;
+    refIdx = 0;
+    const resetTree = expandTree(PlaylistsTab(props));
+    const ovField = findNodes(resetTree, (n) => n.type === TextField && n.props.label === "Filter playlists & folders")[0];
+    ovField.props.onChange({ target: { value: "Synthwave" } });
+    stateIdx = 0;
+    refIdx = 0;
+    const descTree = expandTree(PlaylistsTab(props));
+    expect(collectText(descTree)).toContain("Late Night");
+    expect(collectText(descTree)).not.toContain("Gym Mix");
+
+    const ovField2 = findNodes(descTree, (n) => n.type === TextField && n.props.label === "Filter playlists & folders")[0];
+    ovField2.props.onChange({ target: { value: "user-abc" } });
+    stateIdx = 0;
+    refIdx = 0;
+    const ownerTree = expandTree(PlaylistsTab(props));
+    expect(collectText(ownerTree)).toContain("Gym Mix");
+    expect(collectText(ownerTree)).not.toContain("Late Night");
+  });
+
+  it("renders detail track filter chips (All, Liked, Clear), searches album, and gates Grab/Move on metadata filter", () => {
+    const grabTriggerRef = { current: null as ((track: any) => void) | null };
+    const onGrabStateChange = vi.fn();
+    const tracks = [
+      { id: "t1", name: "Alpha", artist: "Artist 1", album: "Neon Nights", uri: "spotify:track:t1", duration_ms: 180000, is_liked: true },
+      { id: "t2", name: "Beta", artist: "Artist 2", album: "Solar Dawn", uri: "spotify:track:t2", duration_ms: 200000, is_liked: false },
+    ];
+    const props = makeProps({
+      activePlaylist: { id: "pl-1", name: "My Playlist", uri: "spotify:playlist:pl-1", is_editable: true },
+      playlistTracks: tracks,
+      grabTriggerRef,
+      onGrabStateChange,
+    });
+
+    const tree1 = expandTree(PlaylistsTab(props));
+    const chipBar = findNodes(tree1, (n) => n.props?.["data-testid"] === "track-meta-filter-bar")[0];
+    expect(chipBar).toBeDefined();
+    expect(chipBar.props["flow-children"]).toBe("horizontal");
+    const chips1 = findNodes(chipBar, (n) => n.type === DialogButton);
+    expect(chips1.map((c) => collectText(c).trim())).toEqual(["All", "Liked"]);
+
+    // When no filter is active, canReorder is true
+    const rowsUnfiltered = findNodes(tree1, (n) => n.type === TrackRowItem);
+    expect(rowsUnfiltered[0].props.canReorder).toBe(true);
+
+    // Activate Liked chip -> only Alpha remains, Clear chip appears, canReorder=false, grabTriggerRef blocked
+    chips1.find((c) => collectText(c).trim() === "Liked")!.props.onClick();
+    stateIdx = 0;
+    refIdx = 0;
+    const likedTree = expandTree(PlaylistsTab(props));
+    const likedBar = findNodes(likedTree, (n) => n.props?.["data-testid"] === "track-meta-filter-bar")[0];
+    const likedChips = findNodes(likedBar, (n) => n.type === DialogButton);
+    expect(likedChips.map((c) => collectText(c).trim())).toEqual(["All", "Liked", "Clear"]);
+
+    const rowsLiked = findNodes(likedTree, (n) => n.type === TrackRowItem);
+    expect(rowsLiked.length).toBe(1);
+    expect(rowsLiked[0].props.track.name).toBe("Alpha");
+    expect(rowsLiked[0].props.canReorder).toBe(false);
+
+    // grabTriggerRef should not enter grab mode while Liked filter is active
+    onGrabStateChange.mockClear();
+    grabTriggerRef.current?.(tracks[0]);
+    stateIdx = 0;
+    refIdx = 0;
+    expandTree(PlaylistsTab(props));
+    expect(onGrabStateChange).toHaveBeenLastCalledWith(false);
+
+    // Clear filter and search by album name
+    likedChips.find((c) => collectText(c).trim() === "Clear")!.props.onClick();
+    stateIdx = 0;
+    refIdx = 0;
+    const clearedTree = expandTree(PlaylistsTab(props));
+    const trField = findNodes(clearedTree, (n) => n.type === TextField && n.props.label === "Filter tracks")[0];
+    trField.props.onChange({ target: { value: "Solar Dawn" } });
+    stateIdx = 0;
+    refIdx = 0;
+    const albumTree = expandTree(PlaylistsTab(props));
+    const albumRows = findNodes(albumTree, (n) => n.type === TrackRowItem);
+    expect(albumRows.length).toBe(1);
+    expect(albumRows[0].props.track.name).toBe("Beta");
+    expect(albumRows[0].props.canReorder).toBe(false);
   });
 });
