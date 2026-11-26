@@ -325,7 +325,21 @@ Plans:
   1. User can toggle *"Download for Offline"* on playlists, albums, and podcast episodes via Official Spotify Client CDP `OfflineAPI` (with a 1-click engine switch prompt when on `librespot`), viewing live `0–100%` download progress and green offline badges while protected by an `os.statvfs` 3.0 GB minimum free-space disk guardrail.
   2. User can manually toggle **Offline / Travel Mode** or have it activate automatically upon sustained Wi-Fi disconnect (after the 10-second wake-from-suspend grace window) to filter library views strictly to locally downloaded content and cached `.lrc` lyrics.
   3. User can start or share a Spotify Jam / group session from `NowPlayingTab`, `DevicesTab`, or `TvSplitView`, rendering a high-contrast scannable `QRCodeSVG` modal/card for living-room guests (with a shareable track/playlist deep-link QR fallback when `librespot` is active).
-**Plans:** TBD
+**Plans:** 7 plans
+
+Plans:
+**Wave 1**
+- [ ] 28-01-PLAN.md — CDP `OfflineAPI` & `SocialConnectAPI` probes, `os.statvfs` 3.0 GB disk guardrail, Flatpak storage path, & Wave 0 `tests/test_offline_downloads.py`
+- [ ] 28-02-PLAN.md — Travel Mode resilience (`10s` wake-from-suspend grace window, sticky manual lock, offline filter) & Wave 0 `tests/test_travel_mode.py`
+- [ ] 28-03-PLAN.md — Shared TypeScript types (`src/types.ts`) & reusable `<JamQrCard>` / `<JamQrModal>` + Wave 0 `src/components/common/JamQrModal.test.tsx`
+
+**Wave 2** *(blocked on Wave 1)*
+- [ ] 28-04-PLAN.md — `py_modules/rpc_library.py` offline annotation, `main.py` RPCs, `_poll_playback` active-download disk guardrail, & push events
+- [ ] 28-05-PLAN.md — Offline download controls, `↓ %` / `✓` badges, & Travel Mode filtering/degradation across library & online tabs
+- [ ] 28-06-PLAN.md — Jam triggers/active pills (`NowPlayingTab`, `DevicesTab`) & Travel Mode / Storage & Offline Downloads Manager (`SettingsTab`)
+
+**Wave 3** *(blocked on Wave 2)*
+- [ ] 28-07-PLAN.md — `DeckifyExpandedModal.tsx` & QAM (`src/index.tsx`) wiring, `EngineSwitchDownloadModal`, `vgp_oncancel` guards, & full suite verification
 **UI hint**: yes
 
 ### Phase 29: 10-Foot Docked TV Split-View Mode & PipeWire Spectrum Visualizer
@@ -336,7 +350,21 @@ Plans:
   1. User can manually toggle the **10-Foot Docked TV Split-View Mode** (`TvSplitView.tsx` — large cover art + dynamic accent glow on the left, 10-foot dual-line romanized karaoke lyrics + Up Next queue preview + optional Jam QR badge on the right) or have it auto-activate when `DockAudioSwitcher` detects an external HDMI/USB-DAC dock.
   2. When `TvSplitView` is open and actively playing, an optional 16-band real-time PipeWire audio spectrum visualizer (`parec --monitor-stream` tapped strictly to Deckify's audio stream at 15 Hz via `resolve_spotify_sink_input_ids()` with zero game or voice bleed) animates smoothly via GPU-composited CSS `scaleY` transforms.
   3. Closing `TvSplitView`, pausing playback, or activating Handheld Battery Eco-Mode terminates the `parec` spectrum subprocess within `<100ms` so zero background DSP overhead runs during gameplay.
-**Plans:** TBD
+**Plans:** 7 plans
+
+Plans:
+**Wave 1**
+- [ ] 28-01-PLAN.md — CDP `OfflineAPI` & `SocialConnectAPI` probes, `os.statvfs` 3.0 GB disk guardrail, Flatpak storage path, & Wave 0 `tests/test_offline_downloads.py`
+- [ ] 28-02-PLAN.md — Travel Mode resilience (`10s` wake-from-suspend grace window, sticky manual lock, offline filter) & Wave 0 `tests/test_travel_mode.py`
+- [ ] 28-03-PLAN.md — Shared TypeScript types (`src/types.ts`) & reusable `<JamQrCard>` / `<JamQrModal>` + Wave 0 `src/components/common/JamQrModal.test.tsx`
+
+**Wave 2** *(blocked on Wave 1)*
+- [ ] 28-04-PLAN.md — `py_modules/rpc_library.py` offline annotation, `main.py` RPCs, `_poll_playback` active-download disk guardrail, & push events
+- [ ] 28-05-PLAN.md — Offline download controls, `↓ %` / `✓` badges, & Travel Mode filtering/degradation across library & online tabs
+- [ ] 28-06-PLAN.md — Jam triggers/active pills (`NowPlayingTab`, `DevicesTab`) & Travel Mode / Storage & Offline Downloads Manager (`SettingsTab`)
+
+**Wave 3** *(blocked on Wave 2)*
+- [ ] 28-07-PLAN.md — `DeckifyExpandedModal.tsx` & QAM (`src/index.tsx`) wiring, `EngineSwitchDownloadModal`, `vgp_oncancel` guards, & full suite verification
 **UI hint**: yes
 
 ### Phase 30: "Deck Wrapped" Listening Stats, Last.fm / ListenBrainz Scrobbling & Profile Backup
@@ -347,7 +375,21 @@ Plans:
   1. User can open the dedicated *"Deck Wrapped" / Listening Stats* view (`StatsTab.tsx`) to inspect total listening time, top tracks and artists on Steam Deck, and **Top Game + Soundtrack Pairings** recorded via monotonic wall-clock playback duration (`accumulated_play_ms`) correlated with `active_game_app_id`.
   2. User can enable built-in **Last.fm** and/or **ListenBrainz** scrobbling that enforces the standard 50% / 240-second actual-play-time rule (immune to seek-bar scrubbing) and persists scrobbles in an offline retry queue when disconnected from Wi-Fi.
   3. User can export or import a secret-redacted 1-click JSON profile backup (`~/.config/deckify/backups/`) containing all Deckify settings, game soundtrack & per-game EQ profiles, custom 10-band EQ presets, per-track lyric offsets, and pinned playlists without exposing OAuth or scrobbler tokens.
-**Plans:** TBD
+**Plans:** 7 plans
+
+Plans:
+**Wave 1**
+- [ ] 28-01-PLAN.md — CDP `OfflineAPI` & `SocialConnectAPI` probes, `os.statvfs` 3.0 GB disk guardrail, Flatpak storage path, & Wave 0 `tests/test_offline_downloads.py`
+- [ ] 28-02-PLAN.md — Travel Mode resilience (`10s` wake-from-suspend grace window, sticky manual lock, offline filter) & Wave 0 `tests/test_travel_mode.py`
+- [ ] 28-03-PLAN.md — Shared TypeScript types (`src/types.ts`) & reusable `<JamQrCard>` / `<JamQrModal>` + Wave 0 `src/components/common/JamQrModal.test.tsx`
+
+**Wave 2** *(blocked on Wave 1)*
+- [ ] 28-04-PLAN.md — `py_modules/rpc_library.py` offline annotation, `main.py` RPCs, `_poll_playback` active-download disk guardrail, & push events
+- [ ] 28-05-PLAN.md — Offline download controls, `↓ %` / `✓` badges, & Travel Mode filtering/degradation across library & online tabs
+- [ ] 28-06-PLAN.md — Jam triggers/active pills (`NowPlayingTab`, `DevicesTab`) & Travel Mode / Storage & Offline Downloads Manager (`SettingsTab`)
+
+**Wave 3** *(blocked on Wave 2)*
+- [ ] 28-07-PLAN.md — `DeckifyExpandedModal.tsx` & QAM (`src/index.tsx`) wiring, `EngineSwitchDownloadModal`, `vgp_oncancel` guards, & full suite verification
 **UI hint**: yes
 
 ## Progress
