@@ -287,6 +287,7 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
     type: "playlist" | "album" | "episode" | "show";
     image_url?: string | null;
   } | null>(null);
+  const [travelPillFocused, setTravelPillFocused] = useState<boolean>(false);
   const jamModalOpenRef = useRef(jamModalOpen);
   jamModalOpenRef.current = jamModalOpen;
   const pendingEngineSwitchDownloadRef = useRef(pendingEngineSwitchDownload);
@@ -295,6 +296,34 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
   const grabCommitRef = useRef<(() => Promise<void> | void) | null>(null);
   const queueGrabTriggerRef = useRef<((track: TrackItem) => void) | null>(null);
   const playlistGrabTriggerRef = useRef<((track: TrackItem) => void) | null>(null);
+  const engineSwitchModalRef = useRef<HTMLDivElement>(null);
+  const prevFocusedBeforeEngineSwitchRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    if (pendingEngineSwitchDownload) {
+      prevFocusedBeforeEngineSwitchRef.current = document.activeElement as HTMLElement | null;
+      const raf = requestAnimationFrame(() => {
+        const container = engineSwitchModalRef.current;
+        if (!container) return;
+        const target =
+          (container.querySelector('[data-testid="engine-switch-stay-btn"]') as HTMLElement | null) ||
+          (container.querySelector("button, [tabindex]") as HTMLElement | null);
+        target?.focus?.();
+      });
+      return () => cancelAnimationFrame(raf);
+    }
+    const prev = prevFocusedBeforeEngineSwitchRef.current;
+    if (prev && document.contains(prev)) {
+      const raf = requestAnimationFrame(() => {
+        prev.focus?.();
+      });
+      prevFocusedBeforeEngineSwitchRef.current = null;
+      return () => cancelAnimationFrame(raf);
+    }
+    prevFocusedBeforeEngineSwitchRef.current = null;
+    return undefined;
+  }, [pendingEngineSwitchDownload]);
 
   useEffect(() => {
     const persisted = status?.settings?.search_history;
@@ -718,11 +747,28 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
       try {
         const res = await backendSetTravelMode(enabled, manual, autoEnabled);
         if (res?.ok) {
-          setTravelModeEnabled(Boolean(res.travel_mode_enabled ?? enabled));
+          const nextEnabled = Boolean(res.travel_mode_enabled ?? enabled);
+          setTravelModeEnabled(nextEnabled);
           if (typeof res.travel_mode_auto_enabled === "boolean") {
             setTravelModeAutoEnabled(res.travel_mode_auto_enabled);
           }
           refreshStatus();
+          if (!nextEnabled && typeof document !== "undefined" && typeof requestAnimationFrame !== "undefined") {
+            requestAnimationFrame(() => {
+              if (!document.activeElement || document.activeElement === document.body) {
+                const listTarget = contentPaneRef.current?.querySelector(
+                  '[data-deckify-list-item="true"]',
+                ) as HTMLElement | null;
+                const pillTarget = document.querySelector(
+                  '[data-testid="travel-mode-header-pill"]',
+                ) as HTMLElement | null;
+                const sidebarTarget = document.querySelector(
+                  '[data-testid="sidebar-nav"] button, [data-testid="sidebar-nav"] [tabindex]',
+                ) as HTMLElement | null;
+                (listTarget || pillTarget || sidebarTarget)?.focus?.();
+              }
+            });
+          }
         } else {
           showToast(res?.error || "Failed to update Offline Travel Mode.");
         }
@@ -790,6 +836,7 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
     const pending = pendingEngineSwitchDownloadRef.current;
     if (!pending) return;
     setPendingEngineSwitchDownload(null);
+    showToast("Switching to Official Spotify Client...");
     try {
       const switchRes = await backendSwitchAudioBackend("spotify_client");
       if (!switchRes?.ok) {
@@ -827,7 +874,7 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
       const res = await backendStartSpotifyJam();
       if (res?.ok) {
         setJamSession({
-          active: Boolean(res.active ?? true),
+          active: Boolean(res.join_url && (res.active ?? true)),
           join_url: res.join_url,
           guest_count: res.guest_count,
           is_host: res.is_host,
@@ -870,7 +917,7 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
       const jamRes = await backendStartSpotifyJam();
       if (jamRes?.ok) {
         setJamSession({
-          active: Boolean(jamRes.active ?? true),
+          active: Boolean(jamRes.join_url && (jamRes.active ?? true)),
           join_url: jamRes.join_url,
           guest_count: jamRes.guest_count,
           is_host: jamRes.is_host,
@@ -2038,44 +2085,61 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
                   overflowY: "auto",
                 }}
               >
-              <Focusable
-                flow-children="horizontal"
-                style={{
-                  display: "flex",
-                  justifyContent: "flex-end",
-                  alignItems: "center",
-                  gap: 8,
-                  marginBottom: 8,
-                  flexShrink: 0,
-                }}
-              >
-                <DialogButton
-                  data-testid="travel-mode-header-pill"
-                  onClick={() => void handleToggleTravelMode(!travelModeEnabled, true)}
+              {(travelModeEnabled ||
+                (typeof navigator !== "undefined" && navigator.onLine === false) ||
+                (status?.resilience_status as { network_online?: boolean } | undefined)?.network_online === false ||
+                Boolean(status?.travel_mode_show_when_online ?? status?.settings?.travel_mode_show_when_online)) && (
+                <Focusable
+                  flow-children="horizontal"
                   style={{
-                    width: "auto",
-                    minWidth: "auto",
-                    flexShrink: 0,
-                    display: "inline-flex",
+                    display: "flex",
+                    justifyContent: "flex-end",
                     alignItems: "center",
-                    gap: 6,
-                    padding: "4px 12px",
-                    borderRadius: 999,
-                    fontSize: 12,
-                    fontWeight: 700,
-                    background: travelModeEnabled
-                      ? "rgba(var(--deckify-accent-rgb, 29, 185, 84), 0.22)"
-                      : "rgba(255,255,255,0.08)",
-                    color: travelModeEnabled ? "var(--deckify-accent, #1DB954)" : "#ffffff",
-                    border: travelModeEnabled
-                      ? "1px solid var(--deckify-accent, #1DB954)"
-                      : "1px solid rgba(255,255,255,0.14)",
+                    gap: 8,
+                    marginBottom: 8,
+                    flexShrink: 0,
                   }}
                 >
-                  <FaPlane size={11} />
-                  <span>{travelModeEnabled ? "Offline Travel Mode: ON" : "Offline Travel Mode"}</span>
-                </DialogButton>
-              </Focusable>
+                  <DialogButton
+                    data-testid="travel-mode-header-pill"
+                    data-deckify-focused={travelPillFocused ? "true" : undefined}
+                    {...({
+                      onFocus: () => setTravelPillFocused(true),
+                      onBlur: () => setTravelPillFocused(false),
+                    } as Record<string, unknown>)}
+                    onClick={() => void handleToggleTravelMode(!travelModeEnabled, true)}
+                    style={{
+                      width: "auto",
+                      minWidth: "auto",
+                      flexShrink: 0,
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 6,
+                      padding: "4px 12px",
+                      borderRadius: 999,
+                      fontSize: 12,
+                      fontWeight: 700,
+                      background: travelModeEnabled
+                        ? "rgba(var(--deckify-accent-rgb, 29, 185, 84), 0.22)"
+                        : "rgba(255,255,255,0.08)",
+                      color: travelModeEnabled ? "var(--deckify-accent, #1DB954)" : "#ffffff",
+                      border: travelModeEnabled
+                        ? "1px solid var(--deckify-accent, #1DB954)"
+                        : "1px solid rgba(255,255,255,0.14)",
+                      ...(travelPillFocused
+                        ? {
+                            outline: "2px solid var(--deckify-accent, #1DB954)",
+                            outlineOffset: "2px",
+                            boxShadow: "0 0 0 3px rgba(var(--deckify-accent-rgb, 29, 185, 84), 0.35)",
+                          }
+                        : {}),
+                    }}
+                  >
+                    <FaPlane size={11} />
+                    <span>{travelModeEnabled ? "Offline Travel Mode: ON" : "Offline Travel Mode"}</span>
+                  </DialogButton>
+                </Focusable>
+              )}
               {mode === "now_playing" && (
                 <NowPlayingTab
                   status={status}
@@ -2511,12 +2575,14 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
               onEndJam={handleEndJam}
               onLeaveJam={handleEndJam}
               onSwitchAndStartJam={handleSwitchToSpotifyClientAndStartJam}
+              onRetryJam={handleOpenJamModal}
             />
           )}
 
           {/* Engine Switch Confirmation Modal for Offline Downloads */}
           {pendingEngineSwitchDownload && (
             <div
+              ref={engineSwitchModalRef}
               data-testid="engine-switch-download-modal"
               style={{
                 position: "absolute",
@@ -2531,6 +2597,8 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
             >
               <Focusable
                 flow-children="column"
+                {...({ retainFocus: true } as Record<string, unknown>)}
+                onCancelButton={() => setPendingEngineSwitchDownload(null)}
                 style={{
                   background: "#1C1C1C",
                   border: "1px solid rgba(255,255,255,0.12)",
@@ -2551,12 +2619,25 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
                 </div>
                 <Focusable
                   flow-children="horizontal"
-                  style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}
+                  style={{
+                    display: "flex",
+                    flexWrap: "wrap",
+                    width: "100%",
+                    gap: 8,
+                    justifyContent: "flex-end",
+                  }}
                 >
                   <DialogButton
                     data-testid="engine-switch-stay-btn"
                     onClick={() => setPendingEngineSwitchDownload(null)}
-                    style={{ width: "auto", minWidth: "auto", flexShrink: 0 }}
+                    style={{
+                      width: "auto",
+                      minWidth: "auto",
+                      maxWidth: "100%",
+                      whiteSpace: "normal",
+                      textAlign: "center",
+                      padding: "8px 14px",
+                    }}
                   >
                     Stay on librespot
                   </DialogButton>
@@ -2566,7 +2647,10 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
                     style={{
                       width: "auto",
                       minWidth: "auto",
-                      flexShrink: 0,
+                      maxWidth: "100%",
+                      whiteSpace: "normal",
+                      textAlign: "center",
+                      padding: "8px 14px",
                       background: "var(--deckify-accent, #1DB954)",
                       color: "#000",
                       fontWeight: 700,
