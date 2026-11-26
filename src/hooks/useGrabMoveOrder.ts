@@ -25,10 +25,29 @@ function queryRowElement(rowKey: string): HTMLElement | null {
   return document.querySelector(`[data-row-key="${escaped}"]`) as HTMLElement | null;
 }
 
+function applyRowFocus(rowKey: string): void {
+  const el = queryRowElement(rowKey);
+  if (!el) return;
+  el.scrollIntoView?.({ block: "nearest" });
+  el.focus?.();
+  if (typeof window !== "undefined") {
+    try {
+      const navTree = (window as any)?.FocusNavController?.GetActiveNavTree?.();
+      if (navTree?.SetActiveNode) {
+        const node = navTree?.m_rgNodes?.find?.((n: any) => n?.m_element === el || n?.Element === el);
+        if (node) navTree.SetActiveNode(node);
+      }
+    } catch {
+      // Ignore FocusNavController errors outside SteamOS GamepadUI
+    }
+  }
+}
+
 function scheduleRowFocus(rowKey: string): void {
+  applyRowFocus(rowKey);
   if (typeof requestAnimationFrame === "undefined") return;
   requestAnimationFrame(() => {
-    queryRowElement(rowKey)?.focus?.();
+    applyRowFocus(rowKey);
   });
 }
 
@@ -52,6 +71,7 @@ export interface UseGrabMoveOrderOptions {
     fromIndex: number,
     toIndex: number,
     nextItems: TrackItem[],
+    preGrabSnapshot: TrackItem[],
   ) => Promise<boolean> | boolean | void;
   onCancelToast?: () => void;
 }
@@ -143,7 +163,9 @@ export function useGrabMoveOrder({
     if (startIdx < 0 || endIdx < 0 || startIdx === endIdx || !commitFn) return;
     busyRef.current = true;
     try {
-      if ((await commitFn(startIdx, endIdx, current)) === false) setItemsFn?.(preGrabSnapshotRef.current);
+      if ((await commitFn(startIdx, endIdx, current, preGrabSnapshotRef.current)) === false) {
+        setItemsFn?.(preGrabSnapshotRef.current);
+      }
     } finally {
       busyRef.current = false;
     }

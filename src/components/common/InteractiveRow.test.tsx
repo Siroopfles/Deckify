@@ -97,4 +97,14 @@ describe("InteractiveRow", () => {
     const labeledTree = renderRow({ "aria-label": "Increase 31 Hz" });
     expect(labeledTree.props["aria-label"]).toBe("Increase 31 Hz");
   });
+
+  it("suppresses white focusHalo and focus background when suppressFocusHalo is true", () => {
+    let tree = renderRow({ suppressFocusHalo: true });
+    tree.props.onFocus();
+    tree = renderRow({ suppressFocusHalo: true });
+
+    expect(tree.props["data-deckify-focused"]).toBeUndefined();
+    expect(tree.props.style.boxShadow).toBe("none");
+    expect(tree.props.style.background).toBe("rgba(255,255,255,0.03)");
+  });
 });

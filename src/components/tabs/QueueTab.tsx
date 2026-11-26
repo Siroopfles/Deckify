@@ -21,6 +21,7 @@ export interface QueueTabProps {
   onGrabStateChange?: (grabbing: boolean) => void;
   grabTriggerRef?: MutableRefObject<((track: TrackItem) => void) | null>;
   grabCancelRef?: MutableRefObject<(() => boolean) | null>;
+  grabCommitRef?: MutableRefObject<(() => Promise<void> | void) | null>;
   setQueueTracks?: Dispatch<SetStateAction<TrackItem[]>>;
 }
 
@@ -48,6 +49,7 @@ export const QueueTab: FC<QueueTabProps> = ({
   onGrabStateChange,
   grabTriggerRef,
   grabCancelRef,
+  grabCommitRef,
   setQueueTracks,
 }) => {
   const [confirmClear, setConfirmClear] = useState(false);
@@ -67,7 +69,8 @@ export const QueueTab: FC<QueueTabProps> = ({
       };
     }
     if (grabCancelRef) grabCancelRef.current = cancelGrab;
-  }, [grabTriggerRef, grabCancelRef, stableTracks, enterGrabMode, cancelGrab]);
+    if (grabCommitRef) grabCommitRef.current = commitGrab;
+  }, [grabTriggerRef, grabCancelRef, grabCommitRef, stableTracks, enterGrabMode, cancelGrab, commitGrab]);
 
   useEffect(() => {
     onGrabStateChange?.(Boolean(grabbedKey));
@@ -94,8 +97,10 @@ export const QueueTab: FC<QueueTabProps> = ({
               rawTrack: queueTracks[idx] ?? t,
               idx,
               queueTracks: stableTracks,
+              hasActiveGrab: Boolean(grabbedKey),
               isGrabbed: Boolean(grabbedKey && t._rowKey === grabbedKey),
               onGrabToggle: () => (grabbedKey === t._rowKey ? void commitGrab() : enterGrabMode(t._rowKey || "")),
+              onCommitGrab: () => void commitGrab(),
               onReorderEnabled: Boolean(onReorderQueueTrack),
               onRemoveQueueTrack,
               handlePlayTrack,
@@ -241,8 +246,10 @@ interface RenderQueueRowArgs {
   rawTrack: TrackItem;
   idx: number;
   queueTracks: TrackItem[];
+  hasActiveGrab: boolean;
   isGrabbed: boolean;
   onGrabToggle: () => void;
+  onCommitGrab: () => void;
   onReorderEnabled: boolean;
   onRemoveQueueTrack?: (track: TrackItem, index: number) => Promise<void> | void;
   handlePlayTrack?: (uri: string, contextUri?: string, allUris?: string[], startIdx?: number) => void;
@@ -281,14 +288,38 @@ function renderReorderButton(isGrabbed: boolean, onGrabToggle: () => void) {
   );
 }
 
+function renderQueueInlineControls(
+  hasActiveGrab: boolean,
+  isGrabbed: boolean,
+  onReorderEnabled: boolean,
+  onGrabToggle: () => void,
+  rawTrack: TrackItem,
+  idx: number,
+  onRemoveQueueTrack?: (track: TrackItem, index: number) => Promise<void> | void,
+) {
+  if (hasActiveGrab) return null;
+  return (
+    <>
+      {onReorderEnabled && renderReorderButton(isGrabbed, onGrabToggle)}
+      {onRemoveQueueTrack && (
+        <InteractiveRow aria-label="Remove track" onClick={() => onRemoveQueueTrack(rawTrack, idx)} style={COMPACT_BTN_STYLE}>
+          <FaTimes size={12} color="#ccc" />
+        </InteractiveRow>
+      )}
+    </>
+  );
+}
+
 function renderQueueRow(args: RenderQueueRowArgs) {
   const {
     t,
     rawTrack,
     idx,
     queueTracks,
+    hasActiveGrab,
     isGrabbed,
     onGrabToggle,
+    onCommitGrab,
     onReorderEnabled,
     onRemoveQueueTrack,
     handlePlayTrack,
@@ -308,9 +339,13 @@ function renderQueueRow(args: RenderQueueRowArgs) {
       data-deckify-list-item="true"
       data-deckify-label={t.name || ""}
       data-row-key={t._rowKey || ""}
+      suppressFocusHalo={Boolean(hasActiveGrab && !isGrabbed)}
       onClick={() => {
-        if (isGrabbed) onGrabToggle();
-        else if (handlePlayQueueTrack) handlePlayQueueTrack(rawTrack, idx);
+        if (hasActiveGrab || isGrabbed) {
+          onCommitGrab();
+          return;
+        }
+        if (handlePlayQueueTrack) handlePlayQueueTrack(rawTrack, idx);
         else if (handlePlayTrack && t.uri) {
           handlePlayTrack(t.uri, undefined, queueTracks.slice(idx).map((x) => x.uri).filter(Boolean) as string[], 0);
         }
@@ -325,11 +360,14 @@ function renderQueueRow(args: RenderQueueRowArgs) {
         <div style={{ fontSize: 11, opacity: 0.6, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.artist}</div>
       </div>
       {renderLikeButton(t, handleToggleLike)}
-      {onReorderEnabled && renderReorderButton(isGrabbed, onGrabToggle)}
-      {onRemoveQueueTrack && (
-        <InteractiveRow aria-label="Remove track" onClick={() => onRemoveQueueTrack(rawTrack, idx)} style={COMPACT_BTN_STYLE}>
-          <FaTimes size={12} color="#ccc" />
-        </InteractiveRow>
+      {renderQueueInlineControls(
+        hasActiveGrab,
+        isGrabbed,
+        onReorderEnabled,
+        onGrabToggle,
+        rawTrack,
+        idx,
+        onRemoveQueueTrack,
       )}
       {onOpenActions && (
         <span aria-label="Track Options" onClick={(e) => { e.stopPropagation(); onOpenActions(rawTrack); }} style={{ cursor: "pointer", padding: "4px 6px", opacity: 0.7 }}>

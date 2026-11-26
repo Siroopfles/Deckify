@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 
 vi.mock("react/jsx-dev-runtime", () => ({
+  Fragment: "Fragment",
   jsxDEV: (type: any, props: any, key: any) => ({
     type,
     props: { ...props, ...(key !== undefined ? { key } : {}) },
@@ -8,6 +9,7 @@ vi.mock("react/jsx-dev-runtime", () => ({
 }));
 
 vi.mock("react/jsx-runtime", () => ({
+  Fragment: "Fragment",
   jsx: (type: any, props: any, key: any) => ({
     type,
     props: { ...props, ...(key !== undefined ? { key } : {}) },
@@ -56,6 +58,7 @@ vi.mock("../common/DeckifyImage", () => ({
 import { Focusable } from "@decky/ui";
 import { QueueTab } from "./QueueTab";
 import { InteractiveRow } from "../common/InteractiveRow";
+import { TrackRowItem } from "../common/TrackRowItem";
 import { useGrabMoveOrder } from "../../hooks/useGrabMoveOrder";
 import { TrackItem } from "../../types";
 
@@ -402,6 +405,73 @@ describe("QueueTab Component", () => {
     expect(reordered[1]._rowKey).toBe("q:1:track1");
     stateOverrideQueue = [];
   });
+
+  it("commits drop and suppresses nested buttons and focusHalo on non-grabbed rows during active grab", async () => {
+    const keyedQueue: TrackItem[] = [
+      { ...mockQueue[0], _rowKey: "q:1:track1" },
+      { ...mockQueue[1], _rowKey: "q:2:track2" },
+    ];
+    const handlePlayQueueTrack = vi.fn();
+    const handlePlayTrack = vi.fn();
+    const onReorderQueueTrack = vi.fn().mockResolvedValue(true);
+    const grabCommitRef = { current: null as (() => Promise<void> | void) | null };
+
+    // QueueTab useState(confirmClear=false), useGrabMoveOrder useState(grabbedKey="q:2:track2")
+    stateOverrideQueue = [false, "q:2:track2"];
+    const tree = QueueTab({
+      queueTracks: keyedQueue,
+      handlePlayQueueTrack,
+      handlePlayTrack,
+      handleToggleLike: vi.fn(),
+      onReorderQueueTrack,
+      onRemoveQueueTrack: vi.fn(),
+      grabCommitRef,
+    });
+
+    // Nested Reorder / Remove InteractiveRow buttons are suppressed during active grab
+    expect(findNodes(tree, (n) => n.type === InteractiveRow && n.props?.["aria-label"] === "Reorder track").length).toBe(0);
+    expect(findNodes(tree, (n) => n.type === InteractiveRow && n.props?.["aria-label"] === "Remove track").length).toBe(0);
+
+    const nonGrabbedRow = findNodes(tree, (n) => n.type === InteractiveRow && n.props?.["data-row-key"] === "q:1:track1")[0];
+    const grabbedRow = findNodes(tree, (n) => n.type === InteractiveRow && n.props?.["data-row-key"] === "q:2:track2")[0];
+    expect(nonGrabbedRow.props.suppressFocusHalo).toBe(true);
+    expect(grabbedRow.props.suppressFocusHalo).toBe(false);
+    expect(typeof grabCommitRef.current).toBe("function");
+
+    // Activating the non-grabbed row while grabbedKey is active never triggers playback
+    nonGrabbedRow.props.onClick();
+    expect(handlePlayQueueTrack).not.toHaveBeenCalled();
+    expect(handlePlayTrack).not.toHaveBeenCalled();
+    stateOverrideQueue = [];
+  });
+
+  it("gates TrackRowItem playback and nested buttons when hasActiveGrab is true", () => {
+    const onPlayTrack = vi.fn();
+    const onCommitGrab = vi.fn();
+    const tree = TrackRowItem({
+      track: { ...mockQueue[0], _rowKey: "pl:1:track1" },
+      index: 0,
+      onPlayTrack,
+      onToggleLike: vi.fn(),
+      onOpenActions: vi.fn(),
+      isGrabbed: false,
+      hasActiveGrab: true,
+      onCommitGrab,
+      canReorder: true,
+      canRemove: true,
+      onGrabTrack: vi.fn(),
+      onRemoveTrack: vi.fn(),
+    });
+
+    const outerRow = findNodes(tree, (n) => n.type === InteractiveRow && n.props?.["data-row-key"] === "pl:1:track1")[0];
+    expect(outerRow.props.suppressFocusHalo).toBe(true);
+    expect(findNodes(tree, (n) => n.type === InteractiveRow && n.props?.["aria-label"] === "Reorder track").length).toBe(0);
+    expect(findNodes(tree, (n) => n.type === InteractiveRow && n.props?.["aria-label"] === "Remove track").length).toBe(0);
+
+    outerRow.props.onClick();
+    expect(onCommitGrab).toHaveBeenCalledTimes(1);
+    expect(onPlayTrack).not.toHaveBeenCalled();
+  });
 });
 
 describe("useGrabMoveOrder hook", () => {
@@ -433,7 +503,7 @@ describe("useGrabMoveOrder hook", () => {
       expect(setItems).toHaveBeenCalledTimes(1);
       expect(querySelectorMock).toHaveBeenCalledWith('[data-row-key="q:2:track2"]');
       expect(scrollIntoViewMock).toHaveBeenCalledWith({ block: "nearest" });
-      expect(focusMock).toHaveBeenCalledTimes(1);
+      expect(focusMock).toHaveBeenCalled();
     } finally {
       stateOverrideQueue = [];
       vi.unstubAllGlobals();
@@ -457,6 +527,32 @@ describe("useGrabMoveOrder hook", () => {
 
     expect(handled).toBe(false);
     expect(setItems).not.toHaveBeenCalled();
+    stateOverrideQueue = [];
+  });
+
+  it("passes preGrabSnapshot as 4th argument to onCommit on commitGrab", async () => {
+    const keyedQueue: TrackItem[] = [
+      { ...mockQueue[0], _rowKey: "q:1:track1", uid: "u1" },
+      { ...mockQueue[1], _rowKey: "q:2:track2", uid: "u2" },
+    ];
+    const onCommit = vi.fn().mockResolvedValue(true);
+    stateOverrideQueue = [null];
+    const hook = useGrabMoveOrder({
+      items: keyedQueue,
+      setItems: vi.fn(),
+      onCommit,
+    });
+
+    hook.enterGrabMode("q:2:track2");
+    hook.moveGrabbed(-1);
+    await hook.commitGrab();
+
+    expect(onCommit).toHaveBeenCalledTimes(1);
+    const [fromIdx, toIdx, nextItems, preGrabSnapshot] = onCommit.mock.calls[0];
+    expect(fromIdx).toBe(1);
+    expect(toIdx).toBe(0);
+    expect(nextItems.map((t: TrackItem) => t.uid)).toEqual(["u2", "u1"]);
+    expect(preGrabSnapshot.map((t: TrackItem) => t.uid)).toEqual(["u1", "u2"]);
     stateOverrideQueue = [];
   });
 });

@@ -14,6 +14,8 @@ export interface TrackRowItemProps {
   onOpenActions: (track: TrackItem) => void;
   onFocus?: (track: TrackItem) => void;
   isGrabbed?: boolean;
+  hasActiveGrab?: boolean;
+  onCommitGrab?: () => void;
   canReorder?: boolean;
   canRemove?: boolean;
   onGrabTrack?: (track: TrackItem) => void;
@@ -24,6 +26,7 @@ function renderInlineControlButtons({
   track,
   index,
   isGrabbed,
+  hasActiveGrab,
   canReorder,
   canRemove,
   onGrabTrack,
@@ -32,11 +35,30 @@ function renderInlineControlButtons({
   track: TrackItem;
   index: number;
   isGrabbed?: boolean;
+  hasActiveGrab?: boolean;
   canReorder?: boolean;
   canRemove?: boolean;
   onGrabTrack?: (track: TrackItem) => void;
   onRemoveTrack?: (track: TrackItem, index: number) => void;
 }) {
+  if (hasActiveGrab) {
+    if (!isGrabbed) return null;
+    return (
+      <span
+        aria-label="Reordering track"
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: "4px 8px",
+          borderRadius: 6,
+          background: "rgba(var(--deckify-accent-rgb, 29, 185, 84), 0.35)",
+        }}
+      >
+        <FaArrowsAltV size={12} color="var(--deckify-accent, #1DB954)" />
+      </span>
+    );
+  }
   return (
     <>
       {canReorder && (
@@ -105,6 +127,8 @@ export const TrackRowItem: FC<TrackRowItemProps> = ({
   onOpenActions,
   onFocus,
   isGrabbed,
+  hasActiveGrab,
+  onCommitGrab,
   canReorder,
   canRemove,
   onGrabTrack,
@@ -125,7 +149,15 @@ export const TrackRowItem: FC<TrackRowItemProps> = ({
       data-deckify-list-item="true"
       data-deckify-label={track.name || ""}
       data-row-key={track._rowKey || ""}
-      onClick={() => (isGrabbed ? onGrabTrack?.(track) : onPlayTrack(track.uri || "", contextUri, allUris, index))}
+      suppressFocusHalo={Boolean(hasActiveGrab && !isGrabbed)}
+      onClick={() => {
+        if (hasActiveGrab || isGrabbed) {
+          if (onCommitGrab) onCommitGrab();
+          else onGrabTrack?.(track);
+          return;
+        }
+        onPlayTrack(track.uri || "", contextUri, allUris, index);
+      }}
       onFocus={() => onFocus?.(track)}
       style={{ gap: 12, ...grabbedStyle }}
     >
@@ -141,7 +173,16 @@ export const TrackRowItem: FC<TrackRowItemProps> = ({
         {track.is_liked ? <FaHeart size={13} color="var(--deckify-accent, #1DB954)" /> : <FaRegHeart size={13} color="#777" />}
       </span>
       <span style={{ fontSize: 12, opacity: 0.5 }}>{formatMs(track.duration_ms || 0)}</span>
-      {renderInlineControlButtons({ track, index, isGrabbed, canReorder, canRemove, onGrabTrack, onRemoveTrack })}
+      {renderInlineControlButtons({
+        track,
+        index,
+        isGrabbed,
+        hasActiveGrab,
+        canReorder,
+        canRemove,
+        onGrabTrack,
+        onRemoveTrack,
+      })}
       <span
         onClick={(e) => {
           e.stopPropagation();

@@ -76,6 +76,7 @@ export interface TrackItem {
   artist_id?: string;
   album_id?: string;
   media_type?: string;
+  added_at?: string;
 }
 
 export type OfflineState = "not_downloaded" | "downloading" | "downloaded" | "paused_low_space";

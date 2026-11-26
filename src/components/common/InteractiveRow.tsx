@@ -20,6 +20,7 @@ export interface InteractiveRowProps {
   onFocus?: () => void;
   onBlur?: () => void;
   active?: boolean;
+  suppressFocusHalo?: boolean;
   style?: any;
   tabIndex?: number;
   onKeyDown?: (e: any) => void;
@@ -103,6 +104,7 @@ export function InteractiveRow({
   onFocus,
   onBlur,
   active,
+  suppressFocusHalo,
   style,
   tabIndex,
   onKeyDown,
@@ -113,6 +115,7 @@ export function InteractiveRow({
   "aria-label": ariaLabel,
 }: InteractiveRowProps) {
   const [focused, setFocused] = useState(false);
+  const showFocus = focused && !suppressFocusHalo;
   return (
     <Focusable
       noFocusRing
@@ -121,7 +124,7 @@ export function InteractiveRow({
       data-deckify-label={dataDeckifyLabel}
       data-row-key={dataRowKey}
       data-testid={dataTestId}
-      data-deckify-focused={focused ? "true" : undefined}
+      data-deckify-focused={showFocus ? "true" : undefined}
       onClick={onClick}
       onActivate={onClick}
       onFocus={() => {
@@ -151,11 +154,11 @@ export function InteractiveRow({
         borderRadius: 8,
         background: active
           ? "rgba(var(--deckify-accent-rgb, 29, 185, 84), 0.25)"
-          : focused
+          : showFocus
           ? "rgba(255,255,255,0.18)"
           : "rgba(255,255,255,0.03)",
         cursor: "pointer",
-        ...focusHalo(focused),
+        ...focusHalo(showFocus),
         ...style,
       }}
     >
