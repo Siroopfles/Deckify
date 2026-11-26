@@ -32,6 +32,7 @@ export interface LyricsTabProps {
   romanizeEnabled?: boolean;
   romanizeDisplayStyle?: "dual" | "romanized_only";
   onToggleRomanize?: () => void;
+  travelModeEnabled?: boolean;
 }
 
 function formatOffsetBadge(offsetMs: number): string {
@@ -195,6 +196,7 @@ interface LyricsHeaderProps {
   artistName?: string;
   lyricsSource?: string;
   lyricsCached: boolean;
+  travelModeEnabled?: boolean;
   handleNextLyricsSource: () => void;
 }
 
@@ -203,18 +205,36 @@ function renderLyricsHeader({
   artistName,
   lyricsSource,
   lyricsCached,
+  travelModeEnabled,
   handleNextLyricsSource,
 }: LyricsHeaderProps) {
   return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-        <FaMicrophone size={18} color="var(--deckify-accent, #1DB954)" />
-        <div>
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12, gap: 10, flexWrap: "wrap" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0, flex: 1 }}>
+        <FaMicrophone size={18} color="var(--deckify-accent, #1DB954)" style={{ flexShrink: 0 }} />
+        <div style={{ minWidth: 0, overflow: "hidden" }}>
           <h2 style={{ fontSize: 20, fontWeight: 700, margin: 0 }}>Lyrics</h2>
-          <span style={{ fontSize: 12, opacity: 0.6 }}>{trackName} — {artistName}</span>
+          <span style={{ fontSize: 12, opacity: 0.6, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {trackName} — {artistName}
+          </span>
         </div>
       </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+        {travelModeEnabled && (
+          <span
+            data-testid="lyrics-offline-pill"
+            style={{
+              fontSize: 12,
+              background: "rgba(var(--deckify-accent-rgb, 29, 185, 84), 0.16)",
+              color: "var(--deckify-accent, #1DB954)",
+              padding: "4px 8px",
+              borderRadius: 12,
+              fontWeight: 700,
+            }}
+          >
+            Offline Mode · Cached .lrc
+          </span>
+        )}
         <span style={{ fontSize: 12, background: "rgba(var(--deckify-accent-rgb, 29, 185, 84), 0.2)", color: "var(--deckify-accent, #1DB954)", padding: "4px 8px", borderRadius: 12, fontWeight: 700 }}>
           Source: {lyricsSource || "Auto"}{lyricsCached ? " (Cached)" : ""}
         </span>
@@ -327,6 +347,7 @@ export const LyricsTab: FC<LyricsTabProps> = ({
   romanizeEnabled = false,
   romanizeDisplayStyle = "dual",
   onToggleRomanize,
+  travelModeEnabled = false,
 }) => {
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
@@ -335,6 +356,7 @@ export const LyricsTab: FC<LyricsTabProps> = ({
         artistName,
         lyricsSource,
         lyricsCached,
+        travelModeEnabled,
         handleNextLyricsSource,
       })}
 

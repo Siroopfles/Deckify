@@ -14,6 +14,7 @@ import {
 } from "../../types";
 import { DeckifyImage } from "../common/DeckifyImage";
 import { focusHalo } from "../common/InteractiveRow";
+import { TravelModeBanner } from "../common/OfflineStatusUI";
 
 const backendGetDiscoveryFeed = callable<[DiscoveryTimeRange, boolean?], DiscoveryFeedResponse>(
   "get_discovery_feed"
@@ -321,6 +322,8 @@ export interface DiscoveryTabProps {
   onFocusTrack: (track: TrackItem | null) => void;
   onFocusCollection: (item: PinnedPlaylistItem | null) => void;
   onReauthenticate?: () => void;
+  travelModeEnabled?: boolean;
+  onExitTravelMode?: () => void;
 }
 
 export const DiscoveryTab: FC<DiscoveryTabProps> = ({
@@ -331,6 +334,8 @@ export const DiscoveryTab: FC<DiscoveryTabProps> = ({
   onFocusTrack,
   onFocusCollection,
   onReauthenticate,
+  travelModeEnabled,
+  onExitTravelMode,
 }) => {
   const [timeRange, setTimeRange] = useState<DiscoveryTimeRange>("medium_term");
   const [feed, setFeed] = useState<DiscoveryFeedResponse | null>(null);
@@ -410,6 +415,12 @@ export const DiscoveryTab: FC<DiscoveryTabProps> = ({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 24, paddingBottom: 64 }}>
+      {travelModeEnabled && (
+        <TravelModeBanner
+          message="Offline Travel Mode — showing cached Discovery mixes"
+          onExitTravelMode={onExitTravelMode}
+        />
+      )}
       {/* Header row */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
         <div

@@ -21,6 +21,7 @@ import {
   AlbumItem,
   ArtistItem,
   EpisodeItem,
+  OfflineDownloadItem,
   PlaylistItem,
   SearchBrowseCategoriesResponse,
   SearchBrowseCategory,
@@ -31,6 +32,7 @@ import {
 } from "../../types";
 import { DeckifyImage } from "../common/DeckifyImage";
 import { InteractiveRow } from "../common/InteractiveRow";
+import { TravelModeBanner } from "../common/OfflineStatusUI";
 import { TrackRowItem } from "../common/TrackRowItem";
 import { EpisodeRow } from "./PodcastsTab";
 
@@ -153,6 +155,9 @@ export interface SearchTabProps {
   searchHistory?: string[];
   onUpdateSearchHistory?: (next: string[]) => void;
   onFocusHistoryPill?: (query: string | null) => void;
+  travelModeEnabled?: boolean;
+  onExitTravelMode?: () => void;
+  offlineDownloads?: Record<string, OfflineDownloadItem>;
 }
 
 const RecentSearchesSection: FC<{
@@ -742,6 +747,33 @@ function buildInitialHasMore(res: SearchResults): Partial<Record<SearchSectionKe
   return next;
 }
 
+function buildOfflineSearchResults(
+  query: string,
+  offlineDownloads?: Record<string, OfflineDownloadItem>,
+): SearchResults {
+  const needle = query.trim().toLowerCase();
+  const playlists: PlaylistItem[] = [];
+  const albums: AlbumItem[] = [];
+  const shows: ShowItem[] = [];
+  const episodes: EpisodeItem[] = [];
+
+  for (const item of Object.values(offlineDownloads ?? {})) {
+    if (item.offline_state !== "downloaded") continue;
+    if (needle && !item.name.toLowerCase().includes(needle)) continue;
+    const baseId = item.id || item.uri;
+    if (item.type === "playlist") {
+      playlists.push({ id: baseId, name: item.name, uri: item.uri, image_url: item.image_url ?? undefined, offline_state: item.offline_state });
+    } else if (item.type === "album") {
+      albums.push({ id: baseId, name: item.name, artist: "Offline", uri: item.uri, image_url: item.image_url ?? undefined, offline_state: item.offline_state });
+    } else if (item.type === "show") {
+      shows.push({ id: baseId, name: item.name, uri: item.uri, image_url: item.image_url ?? undefined, offline_state: item.offline_state });
+    } else if (item.type === "episode") {
+      episodes.push({ id: baseId, name: item.name, show_name: "Offline", uri: item.uri, image_url: item.image_url ?? undefined, offline_state: item.offline_state });
+    }
+  }
+  return { playlists, albums, shows, episodes };
+}
+
 function useSearchController(props: SearchTabProps) {
   const [searchQuery, setSearchQuery] = useControlledState(props.searchQuery, props.onSearchQueryChange, "");
   const [sectionOffsets, setSectionOffsets] = useState<Partial<Record<SearchSectionKey, number>>>({});
@@ -766,6 +798,10 @@ function useSearchController(props: SearchTabProps) {
   const recordHistoryRef = useRef(recordHistory);
   recordHistoryRef.current = recordHistory;
   const searchEpochRef = useRef(0);
+  const travelModeRef = useRef(props.travelModeEnabled);
+  travelModeRef.current = props.travelModeEnabled;
+  const offlineDownloadsRef = useRef(props.offlineDownloads);
+  offlineDownloadsRef.current = props.offlineDownloads;
 
   const resetPaging = useCallback(() => {
     searchEpochRef.current += 1;
@@ -776,6 +812,16 @@ function useSearchController(props: SearchTabProps) {
 
   const runSearch = useCallback(async (query: string) => {
     if (!query.trim()) return;
+    if (travelModeRef.current) {
+      const localRes = buildOfflineSearchResults(query, offlineDownloadsRef.current);
+      resultsRef.current = localRes;
+      setResultsRef.current(localRes);
+      setSectionOffsets({});
+      setSectionHasMore({});
+      setSearchError(null);
+      setLoadingSearch(false);
+      return;
+    }
     const epoch = searchEpochRef.current;
     setLoadingSearch(true);
     setSearchError(null);
@@ -958,7 +1004,7 @@ export const SearchTab: FC<SearchTabProps> = (props) => {
   }, [hasQuery, onFocusHistoryPill]);
 
   useEffect(() => {
-    if (hasQuery || fetchedBrowseRef.current) return;
+    if (hasQuery || fetchedBrowseRef.current || props.travelModeEnabled) return;
     fetchedBrowseRef.current = true;
     let cancelled = false;
     (async () => {
@@ -974,13 +1020,19 @@ export const SearchTab: FC<SearchTabProps> = (props) => {
     return () => {
       cancelled = true;
     };
-  }, [hasQuery]);
+  }, [hasQuery, props.travelModeEnabled]);
 
   return (
     <div>
+      {props.travelModeEnabled && (
+        <TravelModeBanner
+          message="Offline Travel Mode — searching downloaded items"
+          onExitTravelMode={props.onExitTravelMode}
+        />
+      )}
       <h2 style={{ fontSize: 20, fontWeight: 800, marginBottom: 14 }}>Search</h2>
       <TextField
-        label="Search tracks, artists, albums, playlists..."
+        label={props.travelModeEnabled ? "Filter downloaded items..." : "Search tracks, artists, albums, playlists..."}
         value={ctrl.searchQuery}
         onChange={(e) => {
           ctrl.setTileSearchMode(false);
@@ -988,6 +1040,31 @@ export const SearchTab: FC<SearchTabProps> = (props) => {
         }}
       />
       {!ctrl.searchQuery.trim() ? (
+        props.travelModeEnabled ? (
+          <div style={{ marginTop: 16 }}>
+            <SearchResultsView
+              searchQuery=""
+              searchTab={ctrl.searchTab}
+              onSearchTabChange={ctrl.setSearchTab}
+              searchResults={buildOfflineSearchResults("", props.offlineDownloads)}
+              tileSearchMode={false}
+              loadingSearch={false}
+              searchError={null}
+              sectionHasMore={{}}
+              loadingSection={null}
+              onLoadMoreSection={ctrl.handleLoadMoreSection}
+              handlers={{
+                onPlayTrack: props.onPlayTrack,
+                onToggleLike: props.onToggleLike,
+                onOpenActions: props.onOpenActions,
+                onOpenPlaylist: props.onOpenPlaylist,
+                onOpenArtist: props.onOpenArtist,
+                onOpenAlbum: props.onOpenAlbum,
+                onOpenShow: props.onOpenShow,
+              }}
+            />
+          </div>
+        ) : (
         <div style={{ marginTop: 16 }}>
           <RecentSearchesSection
             searchHistory={ctrl.searchHistory}
@@ -1009,6 +1086,7 @@ export const SearchTab: FC<SearchTabProps> = (props) => {
             }
           />
         </div>
+        )
       ) : (
         <SearchResultsView
           searchQuery={ctrl.searchQuery}
