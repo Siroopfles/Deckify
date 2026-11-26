@@ -292,6 +292,7 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
   const pendingEngineSwitchDownloadRef = useRef(pendingEngineSwitchDownload);
   pendingEngineSwitchDownloadRef.current = pendingEngineSwitchDownload;
   const grabCancelRef = useRef<(() => boolean) | null>(null);
+  const grabCommitRef = useRef<(() => Promise<void> | void) | null>(null);
   const queueGrabTriggerRef = useRef<((track: TrackItem) => void) | null>(null);
   const playlistGrabTriggerRef = useRef<((track: TrackItem) => void) | null>(null);
 
@@ -1481,8 +1482,9 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
       fromIndex: number,
       toIndex: number,
       nextTracks: TrackItem[],
+      preGrabTracks?: TrackItem[],
     ): Promise<boolean> => {
-      const prevTracks = playlistTracks;
+      const prevTracks = preGrabTracks && preGrabTracks.length > 0 ? preGrabTracks : playlistTracks;
       const uid = prevTracks[fromIndex]?.uid || "";
       const targetUid = prevTracks[toIndex]?.uid || "";
       setPlaylistTracks(nextTracks);
@@ -1813,6 +1815,19 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
   const attachNav = useCallback((el: HTMLDivElement | null) => {
     if (!el || (el as any).__deckifyNavAttached) return;
     (el as any).__deckifyNavAttached = true;
+
+    el.addEventListener(
+      "vgp_onok",
+      (e: Event) => {
+        if (isGrabbingRef.current && typeof grabCommitRef.current === "function") {
+          void grabCommitRef.current();
+          e.preventDefault();
+          e.stopPropagation();
+          (e as unknown as { stopImmediatePropagation?: () => void }).stopImmediatePropagation?.();
+        }
+      },
+      true,
+    );
 
     el.addEventListener("vgp_oncancel", (e: Event) => {
       if (typeof grabCancelRef.current === "function" && grabCancelRef.current()) {
@@ -2166,6 +2181,7 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
                   onGrabStateChange={setIsGrabbing}
                   grabTriggerRef={playlistGrabTriggerRef}
                   grabCancelRef={grabCancelRef}
+                  grabCommitRef={grabCommitRef}
                   onModalStateChange={setIsCrudModalOpen}
                   pendingEditPlaylist={pendingEditPlaylist}
                   pendingDeletePlaylist={pendingDeletePlaylist}
@@ -2317,6 +2333,7 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
                   onGrabStateChange={setIsGrabbing}
                   grabTriggerRef={queueGrabTriggerRef}
                   grabCancelRef={grabCancelRef}
+                  grabCommitRef={grabCommitRef}
                   setQueueTracks={setQueueTracks}
                 />
               )}
