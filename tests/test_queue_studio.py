@@ -266,6 +266,122 @@ class TestQueueStudioRpc(unittest.IsolatedAsyncioTestCase):
             await rpc_playback.control_playback(plugin, "next")
             self.assertIsNone(plugin._optimistic_queue_snapshot)
 
+    async def test_remove_queue_track_cdp_not_in_next_tracks_falls_back_to_uri_slice(self):
+        plugin = _make_plugin(backend="spotify_client", running=True)
+        upcoming = [
+            {"id": "t1", "uri": "spotify:track:t1", "uid": "u1", "name": "One"},
+            {"id": "t2", "uri": "spotify:track:t2", "uid": "u2", "name": "Two"},
+        ]
+        api_calls = []
+
+        def fake_api(endpoint, token, method="GET", params=None, body=None):
+            api_calls.append((method, endpoint, body))
+            if method == "GET" and endpoint == "me/player":
+                return {
+                    "is_playing": True,
+                    "progress_ms": 12000,
+                    "item": {"uri": "spotify:track:curr"},
+                }
+            return {}
+
+        with (
+            patch.object(
+                cdp_bridge,
+                "cdp_remove_from_queue",
+                return_value={"ok": False, "error": "Track not in next_tracks"},
+            ) as mock_cdp,
+            patch.object(rpc_playback, "_spotify_api_request", side_effect=fake_api),
+        ):
+            res = await rpc_playback.remove_queue_track(plugin, 0, upcoming_tracks=upcoming)
+
+        self.assertTrue(res["ok"])
+        mock_cdp.assert_called_once_with("spotify:track:t1", "u1")
+        self.assertEqual([t["id"] for t in res["queue"]], ["t2"])
+        self.assertIn(
+            (
+                "PUT",
+                "me/player/play",
+                {"uris": ["spotify:track:curr", "spotify:track:t2"], "position_ms": 12000},
+            ),
+            api_calls,
+        )
+        # Optimistic snapshot TTL should be >= 15s
+        self.assertGreater(
+            plugin._optimistic_queue_snapshot["expires_at"] - time.monotonic(),
+            10.0,
+        )
+
+    async def test_clear_queue_context_fallback_and_persistent_suppression(self):
+        plugin = _make_plugin(backend="spotify_client", running=True)
+        api_calls = []
+
+        def fake_api(endpoint, token, method="GET", params=None, body=None):
+            api_calls.append((method, endpoint, body))
+            if method == "GET" and endpoint == "me/player":
+                return {
+                    "is_playing": True,
+                    "progress_ms": 5000,
+                    "item": {"uri": "spotify:track:curr"},
+                }
+            if method == "GET" and endpoint == "me/player/queue":
+                return {
+                    "currently_playing": {"id": "curr", "uri": "spotify:track:curr", "name": "Curr", "artists": []},
+                    "queue": [
+                        {"id": "auto1", "uid": "u_auto", "uri": "spotify:track:auto1", "name": "Autoplay", "artists": []}
+                    ],
+                }
+            return {}
+
+        with (
+            patch.object(
+                cdp_bridge,
+                "cdp_clear_queue",
+                return_value={"ok": True, "has_context_tracks": True},
+            ) as mock_cdp,
+            patch.object(rpc_playback, "_spotify_api_request", side_effect=fake_api),
+        ):
+            clr_res = await rpc_playback.clear_queue(plugin)
+
+        self.assertEqual(clr_res, {"ok": True, "queue": []})
+        mock_cdp.assert_called_once()
+        self.assertIn(
+            ("PUT", "me/player/play", {"uris": ["spotify:track:curr"], "position_ms": 5000}),
+            api_calls,
+        )
+        self.assertEqual(plugin._queue_cleared_for_track_id, "track_curr")
+        self.assertGreater(
+            plugin._optimistic_queue_snapshot["expires_at"] - time.monotonic(),
+            10.0,
+        )
+
+        # Even after 15s optimistic snapshot expires, get_queue suppresses Autoplay for same track
+        plugin._optimistic_queue_snapshot["expires_at"] = time.monotonic() - 1.0
+        with patch.object(
+            rpc_playback,
+            "_spotify_api_request",
+            side_effect=AssertionError("should suppress get_queue while _queue_cleared_for_track_id matches"),
+        ):
+            q_suppressed = await rpc_playback.get_queue(plugin)
+        self.assertTrue(q_suppressed["ok"])
+        self.assertEqual(q_suppressed["queue"], [])
+        self.assertTrue(q_suppressed.get("cleared"))
+
+        # Track change clears _queue_cleared_for_track_id and fetches queue with uid
+        plugin._poll_track_id = "track_next"
+        with patch.object(rpc_playback, "_spotify_api_request", side_effect=fake_api):
+            q_after_track = await rpc_playback.get_queue(plugin)
+        self.assertTrue(q_after_track["ok"])
+        self.assertIsNone(plugin._queue_cleared_for_track_id)
+        self.assertEqual(len(q_after_track["queue"]), 1)
+        self.assertEqual(q_after_track["queue"][0]["uid"], "u_auto")
+
+        # add_to_queue also clears _queue_cleared_for_track_id
+        plugin._poll_track_id = "track_curr"
+        plugin._queue_cleared_for_track_id = "track_curr"
+        with patch.object(rpc_playback, "_spotify_api_request", return_value={}):
+            await rpc_playback.add_to_queue(plugin, "spotify:track:new")
+        self.assertIsNone(plugin._queue_cleared_for_track_id)
+
 
 if __name__ == "__main__":
     unittest.main()

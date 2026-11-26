@@ -309,6 +309,7 @@ def _invalidate_optimistic_queue(plugin) -> None:
     """Clear any cached optimistic queue snapshot."""
     if plugin is not None:
         plugin._optimistic_queue_snapshot = None
+        plugin._queue_cleared_for_track_id = None
 
 
 def _get_valid_optimistic_queue(plugin) -> list[dict] | None:
@@ -333,7 +334,7 @@ def _get_valid_optimistic_queue(plugin) -> list[dict] | None:
 def _set_optimistic_queue_snapshot(
     plugin,
     queue_items: list[dict],
-    ttl_s: float = 4.5,
+    ttl_s: float = 15.0,
 ) -> None:
     """Store an optimistic queue snapshot with a short TTL."""
     if plugin is None:
@@ -361,6 +362,16 @@ async def get_queue(plugin) -> dict:
             "queue": optimistic,
             "optimistic": True,
         }
+    cleared_for = getattr(plugin, "_queue_cleared_for_track_id", None)
+    if cleared_for is not None:
+        if cleared_for == getattr(plugin, "_poll_track_id", None):
+            return {
+                "ok": True,
+                "currently_playing": getattr(plugin, "_last_queue_currently_playing", None),
+                "queue": [],
+                "cleared": True,
+            }
+        plugin._queue_cleared_for_track_id = None
     try:
         data = await _exec(_spotify_api_request, "me/player/queue", token, "GET")
         if not data:
@@ -384,6 +395,7 @@ async def get_queue(plugin) -> dict:
                 album_id = item.get("album", {}).get("id", "")
             return {
                 "id": item.get("id"),
+                "uid": str(item.get("uid") or ""),
                 "name": item.get("name", ""),
                 "artist": artists,
                 "album": album,
@@ -596,19 +608,26 @@ async def clear_queue(plugin) -> dict:
         return {"ok": False, "error": "Not authenticated"}
 
     used_cdp = False
+    has_context = False
     if cdp_bridge.is_spotify_client_running(plugin):
         cdp_res = await _exec(cdp_bridge.cdp_clear_queue)
         used_cdp = bool(isinstance(cdp_res, dict) and cdp_res.get("ok"))
+        has_context = bool(isinstance(cdp_res, dict) and cdp_res.get("has_context_tracks"))
 
-    if not used_cdp:
-        q_res = await get_queue(plugin)
-        if q_res.get("ok") and not (q_res.get("queue") or []):
-            _set_optimistic_queue_snapshot(plugin, [])
-            return {"ok": True, "queue": []}
+    if not used_cdp or has_context:
+        if not used_cdp:
+            q_res = await get_queue(plugin)
+            if q_res.get("ok") and not (q_res.get("queue") or []):
+                plugin._queue_cleared_for_track_id = getattr(plugin, "_poll_track_id", None)
+                _set_optimistic_queue_snapshot(plugin, [])
+                return {"ok": True, "queue": []}
         fallback_res = await _mutate_queue_via_uri_slice(plugin, token, [])
         if not fallback_res.get("ok"):
-            return fallback_res
+            err_msg = str(fallback_res.get("error") or "")
+            if not (used_cdp and "No active track" in err_msg):
+                return fallback_res
 
+    plugin._queue_cleared_for_track_id = getattr(plugin, "_poll_track_id", None)
     _set_optimistic_queue_snapshot(plugin, [])
     return {"ok": True, "queue": []}
 
