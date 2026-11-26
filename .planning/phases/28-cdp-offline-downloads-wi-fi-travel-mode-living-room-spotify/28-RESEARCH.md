@@ -290,12 +290,12 @@ import { QRCodeSVG } from "qrcode.react";
 | A2 | Spotify Desktop Client `Platform.Registry` exposes `SocialConnectAPI` / `JamDevicesAPI` for starting/inspecting/ending Jam sessions and reading `joinUrl`/`activeGuests` | Architecture Patterns / JAM-01 | Falls back to shareable track/playlist/album deep-link QR (`https://open.spotify.com/...`) if Jam CDP method is unavailable |
 | A3 | Spotify `prefs` key `storage.offline-path` / `offline.sync.location` or `Storage` symlink inside `SPOTIFY_CLIENT_CACHE_DIR` controls Flatpak offline storage path | Architecture Patterns / Storage | `flatpak override --user --filesystem=<path>` + `Storage` symlink provides reliable fallback if `prefs` key differs |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Exact `OfflineAPI` & `SocialConnectAPI` method signatures on current `com.spotify.Client` Flatpak**
    - What we know: Spicetify exposes `OfflineAPI` and `SocialConnectAPI` via `Platform.Registry._map`, which `cdp_bridge.py` already traverses via `getService(...)`.
    - What's unclear: Exact method names on the latest SteamOS Flatpak build (since Spotify obfuscates internal APIs between releases).
-   - Recommendation: Implement multi-candidate probing in `py_modules/cdp_bridge.py` (trying `OfflineAPI.addDownload` / `sync` / `PlaylistAPI.setOffline`, and `SocialConnectAPI.createSession` / `startJam` / `getSession`) and persist a local offline metadata index (`~/.cache/deckify/offline_downloads.json`) so Travel Mode filtering works reliably even when `spotify_client` is stopped.
+   - **RESOLVED:** Implemented via multi-candidate defensive probing in `py_modules/cdp_bridge.py` (`28-01-PLAN.md` Tasks 1–2: trying `OfflineAPI.addDownload`/`sync`/`PlaylistAPI.setOffline` and `SocialConnectAPI.createSession`/`startJam`/`getSession` with `typeof ... === 'function'` guards), backed by a local `~/.cache/deckify/offline_downloads.json` metadata index so Travel Mode filtering works reliably even when `spotify_client` is stopped, and a deep-link QR fallback when `Jam` CDP methods are unavailable.
 
 ## Environment Availability
 
