@@ -78,6 +78,28 @@ export interface TrackItem {
   media_type?: string;
 }
 
+export type OfflineState = "not_downloaded" | "downloading" | "downloaded" | "paused_low_space";
+
+export interface OfflineDownloadItem {
+  uri: string;
+  id?: string;
+  name: string;
+  type: "playlist" | "album" | "episode" | "show";
+  image_url?: string | null;
+  offline_state: OfflineState;
+  offline_progress: number;
+  size_bytes?: number;
+  updated_at?: number;
+}
+
+export interface JamSessionStatus {
+  active: boolean;
+  join_url?: string | null;
+  guest_count?: number;
+  is_host?: boolean;
+  error?: string | null;
+}
+
 export interface PlaylistItem {
   id: string;
   name: string;
@@ -90,6 +112,9 @@ export interface PlaylistItem {
   description?: string;
   is_editable?: boolean;
   collaborative?: boolean;
+  offline_state?: OfflineState;
+  offline_progress?: number;
+  offline_size_bytes?: number;
 }
 
 export interface AlbumItem {
@@ -99,6 +124,9 @@ export interface AlbumItem {
   image_url?: string;
   track_count?: number;
   uri: string;
+  offline_state?: OfflineState;
+  offline_progress?: number;
+  offline_size_bytes?: number;
 }
 
 export interface ArtistItem {
@@ -117,6 +145,9 @@ export interface EpisodeItem {
   release_date?: string;
   resume_position_ms?: number;
   fully_played?: boolean;
+  offline_state?: OfflineState;
+  offline_progress?: number;
+  offline_size_bytes?: number;
 }
 
 export interface ShowItem {
@@ -126,6 +157,9 @@ export interface ShowItem {
   image_url?: string;
   total_episodes?: number;
   uri: string;
+  offline_state?: OfflineState;
+  offline_progress?: number;
+  offline_size_bytes?: number;
 }
 
 export type EpisodeFilter = "all" | "unplayed" | "in_progress";
@@ -328,6 +362,11 @@ export interface EngineSettings {
   eco_sleep_spotify_client?: boolean;
   preferred_podcast_speed?: number;
   search_history?: string[];
+  travel_mode_enabled?: boolean;
+  travel_mode_manual?: boolean;
+  travel_mode_auto_enabled?: boolean;
+  offline_min_free_gb?: number;
+  offline_storage_path?: string;
 }
 
 export type DuckingMode = "proportional" | "fixed";
@@ -407,6 +446,12 @@ export interface StatusResponse {
   playback_speed?: number;
   ai_dj_active?: boolean;
   ai_dj_speaking?: boolean;
+  travel_mode_enabled?: boolean;
+  travel_mode_manual?: boolean;
+  travel_mode_auto_enabled?: boolean;
+  offline_min_free_gb?: number;
+  offline_storage_path?: string;
+  jam_session?: JamSessionStatus | null;
 }
 
 export interface GameAudioProfile {
