@@ -514,6 +514,14 @@ def cdp_get_player_state(
       isPlaying &&
       (mediaType === 'unknown' || !trackUri || Boolean(state.item?.metadata?.is_dj_interlude))
     );
+    const rawImg = state.item?.images || state.item?.album?.images || state.item?.metadata?.image_url || state.item?.metadata?.image_xlarge_url || state.item?.metadata?.image_large_url;
+    const imageUrl = String((typeof rawImg === 'string' ? parseImg([rawImg]) : parseImg(rawImg)) || '');
+    const title = String(state.item?.metadata?.title || state.item?.name || (isDjInterlude ? 'DJ X' : ''));
+    const subtitle = String(
+      state.item?.metadata?.subtitle ||
+      (Array.isArray(state.item?.artists) ? state.item.artists.map((a) => a?.name).filter(Boolean).join(', ') : '') ||
+      (isDjInterlude ? 'Spotify AI DJ' : '')
+    );
     return {
       ok: true,
       is_playing: isPlaying,
@@ -521,7 +529,10 @@ def cdp_get_player_state(
       track_uri: trackUri,
       track_name: trackName,
       media_type: mediaType,
-      is_dj_interlude: isDjInterlude
+      is_dj_interlude: isDjInterlude,
+      image_url: imageUrl,
+      title,
+      subtitle
     };
     """
     res = evaluate_with_registry(body_js, port=port, timeout=timeout, eval_fn=eval_fn)
@@ -534,6 +545,9 @@ def cdp_get_player_state(
             "track_name": str(res.get("track_name") or ""),
             "media_type": str(res.get("media_type") or ""),
             "is_dj_interlude": bool(res.get("is_dj_interlude", False)),
+            "image_url": str(res.get("image_url") or ""),
+            "title": str(res.get("title") or ""),
+            "subtitle": str(res.get("subtitle") or ""),
         }
     return {"ok": False, "error": res.get("error") or "CDP PlayerAPI.getState failed"}
 
@@ -591,18 +605,30 @@ _CORE_MIX_NAME_RE = re.compile(
 _GENERIC_MIX_NAME_RE = re.compile(r"\bmix\b", re.IGNORECASE)
 
 
-def _classify_discovery_kind(pid: str, uri: str, name: str, owner: str = "") -> str:
+_DAYLIST_PLAYLIST_ID = "37i9dQZF1EP6YuccBxUcC1"
+_DAYLIST_SUBTITLE_RE = re.compile(r"\bdaylist\b|updated throughout the day", re.IGNORECASE)
+
+
+def _classify_discovery_kind(
+    pid: str, uri: str, name: str, owner: str = "", subtitle: str = ""
+) -> str:
     """Classify a discovery playlist as 'dj', 'blend', 'core', or 'editorial'."""
     clean_uri = str(uri or "").strip()
     clean_pid = str(pid or (clean_uri.split(":")[-1] if ":" in clean_uri else "")).strip()
     clean_name = str(name or "").strip()
     clean_owner = str(owner or "").strip().lower()
+    clean_subtitle = str(subtitle or "").strip()
 
     if clean_pid == _AI_DJ_PLAYLIST_ID or clean_uri == f"spotify:playlist:{_AI_DJ_PLAYLIST_ID}" or _AI_DJ_NAME_RE.match(clean_name):
         return "dj"
     if clean_pid.startswith("37i9dQZF1EJ") or _BLEND_NAME_RE.search(clean_name):
         return "blend"
-    if _CORE_MIX_NAME_RE.search(clean_name):
+    if (
+        clean_pid == _DAYLIST_PLAYLIST_ID
+        or clean_uri == f"spotify:playlist:{_DAYLIST_PLAYLIST_ID}"
+        or _CORE_MIX_NAME_RE.search(clean_name)
+        or _DAYLIST_SUBTITLE_RE.search(clean_subtitle)
+    ):
         return "core"
     if clean_owner == "spotify" and _GENERIC_MIX_NAME_RE.search(clean_name):
         return "core"
@@ -653,14 +679,20 @@ def cdp_fetch_discovery_mixes(
     const blendRe = /\\bblend\\b/i;
     const coreRe = /\\b(daylist|discover weekly|release radar|daily mix(?:\\s*\\d+)?|on repeat|repeat rewind)\\b/i;
     const genericMixRe = /\\bmix\\b/i;
-    const classifyKind = (id, uri, name, owner) => {
+    const classifyKind = (id, uri, name, owner, subtitle) => {
       if (id === '37i9dQZF1EYkqdzj48dyYq' || uri === 'spotify:playlist:37i9dQZF1EYkqdzj48dyYq' || djRe.test(name)) {
         return 'dj';
       }
       if (id.startsWith('37i9dQZF1EJ') || blendRe.test(name)) {
         return 'blend';
       }
-      if (coreRe.test(name)) {
+      if (
+        id === '37i9dQZF1EP6YuccBxUcC1' ||
+        uri === 'spotify:playlist:37i9dQZF1EP6YuccBxUcC1' ||
+        coreRe.test(name) ||
+        /\\bdaylist\\b/i.test(subtitle || '') ||
+        /updated throughout the day/i.test(subtitle || '')
+      ) {
         return 'core';
       }
       if (String(owner).toLowerCase() === 'spotify' && genericMixRe.test(name)) {
@@ -680,7 +712,8 @@ def cdp_fetch_discovery_mixes(
       const owner = item.owner?.username || item.owner?.id || item.owner?.name || item.ownerV2?.data?.name || item.ownerV2?.data?.username || item.owner?.data?.name || (typeof item.owner === 'string' ? item.owner : '') || '';
       if (!name || seen.has(normUri)) return;
       const pid = id || normUri.split(':').pop();
-      const kind = classifyKind(pid, normUri, name, owner);
+      const rawSubtitle = String(item.description || item.subtitle || '');
+      const kind = classifyKind(pid, normUri, name, owner, rawSubtitle);
       if (kind === 'editorial') return;
       seen.add(normUri);
       items.push({
@@ -688,7 +721,7 @@ def cdp_fetch_discovery_mixes(
         name,
         uri: normUri,
         image_url: parseImg(item.images?.items?.[0]?.sources || item.images || item.coverArt?.sources || item.image),
-        subtitle: item.description || item.subtitle || (owner ? 'Made by ' + owner : 'Made for you'),
+        subtitle: rawSubtitle || (owner ? 'Made by ' + owner : 'Made for you'),
         type: 'playlist',
         owner: owner || 'Spotify',
         kind
@@ -725,7 +758,14 @@ def cdp_fetch_discovery_mixes(
       }
     }
 
-    const hasCoreMix = (needle) => items.some((it) => it.kind === 'core' && it.name.toLowerCase().includes(needle));
+    const hasCoreMix = (needle) => items.some((it) => {
+      if (it.kind !== 'core') return false;
+      if (it.name.toLowerCase().includes(needle)) return true;
+      if (needle === 'daylist') {
+        return it.id === '37i9dQZF1EP6YuccBxUcC1' || (it.subtitle || '').toLowerCase().includes('daylist');
+      }
+      return false;
+    });
     const missingCore = () => ['discover weekly', 'release radar', 'daily mix', 'daylist', 'on repeat'].filter((n) => !hasCoreMix(n));
 
     if (missingCore().length > 0) {
@@ -797,9 +837,6 @@ def cdp_fetch_discovery_mixes(
         return {"ok": False, "items": [], "error": res.get("error") or "CDP discovery mixes unavailable"}
 
     warnings = res.get("warnings") or []
-    if warnings:
-        decky.logger.debug("cdp_fetch_discovery_mixes warnings: %s", warnings)
-
     raw_items = res.get("items") or []
     normalized = []
     for item in raw_items:
@@ -812,7 +849,8 @@ def cdp_fetch_discovery_mixes(
         norm_uri = uri or f"spotify:playlist:{pid}"
         name = str(item.get("name") or "")
         owner = str(item.get("owner") or "Spotify")
-        kind = _classify_discovery_kind(pid, norm_uri, name, owner)
+        subtitle = str(item.get("subtitle") or "")
+        kind = _classify_discovery_kind(pid, norm_uri, name, owner, subtitle)
         if kind == "editorial":
             continue
         normalized.append(
@@ -821,12 +859,17 @@ def cdp_fetch_discovery_mixes(
                 "name": name,
                 "uri": norm_uri,
                 "image_url": item.get("image_url"),
-                "subtitle": str(item.get("subtitle") or "Made for you"),
+                "subtitle": subtitle or "Made for you",
                 "type": "playlist",
                 "owner": owner,
                 "kind": kind,
             }
         )
+    if warnings:
+        if len(normalized) <= 2:
+            decky.logger.warning("cdp_fetch_discovery_mixes warnings (items=%d): %s", len(normalized), warnings)
+        else:
+            decky.logger.debug("cdp_fetch_discovery_mixes warnings: %s", warnings)
     return {"ok": True, "items": normalized, "warnings": warnings}
 
 

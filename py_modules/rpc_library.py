@@ -1768,7 +1768,7 @@ def _format_discovery_playlist(p: dict) -> dict:
     images = p.get("images") or []
     img_url = _image_url(images)
     pid = p.get("id", "")
-    return {
+    out = {
         "id": pid,
         "uri": p.get("uri") or (f"spotify:playlist:{pid}" if pid else ""),
         "name": p.get("name", ""),
@@ -1777,6 +1777,10 @@ def _format_discovery_playlist(p: dict) -> dict:
         "track_count": (p.get("items") or p.get("tracks") or {}).get("total", 0),
         "owner_id": (p.get("owner") or {}).get("id", ""),
     }
+    desc = str(p.get("description") or "").strip()
+    if desc:
+        out["subtitle"] = desc
+    return out
 
 
 def _format_discovery_track(t: dict) -> dict:
@@ -1833,7 +1837,9 @@ def _format_discovery_album(alb: dict) -> dict:
 
 def _mix_sort_key(mix: dict) -> tuple[int, int, str]:
     name = str(mix.get("name") or "").strip().lower()
-    if "daylist" in name:
+    subtitle = str(mix.get("subtitle") or "").strip().lower()
+    pid = str(mix.get("id") or "").strip()
+    if "daylist" in name or "daylist" in subtitle or pid == "37i9dQZF1EP6YuccBxUcC1":
         return (0, 0, name)
     if "discover weekly" in name:
         return (1, 0, name)
@@ -1899,9 +1905,10 @@ def _partition_discovery_mixes(mixes: list[dict]) -> tuple[list[dict], list[dict
         pid = str(raw.get("id") or (uri.split(":")[-1] if ":" in uri else "")).strip()
         name = str(raw.get("name") or "").strip()
         owner = str(raw.get("owner_id") or raw.get("owner") or "").strip()
+        subtitle = str(raw.get("subtitle") or raw.get("description") or "").strip()
         kind = str(raw.get("kind") or "").strip().lower()
         if kind not in ("core", "blend", "dj", "editorial"):
-            kind = _classify_discovery_kind(pid, uri, name, owner)
+            kind = _classify_discovery_kind(pid, uri, name, owner, subtitle)
         if kind == "editorial":
             continue
         item = dict(raw)
@@ -1966,7 +1973,8 @@ async def _search_missing_core_mixes(
             pid = str(p.get("id") or "")
             uri = str(p.get("uri") or (f"spotify:playlist:{pid}" if pid else ""))
             name = str(p.get("name") or "")
-            if _classify_discovery_kind(pid, uri, name, owner_id) != "core":
+            subtitle = str(p.get("description") or p.get("subtitle") or "")
+            if _classify_discovery_kind(pid, uri, name, owner_id, subtitle) != "core":
                 continue
             fmt = _format_discovery_playlist(p)
             fmt["kind"] = "core"
@@ -2029,11 +2037,32 @@ async def _fetch_made_for_you_section(token: str, plugin=None) -> dict:
     core_mixes, blends, dj = _partition_discovery_mixes(combined)
 
     if cdp_active and (core_mixes or blends or dj):
-        for mix in core_mixes[:12]:
-            prev = cached_by_uri.get(mix["uri"])
-            if prev and not mix.get("tracks") and isinstance(prev.get("tracks"), list) and prev["tracks"]:
-                mix["tracks"] = list(prev["tracks"])[:100]
-                mix["uris"] = list(prev.get("uris") or [t.get("uri") for t in mix["tracks"] if isinstance(t, dict) and t.get("uri")])
+        merged_by_uri: dict[str, dict] = {}
+        for cm in cached_mixes:
+            if not isinstance(cm, dict) or not cm.get("uri"):
+                continue
+            cm_uri = str(cm["uri"])
+            cm_pid = str(cm.get("id") or (cm_uri.split(":")[-1] if ":" in cm_uri else ""))
+            cm_name = str(cm.get("name") or "")
+            cm_owner = str(cm.get("owner_id") or cm.get("owner") or "")
+            cm_sub = str(cm.get("subtitle") or cm.get("description") or "")
+            if _classify_discovery_kind(cm_pid, cm_uri, cm_name, cm_owner, cm_sub) == "core":
+                merged_by_uri[cm_uri] = dict(cm)
+
+        for mix in core_mixes:
+            uri = mix.get("uri")
+            if not uri:
+                continue
+            fresh = dict(mix)
+            prev = cached_by_uri.get(uri)
+            if prev and not fresh.get("tracks") and isinstance(prev.get("tracks"), list) and prev["tracks"]:
+                fresh["tracks"] = list(prev["tracks"])[:100]
+                fresh["uris"] = list(prev.get("uris") or [t.get("uri") for t in fresh["tracks"] if isinstance(t, dict) and t.get("uri")])
+            merged_by_uri[uri] = fresh
+
+        merged_core = _sort_algorithmic_mixes(list(merged_by_uri.values()))[:15]
+
+        for mix in merged_core[:12]:
             if not mix.get("tracks"):
                 pid = mix.get("id") or mix["uri"].split(":")[-1]
                 if pid:
@@ -2047,23 +2076,26 @@ async def _fetch_made_for_you_section(token: str, plugin=None) -> dict:
                                 mix["track_count"] = cdp_tr.get("total") or len(capped)
                     except Exception as e:
                         decky.logger.debug("Eager prefetch for mix %s failed: %s", pid, e)
+
+        effective_blends = blends if blends else cached_blends
+        effective_dj = dj if dj is not None else cached_dj
         try:
             cache_payload = {
                 "version": 1,
                 "updated_at": int(time.time()),
-                "mixes": core_mixes[:12],
+                "mixes": merged_core[:15],
             }
-            if blends:
-                cache_payload["blends"] = blends[:15]
-            if dj is not None:
-                cache_payload["dj"] = dj
+            if effective_blends:
+                cache_payload["blends"] = effective_blends[:15]
+            if effective_dj is not None:
+                cache_payload["dj"] = effective_dj
             save_discovery_mixes_cache(cache_payload)
         except Exception as e:
             decky.logger.warning("Failed to save discovery_mixes.json: %s", e)
         return {
-            "made_for_you": core_mixes,
-            "blends": blends,
-            "dj": dj,
+            "made_for_you": merged_core,
+            "blends": effective_blends,
+            "dj": effective_dj,
             "fallback": False,
         }
 

@@ -492,6 +492,70 @@ class TestDiscoveryAlgorithmicMixes(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(disk["updated_at"], 1700000000)
         self.assertEqual(disk["mixes"][0]["subtitle"], "chill tuesday")
 
+    async def test_partial_cdp_probe_merges_with_cached_core_mixes_and_preserves_blends_dj(self):
+        seeded = {
+            "version": 1,
+            "updated_at": 1700000000,
+            "mixes": [
+                {
+                    "id": "37i9dQZF1EP6YuccBxUcC1",
+                    "uri": "spotify:playlist:37i9dQZF1EP6YuccBxUcC1",
+                    "name": "chill indie thursday afternoon",
+                    "subtitle": "Updated throughout the day",
+                    "owner_id": "Spotify",
+                    "kind": "core",
+                    "tracks": [{"id": "t1", "uri": "spotify:track:t1", "name": "Track 1"}],
+                },
+                {
+                    "id": "dw1",
+                    "uri": "spotify:playlist:dw1",
+                    "name": "Discover Weekly",
+                    "subtitle": "Your weekly mixtape",
+                    "owner_id": "Spotify",
+                    "kind": "core",
+                    "tracks": [{"id": "t2", "uri": "spotify:track:t2", "name": "Track 2"}],
+                },
+            ],
+            "blends": [{"id": "bl1", "uri": "spotify:playlist:bl1", "name": "Alex + You Blend", "kind": "blend"}],
+            "dj": {"id": "37i9dQZF1EYkqdzj48dyYq", "uri": "spotify:playlist:37i9dQZF1EYkqdzj48dyYq", "name": "DJ", "kind": "dj"},
+        }
+        cdp_bridge.save_discovery_mixes_cache(seeded)
+
+        self.plugin._settings["audio_backend"] = "spotify_client"
+        self.plugin._spotify_client_process = SimpleNamespace(poll=lambda: None)
+
+        # Partial probe returns only Release Radar and omits Daylist, Discover Weekly, blends, and dj
+        cdp_items = [
+            {"id": "rr1", "uri": "spotify:playlist:rr1", "name": "Release Radar", "subtitle": "New music", "owner": "Spotify"},
+        ]
+
+        def fake_api(endpoint, token, method="GET", params=None, body=None):
+            if endpoint == "me/playlists":
+                return {"total": 0, "items": []}
+            if endpoint in ("me/top/tracks", "me/top/artists"):
+                return {"items": []}
+            if endpoint == "browse/new-releases":
+                return {"albums": {"items": []}}
+            return {}
+
+        with patch.object(rpc_library, "_spotify_api_request", side_effect=fake_api), \
+             patch.object(rpc_library, "cdp_fetch_discovery_mixes", return_value={"ok": True, "items": cdp_items}), \
+             patch.object(rpc_library, "cdp_get_playlist_tracks", return_value={"ok": True, "tracks": [{"id": "t3", "uri": "spotify:track:t3", "name": "Track 3"}], "total": 1}):
+            res = await rpc_library.get_discovery_feed(self.plugin, "medium_term", force_refresh=True)
+
+        self.assertTrue(res["ok"])
+        names = [m["name"] for m in res["made_for_you"]]
+        self.assertEqual(names, ["chill indie thursday afternoon", "Discover Weekly", "Release Radar"])
+        self.assertEqual(len(res["blends"]), 1)
+        self.assertEqual(res["blends"][0]["id"], "bl1")
+        self.assertIsNotNone(res["dj"])
+        self.assertEqual(res["dj"]["id"], "37i9dQZF1EYkqdzj48dyYq")
+
+        disk = cdp_bridge.load_discovery_mixes_cache()
+        self.assertEqual([m["id"] for m in disk["mixes"]], ["37i9dQZF1EP6YuccBxUcC1", "dw1", "rr1"])
+        self.assertEqual(len(disk["blends"]), 1)
+        self.assertEqual(disk["dj"]["id"], "37i9dQZF1EYkqdzj48dyYq")
+
     async def test_get_search_browse_categories(self):
         # librespot -> 0ms empty list, no CDP call
         self.plugin._settings["audio_backend"] = "librespot"

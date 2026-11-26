@@ -336,6 +336,9 @@ class TestCdpBridge(unittest.TestCase):
                 "track_name": "",
                 "media_type": "unknown",
                 "is_dj_interlude": True,
+                "image_url": "https://i.scdn.co/image/djx123",
+                "title": "Welcome",
+                "subtitle": "DJ X",
             }
 
         res = cdp_bridge.cdp_get_player_state(eval_fn=fake_eval)
@@ -343,14 +346,70 @@ class TestCdpBridge(unittest.TestCase):
         self.assertIn("PlayerAPI", captured["expr"])
         self.assertIn("getState", captured["expr"])
         self.assertIn("is_dj_interlude", captured["expr"])
+        self.assertIn("image_url", captured["expr"])
+        self.assertIn("metadata?.title", captured["expr"])
+        self.assertIn("metadata?.subtitle", captured["expr"])
         self.assertTrue(res["ok"])
         self.assertTrue(res["is_playing"])
         self.assertTrue(res["is_dj_interlude"])
         self.assertEqual(res["context_uri"], "spotify:playlist:37i9dQZF1EYkqdzj48dyYq")
+        self.assertEqual(res["image_url"], "https://i.scdn.co/image/djx123")
+        self.assertEqual(res["title"], "Welcome")
+        self.assertEqual(res["subtitle"], "DJ X")
 
         err_res = cdp_bridge.cdp_get_player_state(eval_fn=lambda *a, **kw: None)
         self.assertFalse(err_res["ok"])
         self.assertIn("error", err_res)
+
+    def test_daylist_dynamic_title_classified_as_core(self):
+        self.assertEqual(
+            cdp_bridge._classify_discovery_kind(
+                "37i9dQZF1EP6YuccBxUcC1",
+                "spotify:playlist:37i9dQZF1EP6YuccBxUcC1",
+                "chill indie thursday afternoon",
+                "Spotify",
+                "",
+            ),
+            "core",
+        )
+        self.assertEqual(
+            cdp_bridge._classify_discovery_kind(
+                "custom_dl",
+                "spotify:playlist:custom_dl",
+                "chill indie thursday afternoon",
+                "Spotify",
+                "Your daylist updated throughout the day",
+            ),
+            "core",
+        )
+
+        captured = {}
+
+        def fake_eval(expr, port=9229, timeout=5.0):
+            captured["expr"] = expr
+            return {
+                "ok": True,
+                "items": [
+                    {
+                        "id": "37i9dQZF1EP6YuccBxUcC1",
+                        "uri": "spotify:playlist:37i9dQZF1EP6YuccBxUcC1",
+                        "name": "chill indie thursday afternoon",
+                        "subtitle": "Updated throughout the day",
+                        "owner": "Spotify",
+                        "image_url": "https://i.scdn.co/image/daylist1",
+                    }
+                ],
+                "warnings": ["HomeAPI: timeout"],
+            }
+
+        with patch.object(cdp_bridge.decky.logger, "warning") as mock_warn:
+            res = cdp_bridge.cdp_fetch_discovery_mixes(eval_fn=fake_eval)
+        self.assertTrue(res["ok"])
+        self.assertEqual(len(res["items"]), 1)
+        self.assertEqual(res["items"][0]["kind"], "core")
+        self.assertEqual(res["items"][0]["name"], "chill indie thursday afternoon")
+        self.assertIn("37i9dQZF1EP6YuccBxUcC1", captured["expr"])
+        mock_warn.assert_called_once()
 
     def test_cdp_jam_session_lifecycle_and_deterministic_ordering(self):
         def fake_start(expr, port=9229, timeout=4.0):
