@@ -631,4 +631,24 @@ describe("PlaylistsTab Phase 27 CRUD, filtering, ownership & Grab/Move (27-04)",
     expect(preGrabSnapshot?.map((t: any) => t.id)).toEqual(["t1", "t2"]);
     expect(typeof grabCommitRef.current).toBe("function");
   });
+
+  it("strips HTML tags and decodes entities from activePlaylist.description", () => {
+    const tree = expandTree(
+      PlaylistsTab(
+        makeProps({
+          activePlaylist: {
+            id: "pl-dl",
+            name: "daylist",
+            uri: "spotify:playlist:pl-dl",
+            description: 'Here&#39;s some <a href="spotify:playlist:1">synthwave</a> &amp; &quot;chill&quot;.',
+            is_editable: false,
+          },
+        }),
+      ),
+    );
+    const text = collectText(tree);
+    expect(text).toContain(`Here's some synthwave & "chill".`);
+    expect(text).not.toContain("<a ");
+    expect(text).not.toContain("</a>");
+  });
 });

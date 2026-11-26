@@ -9,6 +9,7 @@ import {
   useState,
 } from "react";
 import { DialogButton, Focusable, TextField } from "@decky/ui";
+import { stripHtmlTags } from "./DiscoveryTab";
 import {
   FaCheck,
   FaEdit,
@@ -662,7 +663,7 @@ function renderPlaylistDetailHeader({
           </div>
           {activePlaylist.description && (
             <div style={{ fontSize: 12, fontWeight: 400, opacity: 0.75, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              {activePlaylist.description}
+              {stripHtmlTags(activePlaylist.description)}
             </div>
           )}
           <span style={{ fontSize: 12, opacity: 0.6 }}>{trackCount} tracks</span>

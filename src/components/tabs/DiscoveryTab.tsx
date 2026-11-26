@@ -36,6 +36,19 @@ export function getGreetingForHour(hour: number): string {
   return "Good evening";
 }
 
+export function stripHtmlTags(text: string): string {
+  if (!text) return "";
+  return text
+    .replace(/<[^>]*>/g, "")
+    .replace(/&amp;/g, "&")
+    .replace(/&#39;/g, "'")
+    .replace(/&quot;/g, '"')
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function scrollCardIntoView(e: any): void {
   e?.currentTarget?.scrollIntoView?.({
     behavior: "smooth",
@@ -324,6 +337,7 @@ export interface DiscoveryTabProps {
   onReauthenticate?: () => void;
   travelModeEnabled?: boolean;
   onExitTravelMode?: () => void;
+  audioBackend?: string;
 }
 
 export const DiscoveryTab: FC<DiscoveryTabProps> = ({
@@ -336,6 +350,7 @@ export const DiscoveryTab: FC<DiscoveryTabProps> = ({
   onReauthenticate,
   travelModeEnabled,
   onExitTravelMode,
+  audioBackend,
 }) => {
   const [timeRange, setTimeRange] = useState<DiscoveryTimeRange>("medium_term");
   const [feed, setFeed] = useState<DiscoveryFeedResponse | null>(null);
@@ -383,7 +398,7 @@ export const DiscoveryTab: FC<DiscoveryTabProps> = ({
       onFocusTrackRef.current(null);
       onFocusCollectionRef.current(null);
     };
-  }, [timeRange, travelModeEnabled]);
+  }, [timeRange, travelModeEnabled, audioBackend]);
 
   const handleSelectRange = useCallback(
     (range: DiscoveryTimeRange) => {
@@ -572,19 +587,21 @@ export const DiscoveryTab: FC<DiscoveryTabProps> = ({
             data-testid="discovery-carousel-made-for-you"
             style={{ display: "flex", gap: 16, overflowX: "auto", padding: "6px 4px 10px" }}
           >
-            {madeForYou.map((mix, idx) => (
+            {madeForYou.map((mix, idx) => {
+              const cleanSubtitle = mix.subtitle ? stripHtmlTags(mix.subtitle) : "";
+              return (
               <DiscoveryCard
                 key={mix.id || mix.uri || idx}
                 testId={`discovery-card-mix-${idx}`}
                 imageUrl={mix.image_url}
                 title={mix.name}
-                subtitle={mix.subtitle || (mix.is_album ? "Album" : "Playlist")}
+                subtitle={cleanSubtitle || (mix.is_album ? "Album" : "Playlist")}
                 onActivate={() => {
                   if (mix.is_album) {
                     onOpenAlbum({
                       id: mix.id,
                       name: mix.name,
-                      artist: mix.subtitle || "",
+                      artist: cleanSubtitle,
                       image_url: mix.image_url,
                       uri: mix.uri,
                     });
@@ -601,7 +618,8 @@ export const DiscoveryTab: FC<DiscoveryTabProps> = ({
                   })
                 }
               />
-            ))}
+              );
+            })}
           </Focusable>
         </div>
       )}
@@ -626,7 +644,7 @@ export const DiscoveryTab: FC<DiscoveryTabProps> = ({
                 testId={`discovery-card-blend-${idx}`}
                 imageUrl={blend.image_url}
                 title={blend.name}
-                subtitle={blend.subtitle || "Blend"}
+                subtitle={(blend.subtitle ? stripHtmlTags(blend.subtitle) : "") || "Blend"}
                 onActivate={() => onOpenPlaylist(blend)}
                 onCardFocus={() =>
                   onFocusCollection({

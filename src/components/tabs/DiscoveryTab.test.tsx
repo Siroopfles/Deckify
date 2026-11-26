@@ -46,6 +46,7 @@ vi.mock("react/jsx-runtime", () => ({
 
 let stateValues: any[] = [];
 let stateIdx = 0;
+let lastEffectDeps: any[] | undefined;
 
 vi.mock("react", () => ({
   useState: (init: any) => {
@@ -58,7 +59,10 @@ vi.mock("react", () => ({
     };
     return [stateValues[idx], setter];
   },
-  useEffect: (fn: any) => fn(),
+  useEffect: (fn: any, deps?: any[]) => {
+    lastEffectDeps = deps;
+    return fn();
+  },
   useCallback: (fn: any) => fn,
   useRef: (init: any) => ({ current: init }),
   useMemo: (fn: any) => fn(),
@@ -142,6 +146,7 @@ describe("DiscoveryTab", () => {
   beforeEach(() => {
     stateValues = [];
     stateIdx = 0;
+    lastEffectDeps = undefined;
     mockGetDiscoveryFeed.mockReset().mockResolvedValue({
       ok: true,
       time_range: "medium_term",
@@ -520,5 +525,48 @@ describe("DiscoveryTab", () => {
     await librespotDjCard.props.onActivate();
     expect(mockPlayAiDj).not.toHaveBeenCalled();
     expect(librespotProps.onOpenPlaylist).not.toHaveBeenCalled();
+  });
+
+  it("re-fetches get_discovery_feed when audioBackend changes and strips HTML tags from subtitles", async () => {
+    const feed = {
+      ok: true,
+      time_range: "medium_term",
+      made_for_you: [
+        {
+          id: "dl-1",
+          name: "daylist",
+          uri: "spotify:playlist:dl-1",
+          subtitle: 'Here&#39;s some <a href="spotify:playlist:1">uk garage</a> &amp; &quot;bass&quot;.',
+        },
+      ],
+      blends: [
+        {
+          id: "bl-1",
+          name: "Blend",
+          uri: "spotify:playlist:bl-1",
+          subtitle: 'Mix with <a href="spotify:user:2">Sam</a> &lt;3',
+        },
+      ],
+      top_tracks: [],
+      top_artists: [],
+      new_releases: [],
+    };
+
+    const { tree } = renderWithFeed(feed, false, { audioBackend: "spotify_client" } as any);
+    expect(lastEffectDeps).toContain("spotify_client");
+    expect(mockGetDiscoveryFeed).toHaveBeenCalledTimes(2);
+
+    const mixCard = findNodes(tree, (n) => n.props?.["data-testid"] === "discovery-card-mix-0")[0];
+    const blendCard = findNodes(tree, (n) => n.props?.["data-testid"] === "discovery-card-blend-0")[0];
+    expect(textOf(mixCard)).toContain(`Here's some uk garage & "bass".`);
+    expect(textOf(mixCard)).not.toContain("<a ");
+    expect(textOf(blendCard)).toContain("Mix with Sam <3");
+    expect(textOf(blendCard)).not.toContain("<a ");
+
+    mockGetDiscoveryFeed.mockClear();
+    stateIdx = 0;
+    DiscoveryTab(makeProps({ audioBackend: "librespot" } as any));
+    expect(lastEffectDeps).toContain("librespot");
+    expect(mockGetDiscoveryFeed).toHaveBeenCalledTimes(1);
   });
 });
