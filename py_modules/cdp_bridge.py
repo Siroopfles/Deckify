@@ -544,14 +544,41 @@ def cdp_get_player_state(
     const trackName = String(state.item?.name || '');
     const mediaType = String(state.item?.type || '');
     const isPlaying = !state.isPaused;
-    const isDjContext = ctxUri === 'spotify:playlist:37i9dQZF1EYkqdzj48dyYq' || ctxUri.startsWith('spotify:dj:');
+    const isDjContext = ctxUri.includes('37i9dQZF1EYkqdzj48dyYq') || ctxUri.startsWith('spotify:dj:');
     const itemMeta = state.item?.metadata || {};
     const ctxMeta = state.context?.metadata || {};
     const isDjInterlude = Boolean(
       isDjContext &&
       isPlaying &&
-      (mediaType === 'unknown' || !trackUri || Boolean(itemMeta.is_dj_interlude) || String(ctxMeta.is_context_loading || '') === 'true')
+      (
+        mediaType === 'unknown' ||
+        !trackUri ||
+        trackUri.startsWith('spotify:narration:') ||
+        Boolean(itemMeta.is_dj_interlude) ||
+        String(ctxMeta.is_context_loading || '') === 'true' ||
+        ['dj', 'dj x', 'spotify ai dj'].includes(trackName.trim().toLowerCase()) ||
+        Boolean(itemMeta.narration_title || itemMeta.dj_vibe || itemMeta.vibe_name)
+      )
     );
+    const durationMs = Math.max(
+      0,
+      Math.round(
+        Number(
+          state.duration ??
+          state.item?.duration?.milliseconds ??
+          state.item?.duration_ms ??
+          itemMeta.duration ??
+          0
+        ) || 0
+      )
+    );
+    let rawPositionMs = Number(state.positionAsOfTimestamp ?? state.position ?? 0) || 0;
+    if (!state.isPaused && typeof state.timestamp === 'number' && state.timestamp > 0) {
+      rawPositionMs += Math.max(0, Date.now() - Number(state.timestamp));
+    }
+    const positionMs = durationMs > 0
+      ? Math.max(0, Math.min(durationMs, Math.round(rawPositionMs)))
+      : Math.max(0, Math.round(rawPositionMs));
     const rawImg =
       state.item?.images ||
       state.item?.album?.images ||
@@ -591,30 +618,42 @@ def cdp_get_player_state(
       ''
     ).trim();
 
+    const hasExplicitItemTitle = Boolean(
+      String(itemMeta.title || itemMeta.narration_title || itemMeta.dj_vibe || itemMeta.vibe_name || '').trim()
+    );
+    const hasExplicitItemSub = Boolean(
+      String(itemMeta.subtitle || itemMeta.context_description || '').trim()
+    );
+
+    if (isDjContext && (isDjInterlude || !trackUri || !title || !subtitle)) {
+      try {
+        const widget = document.querySelector('[data-testid="now-playing-widget"]');
+        if (widget) {
+          const trackEl = widget.querySelector('[data-testid="context-item-info-title"], a[href*="/track/"], [data-testid="now-playing-track-name"]');
+          const artistEl = widget.querySelector('[data-testid="context-item-info-subtitles"], a[href*="/artist/"], [data-testid="now-playing-artist"]');
+          const domTitle = String(trackEl?.textContent || '').trim();
+          const domSub = String(artistEl?.textContent || '').trim();
+          if (domTitle && (!title || (isDjInterlude && !hasExplicitItemTitle))) {
+            title = domTitle;
+          }
+          if (domSub && (!subtitle || (isDjInterlude && !hasExplicitItemSub))) {
+            subtitle = domSub;
+          }
+          if (!title) {
+            const aria = String(widget.getAttribute('aria-label') || '').trim();
+            if (aria) title = aria;
+          }
+        }
+        if (!title && typeof document.title === 'string') {
+          const docTitle = document.title.trim();
+          if (docTitle && docTitle !== 'Spotify' && docTitle !== 'Spotify Premium') {
+            title = docTitle;
+          }
+        }
+      } catch (e) {}
+    }
+
     if (isDjInterlude || (isDjContext && !trackUri)) {
-      if (!title || !subtitle) {
-        try {
-          const widget = document.querySelector('[data-testid="now-playing-widget"]');
-          if (widget) {
-            const trackEl = widget.querySelector('[data-testid="context-item-info-title"], a[href*="/track/"], [data-testid="now-playing-track-name"]');
-            const artistEl = widget.querySelector('[data-testid="context-item-info-subtitles"], a[href*="/artist/"], [data-testid="now-playing-artist"]');
-            const domTitle = String(trackEl?.textContent || '').trim();
-            const domSub = String(artistEl?.textContent || '').trim();
-            if (!title && domTitle) title = domTitle;
-            if (!subtitle && domSub) subtitle = domSub;
-            if (!title) {
-              const aria = String(widget.getAttribute('aria-label') || '').trim();
-              if (aria) title = aria;
-            }
-          }
-          if (!title && typeof document.title === 'string') {
-            const docTitle = document.title.trim();
-            if (docTitle && docTitle !== 'Spotify' && docTitle !== 'Spotify Premium') {
-              title = docTitle;
-            }
-          }
-        } catch (e) {}
-      }
       if (!title) title = 'DJ X';
       if (!subtitle) subtitle = upNextText || 'Spotify AI DJ';
     }
@@ -627,6 +666,8 @@ def cdp_get_player_state(
       track_name: trackName,
       media_type: mediaType,
       is_dj_interlude: isDjInterlude,
+      duration_ms: durationMs,
+      position_ms: positionMs,
       image_url: imageUrl,
       title,
       subtitle
@@ -642,6 +683,8 @@ def cdp_get_player_state(
             "track_name": str(res.get("track_name") or ""),
             "media_type": str(res.get("media_type") or ""),
             "is_dj_interlude": bool(res.get("is_dj_interlude", False)),
+            "duration_ms": max(0, int(res.get("duration_ms") or 0)),
+            "position_ms": max(0, int(res.get("position_ms") or 0)),
             "image_url": str(res.get("image_url") or ""),
             "title": _strip_html(res.get("title") or ""),
             "subtitle": _strip_html(res.get("subtitle") or ""),
