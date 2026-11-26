@@ -638,6 +638,9 @@ class TestDiscoveryAlgorithmicMixes(unittest.IsolatedAsyncioTestCase):
 
         cdp_items = [
             {"id": "dl1", "uri": "spotify:playlist:dl1", "name": "daylist", "owner": "Spotify", "kind": "core"},
+            {"id": "dw1", "uri": "spotify:playlist:dw1", "name": "Discover Weekly", "owner": "Spotify", "kind": "core"},
+            {"id": "rr1", "uri": "spotify:playlist:rr1", "name": "Release Radar", "owner": "Spotify", "kind": "core"},
+            {"id": "dm1", "uri": "spotify:playlist:dm1", "name": "Daily Mix 1", "owner": "Spotify", "kind": "core"},
             {"id": "37i9dQZF1EJabc", "uri": "spotify:playlist:37i9dQZF1EJabc", "name": "Alex + Sam", "owner": "Spotify", "kind": "blend"},
             {"id": "37i9dQZF1EYkqdzj48dyYq", "uri": "spotify:playlist:37i9dQZF1EYkqdzj48dyYq", "name": "DJ", "owner": "Spotify", "kind": "dj"},
         ]
@@ -748,6 +751,126 @@ class TestDiscoveryAlgorithmicMixes(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(res["ok"])
         self.assertEqual(res["playlist_name"], "chill afternoon mix")
         self.assertEqual(res["playlist_description"], "Dynamic Daylist title")
+
+    async def test_get_discovery_feed_keys_cache_by_audio_backend(self):
+        rpc_library._clear_discovery_cache()
+        self.plugin._settings["audio_backend"] = "spotify_client"
+        self.plugin._spotify_client_process = SimpleNamespace(poll=lambda: None)
+
+        cdp_mixes = {
+            "ok": True,
+            "items": [
+                {
+                    "id": "37i9dQZF1EP6YuccBxUyC1",
+                    "uri": "spotify:playlist:37i9dQZF1EP6YuccBxUyC1",
+                    "name": "daylist",
+                    "subtitle": "Here is some <a href=\"spotify:playlist:1\">bass</a> &amp; chill",
+                    "image_url": "https://i.scdn.co/image/dl",
+                    "artwork_url": "https://i.scdn.co/image/dl",
+                    "track_count": 50,
+                    "owner_id": "spotify",
+                    "kind": "core",
+                }
+            ],
+        }
+
+        def fake_api(endpoint, token, method="GET", params=None):
+            if endpoint == "me/playlists":
+                return {"items": [], "total": 0}
+            if endpoint == "me/top/tracks":
+                return {"items": []}
+            if endpoint == "me/top/artists":
+                return {"items": []}
+            if endpoint == "browse/new-releases":
+                return {"albums": {"items": []}}
+            return {}
+
+        with patch.object(rpc_library, "cdp_fetch_discovery_mixes", return_value=cdp_mixes), \
+             patch.object(rpc_library, "cdp_get_playlist_tracks", return_value={"ok": False}), \
+             patch.object(rpc_library, "_spotify_api_request", side_effect=fake_api), \
+             patch.object(rpc_library, "save_discovery_mixes_cache"), \
+             patch.object(
+                 rpc_library,
+                 "load_discovery_mixes_cache",
+                 return_value={
+                     "mixes": [
+                         {
+                             "id": "37i9dQZF1EP6YuccBxUyC1",
+                             "uri": "spotify:playlist:37i9dQZF1EP6YuccBxUyC1",
+                             "name": "daylist",
+                             "subtitle": "Here is some bass & chill",
+                             "owner_id": "spotify",
+                             "kind": "core",
+                         }
+                     ]
+                 },
+             ):
+            res_cdp = await rpc_library.get_discovery_feed(self.plugin, "medium_term")
+            self.assertTrue(res_cdp["ok"])
+            self.assertEqual(res_cdp["made_for_you"][0]["subtitle"], "Here is some bass & chill")
+
+            # Switch backend to librespot — must NOT return stale spotify_client cache
+            self.plugin._settings["audio_backend"] = "librespot"
+            self.plugin._spotify_client_process = None
+            res_lib = await rpc_library.get_discovery_feed(self.plugin, "medium_term")
+
+        self.assertTrue(res_lib["ok"])
+        self.assertTrue(res_lib["made_for_you"][0]["subtitle"].endswith(" · Cached"))
+
+    async def test_html_tags_stripped_from_playlist_descriptions_and_subtitles(self):
+        formatted = rpc_library._format_discovery_playlist({
+            "id": "37i9dQZF1EP6YuccBxUyC1",
+            "name": "daylist",
+            "description": 'Here’s some <a href="spotify:playlist:123">uk garage</a> &amp; <a href="spotify:playlist:456">bass</a>.',
+            "owner": {"id": "spotify"},
+            "images": [],
+            "tracks": {"total": 10},
+        })
+        self.assertEqual(formatted["subtitle"], "Here’s some uk garage & bass.")
+
+        self.plugin._settings["audio_backend"] = "spotify_client"
+        self.plugin._spotify_client_process = SimpleNamespace(poll=lambda: None)
+        cdp_payload = {
+            "ok": True,
+            "tracks": [{"id": "t1", "name": "Track 1", "uri": "spotify:track:t1"}],
+            "total": 1,
+            "offset": 0,
+            "playlist_name": "daylist",
+            "playlist_description": 'Late night <a href="spotify:playlist:abc">synthwave</a> &amp; chill',
+        }
+        with patch.object(rpc_library, "_spotify_api_request", side_effect=_http_error(403)), \
+             patch.object(rpc_library, "_cdp_get_playlist_tracks", return_value=cdp_payload), \
+             patch.object(rpc_library, "_refresh_cached_mix_tracks"):
+            res = await rpc_library.get_playlist_tracks(self.plugin, "37i9dQZF1EP6YuccBxUyC1")
+
+        self.assertTrue(res["ok"])
+        self.assertEqual(res["playlist_description"], "Late night synthwave & chill")
+
+    async def test_fetch_made_for_you_skips_web_search_when_cdp_mixes_present(self):
+        self.plugin._settings["audio_backend"] = "spotify_client"
+        self.plugin._spotify_client_process = SimpleNamespace(poll=lambda: None)
+        cdp_mixes = {
+            "ok": True,
+            "items": [
+                {
+                    "id": "37i9dQZF1EP6YuccBxUyC1",
+                    "uri": "spotify:playlist:37i9dQZF1EP6YuccBxUyC1",
+                    "name": "daylist",
+                    "subtitle": "Daylist",
+                    "owner_id": "spotify",
+                    "kind": "core",
+                }
+            ],
+        }
+        with patch.object(rpc_library, "cdp_fetch_discovery_mixes", return_value=cdp_mixes), \
+             patch.object(rpc_library, "_spotify_api_request", return_value={"items": [], "total": 0}), \
+             patch.object(rpc_library, "load_discovery_mixes_cache", return_value={}), \
+             patch.object(rpc_library, "save_discovery_mixes_cache"), \
+             patch.object(rpc_library, "cdp_get_playlist_tracks", return_value={"ok": False}), \
+             patch.object(rpc_library, "_search_missing_core_mixes", new=AsyncMock(return_value=[])) as mock_search:
+            await rpc_library._fetch_made_for_you_section("tok", self.plugin)
+
+        mock_search.assert_not_called()
 
 
 class TestAiDjPollAndStatus(unittest.IsolatedAsyncioTestCase):

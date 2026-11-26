@@ -1,5 +1,7 @@
 import base64
+import html
 import json
+import re
 import secrets
 import time
 import urllib.error
@@ -257,7 +259,7 @@ async def get_playlist_tracks(
                 if not playlist_name and isinstance(data.get("name"), str) and data["name"].strip():
                     playlist_name = data["name"].strip()
                 if not playlist_description and isinstance(data.get("description"), str) and data["description"].strip():
-                    playlist_description = data["description"].strip()
+                    playlist_description = _strip_html(data["description"])
             items_obj = (
                 (data.get("items") if "items" in data else data.get("tracks"))
                 if isinstance(data, dict)
@@ -313,7 +315,7 @@ async def get_playlist_tracks(
                         if not playlist_name and isinstance(cdp_res.get("playlist_name"), str) and cdp_res["playlist_name"].strip():
                             playlist_name = cdp_res["playlist_name"].strip()
                         if not playlist_description and isinstance(cdp_res.get("playlist_description"), str) and cdp_res["playlist_description"].strip():
-                            playlist_description = cdp_res["playlist_description"].strip()
+                            playlist_description = _strip_html(cdp_res["playlist_description"])
                         _refresh_cached_mix_tracks(pid, tracks, total)
                 except Exception as cdp_err:
                     decky.logger.warning("get_playlist_tracks CDP fallback failed: %s", cdp_err)
@@ -328,7 +330,7 @@ async def get_playlist_tracks(
                     if not playlist_name and cached_name:
                         playlist_name = cached_name
                     if not playlist_description and cached_desc:
-                        playlist_description = cached_desc
+                        playlist_description = _strip_html(cached_desc)
                     resp = {
                         "ok": True,
                         "tracks": cached_tracks,
@@ -375,7 +377,7 @@ async def get_playlist_tracks(
                             "offset": offset,
                         }
                         cdp_name = str(cdp_res.get("playlist_name") or "").strip()
-                        cdp_desc = str(cdp_res.get("playlist_description") or "").strip()
+                        cdp_desc = _strip_html(cdp_res.get("playlist_description") or "")
                         if cdp_name:
                             resp["playlist_name"] = cdp_name
                         if cdp_desc:
@@ -400,7 +402,7 @@ async def get_playlist_tracks(
                 if cached_name:
                     resp["playlist_name"] = cached_name
                 if cached_desc:
-                    resp["playlist_description"] = cached_desc
+                    resp["playlist_description"] = _strip_html(cached_desc)
                 return resp
         decky.logger.error("get_playlist_tracks failed: %s", e)
         return {"ok": False, "error": _parse_spotify_error(e)}
@@ -1794,6 +1796,15 @@ def _clear_discovery_cache() -> None:
     _DISCOVERY_CACHE.clear()
 
 
+def _strip_html(text: str) -> str:
+    """Remove HTML tags, unescape HTML entities, and collapse whitespace."""
+    if not text:
+        return ""
+    cleaned = re.sub(r"<[^>]+>", "", str(text))
+    cleaned = html.unescape(cleaned)
+    return re.sub(r"\s+", " ", cleaned).strip()
+
+
 def _format_discovery_playlist(p: dict) -> dict:
     images = p.get("images") or []
     img_url = _image_url(images)
@@ -1807,7 +1818,7 @@ def _format_discovery_playlist(p: dict) -> dict:
         "track_count": (p.get("items") or p.get("tracks") or {}).get("total", 0),
         "owner_id": (p.get("owner") or {}).get("id", ""),
     }
-    desc = str(p.get("description") or "").strip()
+    desc = _strip_html(p.get("description") or "")
     if desc:
         out["subtitle"] = desc
     return out
@@ -2057,9 +2068,16 @@ async def _fetch_made_for_you_section(token: str, plugin=None) -> dict:
         if isinstance(m, dict) and m.get("uri")
     }
 
+    for m in cdp_mixes:
+        if isinstance(m, dict):
+            if m.get("subtitle"):
+                m["subtitle"] = _strip_html(m["subtitle"])
+            if m.get("description"):
+                m["description"] = _strip_html(m["description"])
+
     combined = cdp_mixes + web_mixes
     core_pre, _, _ = _partition_discovery_mixes(combined)
-    if cdp_active or (not web_mixes and not cached_mixes):
+    if not cdp_active and (not web_mixes and not cached_mixes):
         extra_core = await _search_missing_core_mixes(token, core_pre)
         if extra_core:
             combined = combined + extra_core
@@ -2421,8 +2439,9 @@ async def get_discovery_feed(
             return [], False
 
     try:
+        active_backend = str((getattr(plugin, "_settings", {}) or {}).get("audio_backend", "librespot"))
         made_for_you_data, made_for_you_fallback = await _get_section(
-            "made_for_you", _STATIC_TTL_SECONDS, lambda: _fetch_made_for_you_section(token, plugin)
+            f"made_for_you:{active_backend}", _STATIC_TTL_SECONDS, lambda: _fetch_made_for_you_section(token, plugin)
         )
         if isinstance(made_for_you_data, dict):
             made_for_you = list(made_for_you_data.get("made_for_you") or [])
