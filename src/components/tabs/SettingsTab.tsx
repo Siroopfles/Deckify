@@ -383,6 +383,7 @@ function formatBytesMb(bytes?: number): string {
 export const OfflineTravelSection: FC<{
   travelModeEnabled: boolean;
   travelModeAutoEnabled: boolean;
+  travelModeShowWhenOnline?: boolean;
   offlineMinFreeGb: number;
   offlineStoragePath: string;
   onToggleTravelMode?: (enabled: boolean, manual?: boolean, autoEnabled?: boolean) => void | Promise<void>;
@@ -393,6 +394,7 @@ export const OfflineTravelSection: FC<{
 }> = ({
   travelModeEnabled,
   travelModeAutoEnabled,
+  travelModeShowWhenOnline,
   offlineMinFreeGb,
   offlineStoragePath,
   onToggleTravelMode,
@@ -531,6 +533,12 @@ export const OfflineTravelSection: FC<{
           description="Automatically enter Travel Mode when Wi-Fi drops (respects a 10-second wake-from-suspend grace window)"
           checked={travelModeAutoEnabled}
           onChange={(val: boolean) => void handleAutoTravelToggle(val)}
+        />
+        <ToggleField
+          label="Show Travel Mode Button When Online"
+          description="Display the quick Travel Mode pill in the modal header even when Wi-Fi is connected"
+          checked={Boolean(travelModeShowWhenOnline)}
+          onChange={(val: boolean) => void onUpdateSetting("travel_mode_show_when_online", val)}
         />
       </div>
 
@@ -2405,6 +2413,7 @@ export const SettingsTab: FC<SettingsTabProps> = ({
       <OfflineTravelSection
         travelModeEnabled={Boolean(travelModeEnabled ?? localSettings.travel_mode_enabled ?? status?.travel_mode_enabled ?? false)}
         travelModeAutoEnabled={Boolean(travelModeAutoEnabled ?? localSettings.travel_mode_auto_enabled ?? status?.settings?.travel_mode_auto_enabled ?? true)}
+        travelModeShowWhenOnline={Boolean(localSettings.travel_mode_show_when_online ?? status?.settings?.travel_mode_show_when_online ?? false)}
         offlineMinFreeGb={Number(offlineMinFreeGb ?? localSettings.offline_min_free_gb ?? status?.settings?.offline_min_free_gb ?? 3.0)}
         offlineStoragePath={String(offlineStoragePath ?? localSettings.offline_storage_path ?? status?.settings?.offline_storage_path ?? "~/.local/share/spotify")}
         onToggleTravelMode={onToggleTravelMode}

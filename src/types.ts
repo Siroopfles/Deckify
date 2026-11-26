@@ -366,6 +366,7 @@ export interface EngineSettings {
   travel_mode_enabled?: boolean;
   travel_mode_manual?: boolean;
   travel_mode_auto_enabled?: boolean;
+  travel_mode_show_when_online?: boolean;
   offline_min_free_gb?: number;
   offline_storage_path?: string;
 }
@@ -450,6 +451,7 @@ export interface StatusResponse {
   travel_mode_enabled?: boolean;
   travel_mode_manual?: boolean;
   travel_mode_auto_enabled?: boolean;
+  travel_mode_show_when_online?: boolean;
   offline_min_free_gb?: number;
   offline_storage_path?: string;
   jam_session?: JamSessionStatus | null;

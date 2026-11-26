@@ -383,7 +383,7 @@ export const DiscoveryTab: FC<DiscoveryTabProps> = ({
       onFocusTrackRef.current(null);
       onFocusCollectionRef.current(null);
     };
-  }, [timeRange]);
+  }, [timeRange, travelModeEnabled]);
 
   const handleSelectRange = useCallback(
     (range: DiscoveryTimeRange) => {
