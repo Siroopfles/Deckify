@@ -299,7 +299,7 @@ Plans:
   1. User can press `A` / *"Move in Queue"* on any upcoming track in `QueueTab` to enter controller Grab/Move Mode, move the track up or down with `D-Pad Up/Down` while focus remains locked via stable `_rowKey` IDs, and press `A` to commit the new order in a single batched update.
   2. User can remove individual upcoming tracks or clear the upcoming queue in `QueueTab`, executing natively via CDP `PlayerAPI` when `spotify_client` is active and automatically falling back to virtual URI-slice playback mutation when `librespot` is active.
   3. User can create new playlists, rename or edit playlist descriptions, delete or unfollow playlists with a confirmation modal, and reorder or remove tracks inside user-owned playlists directly from the controller in `PlaylistsTab`.
-**Plans:** 9/11 plans executed (8 executed, 3 gap-closure planned)
+**Plans:** 10/11 plans executed (8 executed, 3 gap-closure planned)
 
 Plans:
 **Wave 1**
@@ -324,7 +324,7 @@ Plans:
 
 **Wave 1 (Gap Closure - G-27-6, G-27-7, G-27-8)**
 - [x] 27-09-PLAN.md — Close UAT gaps G-27-7 & G-27-8 (backend): `cdp_remove_from_queue` `futureTracks`/`uid` matching, `cdp_clear_queue`/`clear_queue` active context clearing, and `get_playlist_tracks` `added_at` extraction
-- [ ] 27-10-PLAN.md — Close UAT gaps G-27-6 & G-27-8 (shared Grab/Move): `InteractiveRow` `suppressFocusHalo`, `useGrabMoveOrder` `preGrabSnapshot` + focus lock, and `TrackRowItem`/`QueueTab` inline button suppression + A-drop gating
+- [x] 27-10-PLAN.md — Close UAT gaps G-27-6 & G-27-8 (shared Grab/Move): `InteractiveRow` `suppressFocusHalo`, `useGrabMoveOrder` `preGrabSnapshot` + focus lock, and `TrackRowItem`/`QueueTab` inline button suppression + A-drop gating
 
 **Wave 2 (Gap Closure - G-27-6, G-27-8)** *(blocked on 27-09 & 27-10)*
 - [ ] 27-11-PLAN.md — Close UAT gaps G-27-6 & G-27-8 (`PlaylistsTab` & Modal): 6-chip track sort bar, `canReorder` gating on `sortBy === "custom"`, `handleReorderPlaylistTrack` `preGrabTracks` fix, and global `vgp_onok` `grabCommitRef`
@@ -430,7 +430,7 @@ Phases execute in numeric order: 19 → 20 → 21 → 22 → 23 → 24 → 25 �
 | 24. Podcast & Audiobook Power Suite | v0.7 | 8/8 | Complete    | 2026-11-23 |
 | 25. Universal Artist/Album Drill-Down, Instant Radio & Search 2.0 | v0.7 | 5/5 | Complete    | 2026-11-24 |
 | 26. Unified CDP Platform Bridge & Deep Discovery 2.0 | v0.7 | 11/11 | In Progress | - |
-| 27. Interactive Queue Studio & Controller Playlist Management | v0.7 | 9/11 | In Progress |  |
+| 27. Interactive Queue Studio & Controller Playlist Management | v0.7 | 10/11 | In Progress |  |
 | 28. CDP Offline Downloads, Wi-Fi Travel Mode & Living Room Spotify Jam | v0.7 | 7/7 | In Progress | - |
 | 29. 10-Foot Docked TV Split-View Mode & PipeWire Spectrum Visualizer | v0.7 | 0/TBD | Not started | - |
 | 30. "Deck Wrapped" Listening Stats, Last.fm / ListenBrainz Scrobbling & Profile Backup | v0.7 | 0/TBD | Not started | - |
