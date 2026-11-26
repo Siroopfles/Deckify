@@ -122,6 +122,10 @@ const backendGetTrackLyricsOffset = callable<
 const backendRestoreBookmark = callable<[], { ok: boolean; error?: string }>("restore_bookmark");
 const backendDismissBookmark = callable<[], { ok: boolean }>("dismiss_bookmark");
 const backendSetPlaybackSpeed = callable<[number], { ok: boolean; speed?: number; unsupported_backend?: boolean; error?: string }>("set_playback_speed");
+const backendSetTravelMode = callable<
+  [boolean, boolean?, boolean?],
+  { ok: boolean; travel_mode_enabled?: boolean; travel_mode_auto_enabled?: boolean; error?: string }
+>("set_travel_mode");
 void backendDismissBookmark;
 
 let currentRunningAppId: number | null = null;
@@ -894,6 +898,7 @@ const Content: FC = () => {
   const [resilienceStatus, setResilienceStatus] = useState<ResilienceStatusInfo | null>(null);
   const [ecoStatus, setEcoStatus] = useState<EcoStatusInfo | null>(null);
   const [playbackSpeed, setPlaybackSpeed] = useState<number>(1.0);
+  const [travelModeEnabled, setTravelModeEnabled] = useState<boolean>(false);
   const resilienceToastEnabledRef = useRef<boolean | undefined>(settings.resilience_toast_enabled);
   resilienceToastEnabledRef.current = settings.resilience_toast_enabled;
 
@@ -937,6 +942,9 @@ const Content: FC = () => {
       }
       if (typeof status.playback_speed === "number") {
         setPlaybackSpeed(status.playback_speed);
+      }
+      if (typeof status.travel_mode_enabled === "boolean") {
+        setTravelModeEnabled(status.travel_mode_enabled);
       }
       if (status.active_device?.id) setActiveDeviceId(status.active_device.id);
 
@@ -1090,6 +1098,12 @@ const Content: FC = () => {
       }
     });
 
+    const unsubTravelMode = addEventListener<[any]>("travel_mode_changed", (data: any) => {
+      if (data && typeof data.travel_mode_enabled === "boolean") {
+        setTravelModeEnabled(data.travel_mode_enabled);
+      }
+    });
+
     return () => {
       activeGameListeners.delete(setActiveGameAppId);
       removeEventListener("ducking_state_changed", unsubDucking);
@@ -1101,6 +1115,7 @@ const Content: FC = () => {
       removeEventListener("eco_status_changed", unsubEco);
       removeEventListener("session_restored", unsubRestored);
       removeEventListener("playback_speed_changed", unsubPlaybackSpeed);
+      removeEventListener("travel_mode_changed", unsubTravelMode);
     };
   }, []);
 
@@ -1783,6 +1798,24 @@ const Content: FC = () => {
 
             {controlsExpanded && (
               <>
+                <PanelSectionRow>
+                  <ToggleField
+                    label="Offline / Travel Mode"
+                    description="Filter library to locally downloaded content"
+                    checked={travelModeEnabled}
+                    onChange={async (val) => {
+                      setTravelModeEnabled(val);
+                      try {
+                        const res = await backendSetTravelMode(val, true);
+                        if (!res?.ok) {
+                          setTravelModeEnabled((prev) => !prev);
+                        }
+                      } catch {
+                        setTravelModeEnabled((prev) => !prev);
+                      }
+                    }}
+                  />
+                </PanelSectionRow>
                 {renderDeviceDropdown()}
                 {renderOverlayControls()}
                 {renderEngineToggle()}
