@@ -1,13 +1,16 @@
 import { FC, useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { Focusable, ModalRoot, NavEntryPositionPreferences } from "@decky/ui";
+import { DialogButton, Focusable, ModalRoot, NavEntryPositionPreferences } from "@decky/ui";
 import { addEventListener, callable, removeEventListener, toaster } from "@decky/api";
+import { FaPlane } from "react-icons/fa";
 // Note: Child views render heart icons: FaHeart, FaRegHeart
 import {
   AlbumItem,
   ArtistItem,
   EpisodeItem,
   FolderItem,
+  JamSessionStatus,
   NavHistoryEntry,
+  OfflineDownloadItem,
   PinnedPlaylistItem,
   PlaylistItem,
   SearchFilterTab,
@@ -29,6 +32,8 @@ import { useTriggerNavigation } from "../hooks/useTriggerNavigation";
 import { Sidebar } from "./common/Sidebar";
 import { TrackActionModal, recordPlaylistAddCount } from "./common/TrackActionModal";
 import { CollectionActionItem, CollectionActionModal } from "./common/CollectionActionModal";
+import { JamQrModal } from "./common/JamQrModal";
+import { OfflineTogglePayload } from "./common/OfflineStatusUI";
 
 // Modular tab components
 import { NowPlayingTab } from "./tabs/NowPlayingTab";
@@ -115,6 +120,18 @@ const backendSetNativeMix = callable<[string, boolean, boolean], { ok: boolean; 
 const backendSetSetting = callable<[string, unknown], { ok: boolean; settings?: any; error?: string }>("set_setting");
 const backendSetPlaybackSpeed = callable<[number], { ok: boolean; speed?: number; unsupported_backend?: boolean; error?: string }>("set_playback_speed");
 const backendGetShowEpisodes = callable<[string, number], { ok: boolean; episodes?: EpisodeItem[]; total?: number; error?: string }>("get_show_episodes");
+const backendGetOfflineDownloadsList = callable<[], { ok: boolean; items?: OfflineDownloadItem[]; error?: string }>("get_offline_downloads_list");
+const backendToggleOfflineDownload = callable<
+  [string, boolean, { name?: string; type?: string; image_url?: string | null }?],
+  { ok: boolean; success?: boolean; low_disk_space?: boolean; min_free_gb?: number; error?: string }
+>("toggle_offline_download");
+const backendSetTravelMode = callable<
+  [boolean, boolean?, boolean?],
+  { ok: boolean; travel_mode_enabled?: boolean; travel_mode_auto_enabled?: boolean; error?: string }
+>("set_travel_mode");
+const backendStartSpotifyJam = callable<[], { ok: boolean; active?: boolean; join_url?: string | null; guest_count?: number; is_host?: boolean; error?: string }>("start_spotify_jam");
+const backendEndSpotifyJam = callable<[], { ok: boolean; error?: string }>("end_spotify_jam");
+const backendSwitchAudioBackend = callable<[string], { ok: boolean; error?: string }>("switch_audio_backend");
 
 function escapeCssAttr(val: string): string {
   if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
@@ -258,6 +275,22 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
   isCrudModalOpenRef.current = isCrudModalOpen;
   const [pendingEditPlaylist, setPendingEditPlaylist] = useState<PlaylistItem | null>(null);
   const [pendingDeletePlaylist, setPendingDeletePlaylist] = useState<PlaylistItem | null>(null);
+  const [travelModeEnabled, setTravelModeEnabled] = useState(false);
+  const [travelModeAutoEnabled, setTravelModeAutoEnabled] = useState(true);
+  const [offlineDownloads, setOfflineDownloads] = useState<Record<string, OfflineDownloadItem>>({});
+  const [jamSession, setJamSession] = useState<JamSessionStatus | null>(null);
+  const [jamModalOpen, setJamModalOpen] = useState(false);
+  const [jamLoading, setJamLoading] = useState(false);
+  const [pendingEngineSwitchDownload, setPendingEngineSwitchDownload] = useState<{
+    uri: string;
+    name: string;
+    type: "playlist" | "album" | "episode" | "show";
+    image_url?: string | null;
+  } | null>(null);
+  const jamModalOpenRef = useRef(jamModalOpen);
+  jamModalOpenRef.current = jamModalOpen;
+  const pendingEngineSwitchDownloadRef = useRef(pendingEngineSwitchDownload);
+  pendingEngineSwitchDownloadRef.current = pendingEngineSwitchDownload;
   const grabCancelRef = useRef<(() => boolean) | null>(null);
   const queueGrabTriggerRef = useRef<((track: TrackItem) => void) | null>(null);
   const playlistGrabTriggerRef = useRef<((track: TrackItem) => void) | null>(null);
@@ -616,6 +649,240 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
       showToast("Failed to start AI DJ");
     }
   }, [status?.audio_backend, showToast]);
+
+  const loadOfflineDownloads = useCallback(async () => {
+    try {
+      const res = await backendGetOfflineDownloadsList();
+      if (res?.ok && Array.isArray(res.items)) {
+        const next: Record<string, OfflineDownloadItem> = {};
+        for (const item of res.items) {
+          if (item?.uri) next[item.uri] = item;
+        }
+        setOfflineDownloads(next);
+      }
+    } catch {
+      // Non-fatal
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadOfflineDownloads();
+  }, [loadOfflineDownloads]);
+
+  useEffect(() => {
+    if (!status) return;
+    if (typeof status.travel_mode_enabled === "boolean") {
+      setTravelModeEnabled(status.travel_mode_enabled);
+    }
+    const autoVal = status.travel_mode_auto_enabled ?? status.settings?.travel_mode_auto_enabled;
+    if (typeof autoVal === "boolean") {
+      setTravelModeAutoEnabled(autoVal);
+    }
+    if (status.jam_session !== undefined) {
+      setJamSession(status.jam_session ?? null);
+    }
+  }, [status]);
+
+  useEffect(() => {
+    if (typeof addEventListener !== "function" || typeof removeEventListener !== "function") return;
+    const onTravelModeChanged = (payload: {
+      travel_mode_enabled?: boolean;
+      travel_mode_auto_enabled?: boolean;
+    }) => {
+      if (typeof payload?.travel_mode_enabled === "boolean") {
+        setTravelModeEnabled(payload.travel_mode_enabled);
+      }
+      if (typeof payload?.travel_mode_auto_enabled === "boolean") {
+        setTravelModeAutoEnabled(payload.travel_mode_auto_enabled);
+      }
+    };
+    const onLowDiskSpace = (payload: { min_free_gb?: number }) => {
+      const minGb = typeof payload?.min_free_gb === "number" ? payload.min_free_gb : 3.0;
+      showToast(
+        `Low disk space: Free up storage above the ${minGb} GB threshold or change your offline storage path in Settings to resume downloads.`,
+      );
+      void loadOfflineDownloads();
+    };
+    addEventListener("travel_mode_changed", onTravelModeChanged);
+    addEventListener("low_disk_space", onLowDiskSpace);
+    return () => {
+      removeEventListener("travel_mode_changed", onTravelModeChanged);
+      removeEventListener("low_disk_space", onLowDiskSpace);
+    };
+  }, [showToast, loadOfflineDownloads]);
+
+  const handleToggleTravelMode = useCallback(
+    async (enabled: boolean, manual = true, autoEnabled?: boolean) => {
+      try {
+        const res = await backendSetTravelMode(enabled, manual, autoEnabled);
+        if (res?.ok) {
+          setTravelModeEnabled(Boolean(res.travel_mode_enabled ?? enabled));
+          if (typeof res.travel_mode_auto_enabled === "boolean") {
+            setTravelModeAutoEnabled(res.travel_mode_auto_enabled);
+          }
+          refreshStatus();
+        } else {
+          showToast(res?.error || "Failed to update Offline Travel Mode.");
+        }
+      } catch {
+        showToast("Failed to update Offline Travel Mode.");
+      }
+    },
+    [refreshStatus, showToast],
+  );
+
+  const handleExitTravelMode = useCallback(() => {
+    void handleToggleTravelMode(false, true);
+  }, [handleToggleTravelMode]);
+
+  const handleToggleOfflineDownload = useCallback(
+    async (item: OfflineTogglePayload) => {
+      const currentBackend = status?.audio_backend || status?.settings?.audio_backend || "librespot";
+      if (item.isDownloaded) {
+        try {
+          const res = await backendToggleOfflineDownload(item.uri, false);
+          if (res?.ok) {
+            await loadOfflineDownloads();
+            showToast("Removed offline download");
+          } else {
+            showToast(res?.error || "Failed to remove offline download.");
+          }
+        } catch {
+          showToast("Failed to remove offline download.");
+        }
+        return;
+      }
+      if (currentBackend !== "spotify_client") {
+        setPendingEngineSwitchDownload({
+          uri: item.uri,
+          name: item.name,
+          type: item.type,
+          image_url: item.image_url,
+        });
+        return;
+      }
+      try {
+        const res = await backendToggleOfflineDownload(item.uri, true, {
+          name: item.name,
+          type: item.type,
+          image_url: item.image_url,
+        });
+        if (res?.low_disk_space) {
+          const minGb = typeof res.min_free_gb === "number" ? res.min_free_gb : 3.0;
+          showToast(
+            `Low disk space: Free up storage above the ${minGb} GB threshold or change your offline storage path in Settings to resume downloads.`,
+          );
+        } else if (res?.ok) {
+          await loadOfflineDownloads();
+        } else {
+          showToast(res?.error || "Failed to start offline download.");
+        }
+      } catch {
+        showToast("Failed to start offline download.");
+      }
+    },
+    [status?.audio_backend, status?.settings?.audio_backend, loadOfflineDownloads, showToast],
+  );
+
+  const handleConfirmEngineSwitchDownload = useCallback(async () => {
+    const pending = pendingEngineSwitchDownloadRef.current;
+    if (!pending) return;
+    setPendingEngineSwitchDownload(null);
+    try {
+      const switchRes = await backendSwitchAudioBackend("spotify_client");
+      if (!switchRes?.ok) {
+        showToast(switchRes?.error || "Failed to switch to Official Spotify Client.");
+        return;
+      }
+      refreshStatus();
+      const dlRes = await backendToggleOfflineDownload(pending.uri, true, {
+        name: pending.name,
+        type: pending.type,
+        image_url: pending.image_url,
+      });
+      if (dlRes?.low_disk_space) {
+        const minGb = typeof dlRes.min_free_gb === "number" ? dlRes.min_free_gb : 3.0;
+        showToast(
+          `Low disk space: Free up storage above the ${minGb} GB threshold or change your offline storage path in Settings to resume downloads.`,
+        );
+      } else if (dlRes?.ok) {
+        await loadOfflineDownloads();
+        showToast(`Downloading ${pending.name} for offline`);
+      } else {
+        showToast(dlRes?.error || "Failed to start offline download.");
+      }
+    } catch {
+      showToast("Failed to switch to Official Spotify Client.");
+    }
+  }, [refreshStatus, loadOfflineDownloads, showToast]);
+
+  const handleOpenJamModal = useCallback(async () => {
+    setJamModalOpen(true);
+    const currentBackend = status?.audio_backend || status?.settings?.audio_backend || "librespot";
+    if (currentBackend !== "spotify_client") return;
+    setJamLoading(true);
+    try {
+      const res = await backendStartSpotifyJam();
+      if (res?.ok) {
+        setJamSession({
+          active: Boolean(res.active ?? true),
+          join_url: res.join_url,
+          guest_count: res.guest_count,
+          is_host: res.is_host,
+          error: res.error,
+        });
+      } else if (res?.error) {
+        setJamSession({ active: false, error: res.error });
+      }
+    } catch {
+      setJamSession({ active: false, error: "Failed to start Spotify Jam." });
+    } finally {
+      setJamLoading(false);
+    }
+  }, [status?.audio_backend, status?.settings?.audio_backend]);
+
+  const handleEndJam = useCallback(async () => {
+    try {
+      const res = await backendEndSpotifyJam();
+      if (res?.ok) {
+        setJamSession({ active: false });
+        setJamModalOpen(false);
+        showToast("Ended Spotify Jam");
+      } else {
+        showToast(res?.error || "Failed to end Spotify Jam.");
+      }
+    } catch {
+      showToast("Failed to end Spotify Jam.");
+    }
+  }, [showToast]);
+
+  const handleSwitchToSpotifyClientAndStartJam = useCallback(async () => {
+    setJamLoading(true);
+    try {
+      const switchRes = await backendSwitchAudioBackend("spotify_client");
+      if (!switchRes?.ok) {
+        showToast(switchRes?.error || "Failed to switch to Official Spotify Client.");
+        return;
+      }
+      refreshStatus();
+      const jamRes = await backendStartSpotifyJam();
+      if (jamRes?.ok) {
+        setJamSession({
+          active: Boolean(jamRes.active ?? true),
+          join_url: jamRes.join_url,
+          guest_count: jamRes.guest_count,
+          is_host: jamRes.is_host,
+          error: jamRes.error,
+        });
+      } else if (jamRes?.error) {
+        showToast(jamRes.error);
+      }
+    } catch {
+      showToast("Failed to start Spotify Jam.");
+    } finally {
+      setJamLoading(false);
+    }
+  }, [refreshStatus, showToast]);
 
   // Lyrics Loader
   const track = status?.track_meta || status?.track;
@@ -1556,6 +1823,20 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
         (e as unknown as { stopImmediatePropagation?: () => void }).stopImmediatePropagation?.();
         return;
       }
+      if (jamModalOpenRef.current) {
+        e.preventDefault();
+        e.stopPropagation();
+        (e as unknown as { stopImmediatePropagation?: () => void }).stopImmediatePropagation?.();
+        setJamModalOpen(false);
+        return;
+      }
+      if (pendingEngineSwitchDownloadRef.current) {
+        e.preventDefault();
+        e.stopPropagation();
+        (e as unknown as { stopImmediatePropagation?: () => void }).stopImmediatePropagation?.();
+        setPendingEngineSwitchDownload(null);
+        return;
+      }
       if (isCrudModalOpenRef.current) {
         e.preventDefault();
         e.stopPropagation();
@@ -1704,7 +1985,7 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
           {/* Main Body */}
           <Focusable
             flow-children="horizontal"
-            tabIndex={actionTrack || actionCollection ? -1 : undefined}
+            tabIndex={actionTrack || actionCollection || jamModalOpen || pendingEngineSwitchDownload ? -1 : undefined}
             style={{
               display: "flex",
               flex: 1,
@@ -1712,7 +1993,7 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
               overflow: "hidden",
               position: "relative",
               zIndex: 1,
-              pointerEvents: actionTrack || actionCollection ? "none" : "auto",
+              pointerEvents: actionTrack || actionCollection || jamModalOpen || pendingEngineSwitchDownload ? "none" : "auto",
             }}
           >
             {/* Left Sidebar */}
@@ -1744,6 +2025,44 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
                   overflowY: "auto",
                 }}
               >
+              <Focusable
+                flow-children="horizontal"
+                style={{
+                  display: "flex",
+                  justifyContent: "flex-end",
+                  alignItems: "center",
+                  gap: 8,
+                  marginBottom: 8,
+                  flexShrink: 0,
+                }}
+              >
+                <DialogButton
+                  data-testid="travel-mode-header-pill"
+                  onClick={() => void handleToggleTravelMode(!travelModeEnabled, true)}
+                  style={{
+                    width: "auto",
+                    minWidth: "auto",
+                    flexShrink: 0,
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                    padding: "4px 12px",
+                    borderRadius: 999,
+                    fontSize: 12,
+                    fontWeight: 700,
+                    background: travelModeEnabled
+                      ? "rgba(var(--deckify-accent-rgb, 29, 185, 84), 0.22)"
+                      : "rgba(255,255,255,0.08)",
+                    color: travelModeEnabled ? "var(--deckify-accent, #1DB954)" : "#ffffff",
+                    border: travelModeEnabled
+                      ? "1px solid var(--deckify-accent, #1DB954)"
+                      : "1px solid rgba(255,255,255,0.14)",
+                  }}
+                >
+                  <FaPlane size={11} />
+                  <span>{travelModeEnabled ? "Offline Travel Mode: ON" : "Offline Travel Mode"}</span>
+                </DialogButton>
+              </Focusable>
               {mode === "now_playing" && (
                 <NowPlayingTab
                   status={status}
@@ -1761,6 +2080,9 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
                   playbackSpeed={status?.playback_speed ?? 1.0}
                   onSetPlaybackSpeed={handleSetPlaybackSpeed}
                   onPlayAiDj={handlePlayAiDj}
+                  jamSession={jamSession}
+                  onOpenJamModal={handleOpenJamModal}
+                  onEndJam={handleEndJam}
                 />
               )}
 
@@ -1785,6 +2107,7 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
                   romanizeEnabled={romanizeEnabled}
                   romanizeDisplayStyle={romanizeDisplayStyle}
                   onToggleRomanize={handleToggleRomanize}
+                  travelModeEnabled={travelModeEnabled}
                 />
               )}
 
@@ -1806,6 +2129,8 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
                   onReauthenticate={() => {
                     showToast("Open Quick Access Menu to re-authenticate Spotify");
                   }}
+                  travelModeEnabled={travelModeEnabled}
+                  onExitTravelMode={handleExitTravelMode}
                 />
               )}
 
@@ -1850,6 +2175,10 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
                     setPendingEditPlaylist(null);
                     setPendingDeletePlaylist(null);
                   }}
+                  travelModeEnabled={travelModeEnabled}
+                  onExitTravelMode={handleExitTravelMode}
+                  offlineDownloads={offlineDownloads}
+                  onToggleOfflineDownload={handleToggleOfflineDownload}
                 />
               )}
 
@@ -1865,6 +2194,9 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
                   onFocusTrack={(t) => { focusedTrackRef.current = t; }}
                   isPinned={pinnedUris.has("spotify:collection:tracks")}
                   onTogglePin={handleTogglePin}
+                  travelModeEnabled={travelModeEnabled}
+                  onExitTravelMode={handleExitTravelMode}
+                  offlineDownloads={offlineDownloads}
                 />
               )}
 
@@ -1887,6 +2219,10 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
                     if (c) focusedTrackRef.current = null;
                   }}
                   onStartAlbumRadio={handleStartAlbumRadio}
+                  travelModeEnabled={travelModeEnabled}
+                  onExitTravelMode={handleExitTravelMode}
+                  offlineDownloads={offlineDownloads}
+                  onToggleOfflineDownload={handleToggleOfflineDownload}
                 />
               )}
 
@@ -1933,6 +2269,10 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
                   onOpenShow={handleOpenShow}
                   onCloseShow={() => setActiveShow(null)}
                   onPlayTrack={handlePlayTrack}
+                  travelModeEnabled={travelModeEnabled}
+                  onExitTravelMode={handleExitTravelMode}
+                  offlineDownloads={offlineDownloads}
+                  onToggleOfflineDownload={handleToggleOfflineDownload}
                 />
               )}
 
@@ -1957,6 +2297,9 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
                   searchHistory={searchHistory}
                   onUpdateSearchHistory={handleUpdateSearchHistory}
                   onFocusHistoryPill={handleFocusHistoryPill}
+                  travelModeEnabled={travelModeEnabled}
+                  onExitTravelMode={handleExitTravelMode}
+                  offlineDownloads={offlineDownloads}
                 />
               )}
 
@@ -1981,7 +2324,12 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
               )}
 
               {mode === "devices" && (
-                <DevicesTab showToast={showToast} />
+                <DevicesTab
+                  showToast={showToast}
+                  jamSession={jamSession}
+                  onOpenJamModal={handleOpenJamModal}
+                  onEndJam={handleEndJam}
+                />
               )}
 
               {mode === "soundtracks" && (
@@ -2000,6 +2348,12 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
                   status={status}
                   refreshStatus={refreshStatus}
                   showToast={showToast}
+                  travelModeEnabled={travelModeEnabled}
+                  travelModeAutoEnabled={travelModeAutoEnabled}
+                  onToggleTravelMode={handleToggleTravelMode}
+                  offlineMinFreeGb={status?.offline_min_free_gb ?? status?.settings?.offline_min_free_gb}
+                  offlineStoragePath={status?.offline_storage_path ?? status?.settings?.offline_storage_path}
+                  onReloadOfflineDownloads={loadOfflineDownloads}
                 />
               )}
               </Focusable>
@@ -2065,9 +2419,22 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
               collection={actionCollection}
               isPinned={pinnedUris.has(actionCollection.uri)}
               atLimit={pinnedPlaylists.length >= 4}
+              offlineState={offlineDownloads[actionCollection.uri]?.offline_state}
+              offlineProgress={offlineDownloads[actionCollection.uri]?.offline_progress}
               onClose={() => setActionCollection(null)}
               onPlay={(c) => handlePlayTrack("", c.uri)}
               onTogglePin={handleTogglePin}
+              onToggleOfflineDownload={(collection: CollectionActionItem) => {
+                const offlineItem = offlineDownloads[collection.uri];
+                const isDownloaded = offlineItem?.offline_state === "downloaded";
+                void handleToggleOfflineDownload({
+                  uri: collection.uri,
+                  name: collection.name,
+                  type: collection.type === "album" ? "album" : "playlist",
+                  image_url: collection.image_url,
+                  isDownloaded,
+                });
+              }}
               onEditPlaylist={(collection: CollectionActionItem) => {
                 const target =
                   allUserPlaylists.find(
@@ -2109,6 +2476,92 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
                 if (target) setPendingDeletePlaylist(target);
               }}
             />
+          )}
+
+          {/* Spotify Jam QR Modal */}
+          {jamModalOpen && (
+            <JamQrModal
+              audioBackend={audioBackend}
+              jamSession={jamSession}
+              shareUri={
+                track?.uri || (track?.id ? `spotify:track:${track.id}` : null)
+              }
+              shareLabel={
+                track?.name
+                  ? `${track.name}${track.artist ? ` — ${track.artist}` : ""}`
+                  : null
+              }
+              loading={jamLoading}
+              onClose={() => setJamModalOpen(false)}
+              onEndJam={handleEndJam}
+              onLeaveJam={handleEndJam}
+              onSwitchAndStartJam={handleSwitchToSpotifyClientAndStartJam}
+            />
+          )}
+
+          {/* Engine Switch Confirmation Modal for Offline Downloads */}
+          {pendingEngineSwitchDownload && (
+            <div
+              data-testid="engine-switch-download-modal"
+              style={{
+                position: "absolute",
+                inset: 0,
+                background: "rgba(0,0,0,0.82)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                zIndex: 250,
+                padding: 24,
+              }}
+            >
+              <Focusable
+                flow-children="column"
+                style={{
+                  background: "#1C1C1C",
+                  border: "1px solid rgba(255,255,255,0.12)",
+                  borderRadius: 12,
+                  padding: 24,
+                  maxWidth: 460,
+                  width: "100%",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 16,
+                }}
+              >
+                <div style={{ fontSize: 16, fontWeight: 700, color: "#fff" }}>
+                  Switch to Official Spotify Client?
+                </div>
+                <div style={{ fontSize: 14, color: "rgba(255,255,255,0.8)", lineHeight: 1.5 }}>
+                  Offline downloads require the Official Spotify Client.
+                </div>
+                <Focusable
+                  flow-children="horizontal"
+                  style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}
+                >
+                  <DialogButton
+                    data-testid="engine-switch-stay-btn"
+                    onClick={() => setPendingEngineSwitchDownload(null)}
+                    style={{ width: "auto", minWidth: "auto", flexShrink: 0 }}
+                  >
+                    Stay on librespot
+                  </DialogButton>
+                  <DialogButton
+                    data-testid="engine-switch-download-btn"
+                    onClick={() => void handleConfirmEngineSwitchDownload()}
+                    style={{
+                      width: "auto",
+                      minWidth: "auto",
+                      flexShrink: 0,
+                      background: "var(--deckify-accent, #1DB954)",
+                      color: "#000",
+                      fontWeight: 700,
+                    }}
+                  >
+                    Switch to Spotify Client & Download
+                  </DialogButton>
+                </Focusable>
+              </Focusable>
+            </div>
           )}
 
           {/* Floating Trigger Indicator Pill */}
