@@ -611,4 +611,71 @@ describe("SearchTab per-section Load More paging (G-26-2)", () => {
     expect(cleanText(errTree)).toContain("Browse Gaming & Mood");
     expect(cleanText(errTree)).not.toContain("Browse Categories");
   });
+
+  it("deduplicates programmatic tile and history triggers so search_spotify fires only once past 350ms", async () => {
+    vi.useFakeTimers();
+    try {
+      stateSlots.length = 0;
+      stateIdx = 0;
+      mockSearchSpotify.mockReset();
+      mockSearchSpotify.mockResolvedValue({ ok: true, tracks: mockTracks, playlists: mockPlaylists });
+
+      const refs: Array<{ current: unknown }> = [];
+      const refAwareUseRef = <T,>(init: T) => {
+        const idx = stateIdx++;
+        if (!refs[idx]) refs[idx] = { current: init };
+        return refs[idx];
+      };
+      const reactMod = await import("react");
+      const origUseRef = reactMod.useRef;
+      (reactMod as unknown as { useRef: typeof refAwareUseRef }).useRef = refAwareUseRef;
+
+      try {
+        let currentQuery = "";
+        const onSearchQueryChange = vi.fn((q: string) => {
+          currentQuery = q;
+        });
+        const tree = renderSearchTab({
+          searchQuery: currentQuery,
+          searchHistory: ["lofi"],
+          onSearchQueryChange,
+        });
+
+        const epicTile = findNodes(
+          tree,
+          (n) => n.type === "Focusable" && n.props?.["data-deckify-label"] === "Epic Gaming"
+        )[0];
+        (epicTile.props?.onClick as () => void)();
+        expect(mockSearchSpotify).toHaveBeenCalledTimes(1);
+
+        // Re-render with updated query (simulating React state commit) and advance timers past 350ms
+        renderSearchTab({
+          searchQuery: currentQuery,
+          searchHistory: ["lofi"],
+          onSearchQueryChange,
+        });
+        vi.advanceTimersByTime(500);
+        expect(mockSearchSpotify).toHaveBeenCalledTimes(1);
+
+        // History pill also triggers exactly once
+        const lofiPill = findNodes(
+          tree,
+          (n) => n.type === "Focusable" && n.props?.["data-deckify-label"] === "lofi"
+        )[0];
+        (lofiPill.props?.onClick as () => void)();
+        expect(mockSearchSpotify).toHaveBeenCalledTimes(2);
+        renderSearchTab({
+          searchQuery: currentQuery,
+          searchHistory: ["lofi"],
+          onSearchQueryChange,
+        });
+        vi.advanceTimersByTime(500);
+        expect(mockSearchSpotify).toHaveBeenCalledTimes(2);
+      } finally {
+        (reactMod as unknown as { useRef: typeof origUseRef }).useRef = origUseRef;
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

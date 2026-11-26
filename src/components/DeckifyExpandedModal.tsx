@@ -486,9 +486,10 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
   useEffect(() => {
     if (mode !== "queue") return undefined;
     loadQueue();
-    const interval = setInterval(loadQueue, 10000);
+    if (!status?.is_playing) return undefined;
+    const interval = setInterval(loadQueue, 30000);
     return () => clearInterval(interval);
-  }, [mode, loadQueue]);
+  }, [mode, loadQueue, status?.is_playing]);
 
   // Drill-down open handlers
   const handleOpenPlaylist = useCallback(async (pl: PlaylistItem) => {
@@ -895,18 +896,15 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
       lastRecentTrackIdRef.current = activeTrackId;
       return undefined;
     }
-    const interval = setInterval(() => loadRecent(true), 10000);
+    const interval = setInterval(() => loadRecent(true), 30000);
     if (!activeTrackId || lastRecentTrackIdRef.current === activeTrackId) {
       return () => clearInterval(interval);
     }
     lastRecentTrackIdRef.current = activeTrackId;
-    loadRecent(true);
-    const t1 = setTimeout(() => loadRecent(true), 3000);
-    const t2 = setTimeout(() => loadRecent(true), 8000);
+    const t1 = setTimeout(() => loadRecent(true), 5000);
     return () => {
       clearInterval(interval);
       clearTimeout(t1);
-      clearTimeout(t2);
     };
   }, [mode, activeTrackId, loadRecent]);
   const trackName = track?.name;

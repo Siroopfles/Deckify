@@ -883,7 +883,12 @@ function useSearchController(props: SearchTabProps) {
   useEffect(() => {
     const queryChanged = searchQuery !== prevQueryRef.current;
     prevQueryRef.current = searchQuery;
-    if (!queryChanged) return;
+    if (!queryChanged) {
+      if (skipNextDebounceRef.current === searchQuery) {
+        skipNextDebounceRef.current = null;
+      }
+      return;
+    }
     resetPaging();
     if (!searchQuery.trim()) {
       setResultsRef.current({});
