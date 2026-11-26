@@ -605,7 +605,8 @@ class DeckifyFeatureTests(unittest.IsolatedAsyncioTestCase):
             },
             {},
         ]
-        res = await rpc_playback.auto_transfer_and_play(self.plugin, "tok", "", play=False)
+        with patch.object(rpc_playback, "_exec", self.execute):
+            res = await rpc_playback.auto_transfer_and_play(self.plugin, "tok", "", play=False)
         self.assertTrue(res["ok"])
         self.assertEqual(res.get("device_id"), "steam-1")
         self.assertEqual(self.plugin._poll_play_state, "paused")
@@ -620,7 +621,7 @@ class DeckifyFeatureTests(unittest.IsolatedAsyncioTestCase):
 
         err_404 = HTTPError("url", 404, "Not Found", {}, io.BytesIO(b"{}"))
         self.execute.side_effect = [err_404, {}]
-        with patch.object(
+        with patch.object(rpc_playback, "_exec", self.execute), patch.object(
             self.plugin,
             "_auto_transfer_and_play",
             AsyncMock(return_value={"ok": True, "device_id": "dev-1"}),
@@ -630,7 +631,7 @@ class DeckifyFeatureTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertTrue(res["ok"])
-        mock_transfer.assert_awaited_once_with("mock_token", play=False)
+        mock_transfer.assert_awaited_once_with("valid-token", play=False)
         retry_call = self.execute.call_args_list[1]
         self.assertEqual(retry_call.args[1], "me/player/play")
         self.assertEqual(retry_call.args[4], {"device_id": "dev-1"})
