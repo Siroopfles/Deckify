@@ -42,9 +42,9 @@
 
 ### CDP Offline Downloads, Travel Mode & Living Room Spotify Jam
 
-- [ ] **CDP-01**: User can toggle *"Download for Offline"* on playlists, albums, and podcast episodes via Official Spotify Client CDP `OfflineAPI` (with a 1-click engine switch prompt when on `librespot`), displaying live download progress (`0–100%`), green offline badges, and an `os.statvfs` 3.0 GB free-space disk guardrail.
+- [x] **CDP-01**: User can toggle *"Download for Offline"* on playlists, albums, and podcast episodes via Official Spotify Client CDP `OfflineAPI` (with a 1-click engine switch prompt when on `librespot`), displaying live download progress (`0–100%`), green offline badges, and an `os.statvfs` 3.0 GB free-space disk guardrail.
 - [x] **CDP-02**: User can toggle **Offline / Travel Mode** (or have it activate automatically on sustained Wi-Fi disconnect after the 10-second wake-from-suspend grace window) to filter library views strictly to locally downloaded content.
-- [ ] **JAM-01**: User can start or share a Spotify Jam / group session from `NowPlayingTab`, `DevicesTab`, or `TvSplitView`, rendering a high-contrast scannable `QRCodeSVG` modal/card for living-room guests (with a shareable track/playlist deep-link QR fallback on `librespot`).
+- [x] **JAM-01**: User can start or share a Spotify Jam / group session from `NowPlayingTab`, `DevicesTab`, or `TvSplitView`, rendering a high-contrast scannable `QRCodeSVG` modal/card for living-room guests (with a shareable track/playlist deep-link QR fallback on `librespot`).
 
 ### 10-Foot Docked TV Split-View, Spectrum Visualizer & Listening Analytics / Scrobbling
 
@@ -95,9 +95,9 @@
 | DISC-04 | Phase 26 | Complete |
 | QUEUE-03 | Phase 27 | Complete |
 | PL-01 | Phase 27 | Complete |
-| CDP-01 | Phase 28 | Pending |
+| CDP-01 | Phase 28 | Complete |
 | CDP-02 | Phase 28 | Complete |
-| JAM-01 | Phase 28 | Pending |
+| JAM-01 | Phase 28 | Complete |
 | TV-01 | Phase 29 | Pending |
 | TV-02 | Phase 29 | Pending |
 | STATS-01 | Phase 30 | Pending |
