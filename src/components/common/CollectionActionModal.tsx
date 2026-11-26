@@ -1,7 +1,9 @@
 import { FC, useEffect, useRef } from "react";
 import { Focusable } from "@decky/ui";
 import {
+  FaCheckCircle,
   FaCompactDisc,
+  FaDownload,
   FaEdit,
   FaHeart,
   FaListUl,
@@ -9,9 +11,10 @@ import {
   FaThumbtack,
   FaTrash,
 } from "react-icons/fa";
-import { PinnedPlaylistItem } from "../../types";
+import { OfflineState, PinnedPlaylistItem } from "../../types";
 import { DeckifyImage } from "./DeckifyImage";
 import { InteractiveRow } from "./InteractiveRow";
+import { clampOfflineProgress } from "./OfflineStatusUI";
 
 export type CollectionActionItem = PinnedPlaylistItem & {
   id?: string;
@@ -23,9 +26,12 @@ export interface CollectionActionModalProps {
   collection: CollectionActionItem;
   isPinned: boolean;
   atLimit: boolean;
+  offlineState?: OfflineState;
+  offlineProgress?: number;
   onClose: () => void;
   onPlay: (collection: CollectionActionItem) => void;
   onTogglePin: (collection: CollectionActionItem) => void;
+  onToggleOfflineDownload?: (collection: CollectionActionItem) => void;
   onEditPlaylist?: (collection: CollectionActionItem) => void;
   onDeletePlaylist?: (collection: CollectionActionItem) => void;
 }
@@ -77,9 +83,12 @@ export const CollectionActionModal: FC<CollectionActionModalProps> = ({
   collection,
   isPinned,
   atLimit,
+  offlineState,
+  offlineProgress,
   onClose,
   onPlay,
   onTogglePin,
+  onToggleOfflineDownload,
   onEditPlaylist,
   onDeletePlaylist,
 }) => {
@@ -102,6 +111,14 @@ export const CollectionActionModal: FC<CollectionActionModalProps> = ({
   const pinLabel = isPinned ? "Unpin from QAM" : atLimit ? "Max 4 Pinned — Unpin One First" : "Pin to QAM";
   const isPlaylist = collection.type === "playlist";
   const isEditablePlaylist = isPlaylist && collection.is_editable !== false;
+  const pct = clampOfflineProgress(offlineProgress);
+  const isDownloaded = offlineState === "downloaded";
+  const isDownloading = offlineState === "downloading";
+  const offlineLabel = isDownloaded
+    ? "Remove Download"
+    : isDownloading
+      ? `Downloading ${pct}% — Cancel`
+      : "Download for Offline";
 
   return (
     <div
@@ -133,6 +150,21 @@ export const CollectionActionModal: FC<CollectionActionModalProps> = ({
           <FaThumbtack size={12} color={isPinned ? "var(--deckify-accent, #1DB954)" : undefined} />
           <span>{pinLabel}</span>
         </InteractiveRow>
+
+        {onToggleOfflineDownload && (
+          <InteractiveRow
+            data-testid="collection-offline-toggle"
+            onClick={() => { onToggleOfflineDownload(collection); onClose(); }}
+            style={{ gap: 10, color: isDownloaded ? "var(--deckify-accent, #1DB954)" : "#fff" }}
+          >
+            {isDownloaded ? (
+              <FaCheckCircle size={12} color="var(--deckify-accent, #1DB954)" />
+            ) : (
+              <FaDownload size={12} color={isDownloading ? "var(--deckify-accent, #1DB954)" : undefined} />
+            )}
+            <span>{offlineLabel}</span>
+          </InteractiveRow>
+        )}
 
         {isEditablePlaylist && (
           <InteractiveRow onClick={() => { onEditPlaylist?.(collection); onClose(); }} style={{ gap: 10 }}>

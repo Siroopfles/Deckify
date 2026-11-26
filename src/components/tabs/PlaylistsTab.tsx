@@ -23,9 +23,17 @@ import {
   FaTrash,
 } from "react-icons/fa";
 import { assignStableRowKeys, useGrabMoveOrder } from "../../hooks/useGrabMoveOrder";
-import { AudioBackend, FolderItem, PinnedPlaylistItem, PlaylistItem, TrackItem } from "../../types";
+import { AudioBackend, FolderItem, OfflineDownloadItem, PinnedPlaylistItem, PlaylistItem, TrackItem } from "../../types";
 import { DeckifyImage } from "../common/DeckifyImage";
 import { InteractiveRow } from "../common/InteractiveRow";
+import {
+  OfflineBadge,
+  OfflineDownloadButton,
+  OfflineProgressBar,
+  OfflineTogglePayload,
+  TravelModeBanner,
+  getItemOfflineInfo,
+} from "../common/OfflineStatusUI";
 import { TrackRowItem } from "../common/TrackRowItem";
 
 export interface PlaylistsTabProps {
@@ -67,6 +75,10 @@ export interface PlaylistsTabProps {
   pendingEditPlaylist?: PlaylistItem | null;
   pendingDeletePlaylist?: PlaylistItem | null;
   onClearPendingPlaylistAction?: () => void;
+  travelModeEnabled?: boolean;
+  onExitTravelMode?: () => void;
+  offlineDownloads?: Record<string, OfflineDownloadItem>;
+  onToggleOfflineDownload?: (item: OfflineTogglePayload) => void;
 }
 
 const MODAL_BACKDROP_STYLE = {
@@ -352,30 +364,31 @@ function matchesPlaylistMeta(
   return true;
 }
 
-function matchesPlaylist(
-  pl: PlaylistItem,
-  query: string,
-  metaFilter: PlaylistMetaFilter,
-  pinnedUris?: Set<string>,
-): boolean {
-  if (!matchesPlaylistMeta(pl, metaFilter, pinnedUris)) return false;
-  if (!query) return true;
-  return matchesQuery(pl.name, query) || matchesQuery(pl.description, query) || matchesQuery(pl.owner_id, query);
+interface PlaylistFilterOptions {
+  query: string;
+  metaFilter: PlaylistMetaFilter;
+  pinnedUris?: Set<string>;
+  travelModeEnabled?: boolean;
+  offlineDownloads?: Record<string, OfflineDownloadItem>;
 }
 
-function filterFolderTree(
-  folder: FolderItem,
-  query: string,
-  metaFilter: PlaylistMetaFilter,
-  pinnedUris?: Set<string>,
-): FolderItem | null {
-  if (!query && metaFilter === "all") return folder;
-  if (query && metaFilter === "all" && matchesQuery(folder.name, query)) return folder;
-  const matchingPlaylists = (folder.playlists || []).filter((pl) =>
-    matchesPlaylist(pl, query, metaFilter, pinnedUris),
-  );
+function matchesPlaylist(pl: PlaylistItem, opts: PlaylistFilterOptions): boolean {
+  if (opts.travelModeEnabled && getItemOfflineInfo(pl, opts.offlineDownloads).state !== "downloaded") {
+    return false;
+  }
+  if (!matchesPlaylistMeta(pl, opts.metaFilter, opts.pinnedUris)) return false;
+  if (!opts.query) return true;
+  return matchesQuery(pl.name, opts.query) || matchesQuery(pl.description, opts.query) || matchesQuery(pl.owner_id, opts.query);
+}
+
+function filterFolderTree(folder: FolderItem, opts: PlaylistFilterOptions): FolderItem | null {
+  if (!opts.query && opts.metaFilter === "all" && !opts.travelModeEnabled) return folder;
+  if (!opts.travelModeEnabled && opts.query && opts.metaFilter === "all" && matchesQuery(folder.name, opts.query)) {
+    return folder;
+  }
+  const matchingPlaylists = (folder.playlists || []).filter((pl) => matchesPlaylist(pl, opts));
   const matchingSubfolders = (folder.subfolders || [])
-    .map((sf) => filterFolderTree(sf, query, metaFilter, pinnedUris))
+    .map((sf) => filterFolderTree(sf, opts))
     .filter((sf): sf is FolderItem => sf !== null);
   if (matchingPlaylists.length === 0 && matchingSubfolders.length === 0) return null;
   return { ...folder, playlists: matchingPlaylists, subfolders: matchingSubfolders };
@@ -397,47 +410,54 @@ const FolderPlaylistRow: FC<{
   pl: PlaylistItem;
   activePlaylistId?: string;
   pinnedUris?: Set<string>;
+  offlineDownloads?: Record<string, OfflineDownloadItem>;
   onOpenPlaylist: (pl: PlaylistItem) => void;
   onFocusTrack?: (track: TrackItem) => void;
   onFocusCollection?: (item: PinnedPlaylistItem | null) => void;
-}> = ({ pl, activePlaylistId, pinnedUris, onOpenPlaylist, onFocusTrack, onFocusCollection }) => (
-  <InteractiveRow
-    data-deckify-list-item="true"
-    data-deckify-label={pl.name || ""}
-    onClick={() => onOpenPlaylist(pl)}
-    onFocus={() => {
-      onFocusTrack?.(null as unknown as TrackItem);
-      onFocusCollection?.({ uri: pl.uri, name: pl.name, type: "playlist", image_url: pl.image_url });
-    }}
-    active={activePlaylistId === pl.id}
-    style={{ padding: "6px 10px" }}
-  >
-    {pl.image_url ? (
-      <DeckifyImage src={pl.image_url} width={24} height={24} style={{ borderRadius: 4, marginRight: 8 }} />
-    ) : (
-      <FaMusic size={12} color="#888" style={{ marginRight: 8 }} />
-    )}
-    <span style={{ fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{pl.name}</span>
-    {pinnedUris?.has(pl.uri) && (
-      <FaThumbtack size={12} color="var(--deckify-accent, #1DB954)" style={{ marginLeft: 8, flexShrink: 0 }} title="Pinned to QAM" />
-    )}
-    {pl.is_mixed && (
-      <span
-        style={{
-          fontSize: 10,
-          background: "var(--deckify-accent, #1DB954)",
-          color: "#000",
-          padding: "1px 5px",
-          borderRadius: 4,
-          fontWeight: 700,
-          marginLeft: "auto",
-        }}
-      >
-        MIX
+}> = ({ pl, activePlaylistId, pinnedUris, offlineDownloads, onOpenPlaylist, onFocusTrack, onFocusCollection }) => {
+  const offlineInfo = getItemOfflineInfo(pl, offlineDownloads);
+  return (
+    <InteractiveRow
+      data-deckify-list-item="true"
+      data-deckify-label={pl.name || ""}
+      onClick={() => onOpenPlaylist(pl)}
+      onFocus={() => {
+        onFocusTrack?.(null as unknown as TrackItem);
+        onFocusCollection?.({ uri: pl.uri, name: pl.name, type: "playlist", image_url: pl.image_url });
+      }}
+      active={activePlaylistId === pl.id}
+      style={{ padding: "6px 10px", gap: 6 }}
+    >
+      {pl.image_url ? (
+        <DeckifyImage src={pl.image_url} width={24} height={24} style={{ borderRadius: 4, marginRight: 2, flexShrink: 0 }} />
+      ) : (
+        <FaMusic size={12} color="#888" style={{ marginRight: 2, flexShrink: 0 }} />
+      )}
+      <span style={{ fontSize: 12, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        {pl.name}
       </span>
-    )}
-  </InteractiveRow>
-);
+      <OfflineBadge state={offlineInfo.state} progress={offlineInfo.progress} />
+      {pinnedUris?.has(pl.uri) && (
+        <FaThumbtack size={12} color="var(--deckify-accent, #1DB954)" style={{ flexShrink: 0 }} title="Pinned to QAM" />
+      )}
+      {pl.is_mixed && (
+        <span
+          style={{
+            fontSize: 10,
+            background: "var(--deckify-accent, #1DB954)",
+            color: "#000",
+            padding: "1px 5px",
+            borderRadius: 4,
+            fontWeight: 700,
+            flexShrink: 0,
+          }}
+        >
+          MIX
+        </span>
+      )}
+    </InteractiveRow>
+  );
+};
 
 const FolderRenameInline: FC<{
   value: string;
@@ -476,6 +496,7 @@ const FolderTreeItem: FC<{
   renameFolderName: string;
   activePlaylistId?: string;
   pinnedUris?: Set<string>;
+  offlineDownloads?: Record<string, OfflineDownloadItem>;
   expandedFolderIds: Set<string>;
   isOverviewFiltered: boolean;
   renamingFolderId: string | null;
@@ -552,6 +573,7 @@ const FolderTreeItem: FC<{
               pl={pl}
               activePlaylistId={props.activePlaylistId}
               pinnedUris={props.pinnedUris}
+              offlineDownloads={props.offlineDownloads}
               onOpenPlaylist={props.onOpenPlaylist}
               onFocusTrack={props.onFocusTrack}
               onFocusCollection={props.onFocusCollection}
@@ -570,10 +592,12 @@ function renderPlaylistDetailHeader({
   audioBackend,
   mixingBusy,
   pinnedUris,
+  offlineInfo,
   onClosePlaylist,
   onPlayTrack,
   onTogglePin,
   onToggleMix,
+  onToggleOfflineDownload,
 }: {
   activePlaylist: PlaylistItem;
   playlistUri: string;
@@ -581,58 +605,83 @@ function renderPlaylistDetailHeader({
   audioBackend: AudioBackend;
   mixingBusy: boolean;
   pinnedUris?: Set<string>;
+  offlineInfo: ReturnType<typeof getItemOfflineInfo>;
   onClosePlaylist: () => void;
   onPlayTrack: (uri: string, contextUri?: string) => void;
   onTogglePin?: (item: PinnedPlaylistItem) => void;
   onToggleMix: () => void;
+  onToggleOfflineDownload?: (item: OfflineTogglePayload) => void;
 }) {
   const isPinned = Boolean(pinnedUris?.has(playlistUri));
   return (
-    <Focusable flow-children="horizontal" style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 10 }}>
-      <InteractiveRow onClick={onClosePlaylist} style={{ padding: "6px 12px", fontSize: 12, flexShrink: 0 }}>
-        ← Back (B)
-      </InteractiveRow>
-      <div style={{ flex: 1, minWidth: 0, overflow: "hidden" }}>
-        <h2 style={{ fontSize: 20, fontWeight: 800, margin: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-          {activePlaylist.name}
-        </h2>
-        {activePlaylist.description && (
-          <div style={{ fontSize: 12, fontWeight: 400, opacity: 0.75, marginTop: 2 }}>{activePlaylist.description}</div>
-        )}
-        <span style={{ fontSize: 12, opacity: 0.6 }}>{trackCount} tracks</span>
-      </div>
-      <InteractiveRow
-        onClick={() => onPlayTrack("", playlistUri)}
-        style={{ ...PILL_BTN_STYLE, marginLeft: "auto", background: "var(--deckify-accent, #1DB954)", color: "#000", fontWeight: 700, padding: "8px 16px" }}
-      >
-        <FaPlay size={11} /> Play
-      </InteractiveRow>
-      <InteractiveRow
-        aria-label={isPinned ? "Unpin from QAM" : "Pin to QAM"}
-        onClick={() => onTogglePin?.({ uri: playlistUri, name: activePlaylist.name, type: "playlist", image_url: activePlaylist.image_url })}
-        style={{
-          ...PILL_BTN_STYLE,
-          background: isPinned ? "rgba(var(--deckify-accent-rgb, 29, 185, 84), 0.16)" : "rgba(255,255,255,0.08)",
-          color: isPinned ? "var(--deckify-accent, #1DB954)" : "#fff",
-        }}
-      >
-        <FaThumbtack size={12} />
-      </InteractiveRow>
-      {audioBackend === "spotify_client" && (
+    <div>
+      <Focusable flow-children="horizontal" style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, flexWrap: "wrap" }}>
+        <InteractiveRow onClick={onClosePlaylist} style={{ padding: "6px 12px", fontSize: 12, flexShrink: 0 }}>
+          ← Back (B)
+        </InteractiveRow>
+        <div style={{ flex: 1, minWidth: 0, overflow: "hidden" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+            <h2 style={{ fontSize: 20, fontWeight: 800, margin: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 }}>
+              {activePlaylist.name}
+            </h2>
+            <OfflineBadge state={offlineInfo.state} progress={offlineInfo.progress} />
+          </div>
+          {activePlaylist.description && (
+            <div style={{ fontSize: 12, fontWeight: 400, opacity: 0.75, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {activePlaylist.description}
+            </div>
+          )}
+          <span style={{ fontSize: 12, opacity: 0.6 }}>{trackCount} tracks</span>
+        </div>
         <InteractiveRow
-          onClick={onToggleMix}
+          onClick={() => onPlayTrack("", playlistUri)}
+          style={{ ...PILL_BTN_STYLE, marginLeft: "auto", background: "var(--deckify-accent, #1DB954)", color: "#000", fontWeight: 700, padding: "8px 16px" }}
+        >
+          <FaPlay size={11} /> Play
+        </InteractiveRow>
+        {onToggleOfflineDownload && (
+          <OfflineDownloadButton
+            state={offlineInfo.state}
+            progress={offlineInfo.progress}
+            onClick={() =>
+              onToggleOfflineDownload({
+                uri: playlistUri,
+                name: activePlaylist.name,
+                type: "playlist",
+                image_url: activePlaylist.image_url,
+                isDownloaded: offlineInfo.state === "downloaded",
+              })
+            }
+          />
+        )}
+        <InteractiveRow
+          aria-label={isPinned ? "Unpin from QAM" : "Pin to QAM"}
+          onClick={() => onTogglePin?.({ uri: playlistUri, name: activePlaylist.name, type: "playlist", image_url: activePlaylist.image_url })}
           style={{
             ...PILL_BTN_STYLE,
-            background: activePlaylist.is_mixed ? "var(--deckify-accent, #1DB954)" : "rgba(255,255,255,0.1)",
-            color: activePlaylist.is_mixed ? "#000" : "#fff",
-            fontWeight: 700,
-            padding: "8px 14px",
+            background: isPinned ? "rgba(var(--deckify-accent-rgb, 29, 185, 84), 0.16)" : "rgba(255,255,255,0.08)",
+            color: isPinned ? "var(--deckify-accent, #1DB954)" : "#fff",
           }}
         >
-          <FaMagic size={11} /> {mixingBusy ? "Processing..." : activePlaylist.is_mixed ? "Mix Active" : "Enable Mix"}
+          <FaThumbtack size={12} />
         </InteractiveRow>
-      )}
-    </Focusable>
+        {audioBackend === "spotify_client" && (
+          <InteractiveRow
+            onClick={onToggleMix}
+            style={{
+              ...PILL_BTN_STYLE,
+              background: activePlaylist.is_mixed ? "var(--deckify-accent, #1DB954)" : "rgba(255,255,255,0.1)",
+              color: activePlaylist.is_mixed ? "#000" : "#fff",
+              fontWeight: 700,
+              padding: "8px 14px",
+            }}
+          >
+            <FaMagic size={11} /> {mixingBusy ? "Processing..." : activePlaylist.is_mixed ? "Mix Active" : "Enable Mix"}
+          </InteractiveRow>
+        )}
+      </Focusable>
+      {offlineInfo.state === "downloading" && <OfflineProgressBar progress={offlineInfo.progress} />}
+    </div>
   );
 }
 
@@ -771,8 +820,11 @@ function renderPlaylistDetailView(props: {
   onGamepadDirection: (e: { detail?: { button?: number }; preventDefault?: () => void; stopPropagation?: () => void }) => boolean;
   onGrabTrack: (track: TrackItem) => void;
   onRemovePlaylistTrack?: (playlistId: string, track: TrackItem, originalIndex: number) => Promise<void>;
+  offlineDownloads?: Record<string, OfflineDownloadItem>;
+  onToggleOfflineDownload?: (item: OfflineTogglePayload) => void;
 }) {
   const { activePlaylist, stableTracks, trackFilter, trackMetaFilter } = props;
+  const offlineInfo = getItemOfflineInfo({ ...activePlaylist, uri: props.playlistUri }, props.offlineDownloads);
   const trackQuery = trackFilter.trim().toLowerCase();
   const isTrackFilterActive = trackQuery !== "" || trackMetaFilter !== "all";
   const isPlaylistEditable = activePlaylist.is_editable !== false;
@@ -788,7 +840,8 @@ function renderPlaylistDetailView(props: {
       {renderPlaylistDetailHeader({
         activePlaylist, playlistUri: props.playlistUri, trackCount: props.playlistTracks.length,
         audioBackend: props.audioBackend, mixingBusy: props.mixingBusy, pinnedUris: props.pinnedUris,
-        onClosePlaylist: props.onClosePlaylist, onPlayTrack: props.onPlayTrack, onTogglePin: props.onTogglePin, onToggleMix: props.onToggleMix,
+        offlineInfo, onClosePlaylist: props.onClosePlaylist, onPlayTrack: props.onPlayTrack,
+        onTogglePin: props.onTogglePin, onToggleMix: props.onToggleMix, onToggleOfflineDownload: props.onToggleOfflineDownload,
       })}
       {renderPlaylistManageBar(isPlaylistEditable, props.onStartEdit, props.onRequestDelete)}
       {props.editingPlaylist && isPlaylistEditable && (
@@ -844,6 +897,8 @@ const PlaylistsOverview: FC<{
   allUserPlaylists: PlaylistItem[];
   pinnedUris?: Set<string>;
   editingPlaylist: PlaylistItem | null;
+  travelModeEnabled?: boolean;
+  offlineDownloads?: Record<string, OfflineDownloadItem>;
   onClearEditing: () => void;
   onCreatePlaylist: (name: string, description?: string) => Promise<void>;
   onUpdatePlaylistDetails?: (playlistId: string, name: string, description: string) => Promise<boolean>;
@@ -865,20 +920,24 @@ const PlaylistsOverview: FC<{
 
   const overviewQuery = overviewFilter.trim().toLowerCase();
   const isOverviewFiltered = overviewQuery !== "" || overviewMetaFilter !== "all";
+  const filterOpts: PlaylistFilterOptions = useMemo(
+    () => ({
+      query: overviewQuery,
+      metaFilter: overviewMetaFilter,
+      pinnedUris: props.pinnedUris,
+      travelModeEnabled: props.travelModeEnabled,
+      offlineDownloads: props.offlineDownloads,
+    }),
+    [overviewQuery, overviewMetaFilter, props.pinnedUris, props.travelModeEnabled, props.offlineDownloads],
+  );
   const categorizedIds = useMemo(() => collectCategorizedIds(props.folders), [props.folders]);
   const filteredFolders = useMemo(
-    () =>
-      props.folders
-        .map((f) => filterFolderTree(f, overviewQuery, overviewMetaFilter, props.pinnedUris))
-        .filter((f): f is FolderItem => f !== null),
-    [props.folders, overviewQuery, overviewMetaFilter, props.pinnedUris],
+    () => props.folders.map((f) => filterFolderTree(f, filterOpts)).filter((f): f is FolderItem => f !== null),
+    [props.folders, filterOpts],
   );
   const uncategorized = useMemo(
-    () =>
-      props.allUserPlaylists.filter(
-        (pl) => !categorizedIds.has(pl.id) && matchesPlaylist(pl, overviewQuery, overviewMetaFilter, props.pinnedUris),
-      ),
-    [props.allUserPlaylists, categorizedIds, overviewQuery, overviewMetaFilter, props.pinnedUris],
+    () => props.allUserPlaylists.filter((pl) => !categorizedIds.has(pl.id) && matchesPlaylist(pl, filterOpts)),
+    [props.allUserPlaylists, categorizedIds, filterOpts],
   );
 
   const toggleFolder = (id: string) =>
@@ -935,6 +994,7 @@ const PlaylistsOverview: FC<{
       )}
       <OverviewLists
         filteredFolders={filteredFolders} uncategorized={uncategorized} overviewFilter={overviewFilter} isOverviewFiltered={isOverviewFiltered}
+        travelModeEnabled={props.travelModeEnabled} offlineDownloads={props.offlineDownloads}
         expandedFolderIds={expandedFolderIds} renamingFolderId={renamingFolderId} renameFolderName={renameFolderName} pinnedUris={props.pinnedUris}
         onToggleFolder={toggleFolder}
         onStartRename={(id, name) => { setRenamingFolderId(id); setRenameFolderName(name); }}
@@ -952,6 +1012,8 @@ const OverviewLists: FC<{
   uncategorized: PlaylistItem[];
   overviewFilter: string;
   isOverviewFiltered: boolean;
+  travelModeEnabled?: boolean;
+  offlineDownloads?: Record<string, OfflineDownloadItem>;
   expandedFolderIds: Set<string>;
   renamingFolderId: string | null;
   renameFolderName: string;
@@ -972,10 +1034,11 @@ const OverviewLists: FC<{
         key={f.id}
         folder={f}
         depth={0}
-        isOpen={props.expandedFolderIds.has(f.id) || props.isOverviewFiltered}
+        isOpen={props.expandedFolderIds.has(f.id) || props.isOverviewFiltered || Boolean(props.travelModeEnabled)}
         isRenaming={props.renamingFolderId === f.id}
         renameFolderName={props.renameFolderName}
         pinnedUris={props.pinnedUris}
+        offlineDownloads={props.offlineDownloads}
         expandedFolderIds={props.expandedFolderIds}
         isOverviewFiltered={props.isOverviewFiltered}
         renamingFolderId={props.renamingFolderId}
@@ -1000,6 +1063,7 @@ const OverviewLists: FC<{
             key={pl.id}
             pl={pl}
             pinnedUris={props.pinnedUris}
+            offlineDownloads={props.offlineDownloads}
             onOpenPlaylist={props.onOpenPlaylist}
             onFocusTrack={props.onFocusTrack}
             onFocusCollection={props.onFocusCollection}
@@ -1007,7 +1071,15 @@ const OverviewLists: FC<{
         ))}
       </div>
     )}
-    {props.isOverviewFiltered && props.filteredFolders.length === 0 && props.uncategorized.length === 0 && (
+    {props.travelModeEnabled && props.filteredFolders.length === 0 && props.uncategorized.length === 0 && (
+      <div data-testid="travel-mode-empty" style={{ textAlign: "center", padding: "32px 16px", opacity: 0.7, fontSize: 13 }}>
+        <div style={{ fontWeight: 700, marginBottom: 4 }}>No offline downloads yet</div>
+        <div style={{ fontSize: 12, opacity: 0.75 }}>
+          Switch to Official Spotify Client and select &quot;Download for Offline&quot; on any playlist, album, or podcast episode to listen without Wi-Fi.
+        </div>
+      </div>
+    )}
+    {!props.travelModeEnabled && props.isOverviewFiltered && props.filteredFolders.length === 0 && props.uncategorized.length === 0 && (
       <div data-testid="overview-filter-empty" style={{ textAlign: "center", padding: "32px 16px", opacity: 0.6, fontSize: 13 }}>
         No playlists or folders match{props.overviewFilter.trim() ? ` "${props.overviewFilter.trim()}"` : " this filter"}. Clear the filter to view all playlists.
       </div>
@@ -1100,10 +1172,12 @@ export const PlaylistsTab: FC<PlaylistsTabProps> = (props) => {
 
   return (
     <div>
+      {props.travelModeEnabled && <TravelModeBanner onExitTravelMode={props.onExitTravelMode} />}
       {!activePlaylist ? (
         <PlaylistsOverview
           folders={folders} allUserPlaylists={allUserPlaylists} pinnedUris={props.pinnedUris}
           editingPlaylist={editingPlaylist} onClearEditing={() => setEditingPlaylist(null)}
+          travelModeEnabled={props.travelModeEnabled} offlineDownloads={props.offlineDownloads}
           onCreatePlaylist={props.onCreatePlaylist} onUpdatePlaylistDetails={props.onUpdatePlaylistDetails}
           onCreateFolder={props.onCreateFolder} onRenameFolder={props.onRenameFolder}
           onDeleteFolder={props.onDeleteFolder} onOpenPlaylist={props.onOpenPlaylist}
@@ -1139,6 +1213,8 @@ export const PlaylistsTab: FC<PlaylistsTabProps> = (props) => {
           onGamepadDirection: handleGamepadDirection,
           onGrabTrack: (track) => (grabbedKey === track._rowKey ? void commitGrab() : enterGrabMode(track._rowKey || "")),
           onRemovePlaylistTrack: props.onRemovePlaylistTrack,
+          offlineDownloads: props.offlineDownloads,
+          onToggleOfflineDownload: props.onToggleOfflineDownload,
         })
       )}
       {confirmDeletePlaylist && (
