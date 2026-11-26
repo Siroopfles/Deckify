@@ -5,16 +5,16 @@ milestone_name: Studio, Living Room TV, Offline Travel & Ultimate Immersion (In 
 current_phase: 26
 current_phase_name: Unified CDP Platform Bridge & Deep Discovery 2.0
 status: executing
-stopped_at: Completed 26-15-PLAN.md
-last_updated: "2026-11-26T19:52:52.167Z"
+stopped_at: Completed 26-16-PLAN.md
+last_updated: "2026-11-26T20:02:49.483Z"
 last_activity: 2026-11-26
 last_activity_desc: Phase 26 execution started
-state_head: 963997e46a46592bd6f9402588b285de2c346f00
+state_head: 8335c6ea8d6c9e609f74cdf38a45166b3f498727
 progress:
   total_phases: 12
   completed_phases: 8
   total_plans: 79
-  completed_plans: 77
+  completed_plans: 78
   percent: 67
 ---
 
@@ -30,7 +30,7 @@ See: [.planning/PROJECT.md](file:///C:/Users/djdje/Deckify/.planning/PROJECT.md)
 ## Current Position
 
 Phase: 26 (Unified CDP Platform Bridge & Deep Discovery 2.0) — EXECUTING
-Plan: 16 of 17
+Plan: 17 of 17
 Status: Ready to execute
 Last activity: 2026-11-26 — Phase 26 execution started
 
@@ -178,6 +178,7 @@ Last activity: 2026-11-26 — Phase 26 execution started
 | Phase 26 P13 | 6min | 2 tasks | 5 files |
 | Phase 26 P14 | 5min | 2 tasks | 7 files |
 | Phase 26 P15 | 5min | 2 tasks | 2 files |
+| Phase 26 P16 | 8min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -288,6 +289,7 @@ Recent decisions affecting current work:
 - [Phase 26]: auto_transfer_and_play uses play=False when followed by explicit uris/context_uri playback, and play_tracks surfaces retry errors instead of swallowing them.
 - [Phase 26]: Key _DISCOVERY_CACHE by audio_backend, wire DiscoveryTab audioBackend refresh, and strip HTML tags across rpc_library/DiscoveryTab/PlaylistsTab
 - [Phase 26]: Check skipNextDebounceRef before resetPaging() in SearchTab useSearchDebounceEffect and reset fetchedBrowseRef on empty/error browse category responses
+- [Phase 26]: Run _search_missing_core_mixes in _fetch_made_for_you_section whenever cdp_active=True and any of the 5 core mix families is missing, and fall back to TokenProvider REST /v1/browse/categories in cdp_fetch_browse_categories
 
 ### Pending Todos
 
@@ -318,8 +320,8 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-26T19:52:42.402Z
-Stopped at: Completed 26-15-PLAN.md
+Last session: 2026-11-26T20:02:34.813Z
+Stopped at: Completed 26-16-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
