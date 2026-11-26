@@ -1,152 +1,144 @@
 ---
-last_mapped_commit: e6cf3a7b4bc94746d4d770b5bd8981193852200f
-last_mapped_at: 2026-11-18
+last_mapped_commit: f8defec7206b337ccec032ac6a11b40649e888bd
+last_mapped_at: 2026-11-26
 ---
-# Codebase Structure
-
-**Analysis Date:** 2026-11-18
+</Architecture>
+<Codebase Structure>
+**Analysis Date:** 2026-11-26
 
 ## Directory Layout
 
 ```text
 Deckify/
-├── .github/workflows/       # CI, GitHub Pages, and release automation
-├── .husky/                  # Pre-commit hooks (`pre-commit` staged frontend/python checks)
-├── .planning/               # GSD planning and codebase analysis documents
-├── assets/                  # Plugin logo and documentation screenshots
-├── dist/                    # Rollup-compiled frontend bundle (generated)
-├── py_modules/              # Python backend domain, RPC, audio, and resilience modules
-├── site/                    # Static landing page (`index.html`)
-├── src/                     # TypeScript/React frontend source
-│   ├── components/          # UI modals, overlay, shared widgets, and tab views
-│   │   ├── common/          # Reusable UI primitives, action modals, and image proxy pipeline
-│   │   └── tabs/            # 14 modular tabs rendered inside DeckifyExpandedModal
-│   ├── hooks/               # Custom React hooks (clock, status polling, triggers)
-│   └── utils/               # Pure navigation and controller helpers
-├── tests/                   # Python unittest suite (`test_*.py`)
-├── main.py                  # Decky backend entry point (`Plugin` class)
-├── plugin.json              # Decky Loader plugin manifest
-├── package.json             # Node dependencies, scripts, and lint-staged config
-├── rollup.config.js         # `@decky/rollup` build configuration
-├── tsconfig.json            # Strict TypeScript compiler configuration
-├── eslint.config.js         # ESLint 10 flat configuration
-├── decky.pyi                # Type stubs for Decky Loader Python runtime
-├── deploy.sh                # Steam Deck SSH deployment script
-├── install.sh               # End-user installation script
-└── uninstall.sh             # End-user uninstallation script
+├── main.py                     # Decky Loader backend entry point (`Plugin` class & RPCs)
+├── plugin.json                 # Decky plugin manifest (name, author, _root flag, api_version)
+├── decky.pyi                   # Type stubs for Decky runtime module
+├── package.json                # Node/pnpm dependencies, build, lint, typecheck, and test scripts
+├── tsconfig.json               # TypeScript compiler configuration (strict ES2020 + react-jsx)
+├── rollup.config.js            # @decky/rollup bundler configuration -> dist/index.js
+├── eslint.config.js            # ESLint 10 flat configuration
+├── deploy.sh                   # Dev deployment script to Steam Deck via scp + plugin_loader restart
+├── install.sh                  # End-user GitHub release installer for SteamOS
+├── uninstall.sh                # End-user uninstaller
+├── py_modules/                 # Modular Python backend services and subsystems
+├── src/                        # TypeScript/React frontend source
+│   ├── components/             # Top-level modals, overlays, and banners
+│   │   ├── common/             # Shared UI primitives (DeckifyImage, Sidebar, Modals, Rows)
+│   │   └── tabs/               # 14 modular views rendered inside DeckifyExpandedModal
+│   ├── hooks/                  # Custom React hooks (clock, status, trigger nav, grab-move)
+│   └── utils/                  # Frontend utilities (themeBus, accentTheme, playback, chime)
+├── tests/                      # Python unittest suite (`test_*.py`)
+├── assets/                     # Plugin logo and README screenshots
+├── site/                       # Static landing page (`site/index.html`)
+├── dist/                       # Generated Rollup bundle (`dist/index.js`, gitignored)
+├── coverage/                   # Generated Vitest coverage reports
+├── .github/workflows/          # GitHub Actions CI, Pages deployment, and release workflows
+├── .husky/                     # Git pre-commit hooks (`lint-staged`)
+└── .planning/                  # GSD planning and codebase analysis artifacts
 ```
 
 ## Directory Purposes
 
-**`.husky/`:**
-- Purpose: Git pre-commit quality gate enforcing fast incremental verification.
-- Contains: `pre-commit` script inspecting staged files to run `lint-staged`, `pnpm run typecheck`, `pnpm test`, and `pnpm run build` on frontend changes, and `unittest discover` on Python changes (`main.py`, `py_modules/`, `tests/`).
-- Key files: `.husky/pre-commit`
+**`py_modules/`:**
+- Purpose: Houses all Python backend domain modules imported by `main.py` and `py_modules/__init__.py`.
+- Contains: Spotify API/OAuth clients, image proxy, audio engine/volume/EQ/dock managers, MPRIS D-Bus worker, hidraw/evdev input watcher, and RPC handler modules.
+- Key files: `py_modules/common.py`, `py_modules/rpc_playback.py`, `py_modules/rpc_library.py`, `py_modules/spotify.py`, `py_modules/resilience.py`, `py_modules/engine.py`, `py_modules/cdp_bridge.py`, `py_modules/volume.py`, `py_modules/equalizer.py`, `py_modules/soundtrack.py`, `py_modules/mpris.py`, `py_modules/input_watch.py`.
 
 **`src/`:**
-- Purpose: Decky Loader frontend plugin compiled by Rollup into `dist/index.js`.
-- Contains: Entry point, Steam menu injector, shared types, utilities, hooks, UI components, and root unit tests.
-- Key files: `src/index.tsx`, `src/index.test.tsx`, `src/steamMenu.tsx`, `src/types.ts`, `src/utils.ts`
+- Purpose: Frontend TypeScript/React codebase compiled by Rollup into `dist/index.js`.
+- Contains: Plugin registration (`src/index.tsx`), Steam menu patcher (`src/steamMenu.tsx`), chord matcher (`src/chords.ts`), shared types (`src/types.ts`), and co-located `*.test.ts`/`*.test.tsx` unit tests.
+- Key files: `src/index.tsx`, `src/types.ts`, `src/chords.ts`, `src/steamMenu.tsx`, `src/bannerBus.ts`, `src/utils.ts`.
 
 **`src/components/`:**
-- Purpose: Top-level modal and overlay surfaces plus organized sub-components.
-- Contains: `DeckifyExpandedModal.tsx`, `DeckifyOverlay.tsx`, `common/`, `tabs/`, and co-located `.test.tsx` files.
-- Key files: `src/components/DeckifyExpandedModal.tsx`, `src/components/DeckifyOverlay.tsx`
+- Purpose: Top-level UI surfaces mounted in GamepadUI.
+- Contains: `DeckifyExpandedModal.tsx`, `DeckifyOverlay.tsx`, `SilentBanner.tsx`, plus `common/` and `tabs/` subdirectories.
+- Key files: `src/components/DeckifyExpandedModal.tsx`, `src/components/DeckifyOverlay.tsx`, `src/components/SilentBanner.tsx`.
 
 **`src/components/common/`:**
-- Purpose: Reusable GamepadUI-compatible primitives, action modals, and CSP-safe image loading.
-- Contains: `CollectionActionModal.tsx`, `DeckifyImage.tsx`, `imagePipeline.ts`, `InteractiveRow.tsx`, `Sidebar.tsx`, `TrackActionModal.tsx`, `TrackRowItem.tsx`, and co-located tests.
-- Key files: `src/components/common/DeckifyImage.tsx`, `src/components/common/imagePipeline.ts`, `src/components/common/Sidebar.tsx`, `src/components/common/TrackActionModal.tsx`, `src/components/common/CollectionActionModal.tsx`
+- Purpose: Reusable UI building blocks shared across QAM, Modal, and Overlay.
+- Contains: CSP-safe image loader (`DeckifyImage.tsx`, `imagePipeline.ts`), modal sidebar (`Sidebar.tsx`), action modals (`TrackActionModal.tsx`, `CollectionActionModal.tsx`, `JamQrModal.tsx`), EQ faders (`EqBandFaders.tsx`), offline badges (`OfflineStatusUI.tsx`), and row primitives (`InteractiveRow.tsx`, `TrackRowItem.tsx`).
 
 **`src/components/tabs/`:**
-- Purpose: Individual feature views mounted inside `DeckifyExpandedModal`.
-- Contains: `NowPlayingTab.tsx`, `LyricsTab.tsx`, `DiscoveryTab.tsx`, `PlaylistsTab.tsx`, `LikedSongsTab.tsx`, `AlbumsTab.tsx`, `ArtistsTab.tsx`, `RecentTab.tsx`, `PodcastsTab.tsx`, `SearchTab.tsx`, `QueueTab.tsx`, `DevicesTab.tsx`, `SoundtracksTab.tsx`, `SettingsTab.tsx`, `PlaylistPickerModal.tsx`, `soundtrackUtils.ts`, and co-located `.test.tsx` files.
-- Key files: `src/components/tabs/NowPlayingTab.tsx`, `src/components/tabs/DiscoveryTab.tsx`, `src/components/tabs/PlaylistsTab.tsx`, `src/components/tabs/SoundtracksTab.tsx`, `src/components/tabs/SettingsTab.tsx`
+- Purpose: Individual tab screens rendered inside `DeckifyExpandedModal.tsx`.
+- Contains: `NowPlayingTab.tsx`, `LyricsTab.tsx`, `DiscoveryTab.tsx`, `PlaylistsTab.tsx`, `LikedSongsTab.tsx`, `AlbumsTab.tsx`, `ArtistsTab.tsx`, `RecentTab.tsx`, `PodcastsTab.tsx`, `SearchTab.tsx`, `QueueTab.tsx`, `DevicesTab.tsx`, `SoundtracksTab.tsx`, `SettingsTab.tsx`, and sub-modals (`GameEqModal.tsx`, `PlaylistPickerModal.tsx`, `ChordBindingsCard.tsx`).
 
 **`src/hooks/` & `src/utils/`:**
-- Purpose: Stateful React hooks and pure TypeScript controller/list navigation logic.
-- Contains: `usePlaybackClock.ts`, `usePlaybackStatus.ts`, `useTriggerNavigation.ts`, `listNavigation.ts`, `triggerController.ts`, and unit tests.
-- Key files: `src/hooks/usePlaybackClock.ts`, `src/hooks/useTriggerNavigation.ts`, `src/utils/triggerController.ts`, `src/utils/listNavigation.ts`
-
-**`py_modules/`:**
-- Purpose: Modular Python backend logic imported and exposed by `Plugin` in `main.py`.
-- Contains: Spotify API/OAuth, image caching proxy, audio engine/CDP control, PipeWire volume/ducking, 10-band EQ filter-chain, dock audio hotplug switcher, `--onevent` socket & session bookmark resilience, game soundtrack orchestration, Steam VDF parser, and RPC handlers.
-- Key files: `py_modules/common.py`, `py_modules/spotify.py`, `py_modules/images.py`, `py_modules/engine.py`, `py_modules/volume.py`, `py_modules/equalizer.py`, `py_modules/dock.py`, `py_modules/resilience.py`, `py_modules/soundtrack.py`, `py_modules/rpc_playback.py`, `py_modules/rpc_library.py`
+- Purpose: Stateful React hooks and pure TypeScript helpers.
+- Contains: `usePlaybackClock.ts`, `usePlaybackStatus.ts`, `useTriggerNavigation.ts`, `useGrabMoveOrder.ts`, `accentTheme.ts`, `themeBus.ts`, `listNavigation.ts`, `playback.ts`, `chime.ts`, `triggerController.ts`.
 
 **`tests/`:**
-- Purpose: Python `unittest` suite covering backend modules, RPC handlers, lifecycle, VDF parsing, volume, EQ, dock switching, discovery, resilience, pinned playlists, and E2E requirements.
-- Contains: `test_*.py` test modules.
-- Key files: `tests/test_plugin_api.py`, `tests/test_soundtrack.py`, `tests/test_volume.py`, `tests/test_equalizer.py`, `tests/test_dock.py`, `tests/test_resilience.py`, `tests/test_discovery.py`, `tests/test_pinned_playlists.py`
+- Purpose: Comprehensive Python `unittest` suite covering backend modules, RPCs, resilience, and edge cases.
+- Contains: 40+ `test_*.py` files runnable via `pnpm test:python`.
 
 ## Key File Locations
 
 **Entry Points:**
-- `src/index.tsx`: Frontend `definePlugin` registration, QAM `Content`, pinned collection pills (`PinnedPill`), global overlay/chords/lifecycle listeners.
-- `main.py`: Backend `Plugin` class, Decky lifecycle (`_main`, `_unload`, `_uninstall`, `_migration`), OAuth server, adaptive polling loop.
+- `main.py`: Backend `Plugin` class (`_main`, `_unload`, RPC endpoints).
+- `src/index.tsx`: Frontend `definePlugin` entry point, QAM panel, global listeners.
+- `py_modules/mpris.py`: Standalone D-Bus `--worker` entry point for `deck` user session.
 
 **Configuration:**
-- `.husky/pre-commit`: Staged frontend and Python test/typecheck/build verification hook.
-- `plugin.json`: Decky plugin metadata (`name`, `api_version`, `_root` flag).
-- `package.json`: Build/lint/test scripts and dependencies.
-- `tsconfig.json`: Strict TypeScript compiler options.
-- `rollup.config.js`: Rollup bundler entry (`@decky/rollup`).
-- `eslint.config.js`: ESLint 10 rules for `src/`.
+- `plugin.json`: Decky Loader metadata and `_root` privilege flag.
+- `package.json`: Build, lint, typecheck, and test scripts.
+- `tsconfig.json`: TypeScript strict compiler options.
+- `eslint.config.js`: ESLint flat config rules.
+- `rollup.config.js`: Decky Rollup bundle config.
 
 **Core Logic:**
-- `src/components/DeckifyExpandedModal.tsx`: Main full-screen controller UI and 14-tab router.
-- `py_modules/rpc_playback.py` & `py_modules/rpc_library.py`: Backend RPC implementations (playback, library, folders, discovery feed).
-- `py_modules/spotify.py` & `py_modules/images.py`: External Spotify/LRCLIB HTTP clients and CSP image proxy.
-- `py_modules/volume.py`, `py_modules/equalizer.py`, `py_modules/dock.py`, `py_modules/soundtrack.py` & `py_modules/resilience.py`: Audio ducking/fading, 10-band PipeWire EQ, dock sink switching, per-game soundtrack automation, and `--onevent`/bookmark resilience.
+- `py_modules/rpc_playback.py` & `py_modules/rpc_library.py`: Playback and library RPC implementations.
+- `py_modules/spotify.py` & `py_modules/images.py`: Spotify Web API, LRCLIB lyrics, and CSP image proxy.
+- `py_modules/resilience.py`: `librespot --onevent` socket server and session bookmark recovery.
+- `src/components/DeckifyExpandedModal.tsx`: Full-screen modal orchestrator.
 
 **Testing:**
-- `tests/test_*.py`: Backend Python `unittest` suite (`pnpm test:python`).
-- `src/**/*.test.{ts,tsx}`: Frontend Vitest unit/component tests co-located with source (`pnpm test`).
+- `tests/test_*.py`: Python backend unit and integration tests.
+- `src/**/*.test.{ts,tsx}`: Co-located Vitest frontend tests.
 
 ## Naming Conventions
 
 **Files:**
-- React components: `PascalCase.tsx` (`DeckifyExpandedModal.tsx`, `DiscoveryTab.tsx`, `CollectionActionModal.tsx`, `InteractiveRow.tsx`).
-- Frontend hooks: `camelCase.ts` prefixed with `use` (`usePlaybackClock.ts`, `useTriggerNavigation.ts`).
-- Frontend utilities & types: `camelCase.ts` (`imagePipeline.ts`, `listNavigation.ts`, `types.ts`).
-- Frontend tests: Co-located `<Module>.test.ts` or `<Component>.test.tsx`.
-- Python modules: `snake_case.py` (`rpc_playback.py`, `equalizer.py`, `resilience.py`, `vdf_parser.py`).
-- Python tests: `tests/test_<area>.py` (`tests/test_equalizer.py`, `tests/test_resilience.py`).
+- React components & tabs: PascalCase (`DeckifyExpandedModal.tsx`, `NowPlayingTab.tsx`, `TrackActionModal.tsx`).
+- Hooks & utilities: camelCase (`usePlaybackClock.ts`, `accentTheme.ts`, `imagePipeline.ts`).
+- Python modules: snake_case (`rpc_playback.py`, `cdp_bridge.py`, `input_watch.py`).
+- Tests: Co-located `*.test.ts`/`*.test.tsx` in `src/`; `test_*.py` in `tests/`.
 
 **Directories:**
-- Lowercase plural or domain names: `components/`, `common/`, `tabs/`, `hooks/`, `utils/`, `tests/`, `py_modules/`.
+- Lowercase plural or domain names: `components/`, `common/`, `tabs/`, `hooks/`, `utils/`, `py_modules/`, `tests/`.
 
 ## Where to Add New Code
 
-**New Feature (Full Tab + Backend RPC):**
-- Tab UI: `src/components/tabs/<Feature>Tab.tsx` (and register `ViewMode` in `src/types.ts`, `Sidebar.tsx`, and `DeckifyExpandedModal.tsx`).
-- Backend RPC handler: Add to `py_modules/rpc_playback.py`, `py_modules/rpc_library.py`, or a new `py_modules/<domain>.py`, then expose an `async def` method on `Plugin` in `main.py` (and re-export in `py_modules/__init__.py` if shared).
-- Tests: Co-located `src/components/tabs/<Feature>Tab.test.tsx` and `tests/test_<feature>.py`.
+**New Feature (Full-Stack):**
+- Backend domain module: `py_modules/<feature>.py` (re-export constants/helpers in `py_modules/__init__.py` if needed, wire into `main.py:Plugin`).
+- Backend tests: `tests/test_<feature>.py`.
+- Frontend types & RPC bindings: `src/types.ts` and `callable` in `src/index.tsx` or `src/components/DeckifyExpandedModal.tsx`.
+- Frontend UI: New tab in `src/components/tabs/<Feature>Tab.tsx` or shared component in `src/components/common/<Component>.tsx`.
+- Frontend tests: Co-located `<Feature>Tab.test.tsx` alongside the component.
 
-**New Shared UI Component or Hook:**
-- Reusable widget or modal: `src/components/common/<Component>.tsx`
-- Reusable hook: `src/hooks/use<HookName>.ts`
+**New Hook or Utility:**
+- React hooks: `src/hooks/use<Name>.ts`.
+- Pure frontend helpers: `src/utils/<name>.ts` + `src/utils/<name>.test.ts`.
 
-**Utilities:**
-- Frontend pure helpers: `src/utils/<name>.ts` (or `src/utils.ts` for small shared formatters).
-- Backend shared constants/helpers: `py_modules/common.py` (re-exported in `py_modules/__init__.py`).
+**New Backend RPC:**
+- Playback/device/volume RPCs: `py_modules/rpc_playback.py` + thin wrapper method on `Plugin` in `main.py`.
+- Browse/playlist/search/podcast RPCs: `py_modules/rpc_library.py` + thin wrapper method on `Plugin` in `main.py`.
 
 ## Special Directories
 
 **`dist/`:**
-- Purpose: Compiled Rollup ESM output (`dist/index.js`) loaded by Decky Loader.
-- Generated: Yes (`pnpm build`).
-- Committed: No (build artifact).
+- Purpose: Contains compiled `dist/index.js` and `dist/index.js.map` consumed by Decky Loader.
+- Generated: Yes (`pnpm build` via Rollup).
+- Committed: No (gitignored).
 
 **`coverage/`:**
-- Purpose: Vitest V8 coverage reports.
+- Purpose: HTML/Clover/JSON coverage output from Vitest and Python coverage.
 - Generated: Yes (`pnpm test:coverage`).
-- Committed: No.
+- Committed: No (gitignored).
 
-**`.planning/`:**
-- Purpose: GSD project planning, phase artifacts, and `.planning/codebase/` analysis docs.
-- Generated: Managed by GSD workflows.
-- Committed: Yes.
+**`bin/` (runtime/deploy target on Steam Deck):**
+- Purpose: Holds the `librespot` binary (`LIBRESPOT_BIN`) on the target device. Never place duplicate `py_modules/` trees under `bin/` as `main.py` prepends `bin/` to `sys.path`.
+- Generated: Deployed externally.
+- Committed: No.
 
 ---
 
-*Structure analysis: 2026-11-18*
+*Structure analysis: 2026-11-26*

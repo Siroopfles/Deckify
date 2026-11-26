@@ -1,96 +1,83 @@
 ---
-last_mapped_commit: 10018cbc1c9d1d294640d8866b3902ca56bcd816
-last_mapped_at: 2026-11-14
+last_mapped_commit: f8defec7206b337ccec032ac6a11b40649e888bd
+last_mapped_at: 2026-11-26
 ---
-<!-- refreshed: 2026-11-14 -->
 # Testing Patterns
 
-**Analysis Date:** 2026-11-14
+**Analysis Date:** 2026-11-26
 
 ## Test Framework
 
 **Runner:**
-- Frontend: Vitest `5.1.0` (`package.json`). No separate `vitest.config.*` file is used; Vitest runs with default discovery for `src/**/*.test.{ts,tsx}`.
-- Backend: Python standard library `unittest` (`unittest.TestCase` and `unittest.IsolatedAsyncioTestCase`).
+- **Frontend:** Vitest `5.1.0` (configured via `package.json` scripts with default Vitest resolution; no separate `vitest.config.*` file).
+- **Backend:** Python standard library `unittest` (`unittest.TestCase` and `unittest.IsolatedAsyncioTestCase`).
 
 **Assertion Library:**
-- Frontend: Vitest `expect` (`toBe`, `toEqual`, `toHaveLength`, `toBeUndefined`, `toHaveBeenCalled`).
-- Backend: `unittest` assertions (`assertEqual`, `assertTrue`, `assertFalse`, `assertIn`, `assertRaises`, `assertAwaitedOnceWith`).
+- **Frontend:** Vitest `expect` (`toBe`, `toEqual`, `toHaveLength`, `toBeInstanceOf`, `toBeLessThanOrEqual`).
+- **Backend:** `unittest` assertions (`assertEqual`, `assertTrue`, `assertFalse`, `assertIs`, `assertIn`, `assertIsNone`) and `unittest.mock` async assertions (`assert_awaited_once`, `assert_awaited_with`).
 
 **Run Commands:**
 ```bash
-pnpm test                                                       # Run all 15 Vitest files (112 tests)
-pnpm run test:python                                            # Run Python unittest suite (Linux/macOS)
-py -m unittest discover -s tests -p "test_*.py"                 # Run Python unittest suite (Windows)
-pnpm run test:coverage                                          # Run Vitest + Python coverage reports
+pnpm test                # Run all frontend Vitest suites (vitest run)
+pnpm run test:python     # Run all backend unittest suites
+pnpm run test:coverage   # Run Vitest + Python coverage report
 ```
 
 ## Test File Organization
 
 **Location:**
-- Frontend tests are co-located alongside source files in `src/` (`src/utils.test.ts`, `src/hooks/usePlaybackClock.test.ts`, `src/components/DeckifyOverlay.test.tsx`).
-- Backend tests live in a dedicated `tests/` directory (`tests/test_py_modules.py`, `tests/test_plugin_api.py`, `tests/test_token_refresh.py`).
+- **Frontend:** Co-located next to the source file under test inside `src/` (30 `.test.ts` / `.test.tsx` files).
+- **Backend:** Centralized in `tests/` at the repository root (40 `test_*.py` files).
 
 **Naming:**
-- Frontend: `<module>.test.ts` or `<Component>.test.tsx`.
-- Backend: `test_<area>.py` (discovered via `-p "test_*.py"`).
+- **Frontend:** `<module>.test.ts` or `<Component>.test.tsx` (`src/utils.test.ts`, `src/components/common/InteractiveRow.test.tsx`).
+- **Backend:** `test_<feature>.py` (`tests/test_resilience.py`, `tests/test_plugin_api.py`, `tests/test_e2e_requirements.py`).
 
 **Structure:**
 ```text
 src/
+├── chords.test.ts
 ├── index.test.tsx
 ├── utils.test.ts
+├── components/
+│   ├── DeckifyExpandedModal.test.tsx
+│   ├── common/
+│   │   ├── DeckifyImage.test.ts
+│   │   └── InteractiveRow.test.tsx
+│   └── tabs/
+│       └── *.test.tsx
 ├── hooks/
 │   └── usePlaybackClock.test.ts
-├── utils/
-│   ├── listNavigation.test.ts
-│   └── triggerController.test.ts
-└── components/
-    ├── DeckifyExpandedModal.test.tsx
-    ├── DeckifyOverlay.test.tsx
-    ├── common/*.test.{ts,tsx}
-    └── tabs/*.test.tsx
+└── utils/
+    └── *.test.ts
+
 tests/
-├── test_py_modules.py
-├── test_plugin_api.py
 ├── test_token_refresh.py
-└── test_*.py (19 test modules total)
+├── test_plugin_api.py
+├── test_resilience.py
+├── test_e2e_requirements.py
+└── ... (40 test modules total)
 ```
 
 ## Test Structure
 
-**Suite Organization (Frontend - Vitest):**
+**Suite Organization (Frontend — Vitest):**
 ```typescript
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
-describe("usePlaybackClock & PlaybackClockController", () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
-  describe("Monotonic Ticking & Interpolation", () => {
-    it("advances position monotonically when isPlaying is true", () => {
-      const clock = new PlaybackClockController({
-        serverPositionMs: 10000,
-        isPlaying: true,
-        durationMs: 60000,
-      });
-
-      expect(clock.positionMs).toBe(10000);
-      vi.advanceTimersByTime(1000);
-      expect(clock.positionMs).toBe(11000);
-      clock.destroy();
+describe("DeckifyImage Pipeline", () => {
+  describe("ImageLruCache", () => {
+    it("stores and retrieves items correctly", () => {
+      const cache = new ImageLruCache(3);
+      cache.set("url1", "data:image/1");
+      expect(cache.get("url1")).toBe("data:image/1");
+      expect(cache.size).toBe(1);
     });
   });
 });
 ```
-(From `src/hooks/usePlaybackClock.test.ts`.)
 
-**Suite Organization (Backend - `unittest`):**
+**Suite Organization (Backend — `unittest`):**
 ```python
 class PluginApiTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
@@ -102,45 +89,33 @@ class PluginApiTests(unittest.IsolatedAsyncioTestCase):
         self.save = self.enterContext(patch.object(main, "_save_settings"))
         self.emit = self.enterContext(patch.object(main.decky, "emit", new_callable=AsyncMock))
 ```
-(From `tests/test_plugin_api.py`.)
 
 **Patterns:**
-- Frontend tests reset fake timers (`vi.useFakeTimers()` / `vi.useRealTimers()`) and custom hook slot arrays in `beforeEach`/`afterEach`.
-- Backend async tests use `unittest.IsolatedAsyncioTestCase` with `self.enterContext(patch.object(...))` in `asyncSetUp` for automatic cleanup.
-- Parameterized checks in Python use `with self.subTest(...):` (`tests/test_py_modules.py`).
+- **Setup/Teardown:** Frontend uses `beforeEach` / `afterEach` to reset mock call history and local state arrays; Python uses `setUp` / `asyncSetUp` with `self.enterContext(patch.object(...))` so patches automatically unwind after each test.
+- **No DOM runtime required for React component tests:** Component tests in `src/components/**/*.test.tsx` and `src/index.test.tsx` mock `react/jsx-runtime`, `react/jsx-dev-runtime`, `react` hooks, and `@decky/ui` components to return plain object trees (`{ type, props }`), then invoke callbacks (`tree.props.onFocus()`) directly.
 
 ## Mocking
 
 **Framework:**
-- Frontend: Vitest `vi.mock`, `vi.fn`, `vi.hoisted`.
-- Backend: `unittest.mock` (`AsyncMock`, `MagicMock`, `Mock`, `patch`).
+- **Frontend:** Vitest `vi.mock(...)` and `vi.fn(...)`.
+- **Backend:** Python `unittest.mock` (`AsyncMock`, `MagicMock`, `Mock`, `patch`, `patch.dict`).
 
-**Patterns (Frontend - Lightweight React & Decky Mocks):**
-Component tests run in Node without jsdom/Testing Library by mocking `react`, `react/jsx-runtime`, `react/jsx-dev-runtime`, `@decky/ui`, and `@decky/api` to return plain element descriptor objects `{ type, props }`:
+**Patterns (Frontend — `@decky/api` and `@decky/ui`):**
 ```typescript
-vi.mock("@decky/ui", () => ({
-  Focusable: ({ children, ...props }: any) => ({
-    type: "Focusable",
-    props: { children, ...props },
-  }),
+vi.mock("@decky/api", () => ({
+  callable: (name: string) => {
+    if (name === "get_status") return (...args: any[]) => mockGetStatus(...args);
+    return vi.fn().mockResolvedValue({ ok: true });
+  },
+  toaster: { toast: (...args: any[]) => mockToasterToast(...args) },
 }));
 
-vi.mock("react/jsx-runtime", () => ({
-  Fragment: "Fragment",
-  jsx: (type: any, props: any, key: any) => ({
-    type,
-    props: { ...props, ...(key !== undefined ? { key } : {}) },
-  }),
-  jsxs: (type: any, props: any, key: any) => ({
-    type,
-    props: { ...props, ...(key !== undefined ? { key } : {}) },
-  }),
+vi.mock("@decky/ui", () => ({
+  Focusable: ({ children, ...props }: any) => ({ type: "Focusable", props: { children, ...props } }),
 }));
 ```
-(From `src/components/common/InteractiveRow.test.tsx`.) Stateful component tests (e.g., `src/components/DeckifyOverlay.test.tsx`) use slot arrays (`stateSlots`, `refSlots`, `effectSlots`) and a `flushEffects()` helper to simulate renders and hook lifecycles.
 
-**Patterns (Backend - `decky` Module Injection):**
-Tests inject a stub `decky` module into `sys.modules` before importing `main` or `py_modules`:
+**Patterns (Backend — `decky` module stubbing):**
 ```python
 with patch.dict("sys.modules", {"decky": SimpleNamespace(
     DECKY_PLUGIN_SETTINGS_DIR=tempfile.gettempdir(),
@@ -151,65 +126,65 @@ with patch.dict("sys.modules", {"decky": SimpleNamespace(
 )}):
     import main
 ```
-(From `tests/test_token_refresh.py` and `tests/test_py_modules.py`.)
 
 **What to Mock:**
-- `@decky/api` (`callable`, `toaster`, `addEventListener`), `@decky/ui` components, `react-icons/*`, and `react` JSX runtime in frontend tests.
-- `decky` runtime namespace, `main._exec`, `main._save_settings`, `urllib.request.urlopen`, and `os.geteuid` in backend tests.
+- Decky runtime globals (`@decky/api`, `@decky/ui`, `decky` Python module).
+- External network/HTTP calls (`main._exec`, `urllib.request`, Spotify Web API responses).
+- Filesystem persistence (`main._save_settings`) or redirect paths to `tempfile.TemporaryDirectory()`.
+- Monotonic clocks (`time.monotonic`) when testing debouncing, token expiry, or grace windows.
 
 **What NOT to Mock:**
-- Pure TypeScript logic (`PlaybackClockController`, `parseLrc`, `formatMs`, `listNavigation`, `triggerController`).
-- Settings serialization (`_load_settings` / `_save_settings` tested against `tempfile.TemporaryDirectory()` in `tests/test_py_modules.py`).
+- Pure data transformations and state controllers (`ImageLruCache`, `ImageRequestQueue`, `parseLrc`, `PlaybackClockController`, `resilience.normalize_spotify_id`, `common._load_settings_impl`).
 
 ## Fixtures and Factories
 
 **Test Data:**
-- Inline fixture objects and helper factory functions inside test files (e.g., `renderRow(props)` in `src/components/common/InteractiveRow.test.tsx`, `fail_http(status, body)` in `tests/test_token_refresh.py`).
-- No shared global fixture directory; `tests/test_plugin_api.py` reuses the patched `main` module imported by `tests/test_token_refresh.py`.
+- **Frontend:** Helper factory functions per test file (e.g., `renderRow(props)` in `src/components/common/InteractiveRow.test.tsx`, `makeTask()` in `src/components/common/DeckifyImage.test.ts`).
+- **Backend:** `SimpleNamespace` stubs for `Plugin` or `decky`, `io.BytesIO` payloads for `HTTPError`, and `tempfile.TemporaryDirectory()` for settings/script file tests (`tests/test_resilience.py`, `tests/test_token_refresh.py`).
+
+**Location:**
+- Inline within each test module; no shared global fixture directory. `tests/test_plugin_api.py` imports the already-patched `main` module from `test_token_refresh`.
 
 ## Coverage
 
-**Requirements:** No minimum coverage threshold is enforced in CI (`.github/workflows/ci.yml`), though `.coveragerc` and `@vitest/coverage-v8` are configured.
-
-**Config (`.coveragerc`):**
-- Measures `py_modules` and `main`; omits `tests/*` and `*/node_modules/*`.
+**Requirements:** None enforced as a hard threshold in CI, though `package.json` provides a unified coverage script and `.coveragerc` tracks `py_modules` and `main` (omitting `tests/*` and `*/node_modules/*`).
 
 **View Coverage:**
 ```bash
 pnpm run test:coverage
 ```
+Runs `vitest run --coverage` (via `@vitest/coverage-v8`) followed by `python3 -m coverage run --source=py_modules,main -m unittest discover -s tests -p "test_*.py" && python3 -m coverage report -m`.
 
 ## Test Types
 
 **Unit Tests:**
-- Frontend: 15 Vitest test files (112 tests) covering hooks, utilities, component rendering trees, focus/gamepad callbacks, and plugin lifecycle (`src/index.test.tsx`).
-- Backend: 19 `unittest` modules under `tests/` covering `py_modules.*`, `Plugin` RPC methods, token refresh concurrency, error matrices, and lifecycle/uninstall behavior.
+- Pure TypeScript logic (`src/utils.test.ts`, `src/chords.test.ts`, `src/hooks/usePlaybackClock.test.ts`, `src/utils/*.test.ts`).
+- Isolated React component tree rendering and focus/interaction callbacks (`src/components/**/*.test.tsx`, `src/index.test.tsx`).
+- Isolated Python module functions and `Plugin` RPC methods (`tests/test_resilience.py`, `tests/test_plugin_api.py`, `tests/test_token_refresh.py`).
 
-**Integration Tests:**
-- `tests/test_e2e_requirements.py` and `tests/test_plugin_full_coverage.py` exercise end-to-end backend flows with mocked transport/system boundaries.
-
-**E2E Tests:**
-- Not used (no browser/Playwright/Steam Deck hardware runner in CI).
+**Integration & Requirement-Driven Tests:**
+- `tests/test_e2e_requirements.py` implements an opaque-box 4-tier test suite (feature coverage, boundary/corner cases, cross-feature combinations, and end-to-end workflows) verifying external contracts, API schemas, CLI scripts, and packaging files.
+- CI (`.github/workflows/ci.yml`) runs `lint`, `typecheck`, `test-frontend`, `test-backend`, and `build` on pushes and PRs to `main`.
 
 ## Common Patterns
 
 **Async Testing:**
 ```python
-async def test_control_playback_play_auto_transfer_success(self):
-    self.plugin._active_device = None
-    self.execute.side_effect = HTTPError("url", 404, "Not Found", {}, None)
-    with patch.object(self.plugin, "_auto_transfer_and_play", new_callable=AsyncMock) as mock_transfer:
-        mock_transfer.return_value = {"ok": True}
-        res = await self.plugin.control_playback("play")
-        self.assertTrue(res["ok"])
-        mock_transfer.assert_awaited_once()
+async def test_revoked_authorization_is_cleared_once_for_concurrent_callers(self):
+    results = await asyncio.gather(*(self.plugin._ensure_token() for _ in range(5)))
+    self.assertEqual(results, [None] * 5)
+    self.execute.assert_awaited_once()
 ```
-(From `tests/test_plugin_api.py`.)
 
 **Error Testing:**
-- Backend tests simulate `HTTPError("url", status, ...)` or `RuntimeError(...)` on `self.execute.side_effect` and assert `res["ok"] is False` and expected `res["error"]` substrings.
-- Frontend tests assert graceful fallback or `mockToast` calls when `callable` mocks reject or return `{ ok: false }`.
+```python
+async def test_control_playback_error_handling(self):
+    self.execute.side_effect = RuntimeError("Network down")
+    res = await self.plugin.control_playback("play")
+    self.assertFalse(res["ok"])
+    self.assertIn("Network down", res["error"])
+```
 
 ---
 
-*Testing analysis: 2026-11-14*
+*Testing analysis: 2026-11-26*

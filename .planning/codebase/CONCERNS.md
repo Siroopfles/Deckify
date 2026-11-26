@@ -1,138 +1,149 @@
 ---
-last_mapped_commit: 10018cbc1c9d1d294640d8866b3902ca56bcd816
-last_mapped_at: 2026-11-14
+last_mapped_commit: f8defec7206b337ccec032ac6a11b40649e888bd
+last_mapped_at: 2026-11-26
 ---
-# Codebase Concerns
-
-**Analysis Date:** 2026-11-14
+</Testing Patterns>
+<Codebase Concerns>
+**Analysis Date:** 2026-11-26
 
 ## Tech Debt
 
-**Monolithic `Plugin` God Class (`main.py`):**
-- Issue: `main.py` spans 1,574 lines and concentrates Decky RPC routing, OAuth HTTP server handling, `librespot`/Flatpak process supervision, CDP quality sync, PipeWire clock configuration, and playback polling into a single `Plugin` class with ~35 mutable class/instance attributes.
-- Files: `main.py`
-- Impact: High coupling makes lifecycle state transitions (`_main`, `_unload`, `_on_deck_sleep`, `_on_deck_resume`) hard to reason about, and class-level default attributes can leak across test or reload boundaries if not reset in `__init__` and `_main`.
-- Fix approach: Extract OAuth HTTP server (`_handle_oauth_*`, `_send_landing_page`, `_redirect_to_spotify`), process supervision (`start_librespot`, `start_spotify_client`, `_monitor_process`), and playback polling (`_poll_playback`, `_poll_api_loop`) into dedicated modules under `py_modules/` analogous to `py_modules/volume.py` and `py_modules/soundtrack.py`.
+**Monolithic Frontend & Backend Files:**
+- Issue: Core UI and backend modules have grown past 1,500–2,600 lines, concentrating unrelated responsibilities (state management, RPC wiring, rendering, and event handling) in single files.
+- Files: `src/components/DeckifyExpandedModal.tsx` (2,618 lines), `src/components/tabs/SettingsTab.tsx` (2,379 lines), `main.py` (2,606 lines), `py_modules/rpc_library.py` (2,275 lines), `src/index.tsx` (2,253 lines), `py_modules/cdp_bridge.py` (1,828 lines), `py_modules/mpris.py` (1,534 lines), `py_modules/rpc_playback.py` (1,361 lines)
+- Impact: High cognitive load, merge conflicts, and 82 `max-lines-per-function` + 30 `complexity` ESLint warnings across `src/`.
+- Fix approach: Extract tab-specific hooks/controllers out of `DeckifyExpandedModal.tsx` and `SettingsTab.tsx`, and split `Plugin` RPC methods in `main.py` into focused service adapters.
 
-**Oversized `DeckifyExpandedModal` Component (`src/components/DeckifyExpandedModal.tsx`):**
-- Issue: `DeckifyExpandedModal` is 1,152 lines total with the primary component function spanning 972 lines and a cyclomatic complexity of 51 (ESLint limits: 80 lines, complexity 15), managing 25+ `useState` hooks, RPC callables, drill-down navigation, lyrics syncing, and modal overlays in one component.
-- Files: `src/components/DeckifyExpandedModal.tsx`, `src/components/tabs/SettingsTab.tsx`, `src/index.tsx`
-- Impact: High cognitive load, frequent ESLint warnings (`max-lines-per-function`, `complexity`, `no-empty`, `@typescript-eslint/no-explicit-any`), and elevated risk of stale closures or focus-state regressions when modifying any tab.
-- Fix approach: Move library/drill-down data fetching and state into custom hooks (e.g., `useLibraryData`, `useLyricsSync`) and let individual tab components own their own RPC callables and local loading state.
+**Widespread Type Safety Suppressions (`any`) & Lint Warnings:**
+- Issue: `pnpm run lint` reports 911 warnings (0 errors): 757 `@typescript-eslint/no-explicit-any`, 82 `max-lines-per-function`, 33 `no-empty`, 30 `complexity`, 4 `react-hooks/exhaustive-deps`, 3 `max-depth`, and 2 `max-params`.
+- Files: `src/components/DeckifyExpandedModal.tsx`, `src/index.tsx`, `src/steamMenu.tsx`, `src/utils/listNavigation.ts`, `src/components/DeckifyExpandedModal.test.tsx`
+- Impact: Weakens compile-time guarantees at the `@decky/api` RPC boundary and SteamOS global interfaces, masking shape mismatches until runtime.
+- Fix approach: Define strict interfaces in `src/types.ts` for all `callable(...)` RPC payloads and `SteamClient` globals, and progressively tighten `@typescript-eslint/no-explicit-any` and `no-empty` rules in `eslint.config.js`.
 
-**Pervasive Broad Exception Swallowing (`except Exception` / `catch {}`):**
-- Issue: Over 100 `except Exception:` blocks across `main.py`, `py_modules/rpc_library.py`, `py_modules/rpc_playback.py`, `py_modules/volume.py`, `py_modules/spotify.py`, `py_modules/device.py`, `py_modules/engine.py`, and `py_modules/images.py` silently `pass` or return fallback values, while frontend components (`src/components/DeckifyExpandedModal.tsx`, `src/components/tabs/SettingsTab.tsx`) use empty `catch {}` blocks.
-- Files: `main.py`, `py_modules/rpc_library.py`, `py_modules/spotify.py`, `py_modules/images.py`, `src/components/DeckifyExpandedModal.tsx`, `src/components/tabs/SettingsTab.tsx`
-- Impact: Real bugs (e.g., disk permission errors, malformed JSON, unexpected API errors) are masked instead of surfaced in logs or UI diagnostics.
-- Fix approach: Narrow exception catches to expected types (`OSError`, `urllib.error.URLError`, `json.JSONDecodeError`, `TimeoutError`) and log unexpected exceptions with context via `decky.logger.warning` or `decky.logger.error`.
+**Silent Exception Swallowing:**
+- Issue: Broad `except Exception:` blocks in Python and empty `catch {}` / `catch (e) {}` blocks in TypeScript and injected CDP JavaScript discard errors without logging or telemetry.
+- Files: `main.py`, `py_modules/cdp_bridge.py`, `py_modules/common.py`, `py_modules/device.py`, `src/index.tsx`, `src/steamMenu.tsx`
+- Impact: Failures in CDP scraping, audio sink switching, or SteamClient subscriptions fail silently, making field diagnostics difficult.
+- Fix approach: Log unexpected exceptions via `decky.logger.debug`/`warning` with context, and narrow `except` clauses to expected exception types.
 
-**Extensive `any` Type Escapes in Frontend Code:**
-- Issue: Widespread use of `any` across `src/index.tsx`, `src/steamMenu.tsx`, `src/components/DeckifyExpandedModal.tsx`, and test mocks (`src/components/DeckifyExpandedModal.test.tsx`, `src/index.test.tsx`) bypasses TypeScript `strict: true` guarantees in `tsconfig.json`.
-- Files: `src/index.tsx`, `src/steamMenu.tsx`, `src/components/DeckifyExpandedModal.tsx`, `tsconfig.json`
-- Impact: Breaking changes in Decky RPC payloads or `@decky/ui` props are not caught at compile time (`pnpm run typecheck`).
-- Fix approach: Define typed interfaces in `src/types.ts` for event payloads (`track_metadata`, `librespot_event`, `ducking_state_changed`, `soundtrack_prompt_switch`) and Decky/SteamClient globals in `src/types.d.ts`.
+**Non-Atomic Settings Persistence:**
+- Issue: `_save_settings_impl` writes `settings.json` directly via `open(target_file, "w")` rather than writing to a temporary file and atomically replacing via `os.replace()`.
+- Files: `py_modules/common.py` (lines 534–538)
+- Impact: A mid-write crash, Steam Deck battery loss, or concurrent save can truncate or corrupt `settings.json`, wiping user preferences and OAuth tokens.
+- Fix approach: Adopt the atomic `.tmp` + `os.replace()` pattern already used in `py_modules/cdp_bridge.py` (`save_discovery_mixes_cache`).
+
+**Custom Hand-Rolled D-Bus Wire Protocol:**
+- Issue: MPRIS2 integration implements raw D-Bus binary marshaling/unmarshaling and socket framing manually rather than using an established D-Bus library.
+- Files: `py_modules/mpris.py` (1,534 lines)
+- Impact: Increases maintenance burden and risk of subtle protocol edge cases across SteamOS D-Bus updates.
+- Fix approach: Keep comprehensive wire-protocol unit tests (`tests/test_mpris.py`) or evaluate a lightweight pure-Python D-Bus dependency if Decky packaging permits.
 
 ## Known Bugs
 
-**Missing `import time` in `py_modules/spotify.py`:**
-- Symptoms: When Spotify Web API returns HTTP 429 (Too Many Requests), `_spotify_api_request` attempts `time.sleep(min(retry_after, 2))` and raises `NameError: name 'time' is not defined` instead of backing off and re-raising `urllib.error.HTTPError`.
-- Files: `py_modules/spotify.py` (line 46)
-- Trigger: Any Spotify API call in `_spotify_api_request` receiving an HTTP 429 response.
-- Workaround: None; add `import time` to `py_modules/spotify.py`.
+**Continuous Polling of Rate-Limited Spotify Endpoints in Modal Tabs:**
+- Issue: `DeckifyExpandedModal.tsx` polls `loadQueue` every 10 seconds while `mode === "queue"` and polls `loadRecent` every 10 seconds (plus 3s and 8s post-track-change timers) while `mode === "recent"`.
+- Files: `src/components/DeckifyExpandedModal.tsx` (lines 486–491, 893–911)
+- Impact: Violates the architectural constraint against polling heavy Spotify Web API endpoints (`me/player/queue`, `me/player/recently-played`), increasing the risk of HTTP 429 rate limiting during extended browsing.
+- Fix approach: Trigger queue/recent refreshes only on explicit tab entry, user pull/refresh, or debounced track-change events rather than recurring `setInterval` loops.
 
 ## Security Considerations
 
-**Plaintext OAuth Tokens Persisted in Settings File:**
-- Risk: Spotify `access_token` and `refresh_token` are stored in plaintext JSON inside `settings.json` (`_save_settings` in `py_modules/common.py`) without restricting file permissions (`chmod 0o600`), and `main.py` runs with `_root` privileges (`plugin.json`).
-- Files: `main.py` (lines 131-133, 1171-1175), `py_modules/common.py` (lines 234-238), `plugin.json` (line 4)
-- Current mitigation: `main.py` strips sensitive keys when logging settings (`safe_keys` on lines 134-135), and `uninstall.sh --purge` removes settings directories.
-- Recommendations: Set restrictive `0o600` permissions on `settings.json` (owned by `DECK_UID`) when writing tokens, or separate credentials into a dedicated `0o600` token file.
+**Plaintext OAuth Token Storage with Default File Permissions:**
+- Risk: `access_token` and `refresh_token` are persisted in plaintext inside `settings.json` via `_save_settings_impl` without enforcing restrictive file permissions (`0o600`).
+- Files: `main.py` (lines 2040–2041, 2171), `py_modules/common.py` (lines 534–538)
+- Current mitigation: `_INTERNAL_SETTING_KEYS` in `main.py` (lines 82–87) filters token keys out of frontend settings payloads.
+- Recommendations: Restrict `settings.json` (or a dedicated token file) to `0o600` on creation/write and avoid mixing long-lived credentials with general UI preferences.
 
-**Missing OAuth `state` Parameter & Unescaped HTTP Error Responses:**
-- Risk: The PKCE OAuth flow in `main.py` (`_redirect_to_spotify` / `_handle_oauth_callback`) does not generate or validate a `state` parameter against CSRF/login-swap attacks on the local callback server (`OAUTH_SERVER_PORT = 39281`). Additionally, `_send_http_response` interpolates `body` directly into HTML without `html.escape()`, so `_handle_oauth_callback` passing `f"Error: {e}"` can reflect unescaped error text as HTML.
-- Files: `main.py` (lines 1150-1195, 1237-1269)
-- Current mitigation: `_send_landing_page` uses `html.escape()` for `client_id` and `redirect_uri`, and the OAuth server is short-lived and stopped in `finally`.
-- Recommendations: Generate a per-flow random `state` token via `secrets.token_urlsafe(16)`, verify it on `/callback`, and wrap `body` with `escape(body)` inside `_send_http_response`.
+**OAuth Callback Server Binds All Network Interfaces (`0.0.0.0`):**
+- Risk: `start_oauth` binds `asyncio.start_server` on `"0.0.0.0"` port `39281` (`OAUTH_SERVER_PORT`) with a self-signed TLS certificate (`SSL_CERT`, `SSL_KEY`). While required for mobile QR-code OAuth callbacks over LAN, the listener accepts connections from any host on the local network while active.
+- Files: `main.py` (lines 1802–1823), `py_modules/common.py` (lines 52–53, 203)
+- Current mitigation: Server is stopped via `_stop_oauth_server()` on callback completion, logout, and plugin unload (`main.py` lines 318, 369, 2064).
+- Recommendations: Enforce a short auto-expiry timeout on `_oauth_server` if the user abandons QR login, and validate PKCE/state parameters strictly on `/callback`.
 
-**Plugin Runs as Root (`_root` Flag) & Uses Unpinned `StrictHostKeyChecking=no` in Dev Scripts:**
-- Risk: `plugin.json` declares `"flags": ["_root"]`, so any subprocess or file write bug in `main.py` executes with root privileges unless explicitly wrapped in `_build_deck_command`. Separately, `deploy.sh` passes `-o StrictHostKeyChecking=no` to `ssh` and `scp`.
-- Files: `plugin.json` (line 4), `py_modules/common.py` (lines 273-293), `deploy.sh` (lines 53, 81)
-- Current mitigation: `_build_deck_command` drops to `DECK_USER` for GUI/audio subprocesses; `images.py` enforces an HTTPS domain allowlist (`ALLOWED_SPOTIFY_DOMAINS`) and 5 MB limit (`MAX_IMAGE_BYTES`).
-- Recommendations: Audit all `subprocess.run`/`Popen` calls (e.g., `pactl` in `py_modules/volume.py`, `openssl` in `py_modules/device.py`) to ensure least-privilege execution and explicit `chown` where needed.
+**Unencrypted Plain HTTP Lyrics Fallback:**
+- Risk: `_fetch_netease_lyrics` sends track title and artist queries over unencrypted `http://music.163.com/api/...` without TLS.
+- Files: `py_modules/spotify.py` (lines 501–535)
+- Current mitigation: Only non-sensitive track/artist search strings are sent, with a 3.5s timeout.
+- Recommendations: Upgrade to `https://` if supported by the endpoint or gate fallback behind an explicit user setting.
 
 ## Performance Bottlenecks
 
-**Continuous 3-Second Polling Loops on Backend and Frontend:**
-- Problem: `main.py` runs `_monitor_process` every 3s (spawning `pactl list sink-inputs` via `_refresh_audio_stream_info` on every tick) and `_poll_api_loop` every 3s (calling Spotify `me/player`), while `src/index.tsx` also runs `setInterval` polling (`get_status` / `get_sleep_timer_status`) every few seconds.
-- Files: `main.py` (lines 1472-1574), `py_modules/volume.py` (lines 115-130), `src/index.tsx` (lines 175, 693)
-- Cause: Periodic polling is used instead of purely event-driven updates for PipeWire stream info and fallback playback sync.
-- Improvement path: Skip `_refresh_audio_stream_info` subprocess spawning when `_is_playing` is `False`, and rely on `decky.emit` push events (`track_metadata`, `librespot_event`, `settings_changed`) to reduce frontend polling frequency.
+**Gamescope Composition Polling Loop (`500ms`):**
+- Problem: `useGamescopeNotificationComposition` runs a `setInterval` every `500ms` calling `SteamClient.Window.SetComposition(1, [], 0)` for the entire duration any HUD overlay or banner is visible.
+- Files: `src/index.tsx` (lines 1858–1895)
+- Cause: Workaround to keep Gamescope notification composition active when Steam overlay state changes.
+- Improvement path: Rely on `RegisterForOverlayActivated` and visibility state transitions, increasing the safety interval or removing continuous polling if SteamOS 3.5+ retains composition state.
 
-**Synchronous Blocking HTTP & Subprocess Calls Inside `_exec` Thread Pool:**
-- Problem: All Spotify API calls (`py_modules/spotify.py`), image downloads (`py_modules/images.py`), CDP WebSocket calls (`py_modules/engine.py`), and `pactl` invocations (`py_modules/volume.py`) use blocking `urllib.request.urlopen` / `socket` / `subprocess.run` wrapped in `loop.run_in_executor(None, ...)` with a 10s default timeout.
-- Files: `py_modules/common.py` (lines 249-270), `py_modules/spotify.py`, `py_modules/engine.py`, `py_modules/images.py`
-- Cause: Standard-library-only constraint avoids third-party async HTTP/WebSocket dependencies (`aiohttp`, `websockets`).
-- Improvement path: Reuse HTTP connections or bound concurrent image/track fetches in `rpc_library.py` so bulk playlist/album loads do not saturate Python's default `ThreadPoolExecutor`.
+**In-Memory Base64 Image Caching in CEF:**
+- Problem: `imgMemoryCache` (`ImageLruCache` with capacity 200) stores full Base64 data URLs in the Steam GamepadUI renderer heap, while `DeckifyImage` proxies external URLs via `get_image` RPC (`ImageRequestQueue` max 4 concurrent).
+- Files: `src/components/common/imagePipeline.ts` (lines 5–48), `py_modules/images.py` (lines 8–120)
+- Cause: Steam CEF Content Security Policy blocks direct `https://i.scdn.co/` `<img>` loads, forcing Base64 RPC proxying.
+- Improvement path: Monitor renderer memory usage during large playlist/album scrolling and consider evicting oversized data URLs or capping `ImageLruCache` by total byte size rather than item count alone.
+
+**Python Test Suite Execution & Resource Warnings:**
+- Problem: Running the full Python `unittest` suite emits `ResourceWarning: unclosed <ssl.SSLSocket ...>` and `ResourceWarning: Implicitly cleaning up <HTTPError ...>` and exhibits slow asyncio runner teardown on Windows when time/sleep mocks interact with `asyncio.runners.Runner`.
+- Files: `tests/test_discovery.py`, `tests/test_resilience.py`, `tests/test_volume.py`
+- Cause: Mocked `urllib.request.urlopen` / `HTTPError` responses and mocked clocks not always closed or isolated from `loop.time()`.
+- Improvement path: Close mock `HTTPError` objects cleanly in `finally`/context managers and avoid patching global wall-clock functions that `asyncio` event loops read internally.
 
 ## Fragile Areas
 
-**SteamOS GamepadUI React Fiber Monkey-Patching (`src/steamMenu.tsx`):**
-- Files: `src/steamMenu.tsx` (lines 32-149)
-- Why fragile: Traverses Steam's internal React Fiber tree (`getReactRoot`, `MainNavMenuContainer`), mutates `parent.type` and `parent.alternate.type`, and inspects hardcoded nested structure (`result?.props?.children?.props?.children?.[0]`) to inject a Deckify entry into the Steam menu.
-- Safe modification: Always test against the target SteamOS GamepadUI build and ensure `s.dispose()` cleanly restores `original` and `innerOriginal` references.
-- Test coverage: No dedicated unit test file exists for `src/steamMenu.tsx`.
+**Spotify Desktop React Fiber Scraping via CDP:**
+- Files: `py_modules/cdp_bridge.py` (lines 20–70, `_REGISTRY_PREAMBLE_JS`), `py_modules/engine.py` (lines 282–330)
+- Why fragile: Traverses `#main` DOM React Fiber internals (`__reactFiber$` / `__reactContainer$`, `n.memoizedProps?.value`, `reg._map`) up to 5,000 nodes over Chrome DevTools Protocol port `9229`. Any Spotify Flatpak client update that changes React version, container ID, or internal service registry shape can silently break discovery mixes, offline downloads, Jam, and playback speed control.
+- Safe modification: Keep fallback paths (`load_discovery_mixes_cache`, `load_offline_downloads_cache`), bound traversal depth, and validate all extracted fields before returning to RPC callers.
+- Test coverage: Unit-tested with mocked CDP responses in `tests/test_cdp_bridge.py`, but not verified against live Spotify Flatpak builds in CI.
 
-**Official Spotify Client CDP React Fiber Traversal (`main.py` & `py_modules/engine.py`):**
-- Files: `main.py` (lines 275-322), `py_modules/engine.py` (lines 174-441), `py_modules/spotify.py` (lines 250-271)
-- Why fragile: `_sync_spotify_client_quality_cdp`, `get_spotify_client_auth_status`, and `_fetch_spotify_cdp_folder_tree` inject raw JavaScript over a hand-rolled RFC 6455 WebSocket client (`_cdp_call`) on `SPOTIFY_CDP_PORT` (`9229`), walking `__reactContainer` fibers and `SettingsAPI` / `PlatformAPI` internals of the `com.spotify.Client` Flatpak. Any Spotify Desktop client update can silently break quality syncing, auth detection, or folder tree extraction.
-- Safe modification: Keep CDP failures non-fatal and guarded with fallbacks (`prefs` file writes in `_write_spotify_client_prefs` and rootlist cache parsing in `_parse_spotify_rootlist_folders`).
-- Test coverage: Tested with mocked targets/responses in `tests/test_device_and_engine.py`, not against live `com.spotify.Client` builds.
+**SteamOS GamepadUI `MainNavMenuContainer` Monkey-Patching:**
+- Files: `src/steamMenu.tsx` (lines 32–100)
+- Why fragile: Hooks into `#root` via `findInReactTree(getReactRoot(root), ...)` to wrap `MainNavMenuContainer` render output and splice Deckify entries into Steam's internal navigation array. Any Valve GamepadUI update renaming `navID` or changing menu item props breaks the entry point.
+- Safe modification: Guard every property access (`node?.return?.type`, `Array.isArray(items)`), preserve `ownedItem()` cleanup, and avoid throwing inside the wrapped render function.
+- Test coverage: `src/steamMenu.tsx` currently has no dedicated unit test file.
 
-**Raw Virtual Wayland / Xwayland Spawning (`main.py`):**
-- Files: `main.py` (lines 343-384)
-- Why fragile: `start_spotify_client` launches `kwin_wayland --virtual --xwayland` and polls `/tmp/.X11-unix/X*` for up to 3 seconds (`disp = ":2"` fallback) to discover the new Xwayland display socket. Race conditions with other X11/Xwayland sessions on the Deck can bind the wrong display.
-- Safe modification: Prefer deterministic display allocation or verify the PID/ownership of the newly created X11 socket before launching Flatpak.
-- Test coverage: Process launch is mocked in unit tests (`tests/test_device_and_engine.py`, `tests/test_plugin_lifecycle.py`).
+**Undocumented `SteamClient` Globals & Controller Input Subscriptions:**
+- Files: `src/index.tsx` (lines 594–655, 1851–1895, 2192)
+- Why fragile: Relies on undocumented `window.SteamClient.Input.RegisterForControllerInputMessages`, `RegisterForControllerStateChanges`, `SteamClient.System.RegisterForOnResumeFromSuspend`, `SteamClient.Overlay.RegisterForOverlayActivated`, and `SteamClient.GameSessions` with runtime `try/catch` fallbacks.
+- Safe modification: Maintain multi-tier fallback registration (`RegisterForControllerInputMessages` -> `RegisterForControllerStateChanges` -> backend `input_watch.py`) and test resume-from-suspend re-subscription paths.
+- Test coverage: Covered in `src/index.test.tsx` with mocked `SteamClient` globals.
 
 ## Scaling Limits
 
-**Disk Image Cache & Lyrics Cache Growth:**
-- Current capacity: `IMAGE_CACHE_DIR` enforces a 50 MB LRU limit (`MAX_IMAGE_CACHE_BYTES = 50 * 1024 * 1024` in `py_modules/images.py:8`) and `_LYRICS_CACHE` caps in-memory entries at 100 (`_CACHE_MAX_ENTRIES = 100` in `py_modules/spotify.py:92`).
-- Limit: Disk-persisted lyrics JSON files in `LYRICS_CACHE_DIR` (`py_modules/spotify.py:13, 141-148`) have no LRU eviction or size cap and grow unboundedly over time. Additionally, `_clean_image_cache_lru` scans the entire `IMAGE_CACHE_DIR` synchronously on every cache write and relies on `st_atime`, which may be disabled on `noatime`/`relatime` filesystems.
-- Scaling path: Add a file-count/size cap to `LYRICS_CACHE_DIR` and use `st_mtime` (updating mtime on cache hit) instead of `st_atime` for reliable LRU eviction on SteamOS filesystems.
+**Image Disk Cache:**
+- Current capacity: Capped at 50 MB (`MAX_IMAGE_CACHE_BYTES = 50 * 1024 * 1024`) in `py_modules/images.py` (lines 9, 52–77), using `stat.st_atime` for LRU eviction and explicit `os.utime()` on cache hits.
+- Limit: Heavy library browsing (>1,500–2,000 unique album/playlist covers) triggers frequent cache churn and re-downloads from Spotify CDN.
+- Scaling path: Make `MAX_IMAGE_CACHE_BYTES` configurable or store explicit access timestamps in metadata if target filesystems mount with `noatime`.
 
-**`settings.json` Bloat from `spotify_folder_tree`:**
-- Current capacity: `spotify_folder_tree` is stored directly inside `settings.json` (`DEFAULT_SETTINGS` in `py_modules/common.py:82`).
-- Limit: Users with large Spotify libraries and nested playlist folders cause `settings.json` to be rewritten in full on every single setting change (`_save_settings_impl` uses non-atomic `open(..., "w")` + `json.dump`).
-- Scaling path: Move `spotify_folder_tree` to `CACHE_DIR` and use atomic write-and-replace (`tempfile` + `os.replace`) in `_save_settings_impl` to prevent `settings.json` corruption on power loss.
+**Spotify Web API Rate Limits:**
+- Current capacity: Single-user OAuth PKCE client (`SPOTIFY_API_BASE`) polling playback state and executing on-demand library/playlist/search requests.
+- Limit: Concurrent UI actions plus `10s` polling in `Queue` and `Recent` tabs (`DeckifyExpandedModal.tsx` lines 489, 898) can trigger HTTP 429 `Retry-After` throttling.
+- Scaling path: Eliminate background polling in non-playback modal tabs and centralize request deduplication/backoff in `py_modules/spotify.py`.
 
 ## Dependencies at Risk
 
-**External `librespot` Binary & `com.spotify.Client` Flatpak:**
-- Risk: `Deckify` depends on a prebuilt `bin/librespot` binary (not tracked in `package.json` or Python manifests) and optionally the `com.spotify.Client` Flatpak (`SPOTIFY_FLATPAK_ID`) plus host tools (`pactl`, `pw-metadata`, `kwin_wayland`, `openssl`, `busctl`). SteamOS updates or Spotify protocol/Flatpak changes can break audio engines without any package-manager version pin.
-- Impact: Playback engine startup, lossless PipeWire clock switching, or audio sink routing fails on host updates.
-- Migration plan: Document exact supported `librespot` build versions in release workflows (`.github/workflows/release.yml`) and add startup capability checks reporting clear user-facing diagnostics.
+**`librespot` / Official Spotify Flatpak (`com.spotify.Client`):**
+- Risk: `librespot` relies on reverse-engineered Spotify Connect protocols, and `com.spotify.Client` Flatpak updates can alter CDP/React internals or audio stream behavior.
+- Impact: Headless playback, audio quality switching, or CDP-backed features (offline downloads, Jam, lossless) can break independently of Deckify releases.
+- Migration plan: Maintain dual-backend abstraction (`VALID_AUDIO_BACKENDS = ("librespot", "spotify_client")` in `py_modules/common.py`) so users can switch engines when one breaks upstream.
+
+**React 19 Types vs Decky Loader Runtime:**
+- Risk: `package.json` pins `@types/react` `19.2.14` and `@types/react-dom` `19.2.3` while `pnpm.peerDependencyRules.ignoreMissing` suppresses missing `react`/`react-dom` peer dependencies (provided globally by Decky Loader).
+- Impact: Type definitions may diverge from the exact React runtime version shipped by SteamOS GamepadUI.
+- Migration plan: Validate built bundles (`dist/index.js`) on target SteamOS Decky Loader versions before release.
 
 ## Missing Critical Features
 
-**Atomic Settings Persistence:**
-- Problem: `_save_settings_impl` in `py_modules/common.py:234-238` truncates and writes `settings.json` directly (`with open(target_file, "w") as f: json.dump(...)`) without writing to a temporary file and atomically renaming.
-- Blocks: Crash-safe persistence of OAuth tokens and game soundtrack profiles on battery loss or hard reboot on Steam Deck.
+**Automated CI/CD Pipeline:**
+- Problem: No `.github/workflows/` CI configuration was detected in the repository; quality gates rely on local Husky pre-commit `lint-staged` (`eslint`) and manual `pnpm test` / `unittest` runs.
+- Blocks: Automated regression verification for TypeScript typechecking, Vitest, Python `unittest`, and Rollup production builds on pull requests.
 
 ## Test Coverage Gaps
 
-**Untested Frontend Tab Components & Hooks:**
-- What's not tested: Only a subset of `src/` has colocated unit tests (`DeckifyExpandedModal.test.tsx`, `DeckifyOverlay.test.tsx`, `SettingsTab.test.tsx`, `SoundtracksTab.test.tsx`, `QueueTab.test.tsx`, `PlaylistPickerModal.test.tsx`, `TrackActionModal.test.tsx`, `Sidebar.test.tsx`, `InteractiveRow.test.tsx`, `DeckifyImage.test.ts`, `index.test.tsx`, `usePlaybackClock.test.ts`, `listNavigation.test.ts`, `triggerController.test.ts`, `utils.test.ts`). The remaining 13+ files—including `src/steamMenu.tsx`, `src/hooks/usePlaybackStatus.ts`, `src/hooks/useTriggerNavigation.ts`, `src/components/common/imagePipeline.ts`, `src/components/tabs/NowPlayingTab.tsx`, `PlaylistsTab.tsx`, `LikedSongsTab.tsx`, `AlbumsTab.tsx`, `ArtistsTab.tsx`, `PodcastsTab.tsx`, `SearchTab.tsx`, `LyricsTab.tsx`, `RecentTab.tsx`, and `DevicesTab.tsx`—lack dedicated unit tests.
-- Files: `src/steamMenu.tsx`, `src/hooks/usePlaybackStatus.ts`, `src/hooks/useTriggerNavigation.ts`, `src/components/common/imagePipeline.ts`, `src/components/tabs/*.tsx`
-- Risk: Regressions in Steam Menu React Fiber injection, D-pad/trigger navigation, or tab drill-down behavior go undetected in CI (`pnpm test`).
-- Priority: High (especially `src/steamMenu.tsx`, `src/hooks/useTriggerNavigation.ts`, and `src/components/common/imagePipeline.ts`).
-
-**Heavy Mocking in Backend Tests vs. Real Host Integration:**
-- What's not tested: Python tests in `tests/test_*.py` run on CI (`ubuntu-latest`) with mocked `subprocess`, `decky`, and `urllib.request`, so real SteamOS `pactl`/`pw-metadata` output variations, `busctl` suspend/resume signals, and live `com.spotify.Client` CDP responses are not exercised end-to-end.
-- Files: `tests/test_device_and_engine.py`, `tests/test_volume.py`, `tests/test_plugin_lifecycle.py`
-- Risk: Subtle parsing or environment bugs on SteamOS 3.5+ only surface on physical hardware.
-- Priority: Medium.
+**Untested Frontend Modules & Tab Components:**
+- What's not tested: 17 non-test TypeScript files in `src/` lack corresponding `*.test.ts(x)` files: `src/steamMenu.tsx`, `src/bannerBus.ts`, `src/utils/themeBus.ts`, `src/hooks/useGrabMoveOrder.ts`, `src/hooks/usePlaybackStatus.ts`, `src/hooks/useTriggerNavigation.ts`, `src/components/common/CollectionActionModal.tsx`, `src/components/common/EqBandFaders.tsx`, `src/components/common/OfflineStatusUI.tsx`, `src/components/common/TrackRowItem.tsx`, `src/components/common/imagePipeline.ts`, `src/components/tabs/AlbumsTab.tsx`, `src/components/tabs/ArtistsTab.tsx`, `src/components/tabs/LikedSongsTab.tsx`, `src/components/tabs/RecentTab.tsx`, `src/components/tabs/soundtrackUtils.ts`, and `src/types.ts`.
+- Files: `src/steamMenu.tsx`, `src/hooks/usePlaybackStatus.ts`, `src/hooks/useTriggerNavigation.ts`, `src/components/common/imagePipeline.ts`
+- Risk: Regressions in Steam menu injection, playback status polling hooks, trigger navigation, or image request queueing can go undetected by `vitest run` (currently 30 files, 382 tests).
+- Priority: High for `src/steamMenu.tsx`, `src/hooks/usePlaybackStatus.ts`, and `src/components/common/imagePipeline.ts`; Medium for individual library tab views.
 
 ---
 
-*Concerns audit: 2026-11-14*
+*Concerns audit: 2026-11-26*
