@@ -178,6 +178,7 @@ DEFAULT_SETTINGS = {
     "travel_mode_enabled": False,
     "travel_mode_manual": False,
     "travel_mode_auto_enabled": True,
+    "travel_mode_show_when_online": False,
     "offline_min_free_gb": 3.0,
     "offline_storage_path": SPOTIFY_CLIENT_CACHE_DIR,
 }
@@ -480,6 +481,7 @@ def _load_settings(settings_file: str | None = None) -> dict:
             ("resilience_prompt_held_enabled", True),
             ("mpris_enabled", True),
             ("mpris_auto_proxy", True),
+            ("travel_mode_show_when_online", False),
         ):
             if not isinstance(merged.get(_rbool), bool):
                 merged[_rbool] = bool(merged.get(_rbool, _rdef))

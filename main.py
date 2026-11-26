@@ -625,6 +625,12 @@ class Plugin:
         self._last_event = None
         self._pa_volume_boosted = False
         self._start_monitor()
+        ready_res = await _exec(cdp_bridge.wait_for_cdp_ready, timeout=12.0)
+        if not isinstance(ready_res, dict) or not ready_res.get("ok"):
+            decky.logger.warning(
+                "Spotify CDP readiness wait timed out: %s",
+                ready_res.get("error") if isinstance(ready_res, dict) else "unknown",
+            )
         await decky.emit("librespot_status", {"running": True, "error": None, "audio_backend": "spotify_client"})
         decky.logger.info("Official Spotify Client started, pid=%d display=%s", self._spotify_client_process.pid, self._virtual_display)
         return {"ok": True, "pid": self._spotify_client_process.pid, "audio_backend": "spotify_client"}
@@ -1098,6 +1104,8 @@ class Plugin:
             value = bool(value)
             if getattr(self, "_bookmark_manager", None):
                 self._bookmark_manager.set_auto_travel_mode_enabled(value)
+        elif key == "travel_mode_show_when_online":
+            value = bool(value)
         self._settings[key] = value
         _save_settings(self._settings)
         decky.logger.info("Setting updated: %s = %s", key, value)
@@ -1667,6 +1675,30 @@ class Plugin:
         settings = getattr(self, "_settings", {}) or {}
         return common.clamp_offline_min_free_gb(settings.get("offline_min_free_gb", 3.0))
 
+    @staticmethod
+    def _is_cdp_not_ready_error(res: dict | None) -> bool:
+        if not isinstance(res, dict):
+            return True
+        if res.get("ok"):
+            return False
+        err = str(res.get("error") or "").lower()
+        return any(
+            tok in err
+            for tok in (
+                "connect",
+                "not ready",
+                "registry",
+                "no result",
+                "refused",
+                "timed out",
+                "timeout",
+                "socket",
+                "websocket",
+                "urlopen",
+                "target",
+            )
+        )
+
     async def toggle_offline_download(
         self, uri: str, download: bool = True, item_meta: dict | None = None
     ) -> dict:
@@ -1693,6 +1725,19 @@ class Plugin:
             storage_path=storage_path,
             min_free_gb=min_free_gb,
         )
+        if (
+            self._settings.get("audio_backend") == "spotify_client"
+            and self._is_cdp_not_ready_error(res)
+        ):
+            await _exec(cdp_bridge.wait_for_cdp_ready, timeout=6.0)
+            res = await _exec(
+                cdp_bridge.cdp_set_offline_download,
+                uri,
+                bool(download),
+                item_meta,
+                storage_path=storage_path,
+                min_free_gb=min_free_gb,
+            )
         if not isinstance(res, dict):
             return {"success": False, "ok": False, "error": "Invalid offline download response"}
         return {**res, "success": bool(res.get("ok", False))}
@@ -1757,9 +1802,15 @@ class Plugin:
     ) -> dict:
         if not getattr(self, "_bookmark_manager", None):
             self._bookmark_manager = self._create_bookmark_manager()
+        prev_state = self._bookmark_manager.get_travel_mode_state()
+        manual_notified = False
         if auto_enabled is not None:
             self._bookmark_manager.set_auto_travel_mode_enabled(bool(auto_enabled))
         if manual:
+            manual_notified = (
+                prev_state.get("travel_mode_enabled"),
+                prev_state.get("travel_mode_manual"),
+            ) != (bool(enabled), bool(enabled))
             self._bookmark_manager.set_manual_travel_mode(bool(enabled))
         else:
             self._bookmark_manager.travel_mode_enabled = bool(enabled)
@@ -1771,11 +1822,20 @@ class Plugin:
             state.get("travel_mode_auto_enabled", True)
         )
         _save_settings(self._settings)
-        await decky.emit("travel_mode_changed", state)
+        if manual_notified:
+            await asyncio.sleep(0)
+        elif state != prev_state:
+            await decky.emit("travel_mode_changed", state)
         return {"ok": True, "success": True, **state}
 
     async def start_spotify_jam(self) -> dict:
         res = await _exec(cdp_bridge.cdp_start_spotify_jam)
+        if (
+            self._settings.get("audio_backend") == "spotify_client"
+            and self._is_cdp_not_ready_error(res)
+        ):
+            await _exec(cdp_bridge.wait_for_cdp_ready, timeout=6.0)
+            res = await _exec(cdp_bridge.cdp_start_spotify_jam)
         if not isinstance(res, dict):
             return {"success": False, "ok": False, "error": "Invalid Jam response"}
         if res.get("ok"):

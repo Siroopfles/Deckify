@@ -1,14 +1,15 @@
 import asyncio
+import json
 import os
 import sys
 import tempfile
 import unittest
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 sys.path.insert(0, os.path.dirname(__file__))
 from test_token_refresh import main  # noqa: F401
-from py_modules import resilience
+from py_modules import common, resilience
 
 
 class TestTravelModeStateMachine(unittest.IsolatedAsyncioTestCase):
@@ -165,6 +166,74 @@ class TestTravelModeFiltering(unittest.TestCase):
         self.assertEqual(resilience.filter_items_for_travel_mode(None, None, True), [])
         self.assertEqual(resilience.filter_items_for_travel_mode([], ["spotify:track:1"], True), [])
         self.assertEqual(resilience.filter_items_for_travel_mode(None, None, False), [])
+
+
+class TestTravelModeSettingsAndWiring(unittest.IsolatedAsyncioTestCase):
+    def _make_plugin(self):
+        plugin = main.Plugin()
+        plugin._settings = dict(common.DEFAULT_SETTINGS)
+        plugin._bookmark_manager = plugin._create_bookmark_manager()
+        return plugin
+
+    def test_travel_mode_show_when_online_default_and_validation(self):
+        self.assertIn("travel_mode_show_when_online", common.DEFAULT_SETTINGS)
+        self.assertFalse(common.DEFAULT_SETTINGS["travel_mode_show_when_online"])
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings_path = os.path.join(tmpdir, "settings.json")
+            with open(settings_path, "w", encoding="utf-8") as f:
+                json.dump({"travel_mode_show_when_online": "yes"}, f)
+            loaded = common._load_settings(settings_path)
+            self.assertIs(loaded["travel_mode_show_when_online"], True)
+
+            with open(settings_path, "w", encoding="utf-8") as f:
+                json.dump({"travel_mode_show_when_online": 0}, f)
+            loaded_false = common._load_settings(settings_path)
+            self.assertIs(loaded_false["travel_mode_show_when_online"], False)
+
+    async def test_start_spotify_client_waits_for_cdp_ready(self):
+        plugin = self._make_plugin()
+        plugin._stop_monitor = AsyncMock()
+        plugin._kill_librespot = AsyncMock()
+        plugin._kill_spotify_client = AsyncMock()
+        plugin._write_spotify_client_prefs = MagicMock()
+        plugin._configure_pipewire_clock = AsyncMock()
+        plugin._start_monitor = MagicMock()
+        fake_proc = SimpleNamespace(pid=4321, poll=lambda: None)
+
+        with patch.object(main.glob, "glob", return_value=[]):
+            with patch.object(main, "_build_deck_command", side_effect=lambda cmd, **kw: (cmd, {})):
+                with patch.object(main.subprocess, "Popen", return_value=fake_proc):
+                    with patch.object(
+                        main.cdp_bridge,
+                        "wait_for_cdp_ready",
+                        return_value={"ok": True, "ready": True},
+                    ) as mock_wait:
+                        with patch.object(main.decky, "emit", new_callable=AsyncMock):
+                            with patch.object(main.asyncio, "sleep", new_callable=AsyncMock):
+                                res = await plugin.start_spotify_client()
+
+        self.assertTrue(res["ok"])
+        self.assertEqual(res["pid"], 4321)
+        mock_wait.assert_called_once()
+
+    async def test_set_travel_mode_emits_travel_mode_changed_once(self):
+        plugin = self._make_plugin()
+        with patch.object(main, "_save_settings"):
+            with patch.object(main.decky, "emit", new_callable=AsyncMock) as mock_emit:
+                res = await plugin.set_travel_mode(enabled=True, manual=True)
+        self.assertTrue(res["ok"])
+        travel_mode_calls = [
+            c for c in mock_emit.call_args_list if c.args and c.args[0] == "travel_mode_changed"
+        ]
+        self.assertEqual(len(travel_mode_calls), 1)
+        self.assertEqual(
+            travel_mode_calls[0].args[1],
+            {
+                "travel_mode_enabled": True,
+                "travel_mode_manual": True,
+                "travel_mode_auto_enabled": True,
+            },
+        )
 
 
 if __name__ == "__main__":
