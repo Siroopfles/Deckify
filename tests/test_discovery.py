@@ -635,3 +635,115 @@ class TestDiscoveryAlgorithmicMixes(unittest.IsolatedAsyncioTestCase):
             res_cdp = await rpc_playback.play_ai_dj(self.plugin)
         self.assertTrue(res_cdp["ok"])
         mock_play.assert_called_once_with("spotify:playlist:37i9dQZF1EYkqdzj48dyYq")
+
+    async def test_search_missing_core_mixes_includes_on_repeat(self):
+        queried = []
+
+        def fake_api(endpoint, token, method="GET", params=None, body=None):
+            q = (params or {}).get("q", "")
+            queried.append(q)
+            if q == "On Repeat":
+                return {
+                    "playlists": {
+                        "items": [
+                            {
+                                "id": "37i9dQZF1Ep123",
+                                "uri": "spotify:playlist:37i9dQZF1Ep123",
+                                "name": "On Repeat",
+                                "owner": {"id": "spotify"},
+                                "images": [],
+                            }
+                        ]
+                    }
+                }
+            return {"playlists": {"items": []}}
+
+        with patch.object(rpc_library, "_spotify_api_request", side_effect=fake_api):
+            found = await rpc_library._search_missing_core_mixes("tok", [])
+
+        self.assertIn("On Repeat", queried)
+        self.assertTrue(any(m["name"] == "On Repeat" and m["kind"] == "core" for m in found))
+
+    async def test_get_playlist_tracks_forwards_daylist_metadata(self):
+        self.plugin._settings["audio_backend"] = "spotify_client"
+        self.plugin._spotify_client_process = SimpleNamespace(poll=lambda: None)
+
+        cdp_payload = {
+            "ok": True,
+            "tracks": [{"id": "t1", "name": "Track 1", "uri": "spotify:track:t1"}],
+            "total": 1,
+            "offset": 0,
+            "playlist_name": "chill afternoon mix",
+            "playlist_description": "Dynamic Daylist title",
+        }
+        with patch.object(rpc_library, "_spotify_api_request", side_effect=_http_error(403)), \
+             patch.object(rpc_library, "_cdp_get_playlist_tracks", return_value=cdp_payload), \
+             patch.object(rpc_library, "_refresh_cached_mix_tracks"):
+            res = await rpc_library.get_playlist_tracks(self.plugin, "37i9dQZF1EP6YuccBxUyC1")
+
+        self.assertTrue(res["ok"])
+        self.assertEqual(res["playlist_name"], "chill afternoon mix")
+        self.assertEqual(res["playlist_description"], "Dynamic Daylist title")
+
+
+class TestAiDjPollAndStatus(unittest.IsolatedAsyncioTestCase):
+    async def test_poll_playback_ai_dj_interlude_and_get_status(self):
+        import test_token_refresh
+        main_mod = test_token_refresh.main
+
+        plugin = main_mod.Plugin()
+        plugin._settings = dict(common.DEFAULT_SETTINGS)
+        plugin._access_token = "tok"
+        plugin._ensure_token = AsyncMock(return_value="tok")
+        plugin._is_engine_running = MagicMock(return_value=True)
+        plugin._is_librespot_running = MagicMock(return_value=False)
+        plugin._is_spotify_client_running = MagicMock(return_value=True)
+        plugin._last_event = None
+        plugin._track_meta = None
+
+        interlude_payload = {
+            "is_playing": True,
+            "currently_playing_type": "unknown",
+            "item": None,
+            "context": {"uri": "spotify:playlist:37i9dQZF1EYkqdzj48dyYq"},
+        }
+        with patch.object(main_mod, "_spotify_api_request", return_value=interlude_payload), \
+             patch.object(main_mod.decky, "emit", new=AsyncMock()):
+            ok = await plugin._poll_playback()
+
+        self.assertTrue(ok)
+        self.assertTrue(plugin._ai_dj_active)
+        self.assertTrue(plugin._ai_dj_speaking)
+        self.assertEqual(plugin._poll_play_state, "playing")
+
+        status = await plugin.get_status()
+        self.assertTrue(status["ai_dj_active"])
+        self.assertTrue(status["ai_dj_speaking"])
+
+        # Also test CDP PlayerAPI.getState fallback when Web API context is absent
+        plugin._ai_dj_active = False
+        plugin._ai_dj_speaking = False
+        unknown_payload = {
+            "is_playing": True,
+            "currently_playing_type": "unknown",
+            "item": None,
+            "context": None,
+        }
+        cdp_state = {
+            "ok": True,
+            "is_playing": True,
+            "context_uri": "spotify:dj:session1",
+            "track_uri": "",
+            "track_name": "",
+            "media_type": "unknown",
+            "is_dj_interlude": True,
+        }
+        with patch.object(main_mod, "_spotify_api_request", return_value=unknown_payload), \
+             patch.object(main_mod, "_cdp_get_player_state", return_value=cdp_state), \
+             patch.object(main_mod.decky, "emit", new=AsyncMock()):
+            ok2 = await plugin._poll_playback()
+
+        self.assertTrue(ok2)
+        self.assertTrue(plugin._ai_dj_active)
+        self.assertTrue(plugin._ai_dj_speaking)
+        self.assertEqual(plugin._context_uri, "spotify:dj:session1")

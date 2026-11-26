@@ -47,6 +47,7 @@ from py_modules.common import (
     _sanitize_pinned_playlists,
     _validate_chord_bindings,
 )
+from py_modules.cdp_bridge import cdp_get_player_state as _cdp_get_player_state
 from py_modules.engine import _cdp_set_playback_speed
 from py_modules import volume
 from py_modules import system
@@ -140,6 +141,8 @@ class Plugin:
     _audio_stream_info: dict | None = None
     _playback_speed: float = 1.0
     _last_media_is_spoken: bool = False
+    _ai_dj_active: bool = False
+    _ai_dj_speaking: bool = False
     # Token refresh lock (initialized in _main)
     _token_refresh_lock: asyncio.Lock | None = None
     # Crash auto-restart state
@@ -179,6 +182,8 @@ class Plugin:
         self._crossfade_out_track_id = None
         self._playback_speed = 1.0
         self._last_media_is_spoken = False
+        self._ai_dj_active = False
+        self._ai_dj_speaking = False
 
     # ── Lifecycle ──────────────────────────────────────────────
 
@@ -776,6 +781,8 @@ class Plugin:
             "context_uri": self._context_uri,
             "audio_stream_info": self._audio_stream_info,
             "playback_speed": getattr(self, "_playback_speed", 1.0),
+            "ai_dj_active": bool(getattr(self, "_ai_dj_active", False)),
+            "ai_dj_speaking": bool(getattr(self, "_ai_dj_speaking", False)),
             "sleep_timer": self.get_sleep_timer_status(),
             "dock_status": (
                 self._dock_switcher.get_status_dict()
@@ -2040,6 +2047,8 @@ class Plugin:
 
         # 204 No Content → no active playback
         if data is None:
+            self._ai_dj_active = False
+            self._ai_dj_speaking = False
             fader = getattr(self, "_volume_fader", None)
             if fader is not None and getattr(fader, "_crossfade_active", False):
                 self._crossfade_out_track_id = None
@@ -2054,19 +2063,72 @@ class Plugin:
                     await self._mpris_bridge.sync_from_plugin()
             return True
 
+        ctx = data.get("context") or {}
+        ctx_uri = ctx.get("uri", "") if isinstance(ctx, dict) else ""
+        currently_playing_type = str(data.get("currently_playing_type") or "")
+        is_playing = bool(data.get("is_playing", False))
+
         item = data.get("item")
         if item is None:
+            is_dj_ctx = bool("37i9dQZF1EYkqdzj48dyYq" in ctx_uri or ctx_uri.startswith("spotify:dj:"))
+            cdp_dj_speaking = False
+            cdp_ctx_uri = ""
+            if not is_dj_ctx and currently_playing_type == "unknown" and self._is_spotify_client_running():
+                try:
+                    cdp_state = await _exec(_cdp_get_player_state)
+                    if isinstance(cdp_state, dict) and cdp_state.get("ok"):
+                        cdp_ctx_uri = str(cdp_state.get("context_uri") or "")
+                        is_dj_ctx = bool(
+                            "37i9dQZF1EYkqdzj48dyYq" in cdp_ctx_uri
+                            or cdp_ctx_uri.startswith("spotify:dj:")
+                        )
+                        cdp_dj_speaking = bool(cdp_state.get("is_dj_interlude"))
+                        if cdp_state.get("is_playing") is not None:
+                            is_playing = bool(cdp_state.get("is_playing"))
+                except Exception as e:
+                    decky.logger.debug("cdp_get_player_state failed during interlude poll: %s", e)
+
+            if is_dj_ctx and (is_playing or cdp_dj_speaking):
+                prev_active = bool(getattr(self, "_ai_dj_active", False))
+                prev_speaking = bool(getattr(self, "_ai_dj_speaking", False))
+                self._ai_dj_active = True
+                self._ai_dj_speaking = True
+                self._poll_play_state = "playing"
+                self._context_uri = ctx_uri or cdp_ctx_uri or getattr(self, "_context_uri", "")
+                if not prev_active or not prev_speaking:
+                    await decky.emit("ai_dj_state", {
+                        "ai_dj_active": True,
+                        "ai_dj_speaking": True,
+                        "context_uri": self._context_uri,
+                    })
+                return True
+
+            if getattr(self, "_ai_dj_active", False) or getattr(self, "_ai_dj_speaking", False):
+                self._ai_dj_active = False
+                self._ai_dj_speaking = False
+                await decky.emit("ai_dj_state", {
+                    "ai_dj_active": False,
+                    "ai_dj_speaking": False,
+                    "context_uri": ctx_uri,
+                })
             return True
 
-        is_playing = data.get("is_playing", False)
         progress_ms = data.get("progress_ms", 0)
         track_id = item.get("id", "")
         duration_ms = item.get("duration_ms", 0)
         self._poll_progress_ms = int(progress_ms or 0)
         self._poll_duration_ms = int(duration_ms or 0)
         self._poll_updated_at = time.time()
-        ctx = data.get("context") or {}
-        self._context_uri = ctx.get("uri", "") if isinstance(ctx, dict) else ""
+        self._context_uri = ctx_uri
+        self._ai_dj_active = bool(
+            "37i9dQZF1EYkqdzj48dyYq" in self._context_uri
+            or self._context_uri.startswith("spotify:dj:")
+        )
+        self._ai_dj_speaking = bool(
+            self._ai_dj_active
+            and is_playing
+            and (currently_playing_type == "unknown" or not track_id)
+        )
 
         shuffle_state = bool(data.get("shuffle_state", False))
         repeat_state = data.get("repeat_state", "off")

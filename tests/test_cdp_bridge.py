@@ -284,6 +284,74 @@ class TestCdpBridge(unittest.TestCase):
             self.assertEqual(res, {"ok": True, "speed": 1.5})
             self.assertTrue(mock_eval.called)
 
+    def test_discovery_mixes_graphql_unwrap_and_on_repeat(self):
+        captured = {}
+
+        def fake_eval(expr, port=9229, timeout=4.0):
+            captured["expr"] = expr
+            return {"ok": True, "items": [], "warnings": []}
+
+        res = cdp_bridge.cdp_fetch_discovery_mixes(eval_fn=fake_eval)
+        self.assertTrue(res["ok"])
+        expr = captured["expr"]
+        self.assertIn("raw?.data", expr)
+        self.assertIn("ownerV2?.data?.name", expr)
+        self.assertIn("images?.items?.[0]?.sources", expr)
+        self.assertIn("home?.home?.sectionContainer?.sections?.items", expr)
+        self.assertIn("'on repeat'", expr)
+        self.assertIn("'On Repeat'", expr)
+
+    def test_cdp_get_playlist_tracks_returns_metadata(self):
+        captured = {}
+
+        def fake_eval(expr, port=9229, timeout=8.0):
+            captured["expr"] = expr
+            return {
+                "ok": True,
+                "tracks": [{"id": "t1", "name": "Song", "uri": "spotify:track:t1"}],
+                "total": 1,
+                "offset": 0,
+                "playlist_name": "chill afternoon mix",
+                "playlist_description": "Your Tuesday afternoon vibe",
+            }
+
+        res = cdp_bridge.cdp_get_playlist_tracks("37i9dQZF1EP6YuccBxUyC1", eval_fn=fake_eval)
+        self.assertTrue(res["ok"])
+        self.assertEqual(res["playlist_name"], "chill afternoon mix")
+        self.assertEqual(res["playlist_description"], "Your Tuesday afternoon vibe")
+        self.assertIn("getMetadata", captured["expr"])
+        self.assertIn("playlist_name", captured["expr"])
+
+    def test_cdp_get_player_state(self):
+        captured = {}
+
+        def fake_eval(expr, port=9229, timeout=3.0):
+            captured["expr"] = expr
+            captured["timeout"] = timeout
+            return {
+                "ok": True,
+                "is_playing": True,
+                "context_uri": "spotify:playlist:37i9dQZF1EYkqdzj48dyYq",
+                "track_uri": "",
+                "track_name": "",
+                "media_type": "unknown",
+                "is_dj_interlude": True,
+            }
+
+        res = cdp_bridge.cdp_get_player_state(eval_fn=fake_eval)
+        self.assertEqual(captured["timeout"], 3.0)
+        self.assertIn("PlayerAPI", captured["expr"])
+        self.assertIn("getState", captured["expr"])
+        self.assertIn("is_dj_interlude", captured["expr"])
+        self.assertTrue(res["ok"])
+        self.assertTrue(res["is_playing"])
+        self.assertTrue(res["is_dj_interlude"])
+        self.assertEqual(res["context_uri"], "spotify:playlist:37i9dQZF1EYkqdzj48dyYq")
+
+        err_res = cdp_bridge.cdp_get_player_state(eval_fn=lambda *a, **kw: None)
+        self.assertFalse(err_res["ok"])
+        self.assertIn("error", err_res)
+
 
 if __name__ == "__main__":
     unittest.main()

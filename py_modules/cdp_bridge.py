@@ -478,6 +478,56 @@ def cdp_set_playback_speed(
     return {"ok": False, "error": res.get("error") or "CDP PlayerAPI.setSpeed failed"}
 
 
+def cdp_get_player_state(
+    port: int = SPOTIFY_CDP_PORT,
+    timeout: float = 3.0,
+    eval_fn=None,
+) -> dict:
+    """Query Official Spotify Client CDP PlayerAPI.getState() for AI DJ interlude detection."""
+    body_js = """
+    const playerApi = getService('PlayerAPI');
+    if (!playerApi || typeof playerApi.getState !== 'function') {
+      return { ok: false, error: 'PlayerAPI.getState unavailable' };
+    }
+    const state = await playerApi.getState();
+    if (!state || typeof state !== 'object') {
+      return { ok: false, error: 'PlayerAPI.getState returned empty state' };
+    }
+    const ctxUri = String(state.context?.uri || '');
+    const trackUri = String(state.item?.uri || '');
+    const trackName = String(state.item?.name || '');
+    const mediaType = String(state.item?.type || '');
+    const isPlaying = !state.isPaused;
+    const isDjContext = ctxUri === 'spotify:playlist:37i9dQZF1EYkqdzj48dyYq' || ctxUri.startsWith('spotify:dj:');
+    const isDjInterlude = Boolean(
+      isDjContext &&
+      isPlaying &&
+      (mediaType === 'unknown' || !trackUri || Boolean(state.item?.metadata?.is_dj_interlude))
+    );
+    return {
+      ok: true,
+      is_playing: isPlaying,
+      context_uri: ctxUri,
+      track_uri: trackUri,
+      track_name: trackName,
+      media_type: mediaType,
+      is_dj_interlude: isDjInterlude
+    };
+    """
+    res = evaluate_with_registry(body_js, port=port, timeout=timeout, eval_fn=eval_fn)
+    if res.get("ok"):
+        return {
+            "ok": True,
+            "is_playing": bool(res.get("is_playing", False)),
+            "context_uri": str(res.get("context_uri") or ""),
+            "track_uri": str(res.get("track_uri") or ""),
+            "track_name": str(res.get("track_name") or ""),
+            "media_type": str(res.get("media_type") or ""),
+            "is_dj_interlude": bool(res.get("is_dj_interlude", False)),
+        }
+    return {"ok": False, "error": res.get("error") or "CDP PlayerAPI.getState failed"}
+
+
 def cdp_set_playlist_mix(
     playlist_id: str,
     enabled: bool = True,
