@@ -4,7 +4,7 @@ import sys
 import tempfile
 import unittest
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 sys.path.insert(0, os.path.dirname(__file__))
 from test_token_refresh import main  # noqa: F401
@@ -442,6 +442,70 @@ class TestCdpBridge(unittest.TestCase):
         ended = cdp_bridge.cdp_end_spotify_jam(eval_fn=lambda expr, **kw: {"ok": True, "active": False})
         self.assertTrue(ended["ok"])
         self.assertFalse(ended["active"])
+
+    def test_cdp_search_escapes_query_and_normalizes_results(self):
+        captured = {}
+
+        def fake_eval(expr, **kw):
+            captured["expr"] = expr
+            return {
+                "ok": True,
+                "tracks": [
+                    {
+                        "id": "t1",
+                        "name": "Track One",
+                        "artist": "Artist One",
+                        "album": "Album One",
+                        "artist_id": "a1",
+                        "album_id": "alb1",
+                        "uri": "spotify:track:t1",
+                        "duration_ms": 180000,
+                        "image_url": "https://i.scdn.co/image/abc",
+                        "artwork_url": "https://i.scdn.co/image/abc",
+                    }
+                ],
+                "artists": [],
+                "albums": [],
+                "playlists": [],
+                "shows": [],
+                "episodes": [],
+            }
+
+        res = cdp_bridge.cdp_search('lofi "chill"; alert(1)', types="track", limit=5, offset=0, eval_fn=fake_eval)
+        self.assertTrue(res["ok"])
+        self.assertEqual(len(res["tracks"]), 1)
+        self.assertEqual(res["tracks"][0]["uri"], "spotify:track:t1")
+        self.assertIn(json.dumps('lofi "chill"; alert(1)'), captured["expr"])
+
+    def test_rpc_search_spotify_prefers_cdp_on_spotify_client(self):
+        import asyncio
+        from py_modules import rpc_library
+
+        plugin = SimpleNamespace(
+            _settings={"audio_backend": "spotify_client"},
+            _spotify_client_process=MagicMock(poll=MagicMock(return_value=None)),
+            _liked_cache={"t1": True},
+            _ensure_token=AsyncMock(return_value="tok-1"),
+        )
+        cdp_payload = {
+            "ok": True,
+            "tracks": [{"id": "t1", "name": "Track One", "uri": "spotify:track:t1"}],
+            "artists": [],
+            "albums": [],
+            "playlists": [],
+            "shows": [],
+            "episodes": [],
+        }
+
+        with patch.object(rpc_library, "cdp_search", return_value=cdp_payload) as mock_cdp, patch.object(
+            rpc_library, "_spotify_api_request"
+        ) as mock_api:
+            res = asyncio.run(rpc_library.search_spotify(plugin, "lofi", "track", 10, 0))
+
+        self.assertTrue(res["ok"])
+        self.assertTrue(res["tracks"][0]["is_liked"])
+        mock_cdp.assert_called_once()
+        mock_api.assert_not_called()
 
 
 if __name__ == "__main__":

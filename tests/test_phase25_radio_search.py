@@ -208,7 +208,7 @@ class TestStartRadioWaterfall(unittest.IsolatedAsyncioTestCase):
             if endpoint == "search":
                 raise urllib.error.HTTPError("https://api.spotify.com", 403, "Forbidden", {}, None)
             if endpoint == "artists/art-fb/albums":
-                self.assertEqual(params, {"limit": 3, "include_groups": "album,single"})
+                self.assertEqual(params, {"limit": 1, "include_groups": "album,single"})
                 return {"items": [{"id": "alb-fb-1"}]}
             if endpoint == "albums/alb-fb-1/tracks":
                 self.assertEqual(params, {"limit": 10})

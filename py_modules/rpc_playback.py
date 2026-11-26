@@ -1,6 +1,8 @@
 import asyncio
+from collections import OrderedDict
 import os
 import socket
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -21,9 +23,21 @@ from py_modules.eco import read_power_supply_state
 from py_modules.engine import _cdp_set_playback_speed, _cdp_toggle_like_track
 from py_modules.images import _image_url
 from py_modules.spotify import (
+    SpotifyRateLimitError,
     _spotify_api_request,
     _parse_spotify_error,
 )
+
+_RADIO_CACHE_LOCK = threading.Lock()
+_RADIO_CACHE_TTL_S: float = 300.0
+_RADIO_CACHE_MAX_SIZE: int = 32
+_RADIO_CACHE: OrderedDict[tuple[str, str], tuple[float, list[str], str]] = OrderedDict()
+
+
+def _reset_radio_cache() -> None:
+    """Clear the in-memory start_radio URI cache (for tests)."""
+    with _RADIO_CACHE_LOCK:
+        _RADIO_CACHE.clear()
 
 
 async def auto_transfer_and_play(plugin, token: str, device_id: str = "") -> dict:
@@ -1184,16 +1198,29 @@ async def start_radio(
     resolved_artist_name = (artist_name or "").strip()
     resolved_seed_name = (seed_name or "").strip()
 
+    radio_cache_key = (norm_type, safe_id)
+    with _RADIO_CACHE_LOCK:
+        cached_radio = _RADIO_CACHE.get(radio_cache_key)
+        if cached_radio is not None:
+            expires_at, cached_uris, cached_tier = cached_radio
+            if time.monotonic() < expires_at and cached_uris:
+                _RADIO_CACHE.move_to_end(radio_cache_key)
+                candidate_uris = list(cached_uris)
+                tier_used = cached_tier or "cache"
+            else:
+                del _RADIO_CACHE[radio_cache_key]
+
     # Tier 1: CDP station radio hook (stubbed until Phase 26)
-    try:
-        tier1 = await _try_cdp_station_radio(plugin, norm_type, clean_id, norm_uri)
-        if isinstance(tier1, list):
-            candidate_uris = _dedupe_uris(tier1)
-            if candidate_uris:
-                tier_used = "cdp"
-    except Exception as e:
-        decky.logger.warning("start_radio Tier 1 CDP failed: %s", e)
-        candidate_uris = []
+    if not candidate_uris:
+        try:
+            tier1 = await _try_cdp_station_radio(plugin, norm_type, clean_id, norm_uri)
+            if isinstance(tier1, list):
+                candidate_uris = _dedupe_uris(tier1)
+                if candidate_uris:
+                    tier_used = "cdp"
+        except Exception as e:
+            decky.logger.warning("start_radio Tier 1 CDP failed: %s", e)
+            candidate_uris = []
 
     # Tier 2: Web API /v1/recommendations (fallthrough on 403/404/empty)
     if not candidate_uris:
@@ -1243,6 +1270,8 @@ async def start_radio(
                 candidate_uris = _dedupe_uris(rec_uris)
                 if candidate_uris:
                     tier_used = "recommendations"
+        except SpotifyRateLimitError:
+            raise
         except Exception as e:
             decky.logger.warning("start_radio Tier 2 recommendations failed: %s", e)
             candidate_uris = []
@@ -1262,6 +1291,8 @@ async def start_radio(
                     if artists and isinstance(artists[0], dict):
                         resolved_artist_id = resolved_artist_id or (artists[0].get("id") or "")
                         resolved_artist_name = resolved_artist_name or (artists[0].get("name") or "")
+            except SpotifyRateLimitError:
+                raise
             except Exception as e:
                 decky.logger.warning("start_radio Tier 3 track lookup failed: %s", e)
 
@@ -1313,6 +1344,8 @@ async def start_radio(
                             {"limit": 10, "offset": 10},
                         )
                         mix_tracks.extend(_extract_track_pairs((pl_page2 or {}).get("items", [])))
+            except SpotifyRateLimitError:
+                raise
             except Exception as e:
                 decky.logger.warning("start_radio Tier 3 playlist radio failed: %s", e)
 
@@ -1334,6 +1367,8 @@ async def start_radio(
                     mix_tracks.extend(
                         _extract_track_pairs(((broad_data or {}).get("tracks") or {}).get("items", []))
                     )
+                except SpotifyRateLimitError:
+                    raise
                 except Exception as e:
                     decky.logger.warning("start_radio Tier 3 broad search failed: %s", e)
 
@@ -1367,6 +1402,8 @@ async def start_radio(
                     mix_tracks.extend(
                         _extract_track_pairs(((genre_data or {}).get("tracks") or {}).get("items", []))
                     )
+            except SpotifyRateLimitError:
+                raise
             except Exception as e:
                 decky.logger.warning("start_radio Tier 3 genre search failed: %s", e)
 
@@ -1383,6 +1420,8 @@ async def start_radio(
                 for t in ((top_data or {}).get("tracks") or []):
                     if isinstance(t, dict) and isinstance(t.get("uri"), str) and t.get("uri"):
                         seed_artist_uris.append(t["uri"])
+            except SpotifyRateLimitError:
+                raise
             except Exception as e:
                 decky.logger.warning("start_radio Tier 3 top-tracks failed: %s", e)
                 if not resolved_artist_name and cached_art_info is None:
@@ -1396,6 +1435,8 @@ async def start_radio(
                         if isinstance(art_info, dict):
                             cached_art_info = art_info
                             resolved_artist_name = art_info.get("name", "") or ""
+                    except SpotifyRateLimitError:
+                        raise
                     except Exception as art_err:
                         decky.logger.warning("start_radio Tier 3 artist lookup failed: %s", art_err)
 
@@ -1416,6 +1457,8 @@ async def start_radio(
                         if isinstance(t, dict) and isinstance(t.get("uri"), str) and t.get("uri"):
                             seed_artist_uris.append(t["uri"])
                     seed_artist_uris = _dedupe_uris(seed_artist_uris)
+                except SpotifyRateLimitError:
+                    raise
                 except Exception as e:
                     decky.logger.warning("start_radio Tier 3 search failed: %s", e)
 
@@ -1427,7 +1470,7 @@ async def start_radio(
                     f"artists/{safe_art_id}/albums",
                     token,
                     "GET",
-                    {"limit": 3, "include_groups": "album,single"},
+                    {"limit": 1, "include_groups": "album,single"},
                 )
                 for alb in (albums_data or {}).get("items", []) or []:
                     if not isinstance(alb, dict):
@@ -1447,8 +1490,9 @@ async def start_radio(
                         if isinstance(t, dict) and isinstance(t.get("uri"), str) and t.get("uri"):
                             seed_artist_uris.append(t["uri"])
                     seed_artist_uris = _dedupe_uris(seed_artist_uris)
-                    if len(mix_tracks) + len(seed_artist_uris) >= 20:
-                        break
+                    break
+            except SpotifyRateLimitError:
+                raise
             except Exception as e:
                 decky.logger.warning("start_radio Tier 3 artist albums fallback failed: %s", e)
 
@@ -1464,6 +1508,8 @@ async def start_radio(
                 for item in (alb_data or {}).get("items", []) or []:
                     if isinstance(item, dict) and isinstance(item.get("uri"), str) and item.get("uri"):
                         album_track_uris.append(item["uri"])
+            except SpotifyRateLimitError:
+                raise
             except Exception as e:
                 decky.logger.warning("start_radio Tier 3 album tracks fallback failed: %s", e)
 
@@ -1485,6 +1531,16 @@ async def start_radio(
 
     if not candidate_uris:
         return {"ok": False, "error": "Could not start radio — please try again."}
+
+    with _RADIO_CACHE_LOCK:
+        _RADIO_CACHE[radio_cache_key] = (
+            time.monotonic() + _RADIO_CACHE_TTL_S,
+            list(candidate_uris),
+            tier_used or "synthesis",
+        )
+        _RADIO_CACHE.move_to_end(radio_cache_key)
+        while len(_RADIO_CACHE) > _RADIO_CACHE_MAX_SIZE:
+            _RADIO_CACHE.popitem(last=False)
 
     if norm_type == "track" and norm_uri:
         final_uris = [norm_uri] + [u for u in candidate_uris if u != norm_uri]

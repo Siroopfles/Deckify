@@ -27,6 +27,7 @@ from py_modules.cdp_bridge import (
     cdp_fetch_browse_categories,
     cdp_fetch_discovery_mixes,
     cdp_get_playlist_tracks,
+    cdp_search,
     cdp_set_playlist_mix,
     is_spotify_client_running,
     load_discovery_mixes_cache,
@@ -1532,12 +1533,33 @@ async def search_spotify(
             "shows": [],
             "episodes": [],
         }
+    final_limit = 10 if limit <= 0 else max(1, min(int(limit), 10))
+    final_offset = max(0, int(offset))
+
+    if cdp_bridge.is_spotify_client_running(plugin):
+        try:
+            cdp_res = await _exec(cdp_search, query, types, final_limit, final_offset)
+            if isinstance(cdp_res, dict) and cdp_res.get("ok") and any(
+                cdp_res.get(k) for k in ("tracks", "artists", "albums", "playlists", "shows", "episodes")
+            ):
+                liked_cache = getattr(plugin, "_liked_cache", None)
+                for t in cdp_res.get("tracks") or []:
+                    if isinstance(t, dict) and "is_liked" not in t:
+                        tid = t.get("id")
+                        if isinstance(liked_cache, dict) and tid in liked_cache:
+                            t["is_liked"] = bool(liked_cache[tid])
+                        elif isinstance(liked_cache, (set, frozenset)) and tid in liked_cache:
+                            t["is_liked"] = True
+                        else:
+                            t["is_liked"] = False
+                return cdp_res
+        except Exception as cdp_err:
+            decky.logger.debug("cdp_search failed, falling back to Web API: %s", cdp_err)
+
     token = await plugin._ensure_token()
     if not token:
         return {"ok": False, "error": "Not authenticated"}
     try:
-        final_limit = 10 if limit <= 0 else max(1, min(int(limit), 10))
-        final_offset = max(0, int(offset))
         try:
             data = await _exec(
                 _spotify_api_request, "search", token, "GET",

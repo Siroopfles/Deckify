@@ -1869,3 +1869,184 @@ def cdp_end_spotify_jam(
         "active": False,
         "error": (res.get("error") if isinstance(res, dict) else None) or "CDP SocialConnectAPI end failed",
     }
+
+
+def cdp_search(
+    query: str,
+    types: str = "track,artist,album,playlist",
+    limit: int = 10,
+    offset: int = 0,
+    port: int = SPOTIFY_CDP_PORT,
+    timeout: float = DEFAULT_CDP_TIMEOUT,
+    eval_fn=None,
+) -> dict:
+    """Query Spotify desktop SearchAPI over CDP and normalize into rpc_library.search_spotify shape."""
+    q_json = json.dumps(str(query or ""))
+    types_json = json.dumps(str(types or "track,artist,album,playlist"))
+    limit_json = json.dumps(max(1, min(int(limit or 10), 20)))
+    offset_json = json.dumps(max(0, int(offset or 0)))
+    body_js = (
+        f"const q = {q_json};\n"
+        f"const typesStr = {types_json};\n"
+        f"const limit = {limit_json};\n"
+        f"const offset = {offset_json};\n"
+        """
+    const searchApi = getService('SearchAPI');
+    if (!searchApi) return { ok: false, error: 'SearchAPI unavailable' };
+    let res = null;
+    if (typeof searchApi.search === 'function') {
+      res = await searchApi.search({ query: q, searchTerm: q, limit, offset, types: typesStr.split(',') });
+    } else if (typeof searchApi.getSearchResults === 'function') {
+      res = await searchApi.getSearchResults(q, { limit, offset });
+    } else {
+      return { ok: false, error: 'SearchAPI.search method not found' };
+    }
+    const root = res?.searchV2 || res?.data?.searchV2 || res || {};
+    const unwrap = (node) => {
+      if (!node) return null;
+      if (node.item?.data) return node.item.data;
+      if (node.data) return node.data;
+      return node;
+    };
+    const uriToId = (u) => (typeof u === 'string' && u.includes(':') ? u.split(':').pop() : '');
+
+    const rawTracks = root?.tracksV2?.items || root?.tracks?.items || [];
+    const tracks = [];
+    for (const raw of rawTracks) {
+      const t = unwrap(raw);
+      if (!t || (!t.uri && !t.id)) continue;
+      const uri = t.uri || (t.id ? 'spotify:track:' + t.id : '');
+      const id = t.id || uriToId(uri);
+      const artistsList = t.artists?.items || t.artists || [];
+      const firstArtist = artistsList[0]?.profile?.name ? { name: artistsList[0].profile.name, id: uriToId(artistsList[0].uri) } : (artistsList[0] || {});
+      const artistStr = artistsList.map((a) => a?.profile?.name || a?.name || '').filter(Boolean).join(', ');
+      const albumObj = t.albumOfTrack || t.album || {};
+      const img = parseImg(albumObj?.coverArt?.sources || albumObj?.images || t.images);
+      tracks.push({
+        id,
+        name: t.name || '',
+        artist: artistStr,
+        album: albumObj?.name || '',
+        artist_id: firstArtist?.id || uriToId(firstArtist?.uri) || '',
+        album_id: albumObj?.id || uriToId(albumObj?.uri) || '',
+        uri,
+        duration_ms: Number(t.duration?.totalMilliseconds ?? t.duration_ms ?? 0),
+        image_url: img,
+        artwork_url: img,
+      });
+    }
+
+    const rawArtists = root?.artists?.items || [];
+    const artists = [];
+    for (const raw of rawArtists) {
+      const a = unwrap(raw);
+      if (!a) continue;
+      const uri = a.uri || (a.id ? 'spotify:artist:' + a.id : '');
+      const id = a.id || uriToId(uri);
+      const img = parseImg(a.visuals?.avatarImage?.sources || a.images);
+      artists.push({
+        id,
+        name: a.profile?.name || a.name || '',
+        uri,
+        image_url: img,
+      });
+    }
+
+    const rawAlbums = root?.albumsV2?.items || root?.albums?.items || [];
+    const albums = [];
+    for (const raw of rawAlbums) {
+      const a = unwrap(raw);
+      if (!a) continue;
+      const uri = a.uri || (a.id ? 'spotify:album:' + a.id : '');
+      const id = a.id || uriToId(uri);
+      const artistsList = a.artists?.items || a.artists || [];
+      const artistStr = artistsList.map((x) => x?.profile?.name || x?.name || '').filter(Boolean).join(', ');
+      const img = parseImg(a.coverArt?.sources || a.images);
+      albums.push({
+        id,
+        name: a.name || '',
+        artist: artistStr,
+        image_url: img,
+        artwork_url: img,
+        track_count: Number(a.total_tracks ?? a.tracks?.totalCount ?? 0),
+        uri,
+      });
+    }
+
+    const rawPlaylists = root?.playlists?.items || [];
+    const playlists = [];
+    for (const raw of rawPlaylists) {
+      const p = unwrap(raw);
+      if (!p) continue;
+      const uri = p.uri || (p.id ? 'spotify:playlist:' + p.id : '');
+      const id = p.id || uriToId(uri);
+      const img = parseImg(p.images?.items?.[0]?.sources || p.images);
+      playlists.push({
+        id,
+        name: p.name || '',
+        uri,
+        image_url: img,
+        artwork_url: img,
+        track_count: Number(p.items?.total ?? p.tracks?.total ?? p.content?.totalCount ?? 0),
+        owner_id: p.ownerV2?.data?.username || p.owner?.id || '',
+      });
+    }
+
+    const rawShows = root?.shows?.items || root?.podcasts?.items || [];
+    const shows = [];
+    for (const raw of rawShows) {
+      const s = unwrap(raw);
+      if (!s) continue;
+      const uri = s.uri || (s.id ? 'spotify:show:' + s.id : '');
+      const id = s.id || uriToId(uri);
+      const img = parseImg(s.coverArt?.sources || s.images);
+      shows.push({
+        id,
+        name: s.name || '',
+        publisher: s.publisher?.name || s.publisher || '',
+        image_url: img,
+        total_episodes: Number(s.total_episodes ?? 0),
+        uri,
+      });
+    }
+
+    const rawEpisodes = root?.episodes?.items || [];
+    const episodes = [];
+    for (const raw of rawEpisodes) {
+      const ep = unwrap(raw);
+      if (!ep) continue;
+      const uri = ep.uri || (ep.id ? 'spotify:episode:' + ep.id : '');
+      const id = ep.id || uriToId(uri);
+      const img = parseImg(ep.coverArt?.sources || ep.images);
+      episodes.push({
+        id,
+        name: ep.name || '',
+        show_name: ep.podcastV2?.data?.name || ep.show?.name || '',
+        uri,
+        duration_ms: Number(ep.duration?.totalMilliseconds ?? ep.duration_ms ?? 0),
+        release_date: ep.releaseDate?.isoString || ep.release_date || '',
+        image_url: img,
+        artwork_url: img,
+        resume_position_ms: Number(ep.playedState?.playPositionMilliseconds ?? ep.resume_point?.resume_position_ms ?? 0),
+        fully_played: Boolean(ep.playedState?.state === 'PLAYED' || ep.resume_point?.fully_played),
+      });
+    }
+
+    return { ok: true, tracks, artists, albums, playlists, shows, episodes };
+    """
+    )
+    res = evaluate_with_registry(body_js, port=port, timeout=timeout, eval_fn=eval_fn)
+    if isinstance(res, dict) and res.get("ok"):
+        return {
+            "ok": True,
+            "tracks": res.get("tracks") or [],
+            "artists": res.get("artists") or [],
+            "albums": res.get("albums") or [],
+            "playlists": res.get("playlists") or [],
+            "shows": res.get("shows") or [],
+            "episodes": res.get("episodes") or [],
+        }
+    return {
+        "ok": False,
+        "error": (res.get("error") if isinstance(res, dict) else None) or "CDP SearchAPI failed",
+    }
