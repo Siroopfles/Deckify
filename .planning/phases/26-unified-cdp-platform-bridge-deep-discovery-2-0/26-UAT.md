@@ -1,5 +1,5 @@
 ---
-status: complete
+status: diagnosed
 phase: 26-unified-cdp-platform-bridge-deep-discovery-2-0
 source: [26-VERIFICATION.md, 26-08-SUMMARY.md, 26-09-SUMMARY.md]
 started: 2026-11-25T18:28:00Z
@@ -72,8 +72,21 @@ blocked: 0
   reason: "User reported: Bij Made for you staat alleen de Discover Weekly. De rest ontbreekt allemaal. Blend staat wel in aparte rij. Kan daylist niet openen omdat ik die niet zie dus. Ik zie in de now playing tab een ai dj button maar ook als de AI dj playlist niet afgespeelt word zie ik die ook... dat is niet goed. Ook word het plaatje enzo niet geupdate als DJ X aan het word is naar het plaatje van dj x en staat er bijvoorbeeld niet \"Welcome\" of \"up next\" of iets anders wat er in de spotify client wel staat. Met Librespot geeft hij aan dat hij de official client nodig heeft"
   severity: major
   test: 1
-  artifacts: []
-  missing: []
+  root_cause: "Three interrelated causes: (1) cdp_bridge.py:classifyKind only matches name (missing Daylist dynamic titles), HomeAPI/GraphQL/SearchAPI errors are swallowed leaving only RootlistAPI, and rpc_library.py:_fetch_made_for_you_section overwrites discovery_mixes.json with partial results; (2) NowPlayingTab.tsx:renderAiDjButton renders whenever onPlayAiDj is passed rather than gating on aiDjActive; (3) cdp_bridge.py:cdp_get_player_state omits interlude image_url/title/subtitle, and main.py:_poll_playback skips cdp_get_player_state when already in AI DJ context and returns early on item is None without updating _track_meta."
+  artifacts:
+    - path: "py_modules/cdp_bridge.py"
+      issue: "classifyKind misses Daylist subtitle/URI; cdp_get_player_state omits interlude image_url and title/subtitle."
+    - path: "py_modules/rpc_library.py"
+      issue: "_fetch_made_for_you_section overwrites discovery_mixes.json with partial mixes; _search_missing_core_mixes breaks on 429."
+    - path: "src/components/tabs/NowPlayingTab.tsx"
+      issue: "renderAiDjButton does not gate visibility on aiDjActive."
+    - path: "main.py"
+      issue: "_poll_playback skips cdp_get_player_state when already in AI DJ context and returns early when item is None."
+  missing:
+    - "Match Daylist via subtitle/URI in classifyKind and merge partial discovery mixes with cache in _fetch_made_for_you_section."
+    - "Gate AI DJ button in NowPlayingTab on aiDjActive."
+    - "Return interlude image_url/title/subtitle from cdp_get_player_state and update _track_meta + emit track_metadata in _poll_playback."
+  debug_session: ".planning/debug/phase-26-uat-diagnosis.md"
 
 - gap_id: G-26-3
   truth: "Starting Song Radio on spotify_client resolves native station tracks via CDP; on librespot it fast-fails without delay to Tier 2/3. In SearchTab, the 12 Gaming & Mood tiles appear at the top (with optional Browse Categories below on spotify_client), each result category has its own Load More row that expands only that category while keeping D-pad focus inside the section, and pressing B with a non-empty search query clears back to idle and shows 'A Select · B Clear Search · L1/R1 Tabs' before closing on a second B press."
@@ -81,5 +94,23 @@ blocked: 0
   reason: "User reported: Start radio werkt op spotify client, op libre geeft hij error maar ik denk dat ik te veel api request gestuurd heb naar spotify. Search tab doet het ook even nog niet ofzo maar misschien ook door api rate limit? Dat b drukken met search werkt wel. Misschien moeten we ff gaan kijken waar alle api request vandaan komen en of dat meer gelimit kan worden maar ik denk dan heel de aplicatie breed"
   severity: major
   test: 2
-  artifacts: []
-  missing: []
+  root_cause: "No proactive rate-limiter or GET cache in py_modules/spotify.py (global 300s circuit breaker locks out the whole app on any 429), 3.0s 24/7 me/player polling in main.py:_poll_api_loop when EventServer.is_healthy() is false on spotify_client, 13-call unthrottled Tier 3 radio cascade in rpc_playback.py:start_radio swallowing 429s, duplicate SearchTab queries (immediate runSearch + 350ms debounced useEffect) with unused CDP SearchAPI, and 10s pollers in DeckifyExpandedModal.tsx (loadQueue/loadRecent)."
+  artifacts:
+    - path: "py_modules/spotify.py"
+      issue: "Missing token-bucket rate limiter, short-TTL GET cache, and in-flight deduplication; global 300s circuit breaker."
+    - path: "main.py"
+      issue: "_poll_api_loop polls me/player every 3s continuously on spotify_client instead of backing off or using CDP PlayerAPI.getState()."
+    - path: "py_modules/rpc_playback.py"
+      issue: "Tier 3 start_radio fires up to 13 sequential Web API calls and swallows SpotifyRateLimitError."
+    - path: "src/components/tabs/SearchTab.tsx"
+      issue: "Tile/history clicks fire immediate runSearch plus 350ms debounced useEffect (2x requests)."
+    - path: "py_modules/rpc_library.py"
+      issue: "search() never uses CDP SearchAPI on spotify_client."
+    - path: "src/components/DeckifyExpandedModal.tsx"
+      issue: "10s polling on loadQueue and loadRecent."
+  missing:
+    - "Add shared rate-limiter, short-TTL GET cache, and in-flight deduplication in py_modules/spotify.py."
+    - "Back off _poll_api_loop when idle/paused and use local CDP PlayerAPI.getState() on spotify_client."
+    - "Stop on SpotifyRateLimitError and cap/cache Tier 3 radio calls in rpc_playback.py."
+    - "Deduplicate SearchTab triggers and use CDP SearchAPI on spotify_client."
+  debug_session: ".planning/debug/phase-26-uat-diagnosis.md"

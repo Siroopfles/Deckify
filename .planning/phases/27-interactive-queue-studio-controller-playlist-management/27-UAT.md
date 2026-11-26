@@ -1,5 +1,5 @@
 ---
-status: complete
+status: diagnosed
 phase: 27-interactive-queue-studio-controller-playlist-management
 source: [27-01-SUMMARY.md, 27-02-SUMMARY.md, 27-03-SUMMARY.md, 27-04-SUMMARY.md, 27-05-SUMMARY.md, 27-06-SUMMARY.md, 27-07-SUMMARY.md, 27-08-SUMMARY.md]
 started: 2026-11-25T21:23:00Z
@@ -231,8 +231,17 @@ blocked: 0
   reason: "User reported: Ik kan hem verplaatsen maar het voelt nog een beetje janky aan en hij selecteerd af en toe ook het andere nummer waardoor je een groene en een witte selectie hebt. Toevoeging: Als ik A klik terwijl ik aan het slepen was deed hij ineens een nummer afspelen (soms)."
   severity: major
   test: 1
-  artifacts: []
-  missing: []
+  root_cause: "Nested <InteractiveRow> buttons inside QueueTab's outer <InteractiveRow data-row-key> + scheduleRowFocus only calling DOM .focus() in rAF allow Steam's FocusNavController white focusHalo to drift onto adjacent rows or child buttons while isGrabbed stays on the grabbed row (dual green+white selection); pressing A when white focus is on another row triggers that row's onClick to play a track instead of dropping."
+  artifacts:
+    - path: "src/components/tabs/QueueTab.tsx"
+      issue: "Nested InteractiveRow buttons and row-level onClick gating drop vs play."
+    - path: "src/hooks/useGrabMoveOrder.ts"
+      issue: "scheduleRowFocus only calls native DOM .focus() in rAF without Steam FocusNavController lock."
+    - path: "src/components/common/InteractiveRow.tsx"
+      issue: "focusHalo renders on adjacent rows even while grabbedKey is active."
+  missing:
+    - "Intercept any row onClick/onActivate while grabbedKey is active to commitGrab(), hide/disable inline buttons during grab, and suppress focusHalo on non-grabbed rows."
+  debug_session: ".planning/debug/phase-27-uat-diagnosis.md"
 
 - gap_id: G-27-7
   truth: "Activating the inline ✕ button on an upcoming track (or Y → \"Remove from Queue\") removes only that single track instance while keeping the currently playing track uninterrupted (no audio stutter), and Clear Queue keeps context tracks cleared even after the current track finishes."
@@ -240,8 +249,16 @@ blocked: 0
   reason: "User reported: Okay remove track werkt alleen is er een audio stutter van een paar mili seconden als ik dat doe. clear queue werkt ook helemaal. Toevoeging: bij niet zelf toegevoegde nummers (context) verdwijnt de queue na Clear Queue, maar als het huidige nummer afloopt gaat hij wel verder met de context en verschijnt de queue weer."
   severity: minor
   test: 2
-  artifacts: []
-  missing: []
+  root_cause: "remove_queue_track falls back to _mutate_queue_via_uri_slice (PUT me/player/play with current_track_uri + position_ms) whenever cdp_remove_from_queue fails on context tracks or empty uid, restarting playback and causing a brief audio stutter; clear_queue skips _mutate_queue_via_uri_slice(plugin, token, []) when cdp_clear_queue's hasContextTracks heuristic is false, so _optimistic_queue_snapshot masks the queue until the current track ends and playback resumes from the un-cleared context."
+  artifacts:
+    - path: "py_modules/cdp_bridge.py"
+      issue: "cdp_remove_from_queue only checks nextTracks; cdp_clear_queue hasContextTracks heuristic misses active context."
+    - path: "py_modules/rpc_playback.py"
+      issue: "remove_queue_track falls back to PUT me/player/play (audio stutter); clear_queue relies on hasContextTracks instead of checking active context."
+  missing:
+    - "Verify active context via me/player / PlayerAPI.getState() in clear_queue and clear context so playback does not resume into the old context."
+    - "Use CDP PlayerAPI for context-track removal on spotify_client where possible to avoid restarting me/player/play."
+  debug_session: ".planning/debug/phase-27-uat-diagnosis.md"
 
 - gap_id: G-27-8
   truth: "PlaylistsTab detail view supports sorting tracks (custom order, title, artist, album, duration, date added) and smooth Grab/Move Mode without dual selection or janky drop behavior."
@@ -249,5 +266,19 @@ blocked: 0
   reason: "User reported: Filter werkt ook maar ik mis nog de sort knoppen als tijd, title, custom order, date added, album. Remove van playlist werkt. Hier is met verplaatsen hetzelfde probleem van 2 selecties en droppen werkt ook niet altijd even goed weer janky"
   severity: major
   test: 4
-  artifacts: []
-  missing: []
+  root_cause: "PlaylistsTab.tsx renderPlaylistDetailView lacks sort controls and rpc_library.py:get_playlist_tracks / TrackItem omit added_at; TrackRowItem.tsx shares the same nested InteractiveRow + row-level onClick Grab/Move bug as QueueTab; and DeckifyExpandedModal.tsx:handleReorderPlaylistTrack reads prevTracks = playlistTracks after useGrabMoveOrder already mutated it, passing swapped/stale uids."
+  artifacts:
+    - path: "src/components/tabs/PlaylistsTab.tsx"
+      issue: "Missing track sort state and horizontal sort chip bar (Custom, Title, Album, Duration, Date Added)."
+    - path: "py_modules/rpc_library.py"
+      issue: "get_playlist_tracks omits added_at from Spotify playlist item wrapper."
+    - path: "src/types.ts"
+      issue: "TrackItem lacks added_at?: string."
+    - path: "src/components/common/TrackRowItem.tsx"
+      issue: "Nested InteractiveRow buttons and row-level onClick cause dual selection and janky drops."
+    - path: "src/components/DeckifyExpandedModal.tsx"
+      issue: "handleReorderPlaylistTrack reads playlistTracks after mutation instead of pre-grab snapshot."
+  missing:
+    - "Extract added_at in get_playlist_tracks, add to TrackItem, and render sort chip bar in PlaylistsTab (disabling canReorder when sortBy !== 'custom')."
+    - "Apply Grab/Move focus-lock + global-A-drop fix to TrackRowItem/PlaylistsTab and pass pre-grab snapshot uids in handleReorderPlaylistTrack."
+  debug_session: ".planning/debug/phase-27-uat-diagnosis.md"
