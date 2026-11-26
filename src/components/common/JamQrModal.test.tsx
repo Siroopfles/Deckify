@@ -257,6 +257,32 @@ describe("JamQrCard", () => {
     (buttons[0].props.onClick as () => void)();
     expect(onSwitchAndStartJam).toHaveBeenCalledTimes(1);
   });
+
+  it("never falls back to track deep-link when audioBackend=spotify_client and join_url is missing, and renders Retry Jam", () => {
+    const onRetryJam = vi.fn();
+    const tree = JamQrCard(
+      makeCardProps({
+        audioBackend: "spotify_client",
+        jamSession: { active: true, join_url: null, is_host: true },
+        shareUri: "spotify:track:xyz789",
+        loading: false,
+        onRetryJam,
+      }),
+    );
+
+    expect(findNodes(tree, (n) => n.type === QRCodeSVG)).toHaveLength(0);
+    const text = collectText(tree);
+    expect(text).not.toContain("open.spotify.com/track");
+    expect(text).toContain("Could not retrieve Spotify Jam invite link");
+
+    const retryRows = findNodes(
+      tree,
+      (n) => n.type === InteractiveRow && collectText(n).includes("Retry Jam"),
+    );
+    expect(retryRows).toHaveLength(1);
+    (retryRows[0].props.onClick as () => void)();
+    expect(onRetryJam).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("JamQrModal focus & controls", () => {

@@ -21,6 +21,7 @@ export interface JamQrCardProps {
   shareLabel?: string | null;
   loading?: boolean;
   onSwitchAndStartJam?: () => void;
+  onRetryJam?: () => void;
   compact?: boolean;
 }
 
@@ -34,6 +35,7 @@ export interface JamQrModalProps {
   onEndJam?: () => void;
   onLeaveJam?: () => void;
   onSwitchAndStartJam?: () => void;
+  onRetryJam?: () => void;
 }
 
 function renderQrBody(qrUrl: string, loading: boolean, compact: boolean, errorMsg?: string | null) {
@@ -151,13 +153,15 @@ export const JamQrCard: FC<JamQrCardProps> = ({
   shareLabel,
   loading = false,
   onSwitchAndStartJam,
+  onRetryJam,
   compact = false,
 }) => {
   const isSpotifyClient = audioBackend === "spotify_client";
-  const qrUrl =
-    isSpotifyClient && jamSession?.join_url
-      ? jamSession.join_url
-      : buildSpotifyDeepLink(shareUri);
+  const qrUrl = isSpotifyClient ? (jamSession?.join_url || "") : buildSpotifyDeepLink(shareUri);
+  const effectiveError =
+    isSpotifyClient && !loading && !qrUrl
+      ? (jamSession?.error || "Could not retrieve Spotify Jam invite link. Ensure Official Spotify Client is ready and retry.")
+      : jamSession?.error;
 
   return (
     <div
@@ -172,9 +176,14 @@ export const JamQrCard: FC<JamQrCardProps> = ({
       }}
     >
       {renderGuestBadge(jamSession)}
-      {renderQrBody(qrUrl, loading, compact, jamSession?.error)}
+      {renderQrBody(qrUrl, loading, compact, effectiveError)}
       {shareLabel && <div style={{ fontSize: 14, fontWeight: 700, ...ELLIPSIS_TEXT_STYLE }}>{shareLabel}</div>}
       {qrUrl && <div style={{ fontSize: 12, opacity: 0.7, ...ELLIPSIS_TEXT_STYLE }}>{qrUrl}</div>}
+      {isSpotifyClient && !qrUrl && !loading && onRetryJam && (
+        <InteractiveRow tabIndex={0} onClick={onRetryJam} style={{ justifyContent: "center", gap: 8 }}>
+          <span>Retry Jam</span>
+        </InteractiveRow>
+      )}
       {!isSpotifyClient && renderLibrespotNotice(onSwitchAndStartJam)}
     </div>
   );
@@ -225,6 +234,7 @@ export const JamQrModal: FC<JamQrModalProps> = ({
   onEndJam,
   onLeaveJam,
   onSwitchAndStartJam,
+  onRetryJam,
 }) => {
   const modalContainerRef = useRef<HTMLDivElement | null>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
@@ -289,6 +299,7 @@ export const JamQrModal: FC<JamQrModalProps> = ({
           shareLabel={shareLabel}
           loading={loading}
           onSwitchAndStartJam={onSwitchAndStartJam}
+          onRetryJam={onRetryJam}
         />
 
         {renderModalActions({ isActive, isHost, onClose, onEndJam, onLeaveJam })}
