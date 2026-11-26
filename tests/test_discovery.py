@@ -900,6 +900,65 @@ class TestDiscoveryAlgorithmicMixes(unittest.IsolatedAsyncioTestCase):
 
         mock_search.assert_not_called()
 
+    async def test_fetch_made_for_you_fills_missing_core_mixes_when_cdp_partial(self):
+        self.plugin._settings["audio_backend"] = "spotify_client"
+        self.plugin._spotify_client_process = SimpleNamespace(poll=lambda: None)
+        cdp_mixes = {
+            "ok": True,
+            "items": [
+                {
+                    "id": "37i9dQZF1EP6YuccBxUyC1",
+                    "uri": "spotify:playlist:37i9dQZF1EP6YuccBxUyC1",
+                    "name": "daylist",
+                    "subtitle": "Daylist",
+                    "owner_id": "spotify",
+                    "kind": "core",
+                },
+                {
+                    "id": "dw1",
+                    "uri": "spotify:playlist:dw1",
+                    "name": "Discover Weekly",
+                    "owner_id": "spotify",
+                    "kind": "core",
+                },
+                {
+                    "id": "rr1",
+                    "uri": "spotify:playlist:rr1",
+                    "name": "Release Radar",
+                    "owner_id": "spotify",
+                    "kind": "core",
+                },
+            ],
+        }
+        extra = [
+            {
+                "id": "dm1",
+                "uri": "spotify:playlist:dm1",
+                "name": "Daily Mix 1",
+                "owner_id": "spotify",
+                "kind": "core",
+            },
+            {
+                "id": "or1",
+                "uri": "spotify:playlist:or1",
+                "name": "On Repeat",
+                "owner_id": "spotify",
+                "kind": "core",
+            },
+        ]
+        with patch.object(rpc_library, "cdp_fetch_discovery_mixes", return_value=cdp_mixes), \
+             patch.object(rpc_library, "_spotify_api_request", return_value={"items": [], "total": 0}), \
+             patch.object(rpc_library, "load_discovery_mixes_cache", return_value={}), \
+             patch.object(rpc_library, "save_discovery_mixes_cache"), \
+             patch.object(rpc_library, "cdp_get_playlist_tracks", return_value={"ok": False}), \
+             patch.object(rpc_library, "_search_missing_core_mixes", new=AsyncMock(return_value=extra)) as mock_search:
+            res = await rpc_library._fetch_made_for_you_section("tok", self.plugin)
+
+        mock_search.assert_awaited_once()
+        names = [m["name"] for m in res["made_for_you"]]
+        self.assertIn("Daily Mix 1", names)
+        self.assertIn("On Repeat", names)
+
 
 class TestAiDjPollAndStatus(unittest.IsolatedAsyncioTestCase):
     async def test_poll_playback_ai_dj_interlude_and_get_status(self):

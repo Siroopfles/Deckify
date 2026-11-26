@@ -617,6 +617,66 @@ class TestCdpBridge(unittest.TestCase):
         self.assertIn("now-playing-widget", expr)
         self.assertIn("document.title", expr)
 
+    def test_discovery_mixes_searchv2_unwrapping_and_cosmos_body(self):
+        captured = {}
+
+        def fake_eval(expr, port=9229, timeout=4.0):
+            captured["expr"] = expr
+            return {
+                "ok": True,
+                "warnings": [],
+                "items": [
+                    {
+                        "id": "37i9dQZF1E36xyz",
+                        "name": "Daily Mix 1",
+                        "uri": "spotify:playlist:37i9dQZF1E36xyz",
+                        "subtitle": "Artist A, Artist B",
+                        "owner": "spotify",
+                    },
+                    {
+                        "id": "37i9dQZF1Epxyz",
+                        "name": "On Repeat",
+                        "uri": "spotify:playlist:37i9dQZF1Epxyz",
+                        "subtitle": "Songs you love right now",
+                        "owner": "spotify",
+                    },
+                ],
+            }
+
+        res = cdp_bridge.cdp_fetch_discovery_mixes(eval_fn=fake_eval)
+        self.assertTrue(res["ok"])
+        self.assertEqual([i["kind"] for i in res["items"]], ["core", "core"])
+        expr = captured["expr"]
+        self.assertIn("types: ['PLAYLIST']", expr)
+        self.assertIn("searchV2", expr)
+        self.assertIn("ownerV2?.data?.username", expr)
+        self.assertIn("unwrapJson", expr)
+
+    def test_browse_categories_cosmos_card_representation_and_rest_fallback(self):
+        captured = {}
+
+        def fake_eval(expr, port=9229, timeout=4.0):
+            captured["expr"] = expr
+            return {
+                "ok": True,
+                "categories": [
+                    {
+                        "id": "gaming",
+                        "name": "<b>Gaming</b>",
+                        "image_url": "https://i.scdn.co/image/g1",
+                        "uri": "spotify:genre:gaming",
+                    }
+                ],
+            }
+
+        cats = cdp_bridge.cdp_fetch_browse_categories(eval_fn=fake_eval)
+        self.assertEqual(len(cats), 1)
+        self.assertEqual(cats[0]["name"], "Gaming")
+        expr = captured["expr"]
+        self.assertIn("cardRepresentation", expr)
+        self.assertIn("unwrapJson", expr)
+        self.assertIn("https://api.spotify.com/v1/browse/categories?limit=30", expr)
+
 
 if __name__ == "__main__":
     unittest.main()

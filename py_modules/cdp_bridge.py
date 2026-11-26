@@ -1210,6 +1210,7 @@ def cdp_fetch_browse_categories(
 
     const tokenProvider = getService('TokenProvider');
     const cosmos = getService('Cosmos');
+    const reqBuilder = getService('RequestBuilder');
     let accessToken = '';
     if (tokenProvider && typeof tokenProvider.loadToken === 'function') {
       try {
@@ -1218,20 +1219,33 @@ def cdp_fetch_browse_categories(
       } catch (e) {}
     }
 
+    const unwrapJson = (raw) => {
+      let val = raw;
+      if (val && typeof val === 'object' && 'body' in val && val.body !== undefined) {
+        val = val.body;
+      }
+      if (typeof val === 'string') {
+        try { val = JSON.parse(val); } catch (e) { return null; }
+      }
+      return val && typeof val === 'object' ? val : null;
+    };
+
     const extractBrowseNodes = (pfData) => {
-      const browseSections = pfData?.data?.browseStart?.sections?.items || pfData?.browseStart?.sections?.items || pfData?.data?.browse?.sections?.items || pfData?.sections || [];
+      const browseSections = pfData?.data?.browseStart?.sections?.items || pfData?.browseStart?.sections?.items || pfData?.data?.browse?.sections?.items || pfData?.browse?.sections?.items || pfData?.sections || [];
       for (const sec of (Array.isArray(browseSections) ? browseSections : [])) {
         const secItems = sec?.sectionItems?.items || sec?.items || [];
         for (const entry of (Array.isArray(secItems) ? secItems : [])) {
-          const card = entry?.content?.data?.data || entry?.content?.data || entry?.data?.data || entry?.data || entry;
-          if (card?.uri?.includes(':genre:') || card?.uri?.includes(':page:') || entry?.content?.__typename === 'BrowseSectionContainerWrapper' || card?.__typename === 'BrowseCategory' || card?.artwork || card?.title) {
+          const rawCard = entry?.content?.data?.data || entry?.content?.data || entry?.data?.data || entry?.data || entry;
+          const card = rawCard?.cardRepresentation || entry?.content?.data?.data?.cardRepresentation || entry?.content?.data?.cardRepresentation || rawCard?.data?.cardRepresentation || rawCard;
+          if (!card || typeof card !== 'object') continue;
+          if (card?.uri?.includes(':genre:') || card?.uri?.includes(':page:') || entry?.content?.__typename === 'BrowseSectionContainerWrapper' || card?.__typename === 'BrowseCategory' || card?.artwork || card?.title || rawCard?.cardRepresentation) {
             pushCat(card);
           }
         }
       }
     };
 
-    if (accessToken || cosmos) {
+    if (accessToken || cosmos || reqBuilder) {
       const browsePayload = {
         operationName: 'browseAll',
         variables: { pagePagination: { offset: 0, limit: 30 }, sectionPagination: { offset: 0, limit: 30 } },
@@ -1242,11 +1256,27 @@ def cdp_fetch_browse_categories(
           }
         }
       };
-      try {
-        let pfData = null;
-        if (cosmos && typeof cosmos.post === 'function') {
-          pfData = await cosmos.post('https://api-partner.spotify.com/pathfinder/v1/query', browsePayload);
-        } else if (accessToken) {
+      if (cosmos && typeof cosmos.post === 'function') {
+        try {
+          const raw = await cosmos.post('https://api-partner.spotify.com/pathfinder/v1/query', browsePayload);
+          const parsed = unwrapJson(raw);
+          if (parsed) extractBrowseNodes(parsed);
+        } catch (e) {}
+      }
+      if (categories.length === 0 && reqBuilder && typeof reqBuilder.build === 'function') {
+        try {
+          const resp = await reqBuilder.build()
+            .withHost('https://api-partner.spotify.com')
+            .withPath('/pathfinder/v1/query')
+            .withMethod('POST')
+            .withBody(browsePayload)
+            .send();
+          const parsed = unwrapJson(resp);
+          if (parsed) extractBrowseNodes(parsed);
+        } catch (e) {}
+      }
+      if (categories.length === 0 && accessToken) {
+        try {
           const resp = await fetch('https://api-partner.spotify.com/pathfinder/v1/query', {
             method: 'POST',
             headers: {
@@ -1256,11 +1286,11 @@ def cdp_fetch_browse_categories(
             body: JSON.stringify(browsePayload)
           });
           if (resp && resp.ok) {
-            pfData = await resp.json();
+            const parsed = unwrapJson(await resp.json());
+            if (parsed) extractBrowseNodes(parsed);
           }
-        }
-        if (pfData) extractBrowseNodes(pfData);
-      } catch (e) {}
+        } catch (e) {}
+      }
     }
 
     if (categories.length === 0) {
@@ -1292,6 +1322,20 @@ def cdp_fetch_browse_categories(
       }
     }
 
+    if (categories.length === 0 && accessToken) {
+      try {
+        const resp = await fetch('https://api.spotify.com/v1/browse/categories?limit=30', {
+          headers: { 'Authorization': 'Bearer ' + accessToken }
+        });
+        if (resp && resp.ok) {
+          const data = unwrapJson(await resp.json());
+          for (const c of (data?.categories?.items || [])) {
+            pushCat(c);
+          }
+        }
+      } catch (e) {}
+    }
+
     return { ok: true, categories };
     """
     res = evaluate_with_registry(body_js, port=port, timeout=timeout, eval_fn=eval_fn)
@@ -1302,7 +1346,7 @@ def cdp_fetch_browse_categories(
     for c in raw_cats:
         if not isinstance(c, dict):
             continue
-        name = str(c.get("name") or "").strip()
+        name = _strip_html(c.get("name") or "").strip()
         cid = str(c.get("id") or "").strip()
         if not name or not cid:
             continue
