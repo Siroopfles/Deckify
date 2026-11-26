@@ -98,6 +98,30 @@ class TestCdpQueueHelpers(unittest.TestCase):
         self.assertFalse(cdp_bridge.cdp_reorder_queue(-1, 2, eval_fn=fake_eval)["ok"])
         self.assertFalse(cdp_bridge.cdp_reorder_queue("bad", 2, eval_fn=fake_eval)["ok"])
 
+    def test_cdp_remove_from_queue_checks_future_tracks_and_captures_uid(self):
+        captured = {}
+
+        def fake_eval(expr, port=9229, timeout=4.0):
+            captured["expr"] = expr
+            return {"ok": True}
+
+        res = cdp_bridge.cdp_remove_from_queue("spotify:track:abc", eval_fn=fake_eval)
+        self.assertEqual(res, {"ok": True})
+        self.assertIn("futureTracks", captured["expr"])
+        self.assertIn("future", captured["expr"])
+        self.assertIn("matchedUid", captured["expr"])
+
+    def test_cdp_clear_queue_checks_active_context_uri(self):
+        captured = {}
+
+        def fake_eval(expr, port=9229, timeout=4.0):
+            captured["expr"] = expr
+            return {"ok": True, "hasContextTracks": True}
+
+        res = cdp_bridge.cdp_clear_queue(eval_fn=fake_eval)
+        self.assertEqual(res, {"ok": True, "has_context_tracks": True})
+        self.assertIn("context?.uri", captured["expr"])
+
 
 class TestQueueStudioRpc(unittest.IsolatedAsyncioTestCase):
     async def test_reorder_spotify_client_tries_cdp_then_falls_back_to_uri_slice(self):
@@ -381,6 +405,64 @@ class TestQueueStudioRpc(unittest.IsolatedAsyncioTestCase):
         with patch.object(rpc_playback, "_spotify_api_request", return_value={}):
             await rpc_playback.add_to_queue(plugin, "spotify:track:new")
         self.assertIsNone(plugin._queue_cleared_for_track_id)
+
+    async def test_clear_queue_checks_me_player_context_when_cdp_reports_false(self):
+        plugin = _make_plugin(backend="spotify_client", running=True)
+        api_calls = []
+
+        def fake_api_with_context(endpoint, token, method="GET", params=None, body=None):
+            api_calls.append((method, endpoint, body))
+            if method == "GET" and endpoint == "me/player":
+                return {
+                    "is_playing": True,
+                    "progress_ms": 8000,
+                    "context": {"uri": "spotify:playlist:abc"},
+                    "item": {"uri": "spotify:track:curr"},
+                }
+            return {}
+
+        with (
+            patch.object(
+                cdp_bridge,
+                "cdp_clear_queue",
+                return_value={"ok": True, "has_context_tracks": False},
+            ),
+            patch.object(rpc_playback, "_spotify_api_request", side_effect=fake_api_with_context),
+        ):
+            res = await rpc_playback.clear_queue(plugin)
+
+        self.assertEqual(res, {"ok": True, "queue": []})
+        self.assertIn(
+            ("PUT", "me/player/play", {"uris": ["spotify:track:curr"], "position_ms": 8000}),
+            api_calls,
+        )
+
+        # When me/player has no context, clear_queue should not stutter via PUT me/player/play
+        api_calls.clear()
+
+        def fake_api_no_context(endpoint, token, method="GET", params=None, body=None):
+            api_calls.append((method, endpoint, body))
+            if method == "GET" and endpoint == "me/player":
+                return {
+                    "is_playing": True,
+                    "progress_ms": 8000,
+                    "context": None,
+                    "item": {"uri": "spotify:track:curr"},
+                }
+            return {}
+
+        with (
+            patch.object(
+                cdp_bridge,
+                "cdp_clear_queue",
+                return_value={"ok": True, "has_context_tracks": False},
+            ),
+            patch.object(rpc_playback, "_spotify_api_request", side_effect=fake_api_no_context),
+        ):
+            res_no_ctx = await rpc_playback.clear_queue(plugin)
+
+        self.assertEqual(res_no_ctx, {"ok": True, "queue": []})
+        self.assertFalse(any(ep == "me/player/play" for _, ep, _ in api_calls))
 
 
 if __name__ == "__main__":

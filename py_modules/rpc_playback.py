@@ -628,6 +628,14 @@ async def clear_queue(plugin) -> dict:
         used_cdp = bool(isinstance(cdp_res, dict) and cdp_res.get("ok"))
         has_context = bool(isinstance(cdp_res, dict) and cdp_res.get("has_context_tracks"))
 
+    if used_cdp and not has_context:
+        try:
+            player_data = await _exec(_spotify_api_request, "me/player", token, "GET")
+            if isinstance(player_data, dict) and player_data.get("context"):
+                has_context = True
+        except Exception as e:
+            decky.logger.warning("clear_queue me/player context check failed: %s", e)
+
     if not used_cdp or has_context:
         if not used_cdp:
             q_res = await get_queue(plugin)

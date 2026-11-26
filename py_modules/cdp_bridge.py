@@ -1059,33 +1059,51 @@ def cdp_remove_from_queue(
     if (typeof playerApi.removeFromQueue !== 'function') {{
       return {{ ok: false, error: 'removeFromQueue not supported' }};
     }}
-    let beforeNext = null;
-    if (typeof playerApi.getQueue === 'function') {{
-      try {{
-        const beforeQ = await playerApi.getQueue();
-        beforeNext = Array.isArray(beforeQ?.nextTracks) ? beforeQ.nextTracks : [];
-        const hasMatch = beforeNext.some((t) => {{
-          if (!t) return false;
-          if (targetUid) return String(t.uid || '') === targetUid;
-          return String(t.uri || t.contextTrack?.uri || '') === targetUri;
-        }});
-        if (!hasMatch) {{
-          return {{ ok: false, error: 'Track not in next_tracks' }};
-        }}
-      }} catch (e) {{
-        beforeNext = null;
+    const collectUpcoming = (obj) => {{
+      if (!obj || typeof obj !== 'object') return [];
+      const next = Array.isArray(obj.nextTracks) ? obj.nextTracks : [];
+      const future = Array.isArray(obj.futureTracks)
+        ? obj.futureTracks
+        : (Array.isArray(obj.future) ? obj.future : []);
+      return next.concat(future);
+    }};
+    const readUpcoming = async () => {{
+      if (typeof playerApi.getQueue === 'function') {{
+        try {{
+          const q = await playerApi.getQueue();
+          if (q && typeof q === 'object') return collectUpcoming(q);
+        }} catch (e) {{}}
+      }}
+      if (typeof playerApi.getState === 'function') {{
+        try {{
+          const st = await playerApi.getState();
+          if (st && typeof st === 'object') return collectUpcoming(st);
+        }} catch (e) {{}}
+      }}
+      return null;
+    }};
+    const beforeUpcoming = await readUpcoming();
+    let matchedUid = targetUid;
+    if (beforeUpcoming !== null) {{
+      const match = beforeUpcoming.find((t) => {{
+        if (!t) return false;
+        if (targetUid) return String(t.uid || '') === targetUid;
+        return String(t.uri || t.contextTrack?.uri || '') === targetUri;
+      }});
+      if (!match) {{
+        return {{ ok: false, error: 'Track not in next_tracks' }};
+      }}
+      if (!matchedUid && match.uid) {{
+        matchedUid = String(match.uid);
       }}
     }}
-    const item = targetUid ? {{ uri: targetUri, uid: targetUid }} : {{ uri: targetUri }};
+    const item = matchedUid ? {{ uri: targetUri, uid: matchedUid }} : {{ uri: targetUri }};
     await playerApi.removeFromQueue([item]);
-    if (beforeNext !== null && typeof playerApi.getQueue === 'function') {{
-      try {{
-        const afterQ = await playerApi.getQueue();
-        const afterNext = Array.isArray(afterQ?.nextTracks) ? afterQ.nextTracks : [];
-        if (afterNext.length >= beforeNext.length) {{
-          return {{ ok: false, error: 'removeFromQueue did not shrink next_tracks' }};
-        }}
-      }} catch (e) {{}}
+    if (beforeUpcoming !== null) {{
+      const afterUpcoming = await readUpcoming();
+      if (afterUpcoming !== null && afterUpcoming.length >= beforeUpcoming.length) {{
+        return {{ ok: false, error: 'removeFromQueue did not shrink next_tracks' }};
+      }}
     }}
     return {{ ok: true }};
     """
@@ -1124,7 +1142,7 @@ def cdp_clear_queue(
         const st = await playerApi.getState();
         const next = Array.isArray(st?.nextTracks) ? st.nextTracks : [];
         const future = Array.isArray(st?.future) ? st.future : (Array.isArray(st?.futureTracks) ? st.futureTracks : []);
-        if (future.length > 0 || next.length > 0) {
+        if (future.length > 0 || next.length > 0 || Boolean(st?.context?.uri)) {
           hasContextTracks = true;
         }
       } catch (e) {}
