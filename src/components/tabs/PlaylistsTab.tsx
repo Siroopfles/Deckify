@@ -65,12 +65,14 @@ export interface PlaylistsTabProps {
     fromIndex: number,
     toIndex: number,
     nextTracks: TrackItem[],
+    preGrabTracks?: TrackItem[],
   ) => Promise<boolean>;
   onRemovePlaylistTrack?: (playlistId: string, track: TrackItem, originalIndex: number) => Promise<void>;
   setPlaylistTracks?: Dispatch<SetStateAction<TrackItem[]>>;
   onGrabStateChange?: (grabbing: boolean) => void;
   grabTriggerRef?: MutableRefObject<((track: TrackItem) => void) | null>;
   grabCancelRef?: MutableRefObject<(() => boolean) | null>;
+  grabCommitRef?: MutableRefObject<(() => Promise<void> | void) | null>;
   onModalStateChange?: (open: boolean) => void;
   pendingEditPlaylist?: PlaylistItem | null;
   pendingDeletePlaylist?: PlaylistItem | null;
@@ -270,6 +272,7 @@ export const PlaylistDeleteConfirmModal: FC<PlaylistDeleteConfirmModalProps> = (
 
 type PlaylistMetaFilter = "all" | "editable" | "followed" | "collaborative" | "pinned";
 type TrackMetaFilter = "all" | "liked";
+export type PlaylistTrackSort = "custom" | "title" | "artist" | "album" | "duration" | "added_at";
 
 const OVERVIEW_META_CHIPS: ReadonlyArray<{ id: PlaylistMetaFilter; label: string }> = [
   { id: "all", label: "All" },
@@ -283,6 +286,37 @@ const TRACK_META_CHIPS: ReadonlyArray<{ id: TrackMetaFilter; label: string }> = 
   { id: "all", label: "All" },
   { id: "liked", label: "Liked" },
 ];
+
+const TRACK_SORT_CHIPS: ReadonlyArray<{ id: PlaylistTrackSort; label: string }> = [
+  { id: "custom", label: "Custom Order" },
+  { id: "title", label: "Title" },
+  { id: "artist", label: "Artist" },
+  { id: "album", label: "Album" },
+  { id: "duration", label: "Duration" },
+  { id: "added_at", label: "Date Added" },
+];
+
+function compareTracksBySort(
+  a: { t: TrackItem; originalIndex: number },
+  b: { t: TrackItem; originalIndex: number },
+  sortBy: PlaylistTrackSort,
+): number {
+  let cmp = 0;
+  if (sortBy === "title") {
+    cmp = (a.t.name || "").localeCompare(b.t.name || "", undefined, { sensitivity: "base" });
+  } else if (sortBy === "artist") {
+    cmp = (a.t.artist || "").localeCompare(b.t.artist || "", undefined, { sensitivity: "base" });
+  } else if (sortBy === "album") {
+    cmp = (a.t.album || "").localeCompare(b.t.album || "", undefined, { sensitivity: "base" });
+  } else if (sortBy === "duration") {
+    cmp = (a.t.duration_ms || 0) - (b.t.duration_ms || 0);
+  } else if (sortBy === "added_at") {
+    const aTime = a.t.added_at ? Date.parse(a.t.added_at) || 0 : 0;
+    const bTime = b.t.added_at ? Date.parse(b.t.added_at) || 0 : 0;
+    cmp = bTime - aTime;
+  }
+  return cmp !== 0 ? cmp : a.originalIndex - b.originalIndex;
+}
 
 function renderMetaFilterBar<T extends string>({
   chips,
@@ -755,28 +789,34 @@ const CreateFolderBar: FC<{
 function useGrabWiring({
   activePlaylist,
   isTrackFilterActive,
+  trackSortBy,
   stableTracks,
   grabTriggerRef,
   grabCancelRef,
+  grabCommitRef,
   enterGrabMode,
   cancelGrab,
+  commitGrab,
   grabbedKey,
   onGrabStateChange,
 }: {
   activePlaylist: PlaylistItem | null;
   isTrackFilterActive: boolean;
+  trackSortBy: PlaylistTrackSort;
   stableTracks: TrackItem[];
   grabTriggerRef?: MutableRefObject<((track: TrackItem) => void) | null>;
   grabCancelRef?: MutableRefObject<(() => boolean) | null>;
+  grabCommitRef?: MutableRefObject<(() => Promise<void> | void) | null>;
   enterGrabMode: (rowKey: string) => void;
   cancelGrab: () => boolean;
+  commitGrab: () => Promise<void>;
   grabbedKey: string | null;
   onGrabStateChange?: (grabbing: boolean) => void;
 }) {
   useEffect(() => {
     if (grabTriggerRef) {
       grabTriggerRef.current = (track: TrackItem) => {
-        if (activePlaylist?.is_editable === false || isTrackFilterActive) return;
+        if (activePlaylist?.is_editable === false || isTrackFilterActive || trackSortBy !== "custom") return;
         const match =
           stableTracks.find((item) => item === track || (track._rowKey && item._rowKey === track._rowKey)) ||
           stableTracks.find((item) => (track.uri && item.uri === track.uri) || (track.id && item.id === track.id));
@@ -784,7 +824,8 @@ function useGrabWiring({
       };
     }
     if (grabCancelRef) grabCancelRef.current = cancelGrab;
-  }, [grabTriggerRef, grabCancelRef, stableTracks, enterGrabMode, cancelGrab, activePlaylist, isTrackFilterActive]);
+    if (grabCommitRef) grabCommitRef.current = commitGrab;
+  }, [grabTriggerRef, grabCancelRef, grabCommitRef, stableTracks, enterGrabMode, cancelGrab, commitGrab, activePlaylist, isTrackFilterActive, trackSortBy]);
 
   useEffect(() => {
     onGrabStateChange?.(Boolean(grabbedKey));
@@ -802,10 +843,12 @@ function renderPlaylistDetailView(props: {
   pinnedUris?: Set<string>;
   trackFilter: string;
   trackMetaFilter: TrackMetaFilter;
+  trackSortBy: PlaylistTrackSort;
   editingPlaylist: PlaylistItem | null;
   grabbedKey: string | null;
   onTrackFilterChange: (val: string) => void;
   onTrackMetaFilterChange: (val: TrackMetaFilter) => void;
+  onTrackSortChange: (val: PlaylistTrackSort) => void;
   onClosePlaylist: () => void;
   onPlayTrack: (uri: string, contextUri?: string, allUris?: string[], startIdx?: number) => void;
   onTogglePin?: (item: PinnedPlaylistItem) => void;
@@ -819,21 +862,26 @@ function renderPlaylistDetailView(props: {
   onRequestDelete: () => void;
   onGamepadDirection: (e: { detail?: { button?: number }; preventDefault?: () => void; stopPropagation?: () => void }) => boolean;
   onGrabTrack: (track: TrackItem) => void;
+  onCommitGrab: () => void;
   onRemovePlaylistTrack?: (playlistId: string, track: TrackItem, originalIndex: number) => Promise<void>;
   offlineDownloads?: Record<string, OfflineDownloadItem>;
   onToggleOfflineDownload?: (item: OfflineTogglePayload) => void;
 }) {
-  const { activePlaylist, stableTracks, trackFilter, trackMetaFilter } = props;
+  const { activePlaylist, stableTracks, trackFilter, trackMetaFilter, trackSortBy } = props;
   const offlineInfo = getItemOfflineInfo({ ...activePlaylist, uri: props.playlistUri }, props.offlineDownloads);
   const trackQuery = trackFilter.trim().toLowerCase();
   const isTrackFilterActive = trackQuery !== "" || trackMetaFilter !== "all";
   const isPlaylistEditable = activePlaylist.is_editable !== false;
-  const indexedTracks = stableTracks
+  const filteredTracks = stableTracks
     .map((t, originalIndex) => ({ t, originalIndex }))
     .filter(({ t }) => {
       if (trackMetaFilter === "liked" && !t.is_liked) return false;
       return matchesQuery(t.name, trackQuery) || matchesQuery(t.artist, trackQuery) || matchesQuery(t.album, trackQuery);
     });
+  const indexedTracks =
+    trackSortBy === "custom"
+      ? filteredTracks
+      : [...filteredTracks].sort((a, b) => compareTracksBySort(a, b, trackSortBy));
 
   return (
     <div>
@@ -867,6 +915,12 @@ function renderPlaylistDetailView(props: {
             }
           : undefined,
       })}
+      {renderMetaFilterBar({
+        chips: TRACK_SORT_CHIPS,
+        activeId: trackSortBy,
+        onSelect: props.onTrackSortChange,
+        testId: "track-sort-bar",
+      })}
       {props.loadingContent ? (
         <p style={{ opacity: 0.5 }}>Loading...</p>
       ) : indexedTracks.length === 0 && isTrackFilterActive ? (
@@ -880,9 +934,13 @@ function renderPlaylistDetailView(props: {
               key={t._rowKey || t.id || t.uri || originalIndex}
               track={t} index={originalIndex} contextUri={props.playlistUri} allTracks={props.playlistTracks}
               onPlayTrack={props.onPlayTrack} onToggleLike={props.onToggleLike} onOpenActions={props.onOpenActions}
-              onFocus={props.onFocusTrack} isGrabbed={Boolean(props.grabbedKey && t._rowKey === props.grabbedKey)}
-              canReorder={isPlaylistEditable && !isTrackFilterActive} canRemove={isPlaylistEditable}
+              onFocus={props.onFocusTrack}
+              hasActiveGrab={Boolean(props.grabbedKey)}
+              isGrabbed={Boolean(props.grabbedKey && t._rowKey === props.grabbedKey)}
+              canReorder={isPlaylistEditable && !isTrackFilterActive && trackSortBy === "custom"}
+              canRemove={isPlaylistEditable}
               onGrabTrack={props.onGrabTrack}
+              onCommitGrab={props.onCommitGrab}
               onRemoveTrack={(track, idx) => void props.onRemovePlaylistTrack?.(activePlaylist.id, track, idx)}
             />
           ))}
@@ -1098,6 +1156,7 @@ function usePendingPlaylistEffects({
   setConfirmDeletePlaylist,
   setTrackFilter,
   setTrackMetaFilter,
+  setTrackSortBy,
 }: {
   activePlaylistId?: string;
   pendingEditPlaylist?: PlaylistItem | null;
@@ -1109,6 +1168,7 @@ function usePendingPlaylistEffects({
   setConfirmDeletePlaylist: Dispatch<SetStateAction<PlaylistItem | null>>;
   setTrackFilter: Dispatch<SetStateAction<string>>;
   setTrackMetaFilter: Dispatch<SetStateAction<TrackMetaFilter>>;
+  setTrackSortBy: Dispatch<SetStateAction<PlaylistTrackSort>>;
 }) {
   useEffect(() => {
     if (pendingEditPlaylist && pendingEditPlaylist.is_editable !== false) {
@@ -1131,8 +1191,9 @@ function usePendingPlaylistEffects({
   useEffect(() => {
     setTrackFilter("");
     setTrackMetaFilter("all");
+    setTrackSortBy("custom");
     setEditingPlaylist(null);
-  }, [activePlaylistId, setTrackFilter, setTrackMetaFilter, setEditingPlaylist]);
+  }, [activePlaylistId, setTrackFilter, setTrackMetaFilter, setTrackSortBy, setEditingPlaylist]);
 }
 
 export const PlaylistsTab: FC<PlaylistsTabProps> = (props) => {
@@ -1141,6 +1202,7 @@ export const PlaylistsTab: FC<PlaylistsTabProps> = (props) => {
   const [confirmDeletePlaylist, setConfirmDeletePlaylist] = useState<PlaylistItem | null>(null);
   const [trackFilter, setTrackFilter] = useState("");
   const [trackMetaFilter, setTrackMetaFilter] = useState<TrackMetaFilter>("all");
+  const [trackSortBy, setTrackSortBy] = useState<PlaylistTrackSort>("custom");
   const isTrackFilterActive = trackFilter.trim() !== "" || trackMetaFilter !== "all";
 
   const playlistUri = activePlaylist ? activePlaylist.uri || (activePlaylist.id ? `spotify:playlist:${activePlaylist.id}` : "") : "";
@@ -1148,13 +1210,15 @@ export const PlaylistsTab: FC<PlaylistsTabProps> = (props) => {
   const { grabbedKey, enterGrabMode, commitGrab, cancelGrab, handleGamepadDirection } = useGrabMoveOrder({
     items: stableTracks,
     setItems: props.setPlaylistTracks,
-    onCommit: (fromIndex, toIndex, nextTracks) =>
-      !activePlaylist || !props.onReorderPlaylistTrack ? true : props.onReorderPlaylistTrack(activePlaylist.id, fromIndex, toIndex, nextTracks),
+    onCommit: (fromIndex, toIndex, nextTracks, preGrabSnapshot) =>
+      !activePlaylist || !props.onReorderPlaylistTrack
+        ? true
+        : props.onReorderPlaylistTrack(activePlaylist.id, fromIndex, toIndex, nextTracks, preGrabSnapshot),
   });
 
   useGrabWiring({
-    activePlaylist, isTrackFilterActive, stableTracks, grabTriggerRef: props.grabTriggerRef,
-    grabCancelRef: props.grabCancelRef, enterGrabMode, cancelGrab, grabbedKey, onGrabStateChange: props.onGrabStateChange,
+    activePlaylist, isTrackFilterActive, trackSortBy, stableTracks, grabTriggerRef: props.grabTriggerRef,
+    grabCancelRef: props.grabCancelRef, grabCommitRef: props.grabCommitRef, enterGrabMode, cancelGrab, commitGrab, grabbedKey, onGrabStateChange: props.onGrabStateChange,
   });
 
   usePendingPlaylistEffects({
@@ -1168,6 +1232,7 @@ export const PlaylistsTab: FC<PlaylistsTabProps> = (props) => {
     setConfirmDeletePlaylist,
     setTrackFilter,
     setTrackMetaFilter,
+    setTrackSortBy,
   });
 
   return (
@@ -1195,10 +1260,12 @@ export const PlaylistsTab: FC<PlaylistsTabProps> = (props) => {
           pinnedUris: props.pinnedUris,
           trackFilter,
           trackMetaFilter,
+          trackSortBy,
           editingPlaylist,
           grabbedKey,
           onTrackFilterChange: setTrackFilter,
           onTrackMetaFilterChange: setTrackMetaFilter,
+          onTrackSortChange: setTrackSortBy,
           onClosePlaylist: props.onClosePlaylist,
           onPlayTrack: props.onPlayTrack,
           onTogglePin: props.onTogglePin,
@@ -1212,6 +1279,7 @@ export const PlaylistsTab: FC<PlaylistsTabProps> = (props) => {
           onRequestDelete: () => setConfirmDeletePlaylist(activePlaylist),
           onGamepadDirection: handleGamepadDirection,
           onGrabTrack: (track) => (grabbedKey === track._rowKey ? void commitGrab() : enterGrabMode(track._rowKey || "")),
+          onCommitGrab: () => { void commitGrab(); },
           onRemovePlaylistTrack: props.onRemovePlaylistTrack,
           offlineDownloads: props.offlineDownloads,
           onToggleOfflineDownload: props.onToggleOfflineDownload,

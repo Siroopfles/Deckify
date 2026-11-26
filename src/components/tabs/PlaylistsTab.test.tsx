@@ -147,7 +147,7 @@ describe("PlaylistsTab Phase 27 CRUD, filtering, ownership & Grab/Move (27-04)",
     origDoc = (globalThis as any).document;
     origRaf = (globalThis as any).requestAnimationFrame;
     origCancelRaf = (globalThis as any).cancelAnimationFrame;
-    (globalThis as any).document = { activeElement: null };
+    (globalThis as any).document = { activeElement: null, querySelector: vi.fn(() => null) };
     (globalThis as any).requestAnimationFrame = vi.fn(() => 1);
     (globalThis as any).cancelAnimationFrame = vi.fn();
   });
@@ -492,5 +492,143 @@ describe("PlaylistsTab Phase 27 CRUD, filtering, ownership & Grab/Move (27-04)",
     expect(albumRows.length).toBe(1);
     expect(albumRows[0].props.track.name).toBe("Beta");
     expect(albumRows[0].props.canReorder).toBe(false);
+  });
+
+  it("renders track sort chips, sorts tracks while preserving originalIndex, and gates Grab/Move on sortBy === custom", () => {
+    const grabTriggerRef = { current: null as ((track: any) => void) | null };
+    const onGrabStateChange = vi.fn();
+    const tracks = [
+      { id: "t1", name: "Charlie", artist: "Zed", album: "Moon", uri: "spotify:track:t1", duration_ms: 300000, added_at: "2026-01-01T00:00:00Z" },
+      { id: "t2", name: "Alpha", artist: "Amy", album: "Sun", uri: "spotify:track:t2", duration_ms: 120000, added_at: "2026-01-03T00:00:00Z" },
+      { id: "t3", name: "Bravo", artist: "Ben", album: "Earth", uri: "spotify:track:t3", duration_ms: 200000, added_at: "2026-01-02T00:00:00Z" },
+    ];
+    const props = makeProps({
+      activePlaylist: { id: "pl-1", name: "My Playlist", uri: "spotify:playlist:pl-1", is_editable: true },
+      playlistTracks: tracks,
+      grabTriggerRef,
+      onGrabStateChange,
+    });
+
+    const tree1 = expandTree(PlaylistsTab(props));
+    const sortBar = findNodes(tree1, (n) => n.props?.["data-testid"] === "track-sort-bar")[0];
+    expect(sortBar).toBeDefined();
+    expect(sortBar.props["flow-children"]).toBe("horizontal");
+    const sortChips = findNodes(sortBar, (n) => n.type === DialogButton);
+    expect(sortChips.map((c) => collectText(c).trim())).toEqual([
+      "Custom Order",
+      "Title",
+      "Artist",
+      "Album",
+      "Duration",
+      "Date Added",
+    ]);
+
+    const selectSort = (label: string, currentTree: any) => {
+      const bar = findNodes(currentTree, (n) => n.props?.["data-testid"] === "track-sort-bar")[0];
+      const chip = findNodes(bar, (n) => n.type === DialogButton && collectText(n).trim() === label)[0];
+      chip.props.onClick();
+      stateIdx = 0;
+      refIdx = 0;
+      return expandTree(PlaylistsTab(props));
+    };
+
+    const titleTree = selectSort("Title", tree1);
+    const titleRows = findNodes(titleTree, (n) => n.type === TrackRowItem);
+    expect(titleRows.map((r) => r.props.track.name)).toEqual(["Alpha", "Bravo", "Charlie"]);
+    expect(titleRows.map((r) => r.props.index)).toEqual([1, 2, 0]);
+    expect(titleRows.every((r) => r.props.canReorder === false)).toBe(true);
+
+    // grabTriggerRef is blocked while sorted
+    onGrabStateChange.mockClear();
+    grabTriggerRef.current?.(tracks[0]);
+    stateIdx = 0;
+    refIdx = 0;
+    const afterBlockedGrabTree = expandTree(PlaylistsTab(props));
+    expect(onGrabStateChange).toHaveBeenLastCalledWith(false);
+
+    const artistTree = selectSort("Artist", afterBlockedGrabTree);
+    expect(findNodes(artistTree, (n) => n.type === TrackRowItem).map((r) => r.props.track.artist)).toEqual(["Amy", "Ben", "Zed"]);
+
+    const albumTree = selectSort("Album", artistTree);
+    expect(findNodes(albumTree, (n) => n.type === TrackRowItem).map((r) => r.props.track.album)).toEqual(["Earth", "Moon", "Sun"]);
+
+    const durationTree = selectSort("Duration", albumTree);
+    expect(findNodes(durationTree, (n) => n.type === TrackRowItem).map((r) => r.props.track.duration_ms)).toEqual([120000, 200000, 300000]);
+
+    const addedTree = selectSort("Date Added", durationTree);
+    expect(findNodes(addedTree, (n) => n.type === TrackRowItem).map((r) => r.props.track.id)).toEqual(["t2", "t3", "t1"]);
+
+    // Restoring Custom Order re-enables canReorder
+    const customTree = selectSort("Custom Order", addedTree);
+    const customRows = findNodes(customTree, (n) => n.type === TrackRowItem);
+    expect(customRows.map((r) => r.props.track.id)).toEqual(["t1", "t2", "t3"]);
+    expect(customRows.every((r) => r.props.canReorder === true)).toBe(true);
+  });
+
+  it("commits active grab on any TrackRowItem activation without playing and forwards pre-grab snapshot", async () => {
+    const tracks = [
+      { id: "t1", name: "Alpha", artist: "Artist 1", uri: "spotify:track:t1", duration_ms: 180000, uid: "u1" },
+      { id: "t2", name: "Beta", artist: "Artist 2", uri: "spotify:track:t2", duration_ms: 200000, uid: "u2" },
+    ];
+    let currentTracks = [...tracks];
+    const setPlaylistTracks = vi.fn((updater: any) => {
+      currentTracks = typeof updater === "function" ? updater(currentTracks) : updater;
+    });
+    const onReorderPlaylistTrack = vi.fn(
+      async (
+        _playlistId: string,
+        _fromIndex: number,
+        _toIndex: number,
+        _nextTracks: any[],
+        _preGrabTracks?: any[],
+      ) => true,
+    );
+    const onPlayTrack = vi.fn();
+    const grabCommitRef = { current: null as (() => Promise<void> | void) | null };
+
+    const getProps = () =>
+      makeProps({
+        activePlaylist: { id: "pl-1", name: "My Playlist", uri: "spotify:playlist:pl-1", is_editable: true },
+        playlistTracks: currentTracks,
+        setPlaylistTracks,
+        onReorderPlaylistTrack,
+        onPlayTrack,
+        grabCommitRef,
+      });
+
+    const tree1 = expandTree(PlaylistsTab(getProps()));
+    const rows1 = findNodes(tree1, (n) => n.type === TrackRowItem);
+    rows1[0].props.onGrabTrack(rows1[0].props.track);
+
+    stateIdx = 0;
+    refIdx = 0;
+    const grabbedTree = expandTree(PlaylistsTab(getProps()));
+    const rowsGrabbed = findNodes(grabbedTree, (n) => n.type === TrackRowItem);
+    expect(rowsGrabbed[0].props.hasActiveGrab).toBe(true);
+    expect(rowsGrabbed[0].props.isGrabbed).toBe(true);
+    expect(rowsGrabbed[1].props.hasActiveGrab).toBe(true);
+    expect(rowsGrabbed[1].props.isGrabbed).toBe(false);
+
+    // Move track 0 down to index 1
+    const focusContainer = findNodes(grabbedTree, (n) => n.type === Focusable && typeof n.props.onGamepadDirection === "function")[0];
+    focusContainer.props.onGamepadDirection({ detail: { button: 10 }, preventDefault: vi.fn(), stopPropagation: vi.fn() });
+
+    stateIdx = 0;
+    refIdx = 0;
+    const movedTree = expandTree(PlaylistsTab(getProps()));
+    const movedRows = findNodes(movedTree, (n) => n.type === TrackRowItem);
+    // Activating the non-grabbed row commits grab instead of playing
+    movedRows[0].props.onCommitGrab();
+    await Promise.resolve();
+
+    expect(onPlayTrack).not.toHaveBeenCalled();
+    expect(onReorderPlaylistTrack).toHaveBeenCalledTimes(1);
+    const [plId, fromIdx, toIdx, nextTracks, preGrabSnapshot] = onReorderPlaylistTrack.mock.calls[0];
+    expect(plId).toBe("pl-1");
+    expect(fromIdx).toBe(0);
+    expect(toIdx).toBe(1);
+    expect(nextTracks.map((t: any) => t.id)).toEqual(["t2", "t1"]);
+    expect(preGrabSnapshot?.map((t: any) => t.id)).toEqual(["t1", "t2"]);
+    expect(typeof grabCommitRef.current).toBe("function");
   });
 });
