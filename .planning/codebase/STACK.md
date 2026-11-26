@@ -1,5 +1,5 @@
 ---
-last_mapped_commit: f8defec7206b337ccec032ac6a11b40649e888bd
+last_mapped_commit: fe07cd341a56729b429c29bc0d0dd2c6770a2eb2
 last_mapped_at: 2026-11-26
 ---
 </System Prompt>
@@ -77,10 +77,10 @@ last_mapped_at: 2026-11-26
 
 **Development:**
 - Node.js 20+, `pnpm` 9+, Python 3.11+
-- Optional SSH key access to Steam Deck for `./deploy.sh` (reads defaults from `.vscode/settings.json`)
+- Optional SSH key access to Steam Deck / Steam Machine for `./deploy.sh` (reads defaults from `.vscode/settings.json`)
 
 **Production:**
-- Valve Steam Deck / SteamOS 3.5+ (`deck` user space, UID 1000) with Decky Loader installed
+- Valve Steam Deck or SteamOS-based Steam Machine (`deck` user space, UID 1000, SteamOS 3.5+) with Decky Loader installed
 - PipeWire / PulseAudio audio stack
 - Spotify Premium account (required for `librespot` Spotify Connect playback) or Flatpak `com.spotify.Client`
 

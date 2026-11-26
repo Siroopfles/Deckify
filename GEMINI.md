@@ -4,15 +4,15 @@
 
 **Deckify**
 
-Deckify is an open-source Spotify client and Decky Loader plugin for Valve's Steam Deck. It allows users to control Spotify playback directly inside SteamOS GamepadUI with controller navigation, Quick Access Menu controls, an overlay HUD, and a full-screen modal for browsing playlists, albums, artists, library, and podcasts.
+Deckify is an open-source Spotify client and Decky Loader plugin for Valve's Steam Deck and SteamOS-based Steam Machines. It allows users to control Spotify playback directly inside SteamOS GamepadUI with controller navigation, Quick Access Menu controls, an overlay HUD, and a full-screen modal for browsing playlists, albums, artists, library, and podcasts.
 
-**Core Value:** Rock-solid Spotify playback and responsive, reliable controller navigation on Steam Deck without UI lag, broken images, or desynchronized playback states.
+**Core Value:** Rock-solid Spotify playback and responsive, reliable controller navigation on Steam Deck and Steam Machine without UI lag, broken images, or desynchronized playback states.
 
 ### Constraints
 
 - **Steam CEF Content Security Policy**: Steam GamepadUI blocks direct external image URLs (`https://i.scdn.co/`), requiring internal proxying/base64 encoding.
 - **SteamOS GamepadUI Navigation**: Controller focus relies on spatial navigation (`flow-children`, `@decky/ui`); focus traps or navigation loss degrade user experience.
-- **Steam Deck Environment**: Runs in the `deck` user space (UID 1000) under SteamOS 3.5+.
+- **SteamOS Environment**: Runs in the `deck` user space (UID 1000) on Steam Deck and SteamOS-based Steam Machines (SteamOS 3.5+).
 
 <!-- GSD:project-end -->
 
