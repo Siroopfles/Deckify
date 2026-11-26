@@ -258,7 +258,7 @@ Plans:
   2. `DiscoveryTab` populates the *Made For You* section with the user's personalized algorithmic mixes (*Daylist*, *Discover Weekly*, *Release Radar*, *Daily Mix 1–6*) via the CDP Pathfinder/Rootlist bridge, bypassing Spotify Web API Development Mode `HTTP 403/404` blocks.
   3. Resolved algorithmic mix metadata and track URI lists are cached locally on disk so users can browse and play those mixes even after switching their active playback engine to `librespot`.
   4. `py_modules/rpc_playback.py:_try_cdp_station_radio` (Phase 25 Tier 1 hook) is wired to `cdp_bridge.py` to start native Spotify `spotify:station:...` radio when `spotify_client` is active (falling back silently to Tier 2/3), `SearchTab` optionally enriches its Browse Categories / Gaming & Mood tiles via CDP with the 12 static tiles as automatic fallback on `librespot` or when CDP is unavailable, and pressing `B` while viewing search results in `SearchTab` (when `searchQuery` is non-empty) clears the search query/results and returns to the main Search idle view instead of closing the modal.
-**Plans:** 10/11 plans executed (9 executed, 2 gap-closure planned)
+**Plans:** 11/11 plans executed (9 executed, 2 gap-closure planned)
 
 Plans:
 **Wave 1**
@@ -288,7 +288,7 @@ Plans:
 - [x] 26-10-PLAN.md — Close UAT gap G-26-2: Daylist subtitle/URI classification & non-destructive discovery cache merge, DJ X interlude cover/title/subtitle emission, and `aiDjActive`-gated AI DJ button in `NowPlayingTab`
 
 **Wave 2 (Gap Closure - G-26-3)** *(blocked on 26-10)*
-- [ ] 26-11-PLAN.md — Close UAT gap G-26-3: app-wide Spotify Web API rate limiter/GET cache/dedup, `spotify_client`/paused poll backoff, `SpotifyRateLimitError` propagation & caching in `start_radio`, CDP-first `search()`, and relaxed 30s Queue/Recent polling
+- [x] 26-11-PLAN.md — Close UAT gap G-26-3: app-wide Spotify Web API rate limiter/GET cache/dedup, `spotify_client`/paused poll backoff, `SpotifyRateLimitError` propagation & caching in `start_radio`, CDP-first `search()`, and relaxed 30s Queue/Recent polling
 **UI hint**: yes
 
 ### Phase 27: Interactive Queue Studio & Controller Playlist Management
@@ -429,7 +429,7 @@ Phases execute in numeric order: 19 → 20 → 21 → 22 → 23 → 24 → 25 �
 | 23. Lyrics 2.0 — Offline .lrc Cache, Per-Track Sync Nudge & CJK Romanization | v0.7 | 5/5 | Complete    | 2026-11-22 |
 | 24. Podcast & Audiobook Power Suite | v0.7 | 8/8 | Complete    | 2026-11-23 |
 | 25. Universal Artist/Album Drill-Down, Instant Radio & Search 2.0 | v0.7 | 5/5 | Complete    | 2026-11-24 |
-| 26. Unified CDP Platform Bridge & Deep Discovery 2.0 | v0.7 | 10/11 | In Progress | - |
+| 26. Unified CDP Platform Bridge & Deep Discovery 2.0 | v0.7 | 11/11 | In Progress | - |
 | 27. Interactive Queue Studio & Controller Playlist Management | v0.7 | 8/8 | Complete    | 2026-11-26 |
 | 28. CDP Offline Downloads, Wi-Fi Travel Mode & Living Room Spotify Jam | v0.7 | 7/7 | In Progress | - |
 | 29. 10-Foot Docked TV Split-View Mode & PipeWire Spectrum Visualizer | v0.7 | 0/TBD | Not started | - |
