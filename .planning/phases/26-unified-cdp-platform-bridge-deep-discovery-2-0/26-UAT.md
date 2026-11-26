@@ -1,9 +1,9 @@
 ---
-status: diagnosed
+status: complete
 phase: 26-unified-cdp-platform-bridge-deep-discovery-2-0
-source: [26-VERIFICATION.md, 26-08-SUMMARY.md, 26-09-SUMMARY.md]
-started: 2026-11-25T18:28:00Z
-updated: 2026-11-26T15:11:53.200Z
+source: [26-VERIFICATION.md, 26-10-SUMMARY.md, 26-11-SUMMARY.md, 26-12-SUMMARY.md, 26-13-SUMMARY.md, 26-14-SUMMARY.md]
+started: 2026-11-26T20:12:30Z
+updated: 2026-11-26T19:33:13.377Z
 ---
 
 ## Current Test
@@ -12,105 +12,74 @@ updated: 2026-11-26T15:11:53.200Z
 
 ## Tests
 
-### 1. Live Official Spotify Client CDP Mix Discovery, Your Blends, AI DJ & Cross-Engine librespot Playback (26-01..26-05, 26-08..26-09)
-expected: On Steam Deck with spotify_client running, DiscoveryTab's Made For You carousel populates core mixes (Daylist, Discover Weekly, Release Radar, Daily Mixes, On Repeat) without Blend or editorial clutter; opening Daylist shows its dynamic custom title & description; Your Blends renders in its own carousel; Spotify AI DJ plays via CDP PlayerAPI.play on spotify_client, NowPlayingTab shows an AI DJ button and speaking indicator during AI DJ interludes, and shows 'Requires Official Spotify Client' on librespot; switching backend to librespot and clicking Refresh Feed preserves core mixes with ' · Cached' subtitles.
+### 1. Live Official Spotify Client CDP Mix Discovery, Your Blends, AI DJ & Cross-Engine librespot Playback (26-01..26-05, 26-08..26-10, 26-12..26-14)
+expected: On Steam Machine / Steam Deck with spotify_client running, DiscoveryTab's Made For You carousel populates core mixes (Daylist, Discover Weekly, Release Radar, Daily Mixes, On Repeat) without Blend or editorial clutter; opening Daylist shows its dynamic custom title & clean description without HTML tags; Your Blends renders in its own carousel; the AI DJ button in NowPlayingTab is hidden when AI DJ is not active and visible during AI DJ playback with DJ X interlude cover art & live Welcome / Up next / vibe title & subtitle updates; switching backend to librespot re-fetches DiscoveryTab with ' · Cached' subtitles and plays Daylist cleanly without 403 Restriction violated.
 result: issue
-reported: "Bij Made for you staat alleen de Discover Weekly. De rest ontbreekt allemaal. Blend staat wel in aparte rij. Kan daylist niet openen omdat ik die niet zie dus. Ik zie in de now playing tab een ai dj button maar ook als de AI dj playlist niet afgespeelt word zie ik die ook... dat is niet goed. Ook word het plaatje enzo niet geupdate als DJ X aan het word is naar het plaatje van dj x en staat er bijvoorbeeld niet \"Welcome\" of \"up next\" of iets anders wat er in de spotify client wel staat. Met Librespot geeft hij aan dat hij de official client nodig heeft"
+reported: "Daylist en discover weekly en release radar zie ik de rest niet | Ik zie zie tekst in de daylist desc en title goed. | Ik zie alleeen de dj mode is als de next up moment van de dj is werkt niet altijd voornamelijk die later na paar nummers is | Ohja en geen playbackbar tijdens weclcome next up events"
 severity: major
 
-### 2. Live Tier 1 CDP Station Radio, SearchTab Browse Categories, Per-Section Load More & B-Button Clear (26-03, 26-04, 26-06)
-expected: Starting Song Radio on spotify_client resolves native station tracks via CDP; on librespot it fast-fails without delay to Tier 2/3. In SearchTab, the 12 Gaming & Mood tiles appear at the top (with optional Browse Categories below on spotify_client), each result category has its own Load More row that expands only that category while keeping D-pad focus inside the section, and pressing B with a non-empty search query clears back to idle and shows 'A Select · B Clear Search · L1/R1 Tabs' before closing on a second B press.
+### 2. Live Tier 1 CDP Station Radio, SearchTab Browse Categories, Per-Section Load More & B-Button Clear (26-03, 26-04, 26-06, 26-11, 26-12, 26-13)
+expected: Starting Song Radio on spotify_client resolves native station tracks via CDP and starts playback cleanly (even if SteamMachine starts inactive); on librespot it works without 429 rate-limit storms. In SearchTab, the 12 Gaming & Mood tiles appear at the top (with live Browse Categories below on spotify_client), searching works cleanly via CDP on spotify_client, each result category has its own Load More row that expands only that category while keeping D-pad focus inside the section, and pressing B with a non-empty search query clears back to idle and shows 'A Select · B Clear Search · L1/R1 Tabs' before closing on a second B press.
 result: issue
-reported: "Start radio werkt op spotify client, op libre geeft hij error maar ik denk dat ik te veel api request gestuurd heb naar spotify. Search tab doet het ook even nog niet ofzo maar misschien ook door api rate limit? Dat b drukken met search werkt wel. Misschien moeten we ff gaan kijken waar alle api request vandaan komen en of dat meer gelimit kan worden maar ik denk dan heel de aplicatie breed"
+reported: "De search 12 mood bars werken niet vinden niks | Load more werkt bij alles ja | B werkt | Ik zie alleen de browse live catogories nog niet :("
 severity: major
 
-### 3. Steam Machine Boot / Wake Remote Phone Playback Guardrail (26-07 / G-26-3)
+### 3. Steam Machine Boot / Wake Remote Phone Playback Guardrail (26-07)
 expected: Booting or waking the Steam Machine while Spotify is actively playing on a phone leaves phone playback uninterrupted; MPRIS2 does not advertise Playing or forward OS Pause/Stop signals, _poll_playback does not snapshot was_playing=True, handle_wake_recovery yields with remote_active, and SoundtrackManager unbound pause policy skips remote devices.
-result: skipped
-reason: "Cannot test right now due to API rate limit; requested code/debug check"
+result: pass
 
 ## Summary
 
 total: 3
-passed: 0
+passed: 1
 issues: 2
 pending: 0
-skipped: 1
+skipped: 0
 blocked: 0
 
 ## Gaps
 
-- gap_id: G-26-1
-  truth: "On Steam Deck with spotify_client running, DiscoveryTab's Made For You carousel populates core mixes (Daylist, Discover Weekly, Release Radar, Daily Mixes, On Repeat) without Blend or editorial clutter; Your Blends renders in its own carousel; Spotify AI DJ plays via CDP PlayerAPI.play on spotify_client and shows 'Requires Official Spotify Client' on librespot; switching backend to librespot and clicking Refresh Feed preserves core mixes with ' · Cached' subtitles."
-  status: resolved
-  resolved_by: 26-09-PLAN.md
-  resolved_at: 2026-11-26
-  reason: "User reported: Ik zag gisteren alleen de daylist en ai dj apart. Maar als ik de daylist open pakt hij niet de custom titel die eraan gekoppeld zit. De Ai Dj list als ik die afspeel gaf hij niet aan als ai dj aan het woord was in de now playing tab en er was geen ai dj button op nowplaying om op te klikken. Voor de rest zag ik de andere playlisten niet"
+- gap_id: G-26-10
+  truth: "DiscoveryTab Made For You carousel populates all core mixes (Daylist, Discover Weekly, Release Radar, Daily Mixes, On Repeat)"
+  status: failed
+  reason: "User reported: Daylist en discover weekly en release radar zie ik de rest niet"
   severity: major
   test: 1
-  root_cause: "Four interrelated Phase 26 gaps: (1) cdp_fetch_discovery_mixes in py_modules/cdp_bridge.py does not unwrap GraphQL PlaylistResponseWrapper nodes (node.data / ownerV2.data / images.items) and omits 'on repeat', dropping HomeAPI/SearchAPI core mixes; (2) cdp_get_playlist_tracks and rpc_library.get_playlist_tracks do not return playlist name/description, and handleOpenPlaylist in DeckifyExpandedModal.tsx only updates is_mixed; (3) _poll_playback in main.py short-circuits when item is None during AI DJ voice interludes without querying CDP PlayerAPI.getState() or exposing AI DJ speaking state in get_status; (4) NowPlayingTab.tsx and DeckifyExpandedModal.tsx have no AI DJ button or speaking indicator."
-  artifacts:
-    - path: "py_modules/cdp_bridge.py"
-      issue: "extractHomeSections/SearchAPI miss GraphQL .data unwrapping and 'on repeat'; cdp_get_playlist_tracks omits playlist metadata; no CDP AI DJ state/nudge helper."
-    - path: "py_modules/rpc_library.py"
-      issue: "Core mix checks omit 'on repeat'; get_playlist_tracks does not return playlist_name/description."
-    - path: "main.py"
-      issue: "_poll_playback returns early when item is None during AI DJ voice interludes; get_status omits AI DJ active/speaking state."
-    - path: "src/components/DeckifyExpandedModal.tsx"
-      issue: "handleOpenPlaylist does not update activePlaylist.name/description; no AI DJ handler passed to NowPlayingTab."
-    - path: "src/components/tabs/NowPlayingTab.tsx"
-      issue: "Missing AI DJ speaking indicator and AI DJ button."
-  missing:
-    - "Unwrap GraphQL ResponseWrapper nodes and include 'on repeat' in cdp_fetch_discovery_mixes and rpc_library."
-    - "Return playlist_name/description from cdp_get_playlist_tracks and get_playlist_tracks and update activePlaylist in handleOpenPlaylist."
-    - "Detect AI DJ speaking state in _poll_playback / get_status and render an AI DJ speaking indicator and AI DJ button in NowPlayingTab."
-  debug_session: ".planning/debug/discovery-missing-made-for-you-mixes-daylist-title-and-ai-dj-now-playing.md"
+  artifacts: []
+  missing: []
 
-- gap_id: G-26-2
-  truth: "On Steam Deck with spotify_client running, DiscoveryTab's Made For You carousel populates core mixes (Daylist, Discover Weekly, Release Radar, Daily Mixes, On Repeat) without Blend or editorial clutter; opening Daylist shows its dynamic custom title & description; Your Blends renders in its own carousel; Spotify AI DJ plays via CDP PlayerAPI.play on spotify_client, NowPlayingTab shows an AI DJ button and speaking indicator during AI DJ interludes, and shows 'Requires Official Spotify Client' on librespot."
+- gap_id: G-26-11
+  truth: "AI DJ interlude displays live DJ X 'Welcome' / 'Up next' / vibe title & subtitle updates reliably, including later interludes after several tracks"
   status: failed
-  reason: "User reported: Bij Made for you staat alleen de Discover Weekly. De rest ontbreekt allemaal. Blend staat wel in aparte rij. Kan daylist niet openen omdat ik die niet zie dus. Ik zie in de now playing tab een ai dj button maar ook als de AI dj playlist niet afgespeelt word zie ik die ook... dat is niet goed. Ook word het plaatje enzo niet geupdate als DJ X aan het word is naar het plaatje van dj x en staat er bijvoorbeeld niet \"Welcome\" of \"up next\" of iets anders wat er in de spotify client wel staat. Met Librespot geeft hij aan dat hij de official client nodig heeft"
+  reason: "User reported: Ik zie alleeen de dj mode is als de next up moment van de dj is werkt niet altijd voornamelijk die later na paar nummers is"
   severity: major
   test: 1
-  root_cause: "Three interrelated causes: (1) cdp_bridge.py:classifyKind only matches name (missing Daylist dynamic titles), HomeAPI/GraphQL/SearchAPI errors are swallowed leaving only RootlistAPI, and rpc_library.py:_fetch_made_for_you_section overwrites discovery_mixes.json with partial results; (2) NowPlayingTab.tsx:renderAiDjButton renders whenever onPlayAiDj is passed rather than gating on aiDjActive; (3) cdp_bridge.py:cdp_get_player_state omits interlude image_url/title/subtitle, and main.py:_poll_playback skips cdp_get_player_state when already in AI DJ context and returns early on item is None without updating _track_meta."
-  artifacts:
-    - path: "py_modules/cdp_bridge.py"
-      issue: "classifyKind misses Daylist subtitle/URI; cdp_get_player_state omits interlude image_url and title/subtitle."
-    - path: "py_modules/rpc_library.py"
-      issue: "_fetch_made_for_you_section overwrites discovery_mixes.json with partial mixes; _search_missing_core_mixes breaks on 429."
-    - path: "src/components/tabs/NowPlayingTab.tsx"
-      issue: "renderAiDjButton does not gate visibility on aiDjActive."
-    - path: "main.py"
-      issue: "_poll_playback skips cdp_get_player_state when already in AI DJ context and returns early when item is None."
-  missing:
-    - "Match Daylist via subtitle/URI in classifyKind and merge partial discovery mixes with cache in _fetch_made_for_you_section."
-    - "Gate AI DJ button in NowPlayingTab on aiDjActive."
-    - "Return interlude image_url/title/subtitle from cdp_get_player_state and update _track_meta + emit track_metadata in _poll_playback."
-  debug_session: ".planning/debug/phase-26-uat-diagnosis.md"
+  artifacts: []
+  missing: []
 
-- gap_id: G-26-3
-  truth: "Starting Song Radio on spotify_client resolves native station tracks via CDP; on librespot it fast-fails without delay to Tier 2/3. In SearchTab, the 12 Gaming & Mood tiles appear at the top (with optional Browse Categories below on spotify_client), each result category has its own Load More row that expands only that category while keeping D-pad focus inside the section, and pressing B with a non-empty search query clears back to idle and shows 'A Select · B Clear Search · L1/R1 Tabs' before closing on a second B press."
+- gap_id: G-26-12
+  truth: "Playback progress bar is visible and updates during AI DJ 'Welcome' / 'Up next' interlude events"
   status: failed
-  reason: "User reported: Start radio werkt op spotify client, op libre geeft hij error maar ik denk dat ik te veel api request gestuurd heb naar spotify. Search tab doet het ook even nog niet ofzo maar misschien ook door api rate limit? Dat b drukken met search werkt wel. Misschien moeten we ff gaan kijken waar alle api request vandaan komen en of dat meer gelimit kan worden maar ik denk dan heel de aplicatie breed"
+  reason: "User reported: Ohja en geen playbackbar tijdens weclcome next up events"
+  severity: minor
+  test: 1
+  artifacts: []
+  missing: []
+
+- gap_id: G-26-13
+  truth: "Clicking any of the 12 Gaming & Mood tiles in SearchTab returns matching search/category results"
+  status: failed
+  reason: "User reported: De search 12 mood bars werken niet vinden niks"
   severity: major
   test: 2
-  root_cause: "No proactive rate-limiter or GET cache in py_modules/spotify.py (global 300s circuit breaker locks out the whole app on any 429), 3.0s 24/7 me/player polling in main.py:_poll_api_loop when EventServer.is_healthy() is false on spotify_client, 13-call unthrottled Tier 3 radio cascade in rpc_playback.py:start_radio swallowing 429s, duplicate SearchTab queries (immediate runSearch + 350ms debounced useEffect) with unused CDP SearchAPI, and 10s pollers in DeckifyExpandedModal.tsx (loadQueue/loadRecent)."
-  artifacts:
-    - path: "py_modules/spotify.py"
-      issue: "Missing token-bucket rate limiter, short-TTL GET cache, and in-flight deduplication; global 300s circuit breaker."
-    - path: "main.py"
-      issue: "_poll_api_loop polls me/player every 3s continuously on spotify_client instead of backing off or using CDP PlayerAPI.getState()."
-    - path: "py_modules/rpc_playback.py"
-      issue: "Tier 3 start_radio fires up to 13 sequential Web API calls and swallows SpotifyRateLimitError."
-    - path: "src/components/tabs/SearchTab.tsx"
-      issue: "Tile/history clicks fire immediate runSearch plus 350ms debounced useEffect (2x requests)."
-    - path: "py_modules/rpc_library.py"
-      issue: "search() never uses CDP SearchAPI on spotify_client."
-    - path: "src/components/DeckifyExpandedModal.tsx"
-      issue: "10s polling on loadQueue and loadRecent."
-  missing:
-    - "Add shared rate-limiter, short-TTL GET cache, and in-flight deduplication in py_modules/spotify.py."
-    - "Back off _poll_api_loop when idle/paused and use local CDP PlayerAPI.getState() on spotify_client."
-    - "Stop on SpotifyRateLimitError and cap/cache Tier 3 radio calls in rpc_playback.py."
-    - "Deduplicate SearchTab triggers and use CDP SearchAPI on spotify_client."
-  debug_session: ".planning/debug/phase-26-uat-diagnosis.md"
+  artifacts: []
+  missing: []
+
+- gap_id: G-26-14
+  truth: "SearchTab renders live Browse Categories below the 12 Mood tiles when spotify_client is running"
+  status: failed
+  reason: "User reported: Ik zie alleen de browse live catogories nog niet :("
+  severity: minor
+  test: 2
+  artifacts: []
+  missing: []
