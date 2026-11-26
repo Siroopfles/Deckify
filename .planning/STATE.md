@@ -5,16 +5,16 @@ milestone_name: Studio, Living Room TV, Offline Travel & Ultimate Immersion (In 
 current_phase: 28
 current_phase_name: CDP Offline Downloads, Wi-Fi Travel Mode & Living Room Spotify Jam
 status: executing
-stopped_at: Completed 28-03-PLAN.md
-last_updated: "2026-11-26T10:38:30.089Z"
+stopped_at: Completed 28-04-PLAN.md
+last_updated: "2026-11-26T10:45:25.063Z"
 last_activity: 2026-11-26
 last_activity_desc: Phase 28 execution started
-state_head: b5c531586de36ffb676ea26fb0bc0962e0bdc4bf
+state_head: 6e8defa6f2f6d14b84995ef9ea0d96a7b5ee7b94
 progress:
   total_phases: 12
   completed_phases: 8
   total_plans: 65
-  completed_plans: 61
+  completed_plans: 62
   percent: 67
 ---
 
@@ -30,7 +30,7 @@ See: [.planning/PROJECT.md](file:///C:/Users/djdje/Deckify/.planning/PROJECT.md)
 ## Current Position
 
 Phase: 28 (CDP Offline Downloads, Wi-Fi Travel Mode & Living Room Spotify Jam) — EXECUTING
-Plan: 4 of 7
+Plan: 5 of 7
 Status: Ready to execute
 Last activity: 2026-11-26 — Phase 28 execution started
 
@@ -162,6 +162,7 @@ Last activity: 2026-11-26 — Phase 28 execution started
 | Phase 28 P01 | 5min | 2 tasks | 5 files |
 | Phase 28 P02 | 5min | 2 tasks | 2 files |
 | Phase 28 P03 | 5min | 2 tasks | 3 files |
+| Phase 28 P04 | 5min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -264,6 +265,7 @@ Recent decisions affecting current work:
 - [Phase 27]: Check isGrabbingRef.current before and after backendGetQueue in loadQueue and preserve _rowKey via mergeQueueRowKeys
 - [Phase 28]: Serialized offline_downloads.json under _OFFLINE_CACHE_LOCK with per-thread .tmp + os.replace and enforced check_disk_guardrail before OfflineAPI download probes
 - [Phase 28]: Evaluated auto Travel Mode in on_poll_network_result independently of _network_lost_session and checked auto-exit before early wake-recovery returns
+- [Phase 28]: Centralized SessionBookmarkManager creation in Plugin._create_bookmark_manager to wire travel_mode_* settings and _on_travel_mode_changed consistently
 
 ### Pending Todos
 
@@ -294,8 +296,8 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-26T10:38:20.274Z
-Stopped at: Completed 28-03-PLAN.md
+Last session: 2026-11-26T10:45:13.247Z
+Stopped at: Completed 28-04-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
