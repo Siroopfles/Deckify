@@ -287,7 +287,7 @@ Plans:
   1. User can press `A` / *"Move in Queue"* on any upcoming track in `QueueTab` to enter controller Grab/Move Mode, move the track up or down with `D-Pad Up/Down` while focus remains locked via stable `_rowKey` IDs, and press `A` to commit the new order in a single batched update.
   2. User can remove individual upcoming tracks or clear the upcoming queue in `QueueTab`, executing natively via CDP `PlayerAPI` when `spotify_client` is active and automatically falling back to virtual URI-slice playback mutation when `librespot` is active.
   3. User can create new playlists, rename or edit playlist descriptions, delete or unfollow playlists with a confirmation modal, and reorder or remove tracks inside user-owned playlists directly from the controller in `PlaylistsTab`.
-**Plans:** 5/5 plans complete
+**Plans:** 8 plans (5 executed, 3 gap-closure planned)
 
 Plans:
 **Wave 1**
@@ -302,6 +302,13 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3)*
 - [x] 27-05-PLAN.md — `DeckifyExpandedModal.tsx` Queue & Playlist RPC wiring, `_rowKey` normalization, `vgp_oncancel` Grab/Move cancel, and full verification suite
+
+**Wave 1 (Gap Closure)**
+- [ ] 27-06-PLAN.md — Close UAT gap G-27-2 (backend): CDP `nextTracks` verification, context-track fallback on `clear_queue`, `uid` forwarding, 15s optimistic snapshot, and `_queue_cleared_for_track_id` persistence
+- [ ] 27-07-PLAN.md — Close UAT gaps G-27-3 & G-27-4: `PlaylistDeleteConfirmModal` `vgp_oncancel`/`onCancelButton` handling and `PlaylistsTab` horizontal metadata filter chip bars
+
+**Wave 2 (Gap Closure)** *(blocked on 27-06 & 27-07)*
+- [ ] 27-08-PLAN.md — Close UAT gaps G-27-1, G-27-2 (frontend), G-27-3 (modal guard), & G-27-5: `useGrabMoveOrder` focus lock & reconciliation, `loadQueue` grab guard, `prevTracks` fix, `isCrudModalOpenRef` guard, and `TrackActionModal` cover art + frequency sort
 **UI hint**: yes
 
 ### Phase 28: CDP Offline Downloads, Wi-Fi Travel Mode & Living Room Spotify Jam
