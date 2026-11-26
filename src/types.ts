@@ -405,6 +405,8 @@ export interface StatusResponse {
   active_game_app_id?: number | null;
   active_game_override?: ActiveGameOverrideInfo | null;
   playback_speed?: number;
+  ai_dj_active?: boolean;
+  ai_dj_speaking?: boolean;
 }
 
 export interface GameAudioProfile {

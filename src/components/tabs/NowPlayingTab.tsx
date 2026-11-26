@@ -36,6 +36,7 @@ export interface NowPlayingTabProps {
   onOpenActions?: (track: TrackItem) => void;
   playbackSpeed?: number;
   onSetPlaybackSpeed?: (speed: number) => void;
+  onPlayAiDj?: () => void;
 }
 
 const TrackArtwork: FC<{ artwork?: string | null; isLossless?: boolean }> = ({

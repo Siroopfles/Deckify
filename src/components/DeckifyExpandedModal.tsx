@@ -84,7 +84,8 @@ const backendReorderPlaylistTracks = callable<[string, number, number, number, s
 const backendManagePlaylistFolder = callable<[string, string, string, string], { ok: boolean; error?: string }>("manage_playlist_folder");
 const backendGetPlaylistFolders = callable<[], { ok: boolean; folders?: FolderItem[]; error?: string }>("get_playlist_folders");
 const backendGetPlaylists = callable<[number], { ok: boolean; playlists?: PlaylistItem[]; total?: number; error?: string }>("get_playlists");
-const backendGetPlaylistTracks = callable<[string, number, boolean], { ok: boolean; tracks?: TrackItem[]; is_mixed?: boolean; error?: string }>("get_playlist_tracks");
+const backendGetPlaylistTracks = callable<[string, number, boolean], { ok: boolean; tracks?: TrackItem[]; is_mixed?: boolean; playlist_name?: string; playlist_description?: string; error?: string }>("get_playlist_tracks");
+const backendPlayAiDj = callable<[string?], { ok: boolean; requires_spotify_client?: boolean; error?: string }>("play_ai_dj");
 const backendGetSavedAlbums = callable<[number], { ok: boolean; albums?: AlbumItem[]; total?: number; error?: string }>("get_saved_albums");
 const backendGetAlbumTracks = callable<[string, number], { ok: boolean; tracks?: TrackItem[]; error?: string }>("get_album_tracks");
 const backendGetFollowedArtists = callable<[], { ok: boolean; artists?: ArtistItem[]; total?: number; error?: string }>("get_followed_artists");
@@ -435,9 +436,16 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
       const res = await backendGetPlaylistTracks(pl.id, 0, true);
       if (res.ok && res.tracks) {
         setPlaylistTracks(assignStableRowKeys(res.tracks, "pl"));
-        if (res.is_mixed !== undefined) {
-          setActivePlaylist((prev) => (prev ? { ...prev, is_mixed: res.is_mixed } : null));
-        }
+        setActivePlaylist((prev) =>
+          prev
+            ? {
+                ...prev,
+                name: res.playlist_name || prev.name,
+                description: res.playlist_description ?? prev.description,
+                is_mixed: res.is_mixed !== undefined ? res.is_mixed : prev.is_mixed,
+              }
+            : null
+        );
       } else {
         showToast(res?.error || "Failed to load playlist tracks");
       }
@@ -556,6 +564,25 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
       showToast("Failed to change playback speed — please try again.");
     }
   }, [refreshStatus, showToast]);
+
+  const handlePlayAiDj = useCallback(async () => {
+    if (status?.audio_backend !== "spotify_client") {
+      showToast("Requires Official Spotify Client");
+      return;
+    }
+    try {
+      const res = await backendPlayAiDj("spotify:playlist:37i9dQZF1EYkqdzj48dyYq");
+      if (res?.ok) {
+        showToast("Starting AI DJ");
+      } else if (res?.requires_spotify_client) {
+        showToast("Requires Official Spotify Client");
+      } else {
+        showToast(res?.error || "Failed to start AI DJ");
+      }
+    } catch {
+      showToast("Failed to start AI DJ");
+    }
+  }, [status?.audio_backend, showToast]);
 
   // Lyrics Loader
   const track = status?.track_meta || status?.track;
@@ -1691,6 +1718,7 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
                   onOpenActions={setActionTrack}
                   playbackSpeed={status?.playback_speed ?? 1.0}
                   onSetPlaybackSpeed={handleSetPlaybackSpeed}
+                  onPlayAiDj={handlePlayAiDj}
                 />
               )}
 
