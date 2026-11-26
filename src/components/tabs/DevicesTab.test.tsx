@@ -36,6 +36,7 @@ vi.mock("react-icons/fa", () => ({
   FaGamepad: (props: any) => ({ type: "FaGamepad", props }),
   FaDesktop: (props: any) => ({ type: "FaDesktop", props }),
   FaMobileAlt: (props: any) => ({ type: "FaMobileAlt", props }),
+  FaQrcode: (props: any) => ({ type: "FaQrcode", props }),
   FaTabletAlt: (props: any) => ({ type: "FaTabletAlt", props }),
   FaVolumeUp: (props: any) => ({ type: "FaVolumeUp", props }),
   FaVolumeMute: (props: any) => ({ type: "FaVolumeMute", props }),
@@ -528,5 +529,42 @@ describe("DevicesTab (Spotify Connect Hub 2.0)", () => {
     );
     expect(activeBadge.length).toBe(1);
     expect(activeBadge[0].props.style?.whiteSpace).toBe("nowrap");
+  });
+
+  it("renders 'Start / Share Spotify Jam' and 'Jam Active' pill + 'End Jam' in DevicesTab", async () => {
+    mockGetDevices.mockResolvedValueOnce({
+      ok: true,
+      local_device_name: "Deckify",
+      local_hostname: "steamdeck",
+      audio_backend: "spotify_client",
+      engine_running: true,
+      engine_sleeping: false,
+      devices: [],
+    });
+    const onOpenJamModal = vi.fn();
+    const onEndJam = vi.fn();
+    const treeInactive = resolveTree(DevicesTab({ showToast: vi.fn(), jamSession: { active: false }, onOpenJamModal }));
+    const startBtn = findNodes(treeInactive, (n) => n.props?.["data-testid"] === "devices-start-jam-btn");
+    expect(startBtn).toHaveLength(1);
+    expect(startBtn[0].props.style?.width).toBe("auto");
+    expect(startBtn[0].props.style?.flexShrink).toBe(0);
+    startBtn[0].props.onClick();
+    expect(onOpenJamModal).toHaveBeenCalledTimes(1);
+
+    const treeActive = resolveTree(
+      DevicesTab({
+        showToast: vi.fn(),
+        jamSession: { active: true, guest_count: 2, is_host: true },
+        onOpenJamModal,
+        onEndJam,
+      }),
+    );
+    const pill = findNodes(treeActive, (n) => n.props?.["data-testid"] === "devices-jam-pill");
+    expect(pill).toHaveLength(1);
+    expect(textContent(pill[0])).toContain("Jam Active · 2");
+    const endBtn = findNodes(treeActive, (n) => n.props?.["data-testid"] === "devices-end-jam-btn");
+    expect(endBtn).toHaveLength(1);
+    endBtn[0].props.onClick();
+    expect(onEndJam).toHaveBeenCalledTimes(1);
   });
 });

@@ -6,6 +6,7 @@ import {
   FaDesktop,
   FaGamepad,
   FaMobileAlt,
+  FaQrcode,
   FaSpotify,
   FaSyncAlt,
   FaTabletAlt,
@@ -13,7 +14,7 @@ import {
   FaVolumeMute,
   FaVolumeUp,
 } from "react-icons/fa";
-import { DevicesResponse, SpotifyDevice } from "../../types";
+import { DevicesResponse, JamSessionStatus, SpotifyDevice } from "../../types";
 import { InteractiveRow } from "../common/InteractiveRow";
 
 const backendGetDevices = callable<[], DevicesResponse>("get_devices");
@@ -29,6 +30,9 @@ const backendStartSpotifyClient = callable<[], { ok: boolean; error?: string }>(
 
 export interface DevicesTabProps {
   showToast: (msg: string) => void;
+  jamSession?: JamSessionStatus | null;
+  onOpenJamModal?: () => void;
+  onEndJam?: () => void;
 }
 
 export function getDeviceTypeIcon(type: string, isLocal: boolean) {
@@ -429,7 +433,89 @@ function useDevicesHub(showToast: (msg: string) => void) {
   };
 }
 
-export const DevicesTab: FC<DevicesTabProps> = ({ showToast }) => {
+const DEVICES_JAM_BTN_STYLE = {
+  width: "auto",
+  minWidth: "auto",
+  flexShrink: 0,
+  minHeight: 36,
+  padding: "6px 14px",
+  borderRadius: 999,
+  fontSize: 12,
+  fontWeight: 700,
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 6,
+} as const;
+
+function renderDevicesJamBar({
+  jamSession,
+  onOpenJamModal,
+  onEndJam,
+}: {
+  jamSession?: JamSessionStatus | null;
+  onOpenJamModal?: () => void;
+  onEndJam?: () => void;
+}) {
+  const isActive = Boolean(jamSession?.active);
+  const guestCount = typeof jamSession?.guest_count === "number" ? jamSession.guest_count : 0;
+  const activeLabel = guestCount > 0 ? `Jam Active · ${guestCount}` : "Jam Active";
+
+  return (
+    <Focusable
+      flow-children="horizontal"
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 10,
+        padding: "10px 14px",
+        borderRadius: 10,
+        background: "rgba(255,255,255,0.04)",
+        marginBottom: 12,
+        flexWrap: "wrap",
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+        <FaQrcode size={14} color="var(--deckify-accent, #1DB954)" />
+        <span style={{ fontSize: 13, fontWeight: 700 }}>Living Room Spotify Jam</span>
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+        {isActive && (
+          <DialogButton
+            data-testid="devices-jam-pill"
+            onClick={() => onOpenJamModal?.()}
+            style={{ ...DEVICES_JAM_BTN_STYLE, background: "var(--deckify-accent, #1DB954)", color: "#000000" }}
+          >
+            <FaQrcode size={12} />
+            <span>{activeLabel}</span>
+          </DialogButton>
+        )}
+        {isActive && jamSession?.is_host && onEndJam && (
+          <DialogButton
+            data-testid="devices-end-jam-btn"
+            onClick={() => onEndJam()}
+            style={{
+              ...DEVICES_JAM_BTN_STYLE,
+              background: "rgba(255, 85, 85, 0.16)",
+              color: "#FF5555",
+              border: "1px solid rgba(255, 85, 85, 0.4)",
+            }}
+          >
+            End Jam
+          </DialogButton>
+        )}
+        {!isActive && (
+          <DialogButton data-testid="devices-start-jam-btn" onClick={() => onOpenJamModal?.()} style={DEVICES_JAM_BTN_STYLE}>
+            <FaQrcode size={12} />
+            <span>Start / Share Spotify Jam</span>
+          </DialogButton>
+        )}
+      </div>
+    </Focusable>
+  );
+}
+
+export const DevicesTab: FC<DevicesTabProps> = ({ showToast, jamSession, onOpenJamModal, onEndJam }) => {
   const {
     devices,
     localDeviceName,
@@ -481,6 +567,8 @@ export const DevicesTab: FC<DevicesTabProps> = ({ showToast }) => {
         isPulling={isPulling}
         onPullPlayback={handlePullPlayback}
       />
+
+      {renderDevicesJamBar({ jamSession, onOpenJamModal, onEndJam })}
 
       {!isLoading && devices.length === 0 ? (
         <EmptyDevicesCard

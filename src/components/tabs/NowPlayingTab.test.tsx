@@ -94,6 +94,7 @@ vi.mock("react-icons/fa", () => {
     FaVolumeMute: icon("FaVolumeMute"),
     FaVolumeUp: icon("FaVolumeUp"),
     FaPlus: icon("FaPlus"),
+    FaQrcode: icon("FaQrcode"),
   };
 });
 
@@ -604,5 +605,46 @@ describe("NowPlayingTab AI DJ indicator & button (G-26-1)", () => {
     expect(btn[0].props?.children).toBe("AI DJ");
     (btn[0].props?.onClick as () => void)();
     expect(onPlayAiDj).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("NowPlayingTab Spotify Jam controls (JAM-01)", () => {
+  it("renders 'Start / Share Spotify Jam' when jamSession is inactive and invokes onOpenJamModal", () => {
+    const onOpenJamModal = vi.fn();
+    const tree = NowPlayingTab({
+      ...makeProps(),
+      jamSession: { active: false },
+      onOpenJamModal,
+    }) as unknown as MockNode;
+
+    const btn = findNodes(tree, (n) => n.props?.["data-testid"] === "now-playing-start-jam-btn");
+    expect(btn).toHaveLength(1);
+    const btnStyle = btn[0].props?.style as Record<string, unknown> | undefined;
+    expect(btnStyle?.width).toBe("auto");
+    expect(btnStyle?.flexShrink).toBe(0);
+    (btn[0].props?.onClick as () => void)();
+    expect(onOpenJamModal).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders 'Jam Active' pill with guest count and 'End Jam' button when host", () => {
+    const onOpenJamModal = vi.fn();
+    const onEndJam = vi.fn();
+    const tree = NowPlayingTab({
+      ...makeProps(),
+      jamSession: { active: true, guest_count: 3, is_host: true },
+      onOpenJamModal,
+      onEndJam,
+    }) as unknown as MockNode;
+
+    const pill = findNodes(tree, (n) => n.props?.["data-testid"] === "now-playing-jam-pill");
+    expect(pill).toHaveLength(1);
+    expect(JSON.stringify(pill[0])).toContain("Jam Active · 3");
+    (pill[0].props?.onClick as () => void)();
+    expect(onOpenJamModal).toHaveBeenCalledTimes(1);
+
+    const endBtn = findNodes(tree, (n) => n.props?.["data-testid"] === "now-playing-end-jam-btn");
+    expect(endBtn).toHaveLength(1);
+    (endBtn[0].props?.onClick as () => void)();
+    expect(onEndJam).toHaveBeenCalledTimes(1);
   });
 });

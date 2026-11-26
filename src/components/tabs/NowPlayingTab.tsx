@@ -1,5 +1,5 @@
 import { FC, useEffect, useRef, useState } from "react";
-import { Dropdown, Focusable, GamepadButton, GamepadEvent } from "@decky/ui";
+import { DialogButton, Dropdown, Focusable, GamepadButton, GamepadEvent } from "@decky/ui";
 import {
   FaSpotify,
   FaRandom,
@@ -14,8 +14,9 @@ import {
   FaVolumeMute,
   FaVolumeUp,
   FaPlus,
+  FaQrcode,
 } from "react-icons/fa";
-import { StatusResponse, TrackItem, TrackMeta } from "../../types";
+import { JamSessionStatus, StatusResponse, TrackItem, TrackMeta } from "../../types";
 import { DeckifyImage } from "../common/DeckifyImage";
 import { InteractiveRow, RoundBtn, focusHalo, formatMs } from "../common/InteractiveRow";
 import { getScrubStepMs } from "../../hooks/usePlaybackClock";
@@ -37,6 +38,9 @@ export interface NowPlayingTabProps {
   playbackSpeed?: number;
   onSetPlaybackSpeed?: (speed: number) => void;
   onPlayAiDj?: () => void;
+  jamSession?: JamSessionStatus | null;
+  onOpenJamModal?: () => void;
+  onEndJam?: () => void;
 }
 
 const TrackArtwork: FC<{ artwork?: string | null; isLossless?: boolean }> = ({
@@ -565,6 +569,72 @@ function renderAiDjButton({
   );
 }
 
+const JAM_PILL_STYLE = {
+  width: "auto",
+  minWidth: "auto",
+  flexShrink: 0,
+  minHeight: 36,
+  padding: "6px 14px",
+  borderRadius: 999,
+  fontSize: 12,
+  fontWeight: 700,
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 6,
+} as const;
+
+function renderJamActionBar({
+  jamSession,
+  onOpenJamModal,
+  onEndJam,
+}: {
+  jamSession?: JamSessionStatus | null;
+  onOpenJamModal?: () => void;
+  onEndJam?: () => void;
+}) {
+  const isActive = Boolean(jamSession?.active);
+  const guestCount = typeof jamSession?.guest_count === "number" ? jamSession.guest_count : 0;
+  const activeLabel = guestCount > 0 ? `Jam Active · ${guestCount}` : "Jam Active";
+
+  return (
+    <Focusable
+      flow-children="horizontal"
+      style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 12, flexWrap: "wrap" }}
+    >
+      {isActive && (
+        <DialogButton
+          data-testid="now-playing-jam-pill"
+          onClick={() => onOpenJamModal?.()}
+          style={{ ...JAM_PILL_STYLE, background: "var(--deckify-accent, #1DB954)", color: "#000000" }}
+        >
+          <FaQrcode size={12} />
+          <span>{activeLabel}</span>
+        </DialogButton>
+      )}
+      {isActive && jamSession?.is_host && onEndJam && (
+        <DialogButton
+          data-testid="now-playing-end-jam-btn"
+          onClick={() => onEndJam()}
+          style={{
+            ...JAM_PILL_STYLE,
+            background: "rgba(255, 85, 85, 0.16)",
+            color: "#FF5555",
+            border: "1px solid rgba(255, 85, 85, 0.4)",
+          }}
+        >
+          End Jam
+        </DialogButton>
+      )}
+      {!isActive && (
+        <DialogButton data-testid="now-playing-start-jam-btn" onClick={() => onOpenJamModal?.()} style={JAM_PILL_STYLE}>
+          <FaQrcode size={12} />
+          <span>Start / Share Spotify Jam</span>
+        </DialogButton>
+      )}
+    </Focusable>
+  );
+}
+
 function resolveNowPlayingMeta(status: StatusResponse | null, playbackSpeed?: number) {
   const track = status?.track_meta || status?.track;
   return {
@@ -595,6 +665,9 @@ export const NowPlayingTab: FC<NowPlayingTabProps> = ({
   playbackSpeed,
   onSetPlaybackSpeed,
   onPlayAiDj,
+  jamSession,
+  onOpenJamModal,
+  onEndJam,
 }) => {
   const meta = resolveNowPlayingMeta(status, playbackSpeed);
   const { track, artwork, isPlaying, isLossless, isSpoken, isSpotifyClient, resolvedSpeed, volume } = meta;
@@ -635,6 +708,7 @@ export const NowPlayingTab: FC<NowPlayingTabProps> = ({
         handlePrev, handleToggleRepeat, handleToggleLike, handleSeekDelta, onSetShuffle, onOpenActions,
       })}
       {renderAiDjButton({ aiDjActive, isSpotifyClient, onPlayAiDj })}
+      {renderJamActionBar({ jamSession, onOpenJamModal, onEndJam })}
       {isSpoken && renderSpokenSpeedDropdown({
         playbackSpeed: resolvedSpeed,
         disabled: !isSpotifyClient,
