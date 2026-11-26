@@ -41,7 +41,7 @@ Declared values (all multiples of 4):
 
 Exceptions:
 - `44px` minimum controller-navigable row height (`InteractiveRow` touch/D-pad target)
-- `38px` bottom controller hint bar clearance on modal overlays (`bottom: 38`)
+- `40px` bottom controller hint bar clearance on modal overlays (`bottom: 40`)
 - Compact inline `DialogButton` controls MUST set `width: "auto"` and `flexShrink: 0` inside `<Focusable flow-children="horizontal">` to prevent SteamOS GamepadUI 100% width expansion.
 
 ---
@@ -84,14 +84,28 @@ Special surface exception:
 | Primary CTA | `Download for Offline` (detail header / `CollectionActionModal` / episode action); `Switch to Spotify Client & Download` (engine prompt); `Start / Share Spotify Jam` (`NowPlayingTab` / `DevicesTab`) |
 | Empty state heading | `No offline downloads yet` |
 | Empty state body | `Switch to Official Spotify Client and select "Download for Offline" on any playlist, album, or podcast episode to listen without Wi-Fi.` |
-| Error state | `Low disk space: Free up storage below the {min_free_gb} GB threshold or change your offline storage path in Settings to resume downloads.` |
+| Error state | `Low disk space: Free up storage above the {min_free_gb} GB threshold or change your offline storage path in Settings to resume downloads.` |
 | Destructive confirmation | `Remove All Offline Downloads`: `Are you sure you want to remove all {count} offline downloads? Cached audio will be deleted from this device.` |
 
 Additional locked UI copy (from `28-CONTEXT.md`):
 - Travel Mode banner: `Offline Travel Mode` with 1-click `Exit Travel Mode` / `Show All` action
 - `librespot` Jam deep-link note: `Playback share link — switch to Official Spotify Client to host a live Spotify Jam.` paired with `Switch to Spotify Client & Start Jam` button
-- `librespot` download prompt body: `Offline downloads require the Official Spotify Client.` paired with `Switch to Spotify Client & Download` and `Cancel`
+- `librespot` download prompt body: `Offline downloads require the Official Spotify Client.` paired with `Switch to Spotify Client & Download` and `Stay on librespot`
 - Single-item removal: `Remove Download` (executes immediately with confirmation toast)
+
+---
+
+## Visual Hierarchy & Accessibility
+
+Primary focal points per new Phase 28 surface:
+- **`JamQrModal` / `<JamQrCard>`:** High-contrast `#FFFFFF` quiet-zone `QRCodeSVG` (`180x180`) centered at top as the immediate living-room scan target, followed by the join URL, guest count badge, and horizontal action bar (`End Jam` / `Leave Jam` / `Close`).
+- **Travel Mode library views (`PlaylistsTab`, `AlbumsTab`, `PodcastsTab`, `LikedSongsTab`):** Full-width `Offline Travel Mode` banner pinned at the top with 1-click `Exit Travel Mode` CTA, keeping focus on locally downloaded items below.
+- **Offline Downloads Manager (`SettingsTab`):** Disk free-space readout (`{free_gb} GB free` vs `{min_free_gb} GB` minimum) and target storage path at top, followed by the selectable downloaded items list and guarded `Remove All Offline Downloads` button.
+- **`EngineSwitchDownloadModal`:** Explanatory prompt body with primary focus on `Switch to Spotify Client & Download` and secondary `Stay on librespot` action.
+
+Accessibility fallbacks for compact status indicators:
+- Completed offline badge (`✓`): MUST include `aria-label="Downloaded for offline"` (and `title="Downloaded for offline"`).
+- Active download progress badge (`↓ {pct}%`): MUST include `aria-label={`Downloading ${pct}%`}` (and `title={`Downloading ${pct}%`}`).
 
 ---
 
