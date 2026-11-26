@@ -2077,7 +2077,12 @@ async def _fetch_made_for_you_section(token: str, plugin=None) -> dict:
 
     combined = cdp_mixes + web_mixes
     core_pre, _, _ = _partition_discovery_mixes(combined)
-    if not cdp_active and (not web_mixes and not cached_mixes):
+    core_names_lower = [str(m.get("name") or "").lower() for m in core_pre]
+    core_missing = any(
+        not any(needle in n for n in core_names_lower)
+        for needle in ("discover weekly", "release radar", "daily mix", "daylist", "on repeat")
+    )
+    if token and ((not cdp_active and not web_mixes and not cached_mixes) or (cdp_active and core_missing)):
         extra_core = await _search_missing_core_mixes(token, core_pre)
         if extra_core:
             combined = combined + extra_core

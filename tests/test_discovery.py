@@ -859,7 +859,35 @@ class TestDiscoveryAlgorithmicMixes(unittest.IsolatedAsyncioTestCase):
                     "subtitle": "Daylist",
                     "owner_id": "spotify",
                     "kind": "core",
-                }
+                },
+                {
+                    "id": "dw1",
+                    "uri": "spotify:playlist:dw1",
+                    "name": "Discover Weekly",
+                    "owner_id": "spotify",
+                    "kind": "core",
+                },
+                {
+                    "id": "rr1",
+                    "uri": "spotify:playlist:rr1",
+                    "name": "Release Radar",
+                    "owner_id": "spotify",
+                    "kind": "core",
+                },
+                {
+                    "id": "dm1",
+                    "uri": "spotify:playlist:dm1",
+                    "name": "Daily Mix 1",
+                    "owner_id": "spotify",
+                    "kind": "core",
+                },
+                {
+                    "id": "or1",
+                    "uri": "spotify:playlist:or1",
+                    "name": "On Repeat",
+                    "owner_id": "spotify",
+                    "kind": "core",
+                },
             ],
         }
         with patch.object(rpc_library, "cdp_fetch_discovery_mixes", return_value=cdp_mixes), \

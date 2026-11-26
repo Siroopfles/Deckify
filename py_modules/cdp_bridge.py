@@ -807,7 +807,7 @@ def cdp_fetch_discovery_mixes(
       if (!uri && !id) return;
       const normUri = uri || (id ? 'spotify:playlist:' + id : '');
       if (!normUri.includes(':playlist:')) return;
-      const owner = item.owner?.username || item.owner?.id || item.owner?.name || item.ownerV2?.data?.name || item.ownerV2?.data?.username || item.owner?.data?.name || (typeof item.owner === 'string' ? item.owner : '') || '';
+      const owner = item.owner?.username || item.owner?.id || item.owner?.name || item.ownerV2?.data?.name || item.ownerV2?.data?.username || item.owner?.data?.name || item.owner_id || (typeof item.owner === 'string' ? item.owner : '') || '';
       if (!name || seen.has(normUri)) return;
       const pid = id || normUri.split(':').pop();
       const rawSubtitle = stripTags(item.description || item.subtitle || '');
@@ -887,6 +887,21 @@ def cdp_fetch_discovery_mixes(
     });
     const missingCore = () => ['discover weekly', 'release radar', 'daily mix', 'daylist', 'on repeat'].filter((n) => !hasCoreMix(n));
 
+    const unwrapJson = (raw) => {
+      let val = raw;
+      if (val && typeof val === 'object' && 'body' in val && val.body !== undefined) {
+        val = val.body;
+      }
+      if (typeof val === 'string') {
+        try { val = JSON.parse(val); } catch (e) { return null; }
+      }
+      return val && typeof val === 'object' ? val : null;
+    };
+    const hasHomeSections = (d) => {
+      const s = d?.sections || d?.items || d?.home?.sectionContainer?.sections?.items || d?.data?.home?.sectionContainer?.sections?.items || [];
+      return Array.isArray(s) && s.length > 0;
+    };
+
     if (missingCore().length > 0) {
       const tokenProvider = getService('TokenProvider');
       const cosmos = getService('Cosmos');
@@ -900,7 +915,7 @@ def cdp_fetch_discovery_mixes(
           warnings.push('TokenProvider: ' + (e?.message || String(e)));
         }
       }
-      if (accessToken) {
+      if (accessToken || cosmos || reqBuilder) {
         const tz = (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch (e) { return 'UTC'; } })();
         const homePayload = {
           operationName: 'home',
@@ -912,19 +927,32 @@ def cdp_fetch_discovery_mixes(
             }
           }
         };
-        try {
-          let pfData = null;
-          if (cosmos && typeof cosmos.post === 'function') {
-            pfData = await cosmos.post('https://api-partner.spotify.com/pathfinder/v1/query', homePayload);
-          } else if (reqBuilder && typeof reqBuilder.build === 'function') {
+        let pfData = null;
+        if (cosmos && typeof cosmos.post === 'function') {
+          try {
+            const raw = await cosmos.post('https://api-partner.spotify.com/pathfinder/v1/query', homePayload);
+            const parsed = unwrapJson(raw);
+            if (parsed && hasHomeSections(parsed)) pfData = parsed;
+          } catch (e) {
+            warnings.push('Pathfinder(home/cosmos): ' + (e?.message || String(e)));
+          }
+        }
+        if (!pfData && reqBuilder && typeof reqBuilder.build === 'function') {
+          try {
             const resp = await reqBuilder.build()
               .withHost('https://api-partner.spotify.com')
               .withPath('/pathfinder/v1/query')
               .withMethod('POST')
               .withBody(homePayload)
               .send();
-            pfData = resp?.body || resp;
-          } else {
+            const parsed = unwrapJson(resp);
+            if (parsed && hasHomeSections(parsed)) pfData = parsed;
+          } catch (e) {
+            warnings.push('Pathfinder(home/reqBuilder): ' + (e?.message || String(e)));
+          }
+        }
+        if (!pfData && accessToken) {
+          try {
             const resp = await fetch('https://api-partner.spotify.com/pathfinder/v1/query', {
               method: 'POST',
               headers: {
@@ -934,13 +962,14 @@ def cdp_fetch_discovery_mixes(
               body: JSON.stringify(homePayload)
             });
             if (resp && resp.ok) {
-              pfData = await resp.json();
+              const parsed = unwrapJson(await resp.json());
+              if (parsed) pfData = parsed;
             }
+          } catch (e) {
+            warnings.push('Pathfinder(home/fetch): ' + (e?.message || String(e)));
           }
-          if (pfData) extractHomeSections(pfData);
-        } catch (e) {
-          warnings.push('Pathfinder(home): ' + (e?.message || String(e)));
         }
+        if (pfData) extractHomeSections(pfData);
       }
     }
 
@@ -999,15 +1028,21 @@ def cdp_fetch_discovery_mixes(
           try {
             let res = null;
             if (typeof searchApi.search === 'function') {
-              res = await searchApi.search({ searchTerm: q, limit: 10 });
+              res = await searchApi.search({ query: q, searchTerm: q, limit: 10, offset: 0, types: ['PLAYLIST'] });
             } else if (typeof searchApi.getSearchResults === 'function') {
               res = await searchApi.getSearchResults({ query: q, limit: 10 });
             } else if (typeof searchApi.searchPlaylists === 'function') {
               res = await searchApi.searchPlaylists(q, { limit: 10 });
             }
-            const plList = res?.playlists?.items || res?.playlists || res?.results?.playlists?.items || res?.items || [];
+            const root = res?.searchV2 || res?.data?.searchV2 || res || {};
+            const plList = root?.playlists?.items || res?.playlists?.items || res?.playlists || res?.results?.playlists?.items || res?.items || [];
             for (const p of (Array.isArray(plList) ? plList : [])) {
-              pushItem(p?.data || p?.item?.data || p?.item || p);
+              const pObj = p?.data || p?.item?.data || p?.item || p;
+              if (!pObj || typeof pObj !== 'object') continue;
+              pushItem(Object.assign({}, pObj, {
+                owner_id: pObj?.ownerV2?.data?.username || pObj?.owner?.id || '',
+                images: pObj?.images?.items?.[0]?.sources || pObj?.images
+              }));
             }
           } catch (e) {
             warnings.push('SearchAPI(' + q + '): ' + (e?.message || String(e)));
