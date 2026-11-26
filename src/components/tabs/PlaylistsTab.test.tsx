@@ -279,4 +279,47 @@ describe("PlaylistsTab Phase 27 CRUD, filtering, ownership & Grab/Move (27-04)",
     rafCb!(16);
     expect(cancelEl.focus).toHaveBeenCalledTimes(1);
   });
+
+  it("traps vgp_oncancel and onCancelButton in PlaylistDeleteConfirmModal without bubbling", () => {
+    const onCancel = vi.fn();
+    const listeners: Record<string, (e: any) => void> = {};
+    const mockEl = {
+      addEventListener: vi.fn((ev: string, fn: (e: any) => void) => {
+        listeners[ev] = fn;
+      }),
+      removeEventListener: vi.fn(),
+      querySelector: vi.fn(() => null),
+    };
+
+    const props = {
+      playlist: { id: "pl-1", name: "My Playlist", uri: "spotify:playlist:pl-1", is_editable: true },
+      onConfirm: vi.fn(async () => {}),
+      onCancel,
+    };
+
+    const tree1 = PlaylistDeleteConfirmModal(props);
+    const modalNode1 = findNodes(tree1, (n) => n.props?.["data-testid"] === "playlist-delete-modal")[0];
+    modalNode1.props.ref.current = mockEl;
+
+    stateIdx = 0;
+    refIdx = 0;
+    const tree2 = PlaylistDeleteConfirmModal(props);
+
+    expect(mockEl.addEventListener).toHaveBeenCalledWith("vgp_oncancel", expect.any(Function));
+    const evt = {
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+      stopImmediatePropagation: vi.fn(),
+    };
+    listeners["vgp_oncancel"](evt);
+    expect(evt.preventDefault).toHaveBeenCalledTimes(1);
+    expect(evt.stopPropagation).toHaveBeenCalledTimes(1);
+    expect(evt.stopImmediatePropagation).toHaveBeenCalledTimes(1);
+    expect(onCancel).toHaveBeenCalledTimes(1);
+
+    const outerFocusable = findNodes(tree2, (n) => n.type === Focusable && n.props?.["flow-children"] === "column")[0];
+    expect(typeof outerFocusable.props.onCancelButton).toBe("function");
+    outerFocusable.props.onCancelButton();
+    expect(onCancel).toHaveBeenCalledTimes(2);
+  });
 });

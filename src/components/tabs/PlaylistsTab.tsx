@@ -203,6 +203,8 @@ export const PlaylistDeleteConfirmModal: FC<PlaylistDeleteConfirmModalProps> = (
 }) => {
   const modalRef = useRef<HTMLDivElement | null>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
+  const latestOnCancelRef = useRef(onCancel);
+  latestOnCancelRef.current = onCancel;
   const isEditable = playlist.is_editable !== false;
   const title = isEditable ? "Delete Playlist" : "Unfollow Playlist";
   const confirmLabel = isEditable ? "Delete" : "Unfollow";
@@ -212,11 +214,20 @@ export const PlaylistDeleteConfirmModal: FC<PlaylistDeleteConfirmModalProps> = (
 
   useEffect(() => {
     previousFocusRef.current = document.activeElement as HTMLElement | null;
+    const el = modalRef.current;
+    const handleCancel = (e: Event) => {
+      e.preventDefault();
+      e.stopPropagation();
+      (e as unknown as { stopImmediatePropagation?: () => void }).stopImmediatePropagation?.();
+      latestOnCancelRef.current();
+    };
+    el?.addEventListener?.("vgp_oncancel", handleCancel);
     const rafId = requestAnimationFrame(() => {
       const btn = modalRef.current?.querySelector('[data-testid="playlist-delete-cancel"]') as HTMLElement | null;
       btn?.focus?.();
     });
     return () => {
+      el?.removeEventListener?.("vgp_oncancel", handleCancel);
       cancelAnimationFrame(rafId);
       previousFocusRef.current?.focus?.();
       previousFocusRef.current = null;
@@ -225,7 +236,7 @@ export const PlaylistDeleteConfirmModal: FC<PlaylistDeleteConfirmModalProps> = (
 
   return (
     <div ref={modalRef} data-testid="playlist-delete-modal" style={MODAL_BACKDROP_STYLE}>
-      <Focusable flow-children="column" style={MODAL_CARD_STYLE}>
+      <Focusable flow-children="column" style={MODAL_CARD_STYLE} onCancelButton={() => latestOnCancelRef.current()}>
         <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800 }}>{title}</h3>
         <p style={{ margin: 0, fontSize: 13, opacity: 0.8, lineHeight: 1.4 }}>{body}</p>
         <Focusable flow-children="horizontal" style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
