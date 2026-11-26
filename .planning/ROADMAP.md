@@ -325,7 +325,7 @@ Plans:
   1. User can toggle *"Download for Offline"* on playlists, albums, and podcast episodes via Official Spotify Client CDP `OfflineAPI` (with a 1-click engine switch prompt when on `librespot`), viewing live `0–100%` download progress and green offline badges while protected by an `os.statvfs` 3.0 GB minimum free-space disk guardrail.
   2. User can manually toggle **Offline / Travel Mode** or have it activate automatically upon sustained Wi-Fi disconnect (after the 10-second wake-from-suspend grace window) to filter library views strictly to locally downloaded content and cached `.lrc` lyrics.
   3. User can start or share a Spotify Jam / group session from `NowPlayingTab`, `DevicesTab`, or `TvSplitView`, rendering a high-contrast scannable `QRCodeSVG` modal/card for living-room guests (with a shareable track/playlist deep-link QR fallback when `librespot` is active).
-**Plans:** 5/7 plans executed
+**Plans:** 6/7 plans executed
 
 Plans:
 **Wave 1**
@@ -336,7 +336,7 @@ Plans:
 **Wave 2** *(blocked on Wave 1)*
 - [x] 28-04-PLAN.md — `py_modules/rpc_library.py` offline annotation, `main.py` RPCs, `_poll_playback` active-download disk guardrail, & push events
 - [x] 28-05-PLAN.md — Offline download controls, `↓ %` / `✓` badges, & Travel Mode filtering/degradation across library & online tabs
-- [ ] 28-06-PLAN.md — Jam triggers/active pills (`NowPlayingTab`, `DevicesTab`) & Travel Mode / Storage & Offline Downloads Manager (`SettingsTab`)
+- [x] 28-06-PLAN.md — Jam triggers/active pills (`NowPlayingTab`, `DevicesTab`) & Travel Mode / Storage & Offline Downloads Manager (`SettingsTab`)
 
 **Wave 3** *(blocked on Wave 2)*
 - [ ] 28-07-PLAN.md — `DeckifyExpandedModal.tsx` & QAM (`src/index.tsx`) wiring, `EngineSwitchDownloadModal`, `vgp_oncancel` guards, & full suite verification
@@ -411,7 +411,7 @@ Phases execute in numeric order: 19 → 20 → 21 → 22 → 23 → 24 → 25 �
 | 25. Universal Artist/Album Drill-Down, Instant Radio & Search 2.0 | v0.7 | 5/5 | Complete    | 2026-11-24 |
 | 26. Unified CDP Platform Bridge & Deep Discovery 2.0 | v0.7 | 9/9 | In Progress | - |
 | 27. Interactive Queue Studio & Controller Playlist Management | v0.7 | 8/8 | Complete    | 2026-11-26 |
-| 28. CDP Offline Downloads, Wi-Fi Travel Mode & Living Room Spotify Jam | v0.7 | 5/7 | In Progress | - |
+| 28. CDP Offline Downloads, Wi-Fi Travel Mode & Living Room Spotify Jam | v0.7 | 6/7 | In Progress | - |
 | 29. 10-Foot Docked TV Split-View Mode & PipeWire Spectrum Visualizer | v0.7 | 0/TBD | Not started | - |
 | 30. "Deck Wrapped" Listening Stats, Last.fm / ListenBrainz Scrobbling & Profile Backup | v0.7 | 0/TBD | Not started | - |
 
