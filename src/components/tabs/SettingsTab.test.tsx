@@ -4,6 +4,11 @@ const mockSetSetting = vi.fn().mockResolvedValue({ ok: true });
 const mockSetEqBands = vi.fn().mockResolvedValue({ ok: true });
 const mockRestoreBookmark = vi.fn().mockResolvedValue({ ok: true });
 const mockDismissBookmark = vi.fn().mockResolvedValue({ ok: true });
+const mockGetOfflineDownloadsList = vi.fn().mockResolvedValue({ ok: true, items: [], disk: { free_gb: 24.5, min_free_gb: 3.0 } });
+const mockToggleOfflineDownload = vi.fn().mockResolvedValue({ ok: true, success: true });
+const mockRemoveAllOfflineDownloads = vi.fn().mockResolvedValue({ ok: true, success: true });
+const mockSetOfflineStoragePath = vi.fn().mockResolvedValue({ ok: true, success: true, path: "/run/media/mmcblk0p1/SpotifyOffline" });
+const mockSetTravelMode = vi.fn().mockResolvedValue({ ok: true, travel_mode_enabled: true });
 const mockAddEventListener = vi.fn(() => "listener-token");
 const mockRemoveEventListener = vi.fn();
 
@@ -20,6 +25,21 @@ vi.mock("@decky/api", () => ({
     }
     if (name === "dismiss_bookmark") {
       return (...args: any[]) => mockDismissBookmark(...args);
+    }
+    if (name === "get_offline_downloads_list") {
+      return (...args: any[]) => mockGetOfflineDownloadsList(...args);
+    }
+    if (name === "toggle_offline_download") {
+      return (...args: any[]) => mockToggleOfflineDownload(...args);
+    }
+    if (name === "remove_all_offline_downloads") {
+      return (...args: any[]) => mockRemoveAllOfflineDownloads(...args);
+    }
+    if (name === "set_offline_storage_path") {
+      return (...args: any[]) => mockSetOfflineStoragePath(...args);
+    }
+    if (name === "set_travel_mode") {
+      return (...args: any[]) => mockSetTravelMode(...args);
     }
     return vi.fn().mockResolvedValue({ ok: true });
   },
@@ -38,6 +58,10 @@ vi.mock("@decky/ui", () => ({
   }),
   SliderField: (props: any) => ({
     type: "SliderField",
+    props,
+  }),
+  TextField: (props: any) => ({
+    type: "TextField",
     props,
   }),
   ToggleField: (props: any) => ({
@@ -66,6 +90,8 @@ vi.mock("react-icons/fa", () => ({
   FaPalette: () => ({ type: "FaPalette" }),
   FaLeaf: () => ({ type: "FaLeaf" }),
   FaTrashAlt: () => ({ type: "FaTrashAlt" }),
+  FaWifi: () => ({ type: "FaWifi" }),
+  FaHdd: () => ({ type: "FaHdd" }),
 }));
 
 vi.mock("react/jsx-dev-runtime", () => ({
@@ -104,10 +130,10 @@ vi.mock("react", () => ({
   useMemo: (fn: any) => fn(),
 }));
 
-import { SettingsTab, CrossfadeSettingRow } from "./SettingsTab";
+import { SettingsTab, CrossfadeSettingRow, OfflineTravelSection, BulkDeleteConfirmModal } from "./SettingsTab";
 import { ChordBindingsCard } from "./ChordBindingsCard";
 import { CHORD_ACTIONS, DEFAULT_CHORD_BINDINGS } from "../../chords";
-import { DialogButton, Focusable, SliderField, ToggleField } from "@decky/ui";
+import { DialogButton, Focusable, SliderField, TextField, ToggleField } from "@decky/ui";
 import { InteractiveRow } from "../common/InteractiveRow";
 import { StatusResponse } from "../../types";
 
@@ -1838,5 +1864,100 @@ describe("Native Crossfade (RADIO-02)", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("SettingsTab - Offline Travel Mode & Storage Downloads Manager (Phase 28)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("renders Offline & Travel Mode toggles and invokes set_travel_mode / updateSetting", async () => {
+    const onUpdateSetting = vi.fn().mockResolvedValue(undefined);
+    const showToast = vi.fn();
+    const refreshStatus = vi.fn();
+
+    const tree = OfflineTravelSection({
+      travelModeEnabled: false,
+      travelModeAutoEnabled: true,
+      offlineMinFreeGb: 3.0,
+      offlineStoragePath: "~/.local/share/spotify",
+      onUpdateSetting,
+      showToast,
+      refreshStatus,
+    });
+
+    const toggles = findNodes(tree, (n) => n.type === ToggleField || n.type === "ToggleField");
+    const manualToggle = toggles.find((t) => t.props.label === "Offline / Travel Mode");
+    const autoToggle = toggles.find((t) => t.props.label === "Auto-Activate on Wi-Fi Disconnect");
+    expect(manualToggle).toBeDefined();
+    expect(autoToggle).toBeDefined();
+
+    await manualToggle.props.onChange(true);
+    expect(mockSetTravelMode).toHaveBeenCalledWith(true, true);
+
+    await autoToggle.props.onChange(false);
+    expect(mockSetTravelMode).toHaveBeenCalledWith(false, false, false);
+    expect(onUpdateSetting).toHaveBeenCalledWith("travel_mode_auto_enabled", false);
+  });
+
+  it("renders Minimum Free Space Guardrail slider, Offline Storage Path TextField, and Apply Storage Path button", async () => {
+    const onUpdateSetting = vi.fn().mockResolvedValue(undefined);
+    const showToast = vi.fn();
+    const refreshStatus = vi.fn();
+
+    const tree = OfflineTravelSection({
+      travelModeEnabled: false,
+      travelModeAutoEnabled: true,
+      offlineMinFreeGb: 3.0,
+      offlineStoragePath: "/run/media/mmcblk0p1/SpotifyOffline",
+      onUpdateSetting,
+      showToast,
+      refreshStatus,
+    });
+
+    const sliders = findNodes(tree, (n) => n.type === SliderField || n.type === "SliderField");
+    const minFreeSlider = sliders.find((s) => s.props.label === "Minimum Free Space Guardrail (GB)");
+    expect(minFreeSlider).toBeDefined();
+    expect(minFreeSlider.props.value).toBe(3.0);
+    await minFreeSlider.props.onChange(5.0);
+    expect(onUpdateSetting).toHaveBeenCalledWith("offline_min_free_gb", 5.0);
+
+    const textFields = findNodes(tree, (n) => n.type === TextField || n.type === "TextField");
+    expect(textFields.some((f) => f.props.label === "Offline Storage Path")).toBe(true);
+
+    const applyBtn = findNodes(tree, (n) => n.props?.["data-testid"] === "apply-storage-path-btn")[0];
+    expect(applyBtn).toBeDefined();
+    expect(applyBtn.props.style.width).toBe("auto");
+    expect(applyBtn.props.style.flexShrink).toBe(0);
+    await applyBtn.props.onClick();
+    expect(mockSetOfflineStoragePath).toHaveBeenCalledWith("/run/media/mmcblk0p1/SpotifyOffline");
+  });
+
+  it("renders BulkDeleteConfirmModal with onCancelButton/vgp_oncancel trap and guarded remove_all_offline_downloads", async () => {
+    const onCancel = vi.fn();
+    const onConfirm = vi.fn();
+    const modalTree = BulkDeleteConfirmModal({
+      count: 4,
+      isBusy: false,
+      onCancel,
+      onConfirm,
+    });
+
+    expect(JSON.stringify(modalTree)).toContain("Are you sure you want to remove all 4 offline downloads?");
+    const focusables = findNodes(modalTree, (n) => n.type === Focusable || n.type === "Focusable");
+    const modalFocusable = focusables.find((f) => typeof f.props?.onCancelButton === "function");
+    expect(modalFocusable).toBeDefined();
+    expect(typeof modalFocusable.props.vgp_oncancel).toBe("function");
+
+    modalFocusable.props.onCancelButton();
+    expect(onCancel).toHaveBeenCalledTimes(1);
+    expect(mockRemoveAllOfflineDownloads).not.toHaveBeenCalled();
+
+    const confirmBtn = findNodes(modalTree, (n) => n.props?.["data-testid"] === "confirm-bulk-delete-btn")[0];
+    expect(confirmBtn.props.style.width).toBe("auto");
+    expect(confirmBtn.props.style.flexShrink).toBe(0);
+    confirmBtn.props.onClick();
+    expect(onConfirm).toHaveBeenCalledTimes(1);
   });
 });

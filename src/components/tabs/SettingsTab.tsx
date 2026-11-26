@@ -1,7 +1,7 @@
 import { FC, useState, useEffect, useCallback, useRef } from "react";
-import { DialogButton, Focusable, SliderField, ToggleField } from "@decky/ui";
+import { DialogButton, Focusable, SliderField, TextField, ToggleField } from "@decky/ui";
 import { callable, addEventListener, removeEventListener } from "@decky/api";
-import { FaSlidersH, FaClock, FaPowerOff, FaPlug, FaBluetooth, FaPalette, FaLeaf, FaTrashAlt } from "react-icons/fa";
+import { FaSlidersH, FaClock, FaPowerOff, FaPlug, FaBluetooth, FaPalette, FaLeaf, FaTrashAlt, FaWifi, FaHdd } from "react-icons/fa";
 import {
   AccentThemeMode,
   ActiveGameOverrideInfo,
@@ -11,6 +11,7 @@ import {
   EcoStatusInfo,
   EqualizerPreset,
   MprisStatusInfo,
+  OfflineDownloadItem,
   ResilienceStatusInfo,
   StatusResponse,
   SleepTimerStatus,
@@ -55,6 +56,26 @@ const backendSetSleepTimer = callable<
 >("set_sleep_timer");
 const backendRestoreBookmark = callable<[], { ok: boolean; error?: string }>("restore_bookmark");
 const backendDismissBookmark = callable<[], { ok: boolean }>("dismiss_bookmark");
+const backendGetOfflineDownloadsList = callable<
+  [],
+  { ok: boolean; items?: OfflineDownloadItem[]; disk?: { free_gb?: number; min_free_gb?: number; allowed?: boolean; path?: string }; error?: string }
+>("get_offline_downloads_list");
+const backendToggleOfflineDownload = callable<
+  [string, boolean],
+  { ok: boolean; success?: boolean; error?: string }
+>("toggle_offline_download");
+const backendRemoveAllOfflineDownloads = callable<
+  [],
+  { ok: boolean; success?: boolean; removed?: number; error?: string }
+>("remove_all_offline_downloads");
+const backendSetOfflineStoragePath = callable<
+  [string],
+  { ok: boolean; success?: boolean; path?: string; disk?: { free_gb?: number; min_free_gb?: number; allowed?: boolean; path?: string }; error?: string }
+>("set_offline_storage_path");
+const backendSetTravelMode = callable<
+  [boolean, boolean?, (boolean | null)?],
+  { ok: boolean; travel_mode_enabled?: boolean; travel_mode_manual?: boolean; travel_mode_auto_enabled?: boolean; error?: string }
+>("set_travel_mode");
 
 function buildFullChordBindings(
   next: ChordBindingsMap,
@@ -238,7 +259,377 @@ export interface SettingsTabProps {
   ecoStatus?: EcoStatusInfo | null;
   refreshStatus: () => void;
   showToast: (msg: string) => void;
+  travelModeEnabled?: boolean;
+  travelModeAutoEnabled?: boolean;
+  onToggleTravelMode?: (enabled: boolean, manual?: boolean, autoEnabled?: boolean) => void | Promise<void>;
+  offlineMinFreeGb?: number;
+  offlineStoragePath?: string;
+  onReloadOfflineDownloads?: () => void;
 }
+
+const COMPACT_BTN_STYLE = { width: "auto", minWidth: "auto", flexShrink: 0 } as const;
+
+export const BulkDeleteConfirmModal: FC<{
+  count: number;
+  isBusy: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}> = ({ count, isBusy, onCancel, onConfirm }) => {
+  const modalRef = useRef<HTMLDivElement | null>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    previousFocusRef.current =
+      typeof document !== "undefined" ? (document.activeElement as HTMLElement | null) : null;
+    const rafId =
+      typeof requestAnimationFrame === "function"
+        ? requestAnimationFrame(() => {
+            const target = modalRef.current?.querySelector('button, [tabindex="0"]') as HTMLElement | null;
+            target?.focus?.();
+          })
+        : 0;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        onCancel();
+      }
+    };
+    if (typeof window !== "undefined") {
+      window.addEventListener("keydown", onKeyDown, true);
+    }
+    return () => {
+      if (typeof cancelAnimationFrame === "function" && rafId) {
+        cancelAnimationFrame(rafId);
+      }
+      if (typeof window !== "undefined") {
+        window.removeEventListener("keydown", onKeyDown, true);
+      }
+      previousFocusRef.current?.focus?.();
+      previousFocusRef.current = null;
+    };
+  }, [onCancel]);
+
+  return (
+    <div
+      ref={modalRef}
+      data-testid="bulk-delete-confirm-modal"
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,0.85)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 200,
+      }}
+    >
+      <Focusable
+        flow-children="column"
+        onCancelButton={() => onCancel()}
+        {...({ vgp_oncancel: () => onCancel() } as Record<string, unknown>)}
+        style={{
+          background: "#1C1C1C",
+          border: "1px solid rgba(255,255,255,0.15)",
+          borderRadius: 14,
+          padding: 24,
+          width: 420,
+          maxWidth: "90%",
+          display: "flex",
+          flexDirection: "column",
+          gap: 14,
+        }}
+      >
+        <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#FF5555" }}>
+          Remove All Offline Downloads
+        </h3>
+        <p style={{ margin: 0, fontSize: 14, lineHeight: 1.5, opacity: 0.9 }}>
+          {`Are you sure you want to remove all ${count} offline downloads? Cached audio will be deleted from this device.`}
+        </p>
+        <Focusable flow-children="horizontal" style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+          <DialogButton
+            data-testid="cancel-bulk-delete-btn"
+            disabled={isBusy}
+            onClick={() => onCancel()}
+            style={COMPACT_BTN_STYLE}
+          >
+            Cancel
+          </DialogButton>
+          <DialogButton
+            data-testid="confirm-bulk-delete-btn"
+            disabled={isBusy}
+            onClick={() => onConfirm()}
+            style={{
+              ...COMPACT_BTN_STYLE,
+              background: "rgba(255, 85, 85, 0.2)",
+              color: "#FF5555",
+              border: "1px solid rgba(255, 85, 85, 0.5)",
+            }}
+          >
+            {isBusy ? "Removing..." : "Remove All Offline Downloads"}
+          </DialogButton>
+        </Focusable>
+      </Focusable>
+    </div>
+  );
+};
+
+function formatBytesMb(bytes?: number): string {
+  if (!bytes || bytes <= 0) return "";
+  const mb = bytes / (1024 * 1024);
+  return mb >= 1024 ? `${(mb / 1024).toFixed(2)} GB` : `${mb.toFixed(0)} MB`;
+}
+
+export const OfflineTravelSection: FC<{
+  travelModeEnabled: boolean;
+  travelModeAutoEnabled: boolean;
+  offlineMinFreeGb: number;
+  offlineStoragePath: string;
+  onToggleTravelMode?: (enabled: boolean, manual?: boolean, autoEnabled?: boolean) => void | Promise<void>;
+  onUpdateSetting: (key: string, value: unknown) => Promise<void>;
+  onReloadOfflineDownloads?: () => void;
+  showToast: (msg: string) => void;
+  refreshStatus: () => void;
+}> = ({
+  travelModeEnabled,
+  travelModeAutoEnabled,
+  offlineMinFreeGb,
+  offlineStoragePath,
+  onToggleTravelMode,
+  onUpdateSetting,
+  onReloadOfflineDownloads,
+  showToast,
+  refreshStatus,
+}) => {
+  const [state, setState] = useState<{
+    items: OfflineDownloadItem[];
+    freeGb: number | null;
+    loaded: boolean;
+  }>({ items: [], freeGb: null, loaded: false });
+  const [pathInput, setPathInput] = useState<string>(offlineStoragePath);
+  const [isApplyingPath, setIsApplyingPath] = useState(false);
+  const [showBulkDeleteModal, setShowBulkDeleteModal] = useState(false);
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+
+  useEffect(() => {
+    setPathInput(offlineStoragePath);
+  }, [offlineStoragePath]);
+
+  const loadDownloads = useCallback(async () => {
+    try {
+      const res = await backendGetOfflineDownloadsList();
+      if (res?.ok) {
+        setState({
+          items: Array.isArray(res.items) ? res.items : [],
+          freeGb: typeof res.disk?.free_gb === "number" ? res.disk.free_gb : null,
+          loaded: true,
+        });
+      }
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    void loadDownloads();
+  }, [loadDownloads]);
+
+  const handleTravelToggle = async (val: boolean) => {
+    if (onToggleTravelMode) {
+      await onToggleTravelMode(val, true);
+      return;
+    }
+    const res = await backendSetTravelMode(val, true);
+    showToast(res?.ok ? (val ? "Offline Travel Mode enabled" : "Offline Travel Mode disabled") : (res?.error || "Failed to update Travel Mode"));
+    refreshStatus();
+  };
+
+  const handleAutoTravelToggle = async (val: boolean) => {
+    if (onToggleTravelMode) {
+      await onToggleTravelMode(travelModeEnabled, false, val);
+    } else {
+      await backendSetTravelMode(travelModeEnabled, false, val);
+    }
+    await onUpdateSetting("travel_mode_auto_enabled", val);
+    showToast(val ? "Auto Travel Mode enabled" : "Auto Travel Mode disabled");
+  };
+
+  const handleApplyPath = async () => {
+    const trimmed = pathInput.trim();
+    if (!trimmed) {
+      showToast("Please enter a valid storage path");
+      return;
+    }
+    setIsApplyingPath(true);
+    try {
+      const res = await backendSetOfflineStoragePath(trimmed);
+      if (res?.ok || res?.success) {
+        showToast(`Offline storage path updated: ${res.path || trimmed}`);
+        await loadDownloads();
+        onReloadOfflineDownloads?.();
+        refreshStatus();
+      } else {
+        showToast(res?.error || "Failed to update offline storage path");
+      }
+    } catch {
+      showToast("Failed to update offline storage path");
+    } finally {
+      setIsApplyingPath(false);
+    }
+  };
+
+  const handleRemoveSingle = async (item: OfflineDownloadItem) => {
+    try {
+      const res = await backendToggleOfflineDownload(item.uri, false);
+      if (res?.ok || res?.success) {
+        showToast(`Removed offline download: ${item.name}`);
+        await loadDownloads();
+        onReloadOfflineDownloads?.();
+      } else {
+        showToast(res?.error || `Failed to remove ${item.name}`);
+      }
+    } catch {
+      showToast(`Failed to remove ${item.name}`);
+    }
+  };
+
+  const handleConfirmBulkDelete = async () => {
+    setIsBulkDeleting(true);
+    try {
+      const res = await backendRemoveAllOfflineDownloads();
+      if (res?.ok || res?.success) {
+        showToast("All offline downloads removed");
+        setShowBulkDeleteModal(false);
+        await loadDownloads();
+        onReloadOfflineDownloads?.();
+      } else {
+        showToast(res?.error || "Failed to remove all offline downloads");
+      }
+    } catch {
+      showToast("Failed to remove all offline downloads");
+    } finally {
+      setIsBulkDeleting(false);
+    }
+  };
+
+  const totalBytes = state.items.reduce((acc, it) => acc + (it.size_bytes || 0), 0);
+  const totalUsageStr = formatBytesMb(totalBytes);
+  const freeReadout = state.freeGb !== null ? `${state.freeGb.toFixed(1)} GB free` : "Checking disk...";
+
+  return (
+    <>
+      <div style={{ marginBottom: 20, padding: 14, borderRadius: 10, background: "rgba(255,255,255,0.04)" }}>
+        <h3 style={{ fontSize: 16, fontWeight: 700, color: "var(--deckify-accent, #1DB954)", display: "flex", alignItems: "center", gap: 8, margin: "0 0 8px 0" }}>
+          <FaWifi /> Offline & Travel Mode
+        </h3>
+        <ToggleField
+          label="Offline / Travel Mode"
+          description="Filter library views to locally downloaded playlists, albums, and episodes"
+          checked={travelModeEnabled}
+          onChange={(val: boolean) => void handleTravelToggle(val)}
+        />
+        <ToggleField
+          label="Auto-Activate on Wi-Fi Disconnect"
+          description="Automatically enter Travel Mode when Wi-Fi drops (respects a 10-second wake-from-suspend grace window)"
+          checked={travelModeAutoEnabled}
+          onChange={(val: boolean) => void handleAutoTravelToggle(val)}
+        />
+      </div>
+
+      <div style={{ marginBottom: 20, padding: 14, borderRadius: 10, background: "rgba(255,255,255,0.04)" }}>
+        <h3 style={{ fontSize: 16, fontWeight: 700, color: "var(--deckify-accent, #1DB954)", display: "flex", alignItems: "center", gap: 8, margin: "0 0 8px 0" }}>
+          <FaHdd /> Storage & Offline Downloads Manager
+        </h3>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 10, fontSize: 12 }}>
+          <span style={{ fontWeight: 700 }}>
+            {`${freeReadout} · ${offlineMinFreeGb.toFixed(1)} GB minimum${totalUsageStr ? ` · ${totalUsageStr} used` : ""}`}
+          </span>
+          <span style={{ opacity: 0.7, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {offlineStoragePath}
+          </span>
+        </div>
+
+        <SliderField
+          label="Minimum Free Space Guardrail (GB)"
+          min={0.5}
+          max={50}
+          step={0.5}
+          showValue
+          valueSuffix=" GB"
+          value={offlineMinFreeGb}
+          onChange={(val: number) => void onUpdateSetting("offline_min_free_gb", val)}
+        />
+
+        <Focusable flow-children="horizontal" style={{ display: "flex", alignItems: "flex-end", gap: 8, marginTop: 8, marginBottom: 12 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <TextField
+              label="Offline Storage Path"
+              value={pathInput}
+              onChange={(e: any) => setPathInput(typeof e === "string" ? e : (e?.target?.value ?? ""))}
+            />
+          </div>
+          <DialogButton
+            data-testid="apply-storage-path-btn"
+            disabled={isApplyingPath}
+            onClick={() => void handleApplyPath()}
+            style={COMPACT_BTN_STYLE}
+          >
+            {isApplyingPath ? "Applying..." : "Apply Storage Path"}
+          </DialogButton>
+        </Focusable>
+
+        {state.items.length === 0 ? (
+          <div style={{ padding: "12px 14px", borderRadius: 8, background: "rgba(255,255,255,0.03)", marginBottom: 12 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>No offline downloads yet</div>
+            <div style={{ fontSize: 12, opacity: 0.72, lineHeight: 1.4 }}>
+              Switch to Official Spotify Client and select &quot;Download for Offline&quot; on any playlist, album, or podcast episode to listen without Wi-Fi.
+            </div>
+          </div>
+        ) : (
+          <Focusable flow-children="column" style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
+            {state.items.map((item) => (
+              <InteractiveRow key={item.uri} onClick={() => {}} style={{ justifyContent: "space-between", gap: 8 }}>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {item.name}
+                  </div>
+                  <div style={{ fontSize: 11, opacity: 0.65 }}>
+                    {`${item.type}${item.offline_state === "downloading" ? ` · ${item.offline_progress}%` : ""}${item.size_bytes ? ` · ${formatBytesMb(item.size_bytes)}` : ""}`}
+                  </div>
+                </div>
+                <DialogButton
+                  data-testid={`remove-offline-item-${item.uri}`}
+                  onClick={() => void handleRemoveSingle(item)}
+                  style={{ ...COMPACT_BTN_STYLE, fontSize: 12, padding: "6px 12px" }}
+                >
+                  Remove Download
+                </DialogButton>
+              </InteractiveRow>
+            ))}
+          </Focusable>
+        )}
+
+        <Focusable flow-children="horizontal" style={{ display: "flex", justifyContent: "flex-end" }}>
+          <DialogButton
+            data-testid="remove-all-offline-btn"
+            disabled={state.items.length === 0}
+            onClick={() => setShowBulkDeleteModal(true)}
+            style={{ ...COMPACT_BTN_STYLE, color: "#FF5555" }}
+          >
+            Remove All Offline Downloads
+          </DialogButton>
+        </Focusable>
+      </div>
+
+      {showBulkDeleteModal && (
+        <BulkDeleteConfirmModal
+          count={state.items.length}
+          isBusy={isBulkDeleting}
+          onCancel={() => setShowBulkDeleteModal(false)}
+          onConfirm={() => void handleConfirmBulkDelete()}
+        />
+      )}
+    </>
+  );
+};
 
 export const CrossfadeSettingRow: FC<{
   initialValue: number;
@@ -307,7 +698,18 @@ export const CrossfadeSettingRow: FC<{
   );
 };
 
-export const SettingsTab: FC<SettingsTabProps> = ({ status, ecoStatus, refreshStatus, showToast }) => {
+export const SettingsTab: FC<SettingsTabProps> = ({
+  status,
+  ecoStatus,
+  refreshStatus,
+  showToast,
+  travelModeEnabled,
+  travelModeAutoEnabled,
+  onToggleTravelMode,
+  offlineMinFreeGb,
+  offlineStoragePath,
+  onReloadOfflineDownloads,
+}) => {
   const [audioSinks, setAudioSinks] = useState<AudioSinkInfo[]>([]);
   const [officialClientStatus, setOfficialClientStatus] = useState<{ running: boolean; logged_in: boolean } | null>(null);
   const [localSettings, setLocalSettings] = useState<Record<string, any>>(() => status?.settings || {});
@@ -1998,6 +2400,19 @@ export const SettingsTab: FC<SettingsTabProps> = ({ status, ecoStatus, refreshSt
           onSaveBindings={handleSaveChordBindings}
         />
       </div>
+
+      {/* Offline & Travel Mode + Storage & Offline Downloads Manager */}
+      <OfflineTravelSection
+        travelModeEnabled={Boolean(travelModeEnabled ?? localSettings.travel_mode_enabled ?? status?.travel_mode_enabled ?? false)}
+        travelModeAutoEnabled={Boolean(travelModeAutoEnabled ?? localSettings.travel_mode_auto_enabled ?? status?.settings?.travel_mode_auto_enabled ?? true)}
+        offlineMinFreeGb={Number(offlineMinFreeGb ?? localSettings.offline_min_free_gb ?? status?.settings?.offline_min_free_gb ?? 3.0)}
+        offlineStoragePath={String(offlineStoragePath ?? localSettings.offline_storage_path ?? status?.settings?.offline_storage_path ?? "~/.local/share/spotify")}
+        onToggleTravelMode={onToggleTravelMode}
+        onUpdateSetting={updateSetting}
+        onReloadOfflineDownloads={onReloadOfflineDownloads}
+        showToast={showToast}
+        refreshStatus={refreshStatus}
+      />
 
       {/* Controller & Trigger Navigation */}
       <div style={{ marginBottom: 20, padding: 14, borderRadius: 10, background: "rgba(255,255,255,0.04)" }}>
