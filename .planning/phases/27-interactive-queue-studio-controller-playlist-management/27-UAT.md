@@ -1,5 +1,5 @@
 ---
-status: complete
+status: diagnosed
 phase: 27-interactive-queue-studio-controller-playlist-management
 source: [27-01-SUMMARY.md, 27-02-SUMMARY.md, 27-03-SUMMARY.md, 27-04-SUMMARY.md, 27-05-SUMMARY.md, 27-06-SUMMARY.md, 27-07-SUMMARY.md, 27-08-SUMMARY.md, 27-09-SUMMARY.md, 27-10-SUMMARY.md, 27-11-SUMMARY.md]
 started: 2026-11-25T21:23:00Z
@@ -295,8 +295,17 @@ blocked: 0
   reason: "User reported: Yes werkt in que slepen werkt alleen als ik iets neerzet hapert heel de muziek ff | Selecteion is nice heb nog niet gehad dat zomaar een track ging spelen"
   severity: minor
   test: 1
-  artifacts: []
-  missing: []
+  root_cause: "reorder_queue_track (py_modules/rpc_playback.py:583-593) falls back to _mutate_queue_via_uri_slice (PUT /v1/me/player/play with uris and position_ms) whenever cdp_reorder_queue fails or CDP is inactive, restarting playback of the active track and causing an audio stutter on drop. cdp_reorder_queue also lacks PlayerAPI.getQueue()/getState() uid resolution, and DeckifyExpandedModal.tsx:1273 passes already-reordered nextTracks to reorder_queue_track."
+  artifacts:
+    - path: "py_modules/rpc_playback.py"
+      issue: "reorder_queue_track (549-596) falls back to _mutate_queue_via_uri_slice (PUT me/player/play) and re-applies pop/insert"
+    - path: "py_modules/cdp_bridge.py"
+      issue: "cdp_reorder_queue (1481-1525) lacks PlayerAPI uid resolution and non-interrupting CDP fallback"
+    - path: "src/components/DeckifyExpandedModal.tsx"
+      issue: "handleReorderQueueTrack (1268-1287) passes post-move nextTracks instead of pre-grab prevTracks"
+  missing:
+    - "Resolve uid/target_uid in cdp_reorder_queue and use non-interrupting CDP queue mutation without restarting active track via PUT me/player/play; pass pre-grab snapshot in handleReorderQueueTrack"
+  debug_session: .planning/debug/g-27-9-queue-drop-audio-stutter.md
 
 - gap_id: G-27-10
   truth: "Removing a single track from QueueTab does not cause the app or audio playback to hang/stutter briefly"
@@ -304,8 +313,17 @@ blocked: 0
   reason: "User reported: Remove queue laat ook heel de app even hangen haperen maar ja als queue weg is is die weg das goed"
   severity: minor
   test: 2
-  artifacts: []
-  missing: []
+  root_cause: "remove_queue_track (and clear_queue when context is active) falls back to _mutate_queue_via_uri_slice (PUT me/player/play) on non-spotify_client backends and whenever a context track is removed (because PlayerAPI.removeFromQueue only mutates nextTracks and cdp_remove_from_queue returns ok: False), restarting the active track and causing a brief hang/stutter. QueueTab inline ✕ also unmounts the focused row without shifting focus."
+  artifacts:
+    - path: "py_modules/rpc_playback.py"
+      issue: "remove_queue_track, clear_queue, and _mutate_queue_via_uri_slice call PUT me/player/play while current track is playing"
+    - path: "py_modules/cdp_bridge.py"
+      issue: "cdp_remove_from_queue (1364-1436) returns ok: False on context tracks, triggering PUT me/player/play fallback"
+    - path: "src/components/tabs/QueueTab.tsx"
+      issue: "Inline ✕ InteractiveRow unmounts on click without shifting focus to an adjacent row"
+  missing:
+    - "Avoid calling PUT me/player/play while current track is playing (defer context-track skip/slice to track transition or use non-restarting queue mutation) and shift focus to adjacent row on inline ✕ remove"
+  debug_session: .planning/debug/g-27-10-queue-remove-hang-stutter.md
 
 - gap_id: G-27-11
   truth: "Sort buttons, filter chips, and inline action buttons (like, etc.) in PlaylistsTab show clear controller focus / hover highlights when navigated to"
@@ -313,5 +331,14 @@ blocked: 0
   reason: "User reported: Ja alleen zijn ze nog niet selecteer / hoverbaar maar ook like enzo Maar werken wel"
   severity: minor
   test: 4
-  artifacts: []
-  missing: []
+  root_cause: "Three focus/hover gaps: (1) renderMetaFilterBar (PlaylistsTab.tsx:322-380) uses DialogButton with inline background overrides and no focusHalo/focus handlers; (2) TrackRowItem.tsx Like (166-174) and Options (Y) (186-194) and FolderTreeItem Rename/Delete (PlaylistsTab.tsx:572-589) are plain <span>s rather than focusable InteractiveRow controls; (3) InteractiveRow (InteractiveRow.tsx:101-168) lacks onMouseEnter/onMouseLeave hover state."
+  artifacts:
+    - path: "src/components/tabs/PlaylistsTab.tsx"
+      issue: "renderMetaFilterBar (322-380) uses DialogButton without focusHalo; FolderTreeItem (572-589) uses plain <span>s"
+    - path: "src/components/common/TrackRowItem.tsx"
+      issue: "Like (166-174) and Options (Y) (186-194) use plain <span>s instead of InteractiveRow"
+    - path: "src/components/common/InteractiveRow.tsx"
+      issue: "InteractiveRow (101-168) lacks onMouseEnter/onMouseLeave hover state"
+  missing:
+    - "Use InteractiveRow / focusHalo on renderMetaFilterBar chips & sort buttons, convert TrackRowItem Like/Options (gated by !hasActiveGrab) and FolderTreeItem Rename/Delete to InteractiveRow, and add hover state to InteractiveRow"
+  debug_session: .planning/debug/g-27-11-playliststab-focus-highlights.md
