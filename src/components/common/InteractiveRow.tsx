@@ -16,7 +16,7 @@ export function focusHalo(focused: boolean) {
 
 export interface InteractiveRowProps {
   children: ReactNode;
-  onClick: () => void;
+  onClick: (e?: any) => void;
   onFocus?: () => void;
   onBlur?: () => void;
   active?: boolean;
@@ -115,7 +115,9 @@ export function InteractiveRow({
   "aria-label": ariaLabel,
 }: InteractiveRowProps) {
   const [focused, setFocused] = useState(false);
+  const [hovered, setHovered] = useState(false);
   const showFocus = focused && !suppressFocusHalo;
+  const showHighlight = (focused || hovered) && !suppressFocusHalo;
   return (
     <Focusable
       noFocusRing
@@ -143,6 +145,8 @@ export function InteractiveRow({
         setFocused(false);
         onBlur?.();
       }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
       onKeyDown={onKeyDown}
       tabIndex={tabIndex ?? 0}
       style={{
@@ -154,11 +158,11 @@ export function InteractiveRow({
         borderRadius: 8,
         background: active
           ? "rgba(var(--deckify-accent-rgb, 29, 185, 84), 0.25)"
-          : showFocus
+          : showHighlight
           ? "rgba(255,255,255,0.18)"
           : "rgba(255,255,255,0.03)",
         cursor: "pointer",
-        ...focusHalo(showFocus),
+        ...focusHalo(showHighlight),
         ...style,
       }}
     >

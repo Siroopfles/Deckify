@@ -163,15 +163,36 @@ export const TrackRowItem: FC<TrackRowItemProps> = ({
     >
       <span style={{ width: 22, fontSize: 12, opacity: 0.5, textAlign: "right" }}>{index + 1}</span>
       {renderTrackMeta(track, img)}
-      <span
-        onClick={(e) => {
-          e.stopPropagation();
-          if (track.id) onToggleLike(track.id);
-        }}
-        style={{ cursor: "pointer", padding: "4px 6px" }}
-      >
-        {track.is_liked ? <FaHeart size={13} color="var(--deckify-accent, #1DB954)" /> : <FaRegHeart size={13} color="#777" />}
-      </span>
+      {hasActiveGrab ? (
+        <span
+          aria-label="Toggle like"
+          onClick={(e) => {
+            e.stopPropagation();
+            if (track.id) onToggleLike(track.id);
+          }}
+          style={{ cursor: "pointer", padding: "4px 6px" }}
+        >
+          {track.is_liked ? <FaHeart size={13} color="var(--deckify-accent, #1DB954)" /> : <FaRegHeart size={13} color="#777" />}
+        </span>
+      ) : (
+        <InteractiveRow
+          aria-label="Toggle like"
+          onClick={(e) => {
+            e?.stopPropagation?.();
+            if (track.id) onToggleLike(track.id);
+          }}
+          style={{
+            width: "auto",
+            minWidth: "auto",
+            flexShrink: 0,
+            minHeight: 32,
+            padding: "4px 8px",
+            borderRadius: 6,
+          }}
+        >
+          {track.is_liked ? <FaHeart size={13} color="var(--deckify-accent, #1DB954)" /> : <FaRegHeart size={13} color="#777" />}
+        </InteractiveRow>
+      )}
       <span style={{ fontSize: 12, opacity: 0.5 }}>{formatMs(track.duration_ms || 0)}</span>
       {renderInlineControlButtons({
         track,
@@ -183,15 +204,38 @@ export const TrackRowItem: FC<TrackRowItemProps> = ({
         onGrabTrack,
         onRemoveTrack,
       })}
-      <span
-        onClick={(e) => {
-          e.stopPropagation();
-          onOpenActions(track);
-        }}
-        style={{ padding: "4px 8px", borderRadius: 4, background: "rgba(255,255,255,0.08)", fontSize: 11, color: "#aaa" }}
-      >
-        Options (Y)
-      </span>
+      {hasActiveGrab ? (
+        <span
+          aria-label="Track options"
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpenActions(track);
+          }}
+          style={{ padding: "4px 8px", borderRadius: 4, background: "rgba(255,255,255,0.08)", fontSize: 11, color: "#aaa" }}
+        >
+          Options (Y)
+        </span>
+      ) : (
+        <InteractiveRow
+          aria-label="Track options"
+          onClick={(e) => {
+            e?.stopPropagation?.();
+            onOpenActions(track);
+          }}
+          style={{
+            width: "auto",
+            minWidth: "auto",
+            flexShrink: 0,
+            minHeight: 32,
+            padding: "4px 8px",
+            borderRadius: 6,
+            fontSize: 11,
+            color: "#aaa",
+          }}
+        >
+          Options (Y)
+        </InteractiveRow>
+      )}
     </InteractiveRow>
   );
 };
