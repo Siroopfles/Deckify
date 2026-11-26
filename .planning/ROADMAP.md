@@ -258,7 +258,7 @@ Plans:
   2. `DiscoveryTab` populates the *Made For You* section with the user's personalized algorithmic mixes (*Daylist*, *Discover Weekly*, *Release Radar*, *Daily Mix 1–6*) via the CDP Pathfinder/Rootlist bridge, bypassing Spotify Web API Development Mode `HTTP 403/404` blocks.
   3. Resolved algorithmic mix metadata and track URI lists are cached locally on disk so users can browse and play those mixes even after switching their active playback engine to `librespot`.
   4. `py_modules/rpc_playback.py:_try_cdp_station_radio` (Phase 25 Tier 1 hook) is wired to `cdp_bridge.py` to start native Spotify `spotify:station:...` radio when `spotify_client` is active (falling back silently to Tier 2/3), `SearchTab` optionally enriches its Browse Categories / Gaming & Mood tiles via CDP with the 12 static tiles as automatic fallback on `librespot` or when CDP is unavailable, and pressing `B` while viewing search results in `SearchTab` (when `searchQuery` is non-empty) clears the search query/results and returns to the main Search idle view instead of closing the modal.
-**Plans:** 14/14 plans executed (11 executed, 3 gap-closure planned)
+**Plans:** 17 plans (14 executed, 3 gap-closure planned)
 
 Plans:
 **Wave 1**
@@ -296,6 +296,13 @@ Plans:
 
 **Wave 2 (Gap Closure - UAT Round 2)** *(blocked on 26-12, 26-13)*
 - [x] 26-14-PLAN.md — Close UAT gaps G-26-4, G-26-5, G-26-7 (library & UI): `audio_backend`-keyed `_DISCOVERY_CACHE`, `DiscoveryTab` backend-switch refresh, and HTML stripping in `rpc_library.py`, `DiscoveryTab.tsx`, and `PlaylistsTab.tsx`
+
+**Wave 1 (Gap Closure - UAT Round 3)**
+- [ ] 26-15-PLAN.md — Close UAT gaps G-26-13 & G-26-14 (frontend): fix `SearchTab` `useSearchController` epoch race on Gaming & Mood tiles/history pills and retry empty `get_search_browse_categories`
+- [ ] 26-16-PLAN.md — Close UAT gaps G-26-10 & G-26-14 (backend): fix `cdp_fetch_discovery_mixes` `SearchAPI` `searchV2` unwrapping + `_search_missing_core_mixes` completeness gating, and `cdp_fetch_browse_categories` `Cosmos`/`cardRepresentation` unwrapping + REST `/v1/browse/categories` fallback
+
+**Wave 2 (Gap Closure - UAT Round 3)** *(blocked on 26-16)*
+- [ ] 26-17-PLAN.md — Close UAT gaps G-26-11 & G-26-12: broaden `cdp_get_player_state` & `_poll_playback` for later AI DJ interludes, extract & emit `duration_ms`/`position_ms` during interludes, and subscribe to `ai_dj_state` in `usePlaybackStatus.ts`
 **UI hint**: yes
 
 ### Phase 27: Interactive Queue Studio & Controller Playlist Management
