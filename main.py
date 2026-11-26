@@ -62,6 +62,8 @@ from py_modules import eco
 from py_modules import lyrics_offsets
 from py_modules import vdf_parser
 from py_modules import input_watch
+from py_modules import cdp_bridge
+from py_modules import engine
 
 common._MAIN_MODULE = sys.modules.get(__name__)
 
@@ -169,6 +171,27 @@ class Plugin:
     def _is_playing(self) -> bool:
         return self._poll_play_state == "playing"
 
+    def _create_bookmark_manager(self) -> resilience.SessionBookmarkManager:
+        settings = getattr(self, "_settings", {}) or {}
+        return resilience.SessionBookmarkManager(
+            self,
+            travel_mode_enabled=bool(settings.get("travel_mode_enabled", False)),
+            travel_mode_manual=bool(settings.get("travel_mode_manual", False)),
+            travel_mode_auto_enabled=bool(settings.get("travel_mode_auto_enabled", True)),
+            on_travel_mode_changed=self._on_travel_mode_changed,
+        )
+
+    async def _on_travel_mode_changed(self, state: dict) -> None:
+        if not isinstance(state, dict):
+            return
+        if not isinstance(getattr(self, "_settings", None), dict):
+            self._settings = {}
+        self._settings["travel_mode_enabled"] = bool(state.get("travel_mode_enabled", False))
+        self._settings["travel_mode_manual"] = bool(state.get("travel_mode_manual", False))
+        self._settings["travel_mode_auto_enabled"] = bool(state.get("travel_mode_auto_enabled", True))
+        _save_settings(self._settings)
+        await decky.emit("travel_mode_changed", state)
+
     def __init__(self):
         self._crash_timestamps = []
         self._liked_cache = {}
@@ -176,7 +199,7 @@ class Plugin:
         self._voice_detector = volume.VoiceActivityDetector(self, self._volume_fader)
         self._soundtrack_manager = soundtrack.SoundtrackManager(self)
         self._event_server = resilience.LibrespotEventServer(self)
-        self._bookmark_manager = resilience.SessionBookmarkManager(self)
+        self._bookmark_manager = self._create_bookmark_manager()
         self._mpris_bridge = mpris.MprisBridge(self)
         self._poll_wake_event = None
         self._crossfade_out_track_id = None
@@ -184,6 +207,7 @@ class Plugin:
         self._last_media_is_spoken = False
         self._ai_dj_active = False
         self._ai_dj_speaking = False
+        self._jam_session = {"active": False}
 
     # ── Lifecycle ──────────────────────────────────────────────
 
@@ -215,7 +239,7 @@ class Plugin:
         self._dock_switcher.start()
         self._power_governor = eco.PowerGovernor(self)
         self._power_governor.start()
-        self._bookmark_manager = resilience.SessionBookmarkManager(self)
+        self._bookmark_manager = self._create_bookmark_manager()
         self._bookmark_manager.load_bookmark()
         self._event_server = resilience.LibrespotEventServer(self)
         await self._event_server.start()
@@ -312,7 +336,7 @@ class Plugin:
         decky.logger.info("Deck resumed from suspend - recovering token and audio state")
         try:
             if not getattr(self, "_bookmark_manager", None):
-                self._bookmark_manager = resilience.SessionBookmarkManager(self)
+                self._bookmark_manager = self._create_bookmark_manager()
             await self._bookmark_manager.handle_wake_recovery(source="dbus")
             await self._refresh_audio_stream_info()
             if getattr(self, "_input_watcher", None):
@@ -741,6 +765,18 @@ class Plugin:
             "accent_theme", "eco_mode_enabled",
             "eco_timeout_minutes", "eco_sleep_spotify_client",
             "preferred_podcast_speed", "search_history",
+            "travel_mode_enabled", "travel_mode_manual", "travel_mode_auto_enabled",
+            "offline_min_free_gb", "offline_storage_path",
+        )
+        bm = getattr(self, "_bookmark_manager", None)
+        travel_state = (
+            bm.get_travel_mode_state()
+            if bm is not None and callable(getattr(bm, "get_travel_mode_state", None))
+            else {
+                "travel_mode_enabled": bool(self._settings.get("travel_mode_enabled", False)),
+                "travel_mode_manual": bool(self._settings.get("travel_mode_manual", False)),
+                "travel_mode_auto_enabled": bool(self._settings.get("travel_mode_auto_enabled", True)),
+            }
         )
         eq_mgr = getattr(self, "_equalizer_manager", None)
         raw_app_id = getattr(getattr(self, "_soundtrack_manager", None), "_active_game_app_id", None)
@@ -783,6 +819,12 @@ class Plugin:
             "playback_speed": getattr(self, "_playback_speed", 1.0),
             "ai_dj_active": bool(getattr(self, "_ai_dj_active", False)),
             "ai_dj_speaking": bool(getattr(self, "_ai_dj_speaking", False)),
+            "travel_mode_enabled": bool(travel_state.get("travel_mode_enabled", False)),
+            "travel_mode_manual": bool(travel_state.get("travel_mode_manual", False)),
+            "travel_mode_auto_enabled": bool(travel_state.get("travel_mode_auto_enabled", True)),
+            "offline_min_free_gb": self._get_offline_min_free_gb(),
+            "offline_storage_path": self._get_offline_storage_path(),
+            "jam_session": dict(getattr(self, "_jam_session", None) or {"active": False}),
             "sleep_timer": self.get_sleep_timer_status(),
             "dock_status": (
                 self._dock_switcher.get_status_dict()
@@ -1049,6 +1091,12 @@ class Plugin:
             if len(value) > MAX_PINNED_PLAYLISTS:
                 return {"ok": False, "error": "Max 4 pinned items — unpin one first"}
             value = _sanitize_pinned_playlists(value)
+        elif key == "offline_min_free_gb":
+            value = common.clamp_offline_min_free_gb(value)
+        elif key == "travel_mode_auto_enabled":
+            value = bool(value)
+            if getattr(self, "_bookmark_manager", None):
+                self._bookmark_manager.set_auto_travel_mode_enabled(value)
         self._settings[key] = value
         _save_settings(self._settings)
         decky.logger.info("Setting updated: %s = %s", key, value)
@@ -1426,17 +1474,17 @@ class Plugin:
 
     async def get_resilience_status(self) -> dict:
         if not getattr(self, "_bookmark_manager", None):
-            self._bookmark_manager = resilience.SessionBookmarkManager(self)
+            self._bookmark_manager = self._create_bookmark_manager()
         return self._bookmark_manager.get_status_dict(self)
 
     async def restore_bookmark(self) -> dict:
         if not getattr(self, "_bookmark_manager", None):
-            self._bookmark_manager = resilience.SessionBookmarkManager(self)
+            self._bookmark_manager = self._create_bookmark_manager()
         return await self._bookmark_manager.restore_held_bookmark()
 
     async def dismiss_bookmark(self) -> dict:
         if not getattr(self, "_bookmark_manager", None):
-            self._bookmark_manager = resilience.SessionBookmarkManager(self)
+            self._bookmark_manager = self._create_bookmark_manager()
         return await self._bookmark_manager.dismiss_held_bookmark()
 
     async def get_mpris_status(self) -> dict:
@@ -1606,6 +1654,148 @@ class Plugin:
 
     async def play_ai_dj(self, uri: str = "spotify:playlist:37i9dQZF1EYkqdzj48dyYq") -> dict:
         return await rpc_playback.play_ai_dj(self, uri)
+
+    # ── Phase 28: Offline Downloads, Travel Mode & Spotify Jam ─────
+
+    def _get_offline_storage_path(self) -> str:
+        settings = getattr(self, "_settings", {}) or {}
+        path = str(settings.get("offline_storage_path") or "").strip()
+        return path or common.SPOTIFY_CLIENT_CACHE_DIR
+
+    def _get_offline_min_free_gb(self) -> float:
+        settings = getattr(self, "_settings", {}) or {}
+        return common.clamp_offline_min_free_gb(settings.get("offline_min_free_gb", 3.0))
+
+    async def toggle_offline_download(
+        self, uri: str, download: bool = True, item_meta: dict | None = None
+    ) -> dict:
+        storage_path = self._get_offline_storage_path()
+        min_free_gb = self._get_offline_min_free_gb()
+        if download:
+            guard = await _exec(common.check_disk_guardrail, storage_path, min_free_gb)
+            if not guard.get("allowed", False):
+                return {
+                    "success": False,
+                    "ok": False,
+                    "low_disk_space": True,
+                    **guard,
+                    "error": (
+                        f"Low disk space ({guard.get('free_gb')} GB free < "
+                        f"{guard.get('min_free_gb')} GB minimum)"
+                    ),
+                }
+        res = await _exec(
+            cdp_bridge.cdp_set_offline_download,
+            uri,
+            bool(download),
+            item_meta,
+            storage_path=storage_path,
+            min_free_gb=min_free_gb,
+        )
+        if not isinstance(res, dict):
+            return {"success": False, "ok": False, "error": "Invalid offline download response"}
+        return {**res, "success": bool(res.get("ok", False))}
+
+    async def get_offline_status(self, uris: list[str] | None = None) -> dict:
+        storage_path = self._get_offline_storage_path()
+        min_free_gb = self._get_offline_min_free_gb()
+        status_res = await _exec(cdp_bridge.cdp_get_offline_status, uris)
+        guard = await _exec(common.check_disk_guardrail, storage_path, min_free_gb)
+        items = status_res.get("items") if isinstance(status_res, dict) else {}
+        if not isinstance(items, dict):
+            items = {}
+        low_space = not guard.get("allowed", True)
+        if low_space:
+            downloading_uris = [
+                str(entry.get("uri") or k)
+                for k, entry in items.items()
+                if isinstance(entry, dict) and entry.get("offline_state") == "downloading"
+            ]
+            if downloading_uris:
+                for dl_uri in downloading_uris:
+                    await _exec(cdp_bridge.cdp_set_offline_download, dl_uri, False)
+                    if dl_uri in items and isinstance(items[dl_uri], dict):
+                        items[dl_uri]["offline_state"] = "paused_low_space"
+                await decky.emit("low_disk_space", guard)
+        return {
+            **(status_res if isinstance(status_res, dict) else {"ok": True}),
+            "items": items,
+            "disk": guard,
+            "low_disk_space": low_space,
+        }
+
+    async def get_offline_downloads_list(self) -> dict:
+        storage_path = self._get_offline_storage_path()
+        min_free_gb = self._get_offline_min_free_gb()
+        items = await _exec(cdp_bridge.cdp_get_offline_downloads_list)
+        disk = await _exec(common.check_disk_guardrail, storage_path, min_free_gb)
+        return {"ok": True, "items": items if isinstance(items, list) else [], "disk": disk}
+
+    async def remove_all_offline_downloads(self) -> dict:
+        res = await _exec(cdp_bridge.cdp_remove_all_offline_downloads)
+        if not isinstance(res, dict):
+            return {"success": False, "ok": False, "error": "Invalid response"}
+        return {**res, "success": bool(res.get("ok", False))}
+
+    async def set_offline_storage_path(self, path: str) -> dict:
+        res = await _exec(engine.configure_offline_storage_path, path)
+        if not isinstance(res, dict):
+            return {"success": False, "ok": False, "error": "Invalid storage path response"}
+        if res.get("success"):
+            resolved = str(res.get("path") or path)
+            self._settings["offline_storage_path"] = resolved
+            _save_settings(self._settings)
+            disk = await _exec(
+                common.check_disk_guardrail, resolved, self._get_offline_min_free_gb()
+            )
+            return {**res, "ok": True, "disk": disk}
+        return {**res, "ok": False}
+
+    async def set_travel_mode(
+        self, enabled: bool, manual: bool = True, auto_enabled: bool | None = None
+    ) -> dict:
+        if not getattr(self, "_bookmark_manager", None):
+            self._bookmark_manager = self._create_bookmark_manager()
+        if auto_enabled is not None:
+            self._bookmark_manager.set_auto_travel_mode_enabled(bool(auto_enabled))
+        if manual:
+            self._bookmark_manager.set_manual_travel_mode(bool(enabled))
+        else:
+            self._bookmark_manager.travel_mode_enabled = bool(enabled)
+            self._bookmark_manager.travel_mode_manual = False
+        state = self._bookmark_manager.get_travel_mode_state()
+        self._settings["travel_mode_enabled"] = bool(state.get("travel_mode_enabled", False))
+        self._settings["travel_mode_manual"] = bool(state.get("travel_mode_manual", False))
+        self._settings["travel_mode_auto_enabled"] = bool(
+            state.get("travel_mode_auto_enabled", True)
+        )
+        _save_settings(self._settings)
+        await decky.emit("travel_mode_changed", state)
+        return {"ok": True, "success": True, **state}
+
+    async def start_spotify_jam(self) -> dict:
+        res = await _exec(cdp_bridge.cdp_start_spotify_jam)
+        if not isinstance(res, dict):
+            return {"success": False, "ok": False, "error": "Invalid Jam response"}
+        if res.get("ok"):
+            self._jam_session = {k: v for k, v in res.items() if k != "ok"}
+        return {**res, "success": bool(res.get("ok", False))}
+
+    async def get_jam_status(self) -> dict:
+        res = await _exec(cdp_bridge.cdp_get_jam_status)
+        if not isinstance(res, dict):
+            return {"success": False, "ok": False, "error": "Invalid Jam status response"}
+        if res.get("ok"):
+            self._jam_session = {k: v for k, v in res.items() if k != "ok"}
+        return {**res, "success": bool(res.get("ok", False))}
+
+    async def end_spotify_jam(self) -> dict:
+        res = await _exec(cdp_bridge.cdp_end_spotify_jam)
+        if not isinstance(res, dict):
+            return {"success": False, "ok": False, "error": "Invalid Jam end response"}
+        if res.get("ok"):
+            self._jam_session = {"active": False}
+        return {**res, "success": bool(res.get("ok", False))}
 
     # ── OAuth callable methods ─────────────────────────────────
 
@@ -2045,6 +2235,16 @@ class Plugin:
         if getattr(self, "_bookmark_manager", None):
             await self._bookmark_manager.on_poll_network_result(True)
 
+        try:
+            offline_cache = await _exec(cdp_bridge.load_offline_downloads_cache)
+            if isinstance(offline_cache, dict) and any(
+                isinstance(v, dict) and v.get("offline_state") == "downloading"
+                for v in offline_cache.values()
+            ):
+                await self.get_offline_status()
+        except Exception as e:
+            decky.logger.debug("Active download disk check failed: %s", e)
+
         # 204 No Content → no active playback
         if data is None:
             self._ai_dj_active = False
@@ -2313,7 +2513,7 @@ class Plugin:
                         "System wake detected (gap=%.0fs), restarting %s", elapsed, backend,
                     )
                     if not getattr(self, "_bookmark_manager", None):
-                        self._bookmark_manager = resilience.SessionBookmarkManager(self)
+                        self._bookmark_manager = self._create_bookmark_manager()
                     await self._bookmark_manager.handle_wake_recovery(source="watchdog")
                     self._crash_timestamps.clear()
                     self._stable_start = time.time()
