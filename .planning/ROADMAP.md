@@ -313,7 +313,7 @@ Plans:
   1. User can press `A` / *"Move in Queue"* on any upcoming track in `QueueTab` to enter controller Grab/Move Mode, move the track up or down with `D-Pad Up/Down` while focus remains locked via stable `_rowKey` IDs, and press `A` to commit the new order in a single batched update.
   2. User can remove individual upcoming tracks or clear the upcoming queue in `QueueTab`, executing natively via CDP `PlayerAPI` when `spotify_client` is active and automatically falling back to virtual URI-slice playback mutation when `librespot` is active.
   3. User can create new playlists, rename or edit playlist descriptions, delete or unfollow playlists with a confirmation modal, and reorder or remove tracks inside user-owned playlists directly from the controller in `PlaylistsTab`.
-**Plans:** 11/11 plans complete (8 executed, 3 gap-closure planned)
+**Plans:** 13 plans (11 executed, 2 gap-closure planned)
 
 Plans:
 **Wave 1**
@@ -342,6 +342,10 @@ Plans:
 
 **Wave 2 (Gap Closure - G-27-6, G-27-8)** *(blocked on 27-09 & 27-10)*
 - [x] 27-11-PLAN.md — Close UAT gaps G-27-6 & G-27-8 (`PlaylistsTab` & Modal): 6-chip track sort bar, `canReorder` gating on `sortBy === "custom"`, `handleReorderPlaylistTrack` `preGrabTracks` fix, and global `vgp_onok` `grabCommitRef`
+
+**Wave 1 (Gap Closure - G-27-9, G-27-10, G-27-11)**
+- [ ] 27-12-PLAN.md — Close UAT gaps G-27-9 & G-27-10: non-interrupting CDP `uid` resolution & deferred track-transition queue override (no mid-track `PUT me/player/play` stutter), `preGrabTracks` forwarding in `handleReorderQueueTrack`, and adjacent-row focus restoration on inline remove
+- [ ] 27-13-PLAN.md — Close UAT gap G-27-11: `InteractiveRow` hover state, `TrackRowItem` focusable Like/Options (`!hasActiveGrab`), and `PlaylistsTab` `InteractiveRow`-backed filter/sort chips and folder action buttons
 **UI hint**: yes
 
 ### Phase 28: CDP Offline Downloads, Wi-Fi Travel Mode & Living Room Spotify Jam
