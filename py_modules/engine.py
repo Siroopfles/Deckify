@@ -8,7 +8,14 @@ import urllib.parse
 import urllib.request
 
 from py_modules import cdp_bridge
-from py_modules.common import ALLOWED_PLAYBACK_SPEEDS, SPOTIFY_CDP_PORT, _build_deck_command, decky
+from py_modules.common import (
+    ALLOWED_PLAYBACK_SPEEDS,
+    SPOTIFY_CDP_PORT,
+    SPOTIFY_CLIENT_CONFIG_DIR,
+    SPOTIFY_FLATPAK_ID,
+    _build_deck_command,
+    decky,
+)
 
 
 def _update_spotify_prefs_content(
@@ -508,3 +515,83 @@ def _cdp_get_saved_episodes(offset: int = 0, port: int = SPOTIFY_CDP_PORT) -> di
 def _cdp_set_playback_speed(speed: float, port: int = SPOTIFY_CDP_PORT) -> dict:
     """Set playback speed via Official Spotify Client CDP PlayerAPI.setSpeed."""
     return cdp_bridge.cdp_set_playback_speed(speed, port=port, eval_fn=_cdp_evaluate)
+
+
+def validate_offline_storage_path(path: str) -> tuple[bool, str, str]:
+    """Validate an absolute offline storage directory path and verify writeability."""
+    raw = str(path or "").strip()
+    if not raw:
+        return False, "", "Offline storage path cannot be empty"
+    if any(ch in raw for ch in ("\x00", "\n", "\r")):
+        return False, "", "Offline storage path contains invalid control characters"
+    expanded = os.path.expanduser(raw)
+    if not os.path.isabs(expanded):
+        return False, "", "Offline storage path must be an absolute path"
+    resolved = os.path.abspath(expanded)
+    try:
+        os.makedirs(resolved, exist_ok=True)
+        probe_file = os.path.join(resolved, f".deckify_write_test_{os.getpid()}")
+        with open(probe_file, "w", encoding="utf-8") as f:
+            f.write("ok")
+        os.remove(probe_file)
+    except Exception as e:
+        return False, "", f"Offline storage path is not writable: {e}"
+    return True, resolved, ""
+
+
+def _update_spotify_prefs_offline_path(existing_text: str, resolved_path: str) -> str:
+    """Update storage.offline-path in Spotify prefs while preserving existing lines."""
+    lines = existing_text.splitlines() if existing_text else []
+    out_lines: list[str] = []
+    seen = False
+    target_line = f'storage.offline-path="{resolved_path}"'
+    for line in lines:
+        stripped = line.strip()
+        if "=" in stripped and not stripped.startswith("#"):
+            k = stripped.split("=", 1)[0].strip()
+            if k == "storage.offline-path":
+                out_lines.append(target_line)
+                seen = True
+                continue
+        out_lines.append(line)
+    if not seen:
+        out_lines.append(target_line)
+    return "\n".join(out_lines) + "\n"
+
+
+def configure_offline_storage_path(
+    path: str,
+    runner=subprocess.run,
+    config_dir: str | None = None,
+) -> dict:
+    """Validate offline storage path, grant Flatpak filesystem override, and update Spotify prefs."""
+    ok, resolved, err = validate_offline_storage_path(path)
+    if not ok:
+        return {"success": False, "error": err}
+
+    cmd, env = _build_deck_command(
+        ["flatpak", "override", "--user", f"--filesystem={resolved}", SPOTIFY_FLATPAK_ID]
+    )
+    try:
+        proc = runner(cmd, env=env, capture_output=True, text=True, timeout=10)
+        if getattr(proc, "returncode", 1) != 0:
+            err_msg = (getattr(proc, "stderr", "") or getattr(proc, "stdout", "") or "").strip()
+            return {"success": False, "error": err_msg or "flatpak override failed"}
+    except Exception as e:
+        return {"success": False, "error": f"Failed to apply Flatpak filesystem override: {e}"}
+
+    target_cfg_dir = config_dir if config_dir is not None else SPOTIFY_CLIENT_CONFIG_DIR
+    if target_cfg_dir and os.path.isdir(target_cfg_dir):
+        prefs_file = os.path.join(target_cfg_dir, "prefs")
+        try:
+            existing = ""
+            if os.path.isfile(prefs_file):
+                with open(prefs_file, "r", encoding="utf-8") as f:
+                    existing = f.read()
+            updated = _update_spotify_prefs_offline_path(existing, resolved)
+            with open(prefs_file, "w", encoding="utf-8") as f:
+                f.write(updated)
+        except Exception as e:
+            decky.logger.warning("Could not update Spotify prefs offline-path: %s", e)
+
+    return {"success": True, "path": resolved}

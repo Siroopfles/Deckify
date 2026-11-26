@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, os.path.dirname(__file__))
 from test_token_refresh import main  # noqa: F401
-from py_modules import cdp_bridge, common
+from py_modules import cdp_bridge, common, engine
 
 
 class TestOfflineDownloads(unittest.TestCase):
@@ -208,6 +208,45 @@ class TestOfflineDownloads(unittest.TestCase):
             )
             self.assertTrue(rm_all["ok"])
             self.assertEqual(cdp_bridge.load_offline_downloads_cache(cache_file), {})
+
+    def test_validate_and_configure_offline_storage_path(self):
+        for bad in ("", "   ", "relative/path", "/tmp/bad\x00path", "/tmp/bad\npath", "/tmp/bad\rpath"):
+            ok, resolved, err = engine.validate_offline_storage_path(bad)
+            self.assertFalse(ok, f"Expected rejection for {bad!r}")
+            self.assertEqual(resolved, "")
+            self.assertTrue(err)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            target = os.path.join(tmpdir, "spotify-offline")
+            config_dir = os.path.join(tmpdir, "spotify-config")
+            os.makedirs(config_dir, exist_ok=True)
+            prefs_file = os.path.join(config_dir, "prefs")
+            with open(prefs_file, "w", encoding="utf-8") as f:
+                f.write("audio.gapless_v2=true\n")
+
+            runner = MagicMock(return_value=SimpleNamespace(returncode=0, stdout="", stderr=""))
+            res = engine.configure_offline_storage_path(
+                target,
+                runner=runner,
+                config_dir=config_dir,
+            )
+            self.assertTrue(res["success"])
+            self.assertEqual(res["path"], os.path.abspath(target))
+            self.assertTrue(os.path.isdir(target))
+            runner.assert_called_once()
+            cmd_arg = runner.call_args[0][0]
+            self.assertIsInstance(cmd_arg, list)
+            self.assertIn("flatpak", cmd_arg)
+            self.assertIn("override", cmd_arg)
+            self.assertIn("--user", cmd_arg)
+            self.assertIn(f"--filesystem={os.path.abspath(target)}", cmd_arg)
+            self.assertNotIn("--filesystem=host", cmd_arg)
+            self.assertNotIn("shell", runner.call_args[1])
+
+            with open(prefs_file, "r", encoding="utf-8") as f:
+                prefs_text = f.read()
+            self.assertIn("audio.gapless_v2=true", prefs_text)
+            self.assertIn(f'storage.offline-path="{os.path.abspath(target)}"', prefs_text)
 
 
 if __name__ == "__main__":

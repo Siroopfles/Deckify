@@ -1677,3 +1677,152 @@ def cdp_remove_all_offline_downloads(
         "removed_count": len(cached_uris),
         "error": res.get("error") or "CDP OfflineAPI removeAllDownloads failed",
     }
+
+
+def _normalize_jam_guests(raw_guests) -> list[dict]:
+    if not isinstance(raw_guests, list):
+        return []
+    cleaned = [g for g in raw_guests if isinstance(g, dict)]
+    return sorted(
+        cleaned,
+        key=lambda g: (
+            str(g.get("displayName") or g.get("username") or g.get("id") or "").lower(),
+            str(g.get("id") or ""),
+        ),
+    )
+
+
+def _normalize_jam_response(res: dict, default_error: str) -> dict:
+    if not isinstance(res, dict) or not res.get("ok"):
+        return {
+            "ok": False,
+            "active": False,
+            "join_url": None,
+            "guest_count": 0,
+            "is_host": False,
+            "guests": [],
+            "error": (res.get("error") if isinstance(res, dict) else None) or default_error,
+        }
+    guests = _normalize_jam_guests(res.get("guests"))
+    guest_count = res.get("guest_count")
+    if not isinstance(guest_count, int) or guest_count < 0:
+        guest_count = len(guests)
+    join_url = res.get("join_url") or None
+    if isinstance(join_url, str):
+        join_url = join_url.strip() or None
+    return {
+        "ok": True,
+        "active": bool(res.get("active", bool(join_url))),
+        "join_url": join_url,
+        "guest_count": guest_count,
+        "is_host": bool(res.get("is_host", False)),
+        "guests": guests,
+        "error": None,
+    }
+
+
+def cdp_start_spotify_jam(
+    port: int = SPOTIFY_CDP_PORT,
+    timeout: float = DEFAULT_CDP_TIMEOUT,
+    eval_fn=None,
+) -> dict:
+    """Start or resume a Spotify Jam session via CDP SocialConnectAPI / JamDevicesAPI."""
+    body_js = """
+    const social = getService('SocialConnectAPI');
+    const jamDevices = getService('JamDevicesAPI');
+    const sessionSvc = getService('Session');
+    let sess = null;
+    if (social && typeof social.createSession === 'function') {
+      sess = await social.createSession();
+    } else if (social && typeof social.startJam === 'function') {
+      sess = await social.startJam();
+    } else if (jamDevices && typeof jamDevices.startSession === 'function') {
+      sess = await jamDevices.startSession();
+    } else if (sessionSvc && typeof sessionSvc.createSession === 'function') {
+      sess = await sessionSvc.createSession();
+    } else {
+      return { ok: false, error: 'SocialConnectAPI Jam start method not found' };
+    }
+    const joinUrl = sess?.joinUrl || sess?.shareUrl || sess?.url || sess?.join_url || null;
+    const guests = Array.isArray(sess?.guests) ? sess.guests : (Array.isArray(sess?.participants) ? sess.participants : []);
+    return {
+      ok: true,
+      active: Boolean(sess?.active ?? joinUrl ?? true),
+      join_url: joinUrl,
+      guest_count: typeof sess?.guestCount === 'number' ? sess.guestCount : guests.length,
+      is_host: Boolean(sess?.isHost ?? sess?.is_host ?? true),
+      guests,
+    };
+    """
+    res = evaluate_with_registry(body_js, port=port, timeout=timeout, eval_fn=eval_fn)
+    return _normalize_jam_response(res, "CDP SocialConnectAPI start failed")
+
+
+def cdp_get_jam_status(
+    port: int = SPOTIFY_CDP_PORT,
+    timeout: float = DEFAULT_CDP_TIMEOUT,
+    eval_fn=None,
+) -> dict:
+    """Query current Spotify Jam session state via CDP SocialConnectAPI / JamDevicesAPI."""
+    body_js = """
+    const social = getService('SocialConnectAPI');
+    const jamDevices = getService('JamDevicesAPI');
+    let sess = null;
+    if (social && typeof social.getSession === 'function') {
+      sess = await social.getSession();
+    } else if (social && typeof social.getCurrentSession === 'function') {
+      sess = await social.getCurrentSession();
+    } else if (jamDevices && typeof jamDevices.getSession === 'function') {
+      sess = await jamDevices.getSession();
+    } else {
+      return { ok: false, error: 'SocialConnectAPI Jam status method not found' };
+    }
+    if (!sess) {
+      return { ok: true, active: false, join_url: null, guest_count: 0, is_host: false, guests: [] };
+    }
+    const joinUrl = sess?.joinUrl || sess?.shareUrl || sess?.url || sess?.join_url || null;
+    const guests = Array.isArray(sess?.guests) ? sess.guests : (Array.isArray(sess?.participants) ? sess.participants : []);
+    return {
+      ok: true,
+      active: Boolean(sess?.active ?? joinUrl),
+      join_url: joinUrl,
+      guest_count: typeof sess?.guestCount === 'number' ? sess.guestCount : guests.length,
+      is_host: Boolean(sess?.isHost ?? sess?.is_host ?? false),
+      guests,
+    };
+    """
+    res = evaluate_with_registry(body_js, port=port, timeout=timeout, eval_fn=eval_fn)
+    return _normalize_jam_response(res, "CDP SocialConnectAPI status failed")
+
+
+def cdp_end_spotify_jam(
+    port: int = SPOTIFY_CDP_PORT,
+    timeout: float = DEFAULT_CDP_TIMEOUT,
+    eval_fn=None,
+) -> dict:
+    """End or leave an active Spotify Jam session via CDP SocialConnectAPI / JamDevicesAPI."""
+    body_js = """
+    const social = getService('SocialConnectAPI');
+    const jamDevices = getService('JamDevicesAPI');
+    if (social && typeof social.endSession === 'function') {
+      await social.endSession();
+      return { ok: true, active: false };
+    }
+    if (social && typeof social.leaveSession === 'function') {
+      await social.leaveSession();
+      return { ok: true, active: false };
+    }
+    if (jamDevices && typeof jamDevices.endSession === 'function') {
+      await jamDevices.endSession();
+      return { ok: true, active: false };
+    }
+    return { ok: false, error: 'SocialConnectAPI Jam end method not found' };
+    """
+    res = evaluate_with_registry(body_js, port=port, timeout=timeout, eval_fn=eval_fn)
+    if isinstance(res, dict) and res.get("ok"):
+        return {"ok": True, "active": False, "error": None}
+    return {
+        "ok": False,
+        "active": False,
+        "error": (res.get("error") if isinstance(res, dict) else None) or "CDP SocialConnectAPI end failed",
+    }

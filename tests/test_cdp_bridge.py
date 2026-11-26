@@ -352,6 +352,38 @@ class TestCdpBridge(unittest.TestCase):
         self.assertFalse(err_res["ok"])
         self.assertIn("error", err_res)
 
+    def test_cdp_jam_session_lifecycle_and_deterministic_ordering(self):
+        def fake_start(expr, port=9229, timeout=4.0):
+            self.assertIn("SocialConnectAPI", expr)
+            return {
+                "ok": True,
+                "active": True,
+                "join_url": "https://spotify.link/jam123",
+                "is_host": True,
+                "guests": [
+                    {"id": "u2", "displayName": "Zoe"},
+                    {"id": "u1", "displayName": "Alice"},
+                ],
+            }
+
+        started = cdp_bridge.cdp_start_spotify_jam(eval_fn=fake_start)
+        self.assertTrue(started["ok"])
+        self.assertTrue(started["active"])
+        self.assertEqual(started["join_url"], "https://spotify.link/jam123")
+        self.assertTrue(started["is_host"])
+        self.assertEqual(started["guest_count"], 2)
+        self.assertEqual([g["displayName"] for g in started["guests"]], ["Alice", "Zoe"])
+
+        offline_status = cdp_bridge.cdp_get_jam_status(eval_fn=lambda *a, **kw: None)
+        self.assertFalse(offline_status["ok"])
+        self.assertFalse(offline_status["active"])
+        self.assertIsNone(offline_status["join_url"])
+        self.assertEqual(offline_status["guest_count"], 0)
+
+        ended = cdp_bridge.cdp_end_spotify_jam(eval_fn=lambda expr, **kw: {"ok": True, "active": False})
+        self.assertTrue(ended["ok"])
+        self.assertFalse(ended["active"])
+
 
 if __name__ == "__main__":
     unittest.main()
