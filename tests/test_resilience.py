@@ -204,24 +204,33 @@ class TestLibrespotEventServer(unittest.IsolatedAsyncioTestCase):
         server._running = True
         server._unhealthy = False
 
-        # Healthy local librespot -> 20.0s
+        # Healthy local librespot (playing) -> 20.0s
+        self.plugin._poll_play_state = "playing"
         self.assertTrue(server.is_healthy(self.plugin))
         self.assertEqual(server.get_poll_interval(self.plugin), 20.0)
 
-        # Remote active device -> 3.0s
+        # Remote active device while playing -> 3.0s
         self.plugin._active_device = {"id": "rem-1", "name": "Living Room TV", "type": "CastVideo"}
         self.assertEqual(server.get_poll_interval(self.plugin), 3.0)
+
+        # Paused/idle on remote device -> 20.0s (relaxed)
+        self.plugin._poll_play_state = "paused"
+        self.assertEqual(server.get_poll_interval(self.plugin), 20.0)
+        self.plugin._poll_play_state = "playing"
 
         # Local active device -> 20.0s
         self.plugin._active_device = {"id": "loc-1", "name": "Deckify", "type": "Computer"}
         self.assertEqual(server.get_poll_interval(self.plugin), 20.0)
 
-        # spotify_client backend -> 3.0s
+        # spotify_client backend -> 15.0s when playing, 20.0s when paused
         self.plugin._settings["audio_backend"] = "spotify_client"
         self.assertFalse(server.is_healthy(self.plugin))
-        self.assertEqual(server.get_poll_interval(self.plugin), 3.0)
+        self.assertEqual(server.get_poll_interval(self.plugin), 15.0)
+        self.plugin._poll_play_state = "paused"
+        self.assertEqual(server.get_poll_interval(self.plugin), 20.0)
+        self.plugin._poll_play_state = "playing"
 
-        # Unhealthy --onevent -> 3.0s and wakes poll loop
+        # Unhealthy --onevent while playing -> 3.0s and wakes poll loop
         self.plugin._settings["audio_backend"] = "librespot"
         self.plugin._poll_wake_event.clear()
         server.mark_unhealthy()

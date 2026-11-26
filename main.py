@@ -48,6 +48,7 @@ from py_modules.common import (
     _validate_chord_bindings,
 )
 from py_modules.cdp_bridge import cdp_get_player_state as _cdp_get_player_state
+from py_modules.spotify import SpotifyRateLimitError, is_rate_limit_breaker_open
 from py_modules.engine import _cdp_set_playback_speed
 from py_modules import volume
 from py_modules import system
@@ -2214,12 +2215,31 @@ class Plugin:
 
     async def _poll_playback(self) -> bool:
         """Poll GET /me/player and emit events. Returns True if API call succeeded."""
+        if is_rate_limit_breaker_open():
+            return True
+
+        prefetched_cdp_state = None
+        if (
+            self._is_spotify_client_running()
+            and getattr(self, "_poll_play_state", None) != "playing"
+        ):
+            try:
+                prefetched_cdp_state = await _exec(_cdp_get_player_state)
+                if isinstance(prefetched_cdp_state, dict) and prefetched_cdp_state.get("ok"):
+                    if not prefetched_cdp_state.get("is_playing") and not prefetched_cdp_state.get("is_dj_interlude"):
+                        return True
+            except Exception as e:
+                decky.logger.debug("cdp_get_player_state failed during idle poll: %s", e)
+
         token = await self._ensure_token()
         if not token:
             return True  # not a network issue
 
         try:
             data = await _exec(_spotify_api_request, "me/player", token, "GET", {"additional_types": "episode"})
+        except SpotifyRateLimitError as e:
+            decky.logger.debug("Poll playback skipped due to rate limit: %s", e)
+            return True
         except urllib.error.HTTPError as e:
             if e.code == 401:
                 self._token_expires_at = 0  # force refresh on next call
@@ -2279,7 +2299,7 @@ class Plugin:
             cdp_track_uri = ""
             if (is_dj_ctx or currently_playing_type == "unknown") and self._is_spotify_client_running():
                 try:
-                    cdp_state = await _exec(_cdp_get_player_state)
+                    cdp_state = prefetched_cdp_state if prefetched_cdp_state is not None else await _exec(_cdp_get_player_state)
                     if isinstance(cdp_state, dict) and cdp_state.get("ok"):
                         cdp_ctx_uri = str(cdp_state.get("context_uri") or "")
                         is_dj_ctx = is_dj_ctx or bool(

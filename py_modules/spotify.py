@@ -1,4 +1,4 @@
-from collections import OrderedDict
+from collections import OrderedDict, deque
 import hashlib
 import json
 import os
@@ -27,15 +27,71 @@ _BREAKER_LOCK = threading.Lock()
 _BREAKER_FAILURES: int = 0
 _BREAKER_OPEN_UNTIL: float = 0.0
 _BREAKER_BASE_SECONDS: float = 5.0
-_BREAKER_MAX_SECONDS: float = 300.0
+_BREAKER_MAX_SECONDS: float = 60.0
+
+_CACHE_LOCK = threading.Lock()
+_GET_CACHE_MAX_SIZE: int = 128
+_GET_CACHE: OrderedDict[tuple, tuple[float, dict | None]] = OrderedDict()
+_INFLIGHT_GETS: dict[tuple, dict] = {}
+
+_RATE_LOCK = threading.Lock()
+_RATE_WINDOW: deque[float] = deque()
+_RATE_WINDOW_SECONDS: float = 10.0
+_RATE_WINDOW_MAX_REQUESTS: int = 25
+_RATE_PACE_MAX_SLEEP_S: float = 0.5
+
+
+def is_rate_limit_breaker_open() -> bool:
+    """Return True if the global HTTP 429 circuit breaker is currently open."""
+    with _BREAKER_LOCK:
+        return time.monotonic() < _BREAKER_OPEN_UNTIL
+
+
+def _get_cache_ttl(endpoint: str) -> float:
+    """Return short GET cache TTL in seconds for the given Spotify API endpoint."""
+    if endpoint == "me/player" or endpoint.startswith("me/player/"):
+        return 2.0
+    if endpoint == "search" or endpoint.startswith(("artists/", "albums/", "tracks/", "playlists/")):
+        return 15.0
+    return 5.0
+
+
+def _make_get_cache_key(endpoint: str, token: str, params: dict | None) -> tuple:
+    token_hash = hashlib.sha256((token or "").encode("utf-8")).hexdigest()[:16]
+    sorted_params = tuple(sorted((str(k), str(v)) for k, v in (params or {}).items()))
+    return (endpoint, sorted_params, token_hash)
 
 
 def _reset_rate_limit_breaker() -> None:
-    """Reset the global HTTP 429 circuit breaker state."""
+    """Reset the global HTTP 429 circuit breaker, GET cache, and rate-limiter state."""
     global _BREAKER_FAILURES, _BREAKER_OPEN_UNTIL
     with _BREAKER_LOCK:
         _BREAKER_FAILURES = 0
         _BREAKER_OPEN_UNTIL = 0.0
+    with _CACHE_LOCK:
+        _GET_CACHE.clear()
+        _INFLIGHT_GETS.clear()
+    with _RATE_LOCK:
+        _RATE_WINDOW.clear()
+
+
+def _pace_outgoing_request() -> None:
+    """Sliding-window pacer: cap burst rate to 25 requests per 10s with bounded sleep."""
+    wait_s = 0.0
+    with _RATE_LOCK:
+        now = time.monotonic()
+        while _RATE_WINDOW and (now - _RATE_WINDOW[0]) >= _RATE_WINDOW_SECONDS:
+            _RATE_WINDOW.popleft()
+        if len(_RATE_WINDOW) >= _RATE_WINDOW_MAX_REQUESTS:
+            oldest = _RATE_WINDOW[0]
+            wait_s = min(_RATE_PACE_MAX_SLEEP_S, max(0.0, _RATE_WINDOW_SECONDS - (now - oldest)))
+    if wait_s > 0.0:
+        time.sleep(wait_s)
+    with _RATE_LOCK:
+        now2 = time.monotonic()
+        while _RATE_WINDOW and (now2 - _RATE_WINDOW[0]) >= _RATE_WINDOW_SECONDS:
+            _RATE_WINDOW.popleft()
+        _RATE_WINDOW.append(now2)
 
 
 def _spotify_api_request(
@@ -46,6 +102,7 @@ def _spotify_api_request(
     body: dict | None = None,
 ) -> dict | None:
     global _BREAKER_FAILURES, _BREAKER_OPEN_UNTIL
+    norm_method = (method or "GET").upper()
     with _BREAKER_LOCK:
         now = time.monotonic()
         if now < _BREAKER_OPEN_UNTIL:
@@ -55,6 +112,37 @@ def _spotify_api_request(
                 retry_after=remaining,
             )
 
+    if norm_method in ("PUT", "POST", "DELETE"):
+        with _CACHE_LOCK:
+            _GET_CACHE.clear()
+
+    cache_key = None
+    inflight_entry = None
+    is_leader = False
+    if norm_method == "GET":
+        cache_key = _make_get_cache_key(endpoint, token, params)
+        with _CACHE_LOCK:
+            cached = _GET_CACHE.get(cache_key)
+            if cached is not None:
+                expires_at, cached_payload = cached
+                if time.monotonic() < expires_at:
+                    _GET_CACHE.move_to_end(cache_key)
+                    return cached_payload
+                del _GET_CACHE[cache_key]
+            existing = _INFLIGHT_GETS.get(cache_key)
+            if existing is not None:
+                inflight_entry = existing
+            else:
+                inflight_entry = {"event": threading.Event(), "result": None, "error": None}
+                _INFLIGHT_GETS[cache_key] = inflight_entry
+                is_leader = True
+
+        if not is_leader and inflight_entry is not None:
+            inflight_entry["event"].wait(timeout=15.0)
+            if inflight_entry["error"] is not None:
+                raise inflight_entry["error"]
+            return inflight_entry["result"]
+
     url = f"{SPOTIFY_API_BASE}/{endpoint}"
     if params:
         url = f"{url}?{urllib.parse.urlencode(params)}"
@@ -63,22 +151,34 @@ def _spotify_api_request(
     if body is not None:
         data = json.dumps(body).encode()
         headers["Content-Type"] = "application/json"
-    req = urllib.request.Request(url, data=data, headers=headers, method=method)
+    req = urllib.request.Request(url, data=data, headers=headers, method=norm_method)
     try:
+        _pace_outgoing_request()
         with urllib.request.urlopen(req, timeout=10, context=_API_SSL_CTX) as resp:
             with _BREAKER_LOCK:
                 _BREAKER_FAILURES = 0
                 _BREAKER_OPEN_UNTIL = 0.0
-            if resp.status == 204:
-                return None
-            raw = resp.read()
-            if not raw or not raw.strip():
-                return None
-            try:
-                return json.loads(raw)
-            except json.JSONDecodeError:
-                return None
+            result: dict | None = None
+            if resp.status != 204:
+                raw = resp.read()
+                if raw and raw.strip():
+                    try:
+                        result = json.loads(raw)
+                    except json.JSONDecodeError:
+                        result = None
+            if norm_method == "GET" and cache_key is not None:
+                ttl = _get_cache_ttl(endpoint)
+                if ttl > 0.0:
+                    with _CACHE_LOCK:
+                        _GET_CACHE[cache_key] = (time.monotonic() + ttl, result)
+                        _GET_CACHE.move_to_end(cache_key)
+                        while len(_GET_CACHE) > _GET_CACHE_MAX_SIZE:
+                            _GET_CACHE.popitem(last=False)
+                if is_leader and inflight_entry is not None:
+                    inflight_entry["result"] = result
+            return result
     except urllib.error.HTTPError as e:
+        err_to_raise: Exception = e
         if e.code == 429:
             raw_retry = e.headers.get("Retry-After", 1) if e.headers else 1
             try:
@@ -90,11 +190,26 @@ def _spotify_api_request(
                 exp_backoff = _BREAKER_BASE_SECONDS * (2 ** min(_BREAKER_FAILURES - 1, 6))
                 cooldown = min(_BREAKER_MAX_SECONDS, max(retry_after, exp_backoff))
                 _BREAKER_OPEN_UNTIL = time.monotonic() + cooldown
-            raise SpotifyRateLimitError(
+            err_to_raise = SpotifyRateLimitError(
                 f"Spotify API rate limited (retry after {cooldown:.1f}s)",
                 retry_after=cooldown,
-            ) from e
+            )
+            if is_leader and inflight_entry is not None:
+                inflight_entry["error"] = err_to_raise
+            raise err_to_raise from e
+        if is_leader and inflight_entry is not None:
+            inflight_entry["error"] = err_to_raise
         raise
+    except Exception as e:
+        if is_leader and inflight_entry is not None:
+            inflight_entry["error"] = e
+        raise
+    finally:
+        if norm_method == "GET" and is_leader and cache_key is not None and inflight_entry is not None:
+            with _CACHE_LOCK:
+                if _INFLIGHT_GETS.get(cache_key) is inflight_entry:
+                    del _INFLIGHT_GETS[cache_key]
+            inflight_entry["event"].set()
 
 
 def _parse_spotify_error(e: urllib.error.HTTPError) -> str:

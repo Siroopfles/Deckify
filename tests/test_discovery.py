@@ -335,7 +335,7 @@ class TestDiscoveryCacheAndResilience(unittest.IsolatedAsyncioTestCase):
 
     def test_circuit_breaker_exponential_backoff_retry_after_and_concurrency(self):
         now = [100.0]
-        expected = [5.0, 10.0, 20.0, 40.0, 80.0, 160.0, 300.0, 300.0]
+        expected = [5.0, 10.0, 20.0, 40.0, 60.0, 60.0, 60.0, 60.0]
         with patch.object(spotify.time, "monotonic", side_effect=lambda: now[0]):
             for exp in expected:
                 with patch.object(spotify.urllib.request, "urlopen", side_effect=_http_error(429, {"Retry-After": "1"})):
@@ -344,12 +344,12 @@ class TestDiscoveryCacheAndResilience(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(ctx.exception.retry_after, exp)
                 now[0] += exp + 1.0  # advance past cooldown
 
-            # Larger Retry-After (e.g. 120.5 float) respected, capped at 300.0
+            # Larger Retry-After (e.g. 120.5 float) capped at 60.0
             spotify._reset_rate_limit_breaker()
             with patch.object(spotify.urllib.request, "urlopen", side_effect=_http_error(429, {"Retry-After": "120.5"})):
                 with self.assertRaises(spotify.SpotifyRateLimitError) as ctx_f:
                     spotify._spotify_api_request("me/playlists", "tok")
-                self.assertEqual(ctx_f.exception.retry_after, 120.5)
+                self.assertEqual(ctx_f.exception.retry_after, 60.0)
 
             # Malformed Retry-After falls back safely to 1.0 (so 5.0 base backoff applies)
             spotify._reset_rate_limit_breaker()

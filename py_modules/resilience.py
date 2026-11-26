@@ -449,8 +449,14 @@ class LibrespotEventServer:
         return True
 
     def get_poll_interval(self, plugin=None) -> float:
-        """Return 20.0s when librespot + --onevent are healthy and local; 3.0s otherwise (D-03, D-04)."""
+        """Return 20.0s when librespot + --onevent are healthy and local, 15.0s-20.0s on spotify_client or paused/idle, 3.0s only when actively playing on remote or unhealthy librespot."""
         p = plugin or self._plugin
+        settings = getattr(p, "_settings", None) or {}
+        play_state = getattr(p, "_poll_play_state", None)
+        if settings.get("audio_backend", "librespot") == "spotify_client":
+            return POLL_INTERVAL_RELAXED_S if play_state != "playing" else 15.0
+        if play_state != "playing":
+            return POLL_INTERVAL_RELAXED_S
         if not self.is_healthy(p):
             return POLL_INTERVAL_FAST_S
         if not is_local_device_active(p):
