@@ -2,6 +2,7 @@ import json
 import os
 import re
 import threading
+import time
 
 from py_modules.common import (
     ALLOWED_PLAYBACK_SPEEDS,
@@ -144,6 +145,29 @@ def evaluate_with_registry(
     except Exception as e:
         decky.logger.debug("CDP evaluate_with_registry failed: %s", e)
         return {"ok": False, "error": str(e)}
+
+
+def wait_for_cdp_ready(
+    port: int = SPOTIFY_CDP_PORT,
+    timeout: float = 12.0,
+    poll_interval: float = 0.5,
+    eval_fn=None,
+) -> dict:
+    """Poll Spotify CDP Platform.Registry until core services are available or timeout expires."""
+    deadline = time.monotonic() + max(0.0, float(timeout))
+    probe_js = (
+        "return { ok: true, ready: Boolean(getService('OfflineAPI') || "
+        "getService('PlayerAPI') || getService('SocialConnectAPI') || getService('PlaylistAPI')) };"
+    )
+    while True:
+        res = evaluate_with_registry(probe_js, port=port, timeout=2.0, eval_fn=eval_fn)
+        if isinstance(res, dict) and res.get("ok") and res.get("ready"):
+            return {"ok": True, "ready": True}
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return {"ok": False, "ready": False, "error": "Spotify CDP Platform.Registry not ready"}
+        if poll_interval > 0:
+            time.sleep(min(float(poll_interval), remaining))
 
 
 def cdp_fetch_folder_tree(
@@ -1544,6 +1568,7 @@ def cdp_set_offline_download(
     const want = {want_js};
     const offlineApi = getService('OfflineAPI');
     const playlistApi = getService('PlaylistAPI');
+    const albumApi = getService('AlbumAPI');
     const showApi = getService('ShowAPI');
 
     if (want) {{
@@ -1555,13 +1580,43 @@ def cdp_set_offline_download(
         await offlineApi.sync(uri);
         return {{ ok: true, offline_state: 'downloading', progress: 0 }};
       }}
-      if (uri.includes(':playlist:') && playlistApi && typeof playlistApi.setOffline === 'function') {{
-        await playlistApi.setOffline(uri, true);
+      if (offlineApi && typeof offlineApi.setOffline === 'function') {{
+        await offlineApi.setOffline(uri, true);
         return {{ ok: true, offline_state: 'downloading', progress: 0 }};
       }}
-      if ((uri.includes(':episode:') || uri.includes(':show:')) && showApi && typeof showApi.setOffline === 'function') {{
-        await showApi.setOffline(uri, true);
+      if (offlineApi && typeof offlineApi.download === 'function') {{
+        await offlineApi.download(uri);
         return {{ ok: true, offline_state: 'downloading', progress: 0 }};
+      }}
+      if (uri.includes(':playlist:') && playlistApi) {{
+        if (typeof playlistApi.setOffline === 'function') {{
+          await playlistApi.setOffline(uri, true);
+          return {{ ok: true, offline_state: 'downloading', progress: 0 }};
+        }}
+        if (typeof playlistApi.makeAvailableOffline === 'function') {{
+          await playlistApi.makeAvailableOffline(uri);
+          return {{ ok: true, offline_state: 'downloading', progress: 0 }};
+        }}
+      }}
+      if (uri.includes(':album:') && albumApi) {{
+        if (typeof albumApi.setOffline === 'function') {{
+          await albumApi.setOffline(uri, true);
+          return {{ ok: true, offline_state: 'downloading', progress: 0 }};
+        }}
+        if (typeof albumApi.makeAvailableOffline === 'function') {{
+          await albumApi.makeAvailableOffline(uri);
+          return {{ ok: true, offline_state: 'downloading', progress: 0 }};
+        }}
+      }}
+      if ((uri.includes(':episode:') || uri.includes(':show:')) && showApi) {{
+        if (typeof showApi.setOffline === 'function') {{
+          await showApi.setOffline(uri, true);
+          return {{ ok: true, offline_state: 'downloading', progress: 0 }};
+        }}
+        if (typeof showApi.makeAvailableOffline === 'function') {{
+          await showApi.makeAvailableOffline(uri);
+          return {{ ok: true, offline_state: 'downloading', progress: 0 }};
+        }}
       }}
       return {{ ok: false, error: 'OfflineAPI.addDownload not found' }};
     }} else {{
@@ -1573,8 +1628,20 @@ def cdp_set_offline_download(
         await offlineApi.unsync(uri);
         return {{ ok: true, offline_state: 'not_downloaded', progress: 0 }};
       }}
+      if (offlineApi && typeof offlineApi.setOffline === 'function') {{
+        await offlineApi.setOffline(uri, false);
+        return {{ ok: true, offline_state: 'not_downloaded', progress: 0 }};
+      }}
+      if (offlineApi && typeof offlineApi.remove === 'function') {{
+        await offlineApi.remove(uri);
+        return {{ ok: true, offline_state: 'not_downloaded', progress: 0 }};
+      }}
       if (uri.includes(':playlist:') && playlistApi && typeof playlistApi.setOffline === 'function') {{
         await playlistApi.setOffline(uri, false);
+        return {{ ok: true, offline_state: 'not_downloaded', progress: 0 }};
+      }}
+      if (uri.includes(':album:') && albumApi && typeof albumApi.setOffline === 'function') {{
+        await albumApi.setOffline(uri, false);
         return {{ ok: true, offline_state: 'not_downloaded', progress: 0 }};
       }}
       if ((uri.includes(':episode:') || uri.includes(':show:')) && showApi && typeof showApi.setOffline === 'function') {{
@@ -1772,9 +1839,11 @@ def _normalize_jam_response(res: dict, default_error: str) -> dict:
     join_url = res.get("join_url") or None
     if isinstance(join_url, str):
         join_url = join_url.strip() or None
+    else:
+        join_url = None
     return {
         "ok": True,
-        "active": bool(res.get("active", bool(join_url))),
+        "active": bool(join_url and res.get("active", True)),
         "join_url": join_url,
         "guest_count": guest_count,
         "is_host": bool(res.get("is_host", False)),
@@ -1783,41 +1852,103 @@ def _normalize_jam_response(res: dict, default_error: str) -> dict:
     }
 
 
+_EXTRACT_JAM_JOIN_URL_JS = """
+const extractJoinUrl = (sess) => {
+  const val = (
+    sess?.joinUrl ||
+    sess?.shareUrl ||
+    sess?.url ||
+    sess?.join_url ||
+    sess?.inviteUrl ||
+    sess?.invite_url ||
+    sess?.link ||
+    sess?.session?.joinUrl ||
+    sess?.session?.shareUrl ||
+    sess?.session?.url ||
+    sess?.session?.inviteUrl ||
+    sess?.data?.joinUrl ||
+    sess?.data?.shareUrl ||
+    null
+  );
+  return (typeof val === 'string' && val.trim()) ? val.trim() : null;
+};
+"""
+
+
 def cdp_start_spotify_jam(
     port: int = SPOTIFY_CDP_PORT,
     timeout: float = DEFAULT_CDP_TIMEOUT,
     eval_fn=None,
 ) -> dict:
     """Start or resume a Spotify Jam session via CDP SocialConnectAPI / JamDevicesAPI."""
-    body_js = """
+    body_js = f"""
+    {_EXTRACT_JAM_JOIN_URL_JS}
     const social = getService('SocialConnectAPI');
     const jamDevices = getService('JamDevicesAPI');
     const sessionSvc = getService('Session');
     let sess = null;
-    if (social && typeof social.createSession === 'function') {
+    if (social && typeof social.createSession === 'function') {{
       sess = await social.createSession();
-    } else if (social && typeof social.startJam === 'function') {
+    }} else if (social && typeof social.startJam === 'function') {{
       sess = await social.startJam();
-    } else if (jamDevices && typeof jamDevices.startSession === 'function') {
+    }} else if (jamDevices && typeof jamDevices.startSession === 'function') {{
       sess = await jamDevices.startSession();
-    } else if (sessionSvc && typeof sessionSvc.createSession === 'function') {
+    }} else if (sessionSvc && typeof sessionSvc.createSession === 'function') {{
       sess = await sessionSvc.createSession();
-    } else {
-      return { ok: false, error: 'SocialConnectAPI Jam start method not found' };
-    }
-    const joinUrl = sess?.joinUrl || sess?.shareUrl || sess?.url || sess?.join_url || null;
+    }} else {{
+      return {{ ok: false, error: 'SocialConnectAPI Jam start method not found' }};
+    }}
+    let joinUrl = extractJoinUrl(sess);
+    if (!joinUrl && social && typeof social.getShareUrl === 'function') {{
+      const shared = await social.getShareUrl();
+      joinUrl = (typeof shared === 'string' && shared.trim()) ? shared.trim() : extractJoinUrl(shared);
+    }}
+    if (!joinUrl && social && typeof social.getJoinUrl === 'function') {{
+      const joined = await social.getJoinUrl();
+      joinUrl = (typeof joined === 'string' && joined.trim()) ? joined.trim() : extractJoinUrl(joined);
+    }}
+    if (!joinUrl && jamDevices && typeof jamDevices.getShareUrl === 'function') {{
+      const shared = await jamDevices.getShareUrl();
+      joinUrl = (typeof shared === 'string' && shared.trim()) ? shared.trim() : extractJoinUrl(shared);
+    }}
+    for (let attempt = 0; !joinUrl && attempt < 6; attempt++) {{
+      await new Promise((r) => setTimeout(r, 400));
+      let polled = null;
+      if (social && typeof social.getSession === 'function') {{
+        polled = await social.getSession();
+      }} else if (social && typeof social.getCurrentSession === 'function') {{
+        polled = await social.getCurrentSession();
+      }} else if (jamDevices && typeof jamDevices.getSession === 'function') {{
+        polled = await jamDevices.getSession();
+      }}
+      if (polled) {{
+        sess = polled;
+        joinUrl = extractJoinUrl(sess);
+      }}
+    }}
     const guests = Array.isArray(sess?.guests) ? sess.guests : (Array.isArray(sess?.participants) ? sess.participants : []);
-    return {
+    return {{
       ok: true,
-      active: Boolean(sess?.active ?? joinUrl ?? true),
+      active: Boolean(joinUrl && (sess?.active ?? true)),
       join_url: joinUrl,
       guest_count: typeof sess?.guestCount === 'number' ? sess.guestCount : guests.length,
       is_host: Boolean(sess?.isHost ?? sess?.is_host ?? true),
       guests,
-    };
+    }};
     """
-    res = evaluate_with_registry(body_js, port=port, timeout=timeout, eval_fn=eval_fn)
-    return _normalize_jam_response(res, "CDP SocialConnectAPI start failed")
+    res = evaluate_with_registry(body_js, port=port, timeout=max(float(timeout), 6.0), eval_fn=eval_fn)
+    norm = _normalize_jam_response(res, "CDP SocialConnectAPI start failed")
+    if norm.get("ok") and not norm.get("join_url"):
+        return {
+            "ok": False,
+            "active": False,
+            "join_url": None,
+            "guest_count": 0,
+            "is_host": False,
+            "guests": [],
+            "error": "Spotify Jam started but no invite URL was returned",
+        }
+    return norm
 
 
 def cdp_get_jam_status(
@@ -1826,32 +1957,33 @@ def cdp_get_jam_status(
     eval_fn=None,
 ) -> dict:
     """Query current Spotify Jam session state via CDP SocialConnectAPI / JamDevicesAPI."""
-    body_js = """
+    body_js = f"""
+    {_EXTRACT_JAM_JOIN_URL_JS}
     const social = getService('SocialConnectAPI');
     const jamDevices = getService('JamDevicesAPI');
     let sess = null;
-    if (social && typeof social.getSession === 'function') {
+    if (social && typeof social.getSession === 'function') {{
       sess = await social.getSession();
-    } else if (social && typeof social.getCurrentSession === 'function') {
+    }} else if (social && typeof social.getCurrentSession === 'function') {{
       sess = await social.getCurrentSession();
-    } else if (jamDevices && typeof jamDevices.getSession === 'function') {
+    }} else if (jamDevices && typeof jamDevices.getSession === 'function') {{
       sess = await jamDevices.getSession();
-    } else {
-      return { ok: false, error: 'SocialConnectAPI Jam status method not found' };
-    }
-    if (!sess) {
-      return { ok: true, active: false, join_url: null, guest_count: 0, is_host: false, guests: [] };
-    }
-    const joinUrl = sess?.joinUrl || sess?.shareUrl || sess?.url || sess?.join_url || null;
+    }} else {{
+      return {{ ok: false, error: 'SocialConnectAPI Jam status method not found' }};
+    }}
+    if (!sess) {{
+      return {{ ok: true, active: false, join_url: null, guest_count: 0, is_host: false, guests: [] }};
+    }}
+    const joinUrl = extractJoinUrl(sess);
     const guests = Array.isArray(sess?.guests) ? sess.guests : (Array.isArray(sess?.participants) ? sess.participants : []);
-    return {
+    return {{
       ok: true,
-      active: Boolean(sess?.active ?? joinUrl),
+      active: Boolean(joinUrl && (sess?.active ?? true)),
       join_url: joinUrl,
       guest_count: typeof sess?.guestCount === 'number' ? sess.guestCount : guests.length,
       is_host: Boolean(sess?.isHost ?? sess?.is_host ?? false),
       guests,
-    };
+    }};
     """
     res = evaluate_with_registry(body_js, port=port, timeout=timeout, eval_fn=eval_fn)
     return _normalize_jam_response(res, "CDP SocialConnectAPI status failed")

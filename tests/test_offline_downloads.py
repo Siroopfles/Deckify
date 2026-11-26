@@ -393,6 +393,102 @@ class TestPhase28PluginRPCs(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(items[1]["offline_progress"], 0)
         self.assertEqual(items[1]["offline_size_bytes"], 0)
 
+    def test_wait_for_cdp_ready_polls_until_ready_and_times_out(self):
+        attempts = {"count": 0}
+
+        def fake_eval_eventual(expr, port=9229, timeout=2.0):
+            attempts["count"] += 1
+            self.assertIn("OfflineAPI", expr)
+            if attempts["count"] < 3:
+                return {"ok": True, "ready": False}
+            return {"ok": True, "ready": True}
+
+        with patch("py_modules.cdp_bridge.time.sleep") as mock_sleep:
+            res = cdp_bridge.wait_for_cdp_ready(timeout=5.0, poll_interval=0.1, eval_fn=fake_eval_eventual)
+        self.assertTrue(res["ok"])
+        self.assertTrue(res["ready"])
+        self.assertEqual(attempts["count"], 3)
+        self.assertEqual(mock_sleep.call_count, 2)
+
+        with patch("py_modules.cdp_bridge.time.sleep") as mock_sleep_timeout:
+            res_timeout = cdp_bridge.wait_for_cdp_ready(
+                timeout=0.0,
+                poll_interval=0.1,
+                eval_fn=lambda expr, **kw: {"ok": False, "error": "not connected"},
+            )
+        self.assertFalse(res_timeout["ok"])
+        self.assertFalse(res_timeout["ready"])
+        mock_sleep_timeout.assert_not_called()
+
+    def test_cdp_set_offline_download_album_and_offline_api_fallbacks(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache_file = os.path.join(tmpdir, "offline_downloads.json")
+            ok_bytes = int(10.0 * (1024 ** 3))
+            captured_exprs = []
+
+            def fake_eval(expr, port=9229, timeout=4.0):
+                captured_exprs.append(expr)
+                return {"ok": True, "offline_state": "downloading", "progress": 0}
+
+            with patch("py_modules.common.get_disk_free_bytes", return_value=ok_bytes):
+                res = cdp_bridge.cdp_set_offline_download(
+                    "spotify:album:alb123",
+                    download=True,
+                    eval_fn=fake_eval,
+                    cache_file=cache_file,
+                    storage_path=tmpdir,
+                )
+            self.assertTrue(res["ok"])
+            self.assertIn("AlbumAPI", captured_exprs[0])
+            self.assertIn("albumApi.setOffline", captured_exprs[0])
+            self.assertIn("offlineApi.setOffline", captured_exprs[0])
+            self.assertIn("offlineApi.download", captured_exprs[0])
+
+            res_rm = cdp_bridge.cdp_set_offline_download(
+                "spotify:album:alb123",
+                download=False,
+                eval_fn=fake_eval,
+                cache_file=cache_file,
+                storage_path=tmpdir,
+            )
+            self.assertTrue(res_rm["ok"])
+            self.assertIn("offlineApi.remove", captured_exprs[1])
+            self.assertIn("albumApi.setOffline(uri, false)", captured_exprs[1])
+
+    def test_cdp_start_spotify_jam_nested_join_url_and_never_active_without_url(self):
+        captured = []
+
+        def fake_start_ok(expr, port=9229, timeout=4.0):
+            captured.append(expr)
+            return {
+                "ok": True,
+                "active": True,
+                "join_url": "https://spotify.link/nested-jam",
+                "guests": [],
+                "is_host": True,
+            }
+
+        res_ok = cdp_bridge.cdp_start_spotify_jam(eval_fn=fake_start_ok)
+        self.assertTrue(res_ok["ok"])
+        self.assertTrue(res_ok["active"])
+        self.assertEqual(res_ok["join_url"], "https://spotify.link/nested-jam")
+        self.assertIn("sess?.session?.joinUrl", captured[0])
+        self.assertIn("getShareUrl", captured[0])
+
+        res_missing = cdp_bridge.cdp_start_spotify_jam(
+            eval_fn=lambda expr, **kw: {"ok": True, "active": True, "join_url": None, "guests": []}
+        )
+        self.assertFalse(res_missing["ok"])
+        self.assertFalse(res_missing["active"])
+        self.assertIsNone(res_missing["join_url"])
+        self.assertTrue(res_missing["error"])
+
+        status_missing = cdp_bridge.cdp_get_jam_status(
+            eval_fn=lambda expr, **kw: {"ok": True, "active": True, "join_url": "   ", "guests": []}
+        )
+        self.assertFalse(status_missing["active"])
+        self.assertIsNone(status_missing["join_url"])
+
 
 if __name__ == "__main__":
     unittest.main()
