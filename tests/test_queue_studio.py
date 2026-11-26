@@ -56,16 +56,30 @@ class TestCdpQueueHelpers(unittest.TestCase):
         res_empty = cdp_bridge.cdp_remove_from_queue("", eval_fn=fake_eval)
         self.assertFalse(res_empty["ok"])
 
+        self.assertIn("nextTracks", captured["expr"])
+        self.assertIn("Track not in next_tracks", captured["expr"])
+
+        res_not_in_next = cdp_bridge.cdp_remove_from_queue(
+            uri,
+            eval_fn=lambda *a, **kw: {"ok": False, "error": "Track not in next_tracks"},
+        )
+        self.assertFalse(res_not_in_next["ok"])
+        self.assertEqual(res_not_in_next["error"], "Track not in next_tracks")
+
     def test_cdp_clear_queue_and_reorder_queue_validation(self):
         captured = {}
 
         def fake_eval(expr, port=9229, timeout=4.0):
             captured["expr"] = expr
-            return {"ok": True}
+            return {"ok": True, "hasContextTracks": True}
 
         res_clear = cdp_bridge.cdp_clear_queue(eval_fn=fake_eval)
-        self.assertEqual(res_clear, {"ok": True})
+        self.assertEqual(res_clear, {"ok": True, "has_context_tracks": True})
         self.assertIn("clearQueue", captured["expr"])
+        self.assertIn("hasContextTracks", captured["expr"])
+
+        res_clear_empty = cdp_bridge.cdp_clear_queue(eval_fn=lambda *a, **kw: {"ok": True})
+        self.assertEqual(res_clear_empty, {"ok": True, "has_context_tracks": False})
 
         res_reorder = cdp_bridge.cdp_reorder_queue(
             1, 3, uid='u"1', target_uid='u"3', eval_fn=fake_eval

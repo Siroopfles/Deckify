@@ -1006,8 +1006,34 @@ def cdp_remove_from_queue(
     if (typeof playerApi.removeFromQueue !== 'function') {{
       return {{ ok: false, error: 'removeFromQueue not supported' }};
     }}
+    let beforeNext = null;
+    if (typeof playerApi.getQueue === 'function') {{
+      try {{
+        const beforeQ = await playerApi.getQueue();
+        beforeNext = Array.isArray(beforeQ?.nextTracks) ? beforeQ.nextTracks : [];
+        const hasMatch = beforeNext.some((t) => {{
+          if (!t) return false;
+          if (targetUid) return String(t.uid || '') === targetUid;
+          return String(t.uri || t.contextTrack?.uri || '') === targetUri;
+        }});
+        if (!hasMatch) {{
+          return {{ ok: false, error: 'Track not in next_tracks' }};
+        }}
+      }} catch (e) {{
+        beforeNext = null;
+      }}
+    }}
     const item = targetUid ? {{ uri: targetUri, uid: targetUid }} : {{ uri: targetUri }};
     await playerApi.removeFromQueue([item]);
+    if (beforeNext !== null && typeof playerApi.getQueue === 'function') {{
+      try {{
+        const afterQ = await playerApi.getQueue();
+        const afterNext = Array.isArray(afterQ?.nextTracks) ? afterQ.nextTracks : [];
+        if (afterNext.length >= beforeNext.length) {{
+          return {{ ok: false, error: 'removeFromQueue did not shrink next_tracks' }};
+        }}
+      }} catch (e) {{}}
+    }}
     return {{ ok: true }};
     """
     res = evaluate_with_registry(body_js, port=port, timeout=timeout, eval_fn=eval_fn)
@@ -1029,11 +1055,32 @@ def cdp_clear_queue(
       return { ok: false, error: 'clearQueue not supported' };
     }
     await playerApi.clearQueue();
-    return { ok: true };
+    let hasContextTracks = false;
+    if (typeof playerApi.getQueue === 'function') {
+      try {
+        const q = await playerApi.getQueue();
+        const next = Array.isArray(q?.nextTracks) ? q.nextTracks : [];
+        const future = Array.isArray(q?.futureTracks) ? q.futureTracks : [];
+        if (future.length > 0 || next.length > 0) {
+          hasContextTracks = true;
+        }
+      } catch (e) {}
+    }
+    if (!hasContextTracks && typeof playerApi.getState === 'function') {
+      try {
+        const st = await playerApi.getState();
+        const next = Array.isArray(st?.nextTracks) ? st.nextTracks : [];
+        const future = Array.isArray(st?.future) ? st.future : (Array.isArray(st?.futureTracks) ? st.futureTracks : []);
+        if (future.length > 0 || next.length > 0) {
+          hasContextTracks = true;
+        }
+      } catch (e) {}
+    }
+    return { ok: true, hasContextTracks };
     """
     res = evaluate_with_registry(body_js, port=port, timeout=timeout, eval_fn=eval_fn)
     if res.get("ok"):
-        return {"ok": True}
+        return {"ok": True, "has_context_tracks": bool(res.get("hasContextTracks"))}
     return {"ok": False, "error": res.get("error") or "CDP PlayerAPI clearQueue failed"}
 
 
