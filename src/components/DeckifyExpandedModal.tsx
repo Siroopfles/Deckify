@@ -27,7 +27,7 @@ import { assignStableRowKeys } from "../hooks/useGrabMoveOrder";
 import { usePlaybackStatus } from "../hooks/usePlaybackStatus";
 import { useTriggerNavigation } from "../hooks/useTriggerNavigation";
 import { Sidebar } from "./common/Sidebar";
-import { TrackActionModal } from "./common/TrackActionModal";
+import { TrackActionModal, recordPlaylistAddCount } from "./common/TrackActionModal";
 import { CollectionActionItem, CollectionActionModal } from "./common/CollectionActionModal";
 
 // Modular tab components
@@ -147,6 +147,31 @@ function restoreScrollAndFocus(
   });
 }
 
+function mergeQueueRowKeys(prev: TrackItem[], incoming: TrackItem[]): TrackItem[] {
+  const used = new Set<number>();
+  return incoming.map((item) => {
+    if (item._rowKey) return item;
+    if (item.uid) {
+      const uidIdx = prev.findIndex((p, idx) => !used.has(idx) && p.uid === item.uid && Boolean(p._rowKey));
+      if (uidIdx >= 0) {
+        used.add(uidIdx);
+        return { ...item, _rowKey: prev[uidIdx]._rowKey };
+      }
+    }
+    const ident = item.uri || item.id || "";
+    if (ident) {
+      const identIdx = prev.findIndex(
+        (p, idx) => !used.has(idx) && (p.uri || p.id || "") === ident && Boolean(p._rowKey),
+      );
+      if (identIdx >= 0) {
+        used.add(identIdx);
+        return { ...item, _rowKey: prev[identIdx]._rowKey };
+      }
+    }
+    return item;
+  });
+}
+
 export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeModal }) => {
   const closeModalRef = useRef(closeModal);
   closeModalRef.current = closeModal;
@@ -226,7 +251,11 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
   const [searchHistory, setSearchHistory] = useState<string[]>([]);
   const [focusedHistoryQuery, setFocusedHistoryQuery] = useState<string | null>(null);
   const [isGrabbing, setIsGrabbing] = useState(false);
+  const isGrabbingRef = useRef(isGrabbing);
+  isGrabbingRef.current = isGrabbing;
   const [isCrudModalOpen, setIsCrudModalOpen] = useState(false);
+  const isCrudModalOpenRef = useRef(isCrudModalOpen);
+  isCrudModalOpenRef.current = isCrudModalOpen;
   const [pendingEditPlaylist, setPendingEditPlaylist] = useState<PlaylistItem | null>(null);
   const [pendingDeletePlaylist, setPendingDeletePlaylist] = useState<PlaylistItem | null>(null);
   const grabCancelRef = useRef<(() => boolean) | null>(null);
@@ -399,9 +428,13 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
   }, []);
 
   const loadQueue = useCallback(async () => {
+    if (isGrabbingRef.current) return;
     try {
       const res = await backendGetQueue();
-      if (res.ok && res.queue) setQueueTracks(assignStableRowKeys(res.queue, "q"));
+      if (isGrabbingRef.current) return;
+      if (res.ok && res.queue) {
+        setQueueTracks((prev) => assignStableRowKeys(mergeQueueRowKeys(prev, res.queue!), "q"));
+      }
     } catch {}
   }, []);
 
@@ -948,7 +981,7 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
       );
       setQueueTracks(remaining);
       try {
-        const res = await backendRemoveQueueTrack(index, track.uri || "", track.uid || "", remaining);
+        const res = await backendRemoveQueueTrack(index, track.uri || "", track.uid || "", prevTracks);
         if (!res?.ok) {
           setQueueTracks(prevTracks);
           showToast(res?.error || "Failed to remove from queue");
@@ -1044,8 +1077,10 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
   const handleAddTrackToPlaylist = useCallback(async (playlistId: string, playlistName: string) => {
     if (!actionTrack?.uri) return;
     const res = await backendAddTrackToPlaylist(playlistId, actionTrack.uri);
-    if (res.ok) showToast(`Added to ${playlistName}`);
-    else showToast(`Error adding: ${res.error || "Failed"}`);
+    if (res.ok) {
+      recordPlaylistAddCount(playlistId);
+      showToast(`Added to ${playlistName}`);
+    } else showToast(`Error adding: ${res.error || "Failed"}`);
     setShowAddToPlaylistModal(false);
     setActionTrack(null);
   }, [actionTrack, showToast]);
@@ -1113,6 +1148,7 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
       setAllUserPlaylists((prev) => [res.playlist!, ...prev]);
       const addRes = await backendAddTrackToPlaylist(res.playlist.id, trackUri);
       if (addRes?.ok) {
+        recordPlaylistAddCount(res.playlist.id);
         showToast(`Created '${name}' and added track`);
       } else {
         showToast(`Created '${name}', but failed to add track: ${addRes?.error || "Failed"}`);
@@ -1515,6 +1551,12 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
 
     el.addEventListener("vgp_oncancel", (e: Event) => {
       if (typeof grabCancelRef.current === "function" && grabCancelRef.current()) {
+        e.preventDefault();
+        e.stopPropagation();
+        (e as unknown as { stopImmediatePropagation?: () => void }).stopImmediatePropagation?.();
+        return;
+      }
+      if (isCrudModalOpenRef.current) {
         e.preventDefault();
         e.stopPropagation();
         (e as unknown as { stopImmediatePropagation?: () => void }).stopImmediatePropagation?.();
