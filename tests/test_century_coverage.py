@@ -539,7 +539,8 @@ class CenturyCoverageTests(unittest.IsolatedAsyncioTestCase):
         ]
         with patch("asyncio.sleep", new_callable=AsyncMock):
             r_pt = await self.plugin.play_tracks(context_uri="c")
-            self.assertTrue(r_pt["ok"])
+            self.assertFalse(r_pt["ok"])
+            self.assertIn("Retry play fail", r_pt["error"])
 
         # 14. get_status with last_event position_ms
         self.plugin._process = None

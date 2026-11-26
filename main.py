@@ -1243,8 +1243,8 @@ class Plugin:
             return {"ok": False, "error": str(e)}
         return {"ok": True, "app_id": valid_id, "running": running}
 
-    async def _auto_transfer_and_play(self, token: str, device_id: str = "") -> dict:
-        return await rpc_playback.auto_transfer_and_play(self, token, device_id)
+    async def _auto_transfer_and_play(self, token: str, device_id: str = "", play: bool = True) -> dict:
+        return await rpc_playback.auto_transfer_and_play(self, token, device_id, play=play)
 
     async def set_volume(self, volume_percent: int) -> dict:
         return await volume.set_volume(self, volume_percent)

@@ -1,5 +1,6 @@
 import asyncio
 from collections import OrderedDict
+import json
 import os
 import socket
 import threading
@@ -40,27 +41,53 @@ def _reset_radio_cache() -> None:
         _RADIO_CACHE.clear()
 
 
-async def auto_transfer_and_play(plugin, token: str, device_id: str = "") -> dict:
+async def auto_transfer_and_play(plugin, token: str, device_id: str = "", play: bool = True) -> dict:
     """Attempt automatic playback transfer to available Spotify device."""
     if not device_id:
         try:
             data = await _exec(_spotify_api_request, "me/player/devices", token)
             devices = data.get("devices", []) if data else []
             if devices:
-                device_id = devices[0]["id"]
-                decky.logger.info("No device_id provided, picked %s (%s)", devices[0].get("name"), device_id)
+                settings = getattr(plugin, "_settings", {}) or {}
+                local_name = ""
+                get_dev_name = getattr(plugin, "get_device_name", None)
+                if callable(get_dev_name):
+                    try:
+                        local_name = get_dev_name() or ""
+                    except Exception:
+                        local_name = ""
+                if not local_name:
+                    local_name = settings.get("device_name") or socket.gethostname()
+                preferred = _match_local_device(devices, local_name)
+                if not preferred:
+                    preferred = next(
+                        (d for d in devices if isinstance(d, dict) and d.get("is_active") and d.get("id")),
+                        None,
+                    )
+                if not preferred:
+                    preferred = next(
+                        (d for d in devices if isinstance(d, dict) and d.get("id")),
+                        devices[0],
+                    )
+                device_id = preferred.get("id", "") if isinstance(preferred, dict) else ""
+                decky.logger.info(
+                    "No device_id provided, picked %s (%s)",
+                    preferred.get("name") if isinstance(preferred, dict) else None,
+                    device_id,
+                )
         except Exception as e:
             decky.logger.error("Failed to fetch devices for auto-transfer: %s", e)
     if not device_id:
         return {"ok": False, "error": "No active device — connect via Spotify app first"}
     try:
-        decky.logger.info("Auto-transferring playback to %s", device_id)
+        decky.logger.info("Auto-transferring playback to %s (play=%s)", device_id, bool(play))
         await _exec(
             _spotify_api_request, "me/player", token, "PUT", None,
-            {"device_ids": [device_id], "play": True},
+            {"device_ids": [device_id], "play": bool(play)},
         )
-        plugin._poll_play_state = "playing"
-        return {"ok": True}
+        if play:
+            plugin._poll_play_state = "playing"
+        return {"ok": True, "device_id": device_id}
     except Exception as e:
         decky.logger.error("Auto-transfer failed: %s", e)
         return {"ok": False, "error": "No active device — connect via Spotify app first"}
@@ -706,6 +733,59 @@ def _build_uris_body(
     return body
 
 
+async def _try_cdp_play_fallback(plugin, body: dict) -> dict | None:
+    """Attempt local CDP PlayerAPI.play fallback when spotify_client is running."""
+    if not body or not is_spotify_client_running(plugin):
+        return None
+    ctx_uri = str(body.get("context_uri") or "").strip()
+    uris = [str(u).strip() for u in (body.get("uris") or []) if str(u).strip()]
+    try:
+        if ctx_uri.startswith("spotify:playlist:"):
+            res = await _exec(cdp_play_context, ctx_uri)
+            if isinstance(res, dict) and res.get("ok"):
+                return {"ok": True}
+        elif ctx_uri:
+            body_js = f"""
+            const uri = {json.dumps(ctx_uri)};
+            const playerApi = getService('PlayerAPI');
+            if (!playerApi || typeof playerApi.play !== 'function') {{
+              return {{ ok: false, error: 'PlayerAPI.play unavailable' }};
+            }}
+            try {{
+              await playerApi.play({{ uri }}, {{}}, {{}});
+              return {{ ok: true, uri }};
+            }} catch (e) {{
+              return {{ ok: false, error: e?.message || String(e) }};
+            }}
+            """
+            res = await _exec(cdp_bridge.evaluate_with_registry, body_js)
+            if isinstance(res, dict) and res.get("ok"):
+                return {"ok": True}
+        elif uris:
+            body_js = f"""
+            const uris = {json.dumps(uris)};
+            const playerApi = getService('PlayerAPI');
+            if (!playerApi || typeof playerApi.play !== 'function') {{
+              return {{ ok: false, error: 'PlayerAPI.play unavailable' }};
+            }}
+            try {{
+              await playerApi.play({{ uri: uris[0] }}, {{}}, {{}});
+              if (uris.length > 1 && typeof playerApi.addToQueue === 'function') {{
+                await playerApi.addToQueue(uris.slice(1).map((u) => ({{ uri: u }})));
+              }}
+              return {{ ok: true, count: uris.length }};
+            }} catch (e) {{
+              return {{ ok: false, error: e?.message || String(e) }};
+            }}
+            """
+            res = await _exec(cdp_bridge.evaluate_with_registry, body_js)
+            if isinstance(res, dict) and res.get("ok"):
+                return {"ok": True}
+    except Exception as e:
+        decky.logger.warning("CDP playback fallback failed: %s", e)
+    return None
+
+
 async def play_tracks(
     plugin,
     context_uri: str | None = None,
@@ -723,6 +803,7 @@ async def play_tracks(
         uris, offset_uri = offset_uri, None
 
     body = {}
+    tried_cached_mix = False
     if context_uri:
         settings = getattr(plugin, "_settings", {}) or {}
         use_cached_mix = (
@@ -731,6 +812,7 @@ async def play_tracks(
         )
         cached_uris = _resolve_cached_mix_uris(context_uri) if (use_cached_mix and not uris) else []
         if cached_uris:
+            tried_cached_mix = True
             body = _build_uris_body(cached_uris, offset_uri, position, position_ms)
         else:
             body["context_uri"] = context_uri
@@ -748,6 +830,13 @@ async def play_tracks(
     power_gov = getattr(plugin, "_power_governor", None)
     if power_gov is not None and getattr(power_gov, "engine_sleeping", False):
         await power_gov.wake_for_playback()
+
+    async def _try_transfer(play_flag: bool) -> dict:
+        try:
+            return await plugin._auto_transfer_and_play(token, play=play_flag)
+        except TypeError:
+            return await plugin._auto_transfer_and_play(token)
+
     try:
         await _exec(
             _spotify_api_request, "me/player/play", token, "PUT", None, body,
@@ -755,7 +844,8 @@ async def play_tracks(
         _invalidate_optimistic_queue(plugin)
         return {"ok": True}
     except urllib.error.HTTPError as e:
-        if e.code in (403, 404) and body.get("context_uri"):
+        if e.code in (403, 404) and body.get("context_uri") and not tried_cached_mix:
+            tried_cached_mix = True
             cached_uris = _resolve_cached_mix_uris(context_uri or body["context_uri"])
             if cached_uris:
                 body = _build_uris_body(cached_uris, offset_uri, position, position_ms)
@@ -769,13 +859,14 @@ async def play_tracks(
                     decky.logger.error("play_tracks cached mix retry failed: %s", retry_exc)
                     return {"ok": False, "error": str(retry_exc)}
         if e.code == 404:
-            transfer_res = await plugin._auto_transfer_and_play(token)
+            transfer_play = not bool(body)
+            transfer_res = await _try_transfer(transfer_play)
             if not transfer_res.get("ok") and power_gov is not None and (
                 getattr(power_gov, "engine_sleeping", False)
                 or (hasattr(plugin, "_is_engine_running") and not plugin._is_engine_running())
             ):
                 await power_gov.wake_for_playback()
-                transfer_res = await plugin._auto_transfer_and_play(token)
+                transfer_res = await _try_transfer(transfer_play)
             elif (
                 not transfer_res.get("ok")
                 and hasattr(plugin, "_is_engine_running")
@@ -789,17 +880,59 @@ async def play_tracks(
                         await asyncio.sleep(0.3)
                         dev_res = await get_devices(plugin)
                         if dev_res.get("devices"):
-                            transfer_res = await plugin._auto_transfer_and_play(token)
+                            transfer_res = await _try_transfer(transfer_play)
                             break
             if transfer_res.get("ok") and body:
+                await asyncio.sleep(0.5)
+                target_dev = transfer_res.get("device_id") or ""
+                retry_params = {"device_id": target_dev} if target_dev else None
                 try:
-                    await asyncio.sleep(0.5)
-                    await _exec(_spotify_api_request, "me/player/play", token, "PUT", None, body)
+                    await _exec(
+                        _spotify_api_request, "me/player/play", token, "PUT", retry_params, body,
+                    )
                     _invalidate_optimistic_queue(plugin)
                     return {"ok": True}
-                except Exception:
-                    pass
+                except urllib.error.HTTPError as retry_err:
+                    if retry_err.code in (403, 404) and body.get("context_uri") and not tried_cached_mix:
+                        tried_cached_mix = True
+                        cached_uris = _resolve_cached_mix_uris(context_uri or body["context_uri"])
+                        if cached_uris:
+                            body = _build_uris_body(cached_uris, offset_uri, position, position_ms)
+                            try:
+                                await _exec(
+                                    _spotify_api_request,
+                                    "me/player/play",
+                                    token,
+                                    "PUT",
+                                    retry_params,
+                                    body,
+                                )
+                                _invalidate_optimistic_queue(plugin)
+                                return {"ok": True}
+                            except urllib.error.HTTPError as mix_err:
+                                retry_err = mix_err
+                            except Exception as mix_exc:
+                                decky.logger.error("play_tracks retry cached mix failed: %s", mix_exc)
+                                return {"ok": False, "error": str(mix_exc)}
+                    cdp_res = await _try_cdp_play_fallback(plugin, body)
+                    if cdp_res and cdp_res.get("ok"):
+                        _invalidate_optimistic_queue(plugin)
+                        return {"ok": True}
+                    return {"ok": False, "error": _parse_spotify_error(retry_err)}
+                except Exception as retry_exc:
+                    decky.logger.error("play_tracks retry after transfer failed: %s", retry_exc)
+                    return {"ok": False, "error": str(retry_exc)}
+            if not transfer_res.get("ok") and body:
+                cdp_res = await _try_cdp_play_fallback(plugin, body)
+                if cdp_res and cdp_res.get("ok"):
+                    _invalidate_optimistic_queue(plugin)
+                    return {"ok": True}
             return transfer_res
+        if e.code == 403 and body:
+            cdp_res = await _try_cdp_play_fallback(plugin, body)
+            if cdp_res and cdp_res.get("ok"):
+                _invalidate_optimistic_queue(plugin)
+                return {"ok": True}
         return {"ok": False, "error": _parse_spotify_error(e)}
     except Exception as e:
         decky.logger.error("play_tracks failed: %s", e)

@@ -591,6 +591,51 @@ class DeckifyFeatureTests(unittest.IsolatedAsyncioTestCase):
         await asyncio.wait_for(system.sleep_timer_worker(self.plugin), timeout=1.0)
         self.plugin.control_playback.assert_awaited_once_with("pause")
 
+    async def test_auto_transfer_and_play_play_false_returns_device_id(self):
+        from py_modules import rpc_playback
+
+        self.plugin._poll_play_state = "paused"
+        self.plugin._settings["device_name"] = "SteamMachine"
+        self.execute.side_effect = [
+            {
+                "devices": [
+                    {"id": "phone-1", "name": "Phone", "is_active": False},
+                    {"id": "steam-1", "name": "SteamMachine", "is_active": False},
+                ]
+            },
+            {},
+        ]
+        res = await rpc_playback.auto_transfer_and_play(self.plugin, "tok", "", play=False)
+        self.assertTrue(res["ok"])
+        self.assertEqual(res.get("device_id"), "steam-1")
+        self.assertEqual(self.plugin._poll_play_state, "paused")
+        put_call = self.execute.call_args_list[1]
+        self.assertEqual(put_call.args[1], "me/player")
+        self.assertEqual(put_call.args[5], {"device_ids": ["steam-1"], "play": False})
+
+    async def test_play_tracks_context_uri_404_transfers_with_play_false(self):
+        import io
+        from urllib.error import HTTPError
+        from py_modules import rpc_playback
+
+        err_404 = HTTPError("url", 404, "Not Found", {}, io.BytesIO(b"{}"))
+        self.execute.side_effect = [err_404, {}]
+        with patch.object(
+            self.plugin,
+            "_auto_transfer_and_play",
+            AsyncMock(return_value={"ok": True, "device_id": "dev-1"}),
+        ) as mock_transfer, patch.object(rpc_playback.asyncio, "sleep", AsyncMock()):
+            res = await rpc_playback.play_tracks(
+                self.plugin, context_uri="spotify:playlist:daylist123"
+            )
+
+        self.assertTrue(res["ok"])
+        mock_transfer.assert_awaited_once_with("mock_token", play=False)
+        retry_call = self.execute.call_args_list[1]
+        self.assertEqual(retry_call.args[1], "me/player/play")
+        self.assertEqual(retry_call.args[4], {"device_id": "dev-1"})
+        self.assertEqual(retry_call.args[5], {"context_uri": "spotify:playlist:daylist123"})
+
 
 if __name__ == "__main__":
     unittest.main()
