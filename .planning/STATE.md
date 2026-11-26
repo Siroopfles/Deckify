@@ -4,17 +4,17 @@ milestone: v0.7
 milestone_name: Studio, Living Room TV, Offline Travel & Ultimate Immersion (In Progress)
 current_phase: 28
 current_phase_name: CDP Offline Downloads, Wi-Fi Travel Mode & Living Room Spotify Jam
-status: executing
-stopped_at: Completed 28-06-PLAN.md
-last_updated: "2026-11-26T11:02:16.937Z"
+status: verifying
+stopped_at: Completed 28-07-PLAN.md
+last_updated: "2026-11-26T11:10:42.937Z"
 last_activity: 2026-11-26
 last_activity_desc: Phase 28 execution started
-state_head: cab08387cf23ea65acd87e90510048fdc4bfcecf
+state_head: 365f692d559ae1ed90d9e7b9c89b3293263ed4d8
 progress:
   total_phases: 12
   completed_phases: 8
   total_plans: 65
-  completed_plans: 64
+  completed_plans: 65
   percent: 67
 ---
 
@@ -31,7 +31,7 @@ See: [.planning/PROJECT.md](file:///C:/Users/djdje/Deckify/.planning/PROJECT.md)
 
 Phase: 28 (CDP Offline Downloads, Wi-Fi Travel Mode & Living Room Spotify Jam) — EXECUTING
 Plan: 7 of 7
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-11-26 — Phase 28 execution started
 
 
@@ -165,6 +165,7 @@ Last activity: 2026-11-26 — Phase 28 execution started
 | Phase 28 P04 | 5min | 2 tasks | 3 files |
 | Phase 28 P05 | 7min | 2 tasks | 9 files |
 | Phase 28 P06 | 7min | 2 tasks | 6 files |
+| Phase 28 P07 | 7min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -270,6 +271,7 @@ Recent decisions affecting current work:
 - [Phase 28]: Centralized SessionBookmarkManager creation in Plugin._create_bookmark_manager to wire travel_mode_* settings and _on_travel_mode_changed consistently
 - [Phase 28]: Extracted shared OfflineStatusUI primitives (OfflineBadge, OfflineProgressBar, OfflineDownloadButton, TravelModeBanner) with 0..100 progress clamping and aria-labels across 7 tabs
 - [Phase 28]: Extracted OfflineTravelSection and BulkDeleteConfirmModal in SettingsTab.tsx to preserve hook slot order and guarded document/window globals for Node tests
+- [Phase 28]: Placed Travel Mode quick-toggle pill at top of content-pane-focusable in DeckifyExpandedModal.tsx and Offline / Travel Mode ToggleField inside QAM Controls & Settings
 
 ### Pending Todos
 
@@ -300,8 +302,8 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-26T11:02:05.863Z
-Stopped at: Completed 28-06-PLAN.md
+Last session: 2026-11-26T11:10:33.512Z
+Stopped at: Completed 28-07-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
