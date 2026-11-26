@@ -1,7 +1,9 @@
 import asyncio
 import copy
 import json
+import math
 import os
+import shutil
 import ssl
 
 try:
@@ -173,6 +175,11 @@ DEFAULT_SETTINGS = {
     "eco_sleep_spotify_client": False,
     "preferred_podcast_speed": 1.0,
     "search_history": [],
+    "travel_mode_enabled": False,
+    "travel_mode_manual": False,
+    "travel_mode_auto_enabled": True,
+    "offline_min_free_gb": 3.0,
+    "offline_storage_path": SPOTIFY_CLIENT_CACHE_DIR,
 }
 
 ALLOWED_PLAYBACK_SPEEDS = (0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0)
@@ -584,3 +591,45 @@ def _build_deck_command(cmd: list[str], extra_env: dict | None = None) -> tuple[
                 env_args.append(f"{k}={v}")
         return ["runuser", "-u", DECK_USER, "--", "env", *env_args, *cmd], env
     return cmd, env
+
+
+def clamp_offline_min_free_gb(value) -> float:
+    """Clamp offline minimum free-space threshold in GB to [0.5, 50.0], defaulting to 3.0."""
+    if isinstance(value, bool) or value is None:
+        return 3.0
+    try:
+        num = float(value)
+    except (TypeError, ValueError):
+        return 3.0
+    if not math.isfinite(num):
+        return 3.0
+    return max(0.5, min(50.0, num))
+
+
+def get_disk_free_bytes(path: str) -> int:
+    """Return non-root available bytes for the filesystem containing `path` or its nearest existing parent."""
+    target = os.path.abspath(os.path.expanduser(str(path or SPOTIFY_CLIENT_CACHE_DIR)))
+    while target and not os.path.exists(target):
+        parent = os.path.dirname(target)
+        if parent == target:
+            break
+        target = parent
+    if hasattr(os, "statvfs"):
+        st = os.statvfs(target)
+        return int(st.f_bavail) * int(st.f_frsize)
+    return int(shutil.disk_usage(target).free)
+
+
+def check_disk_guardrail(path: str, min_free_gb: float = 3.0) -> dict:
+    """Check whether `path` has at least `min_free_gb` free bytes available for offline downloads."""
+    target_path = str(path or SPOTIFY_CLIENT_CACHE_DIR)
+    free_bytes = get_disk_free_bytes(target_path)
+    min_gb = clamp_offline_min_free_gb(min_free_gb)
+    required_bytes = int(min_gb * (1024 ** 3))
+    return {
+        "allowed": free_bytes >= required_bytes,
+        "free_bytes": free_bytes,
+        "free_gb": round(free_bytes / (1024 ** 3), 2),
+        "min_free_gb": min_gb,
+        "path": target_path,
+    }

@@ -1,11 +1,21 @@
 import json
 import os
 import re
+import threading
 
-from py_modules.common import ALLOWED_PLAYBACK_SPEEDS, DECK_HOME, SPOTIFY_CDP_PORT, decky
+from py_modules.common import (
+    ALLOWED_PLAYBACK_SPEEDS,
+    DECK_HOME,
+    SPOTIFY_CDP_PORT,
+    SPOTIFY_CLIENT_CACHE_DIR,
+    check_disk_guardrail,
+    decky,
+)
 
 DEFAULT_CDP_TIMEOUT = 4.0
 DISCOVERY_MIXES_CACHE_FILE = os.path.join(DECK_HOME, ".cache", "deckify", "discovery_mixes.json")
+OFFLINE_DOWNLOADS_CACHE_FILE = os.path.join(DECK_HOME, ".cache", "deckify", "offline_downloads.json")
+_OFFLINE_CACHE_LOCK = threading.Lock()
 
 _REGISTRY_PREAMBLE_JS = """
 const parseImg = (images) => {
@@ -1348,3 +1358,322 @@ def cdp_add_to_playlist(
     if res.get("ok"):
         return {"ok": True}
     return {"ok": False, "error": res.get("error") or "CDP PlaylistAPI add failed"}
+
+
+_VALID_OFFLINE_STATES = frozenset({"not_downloaded", "downloading", "downloaded", "paused_low_space"})
+
+
+def _normalize_offline_progress(raw) -> int:
+    try:
+        val = int(round(float(raw)))
+    except (TypeError, ValueError):
+        return 0
+    return max(0, min(100, val))
+
+
+def _normalize_offline_state(raw, progress: int = 0) -> str:
+    s = str(raw or "").strip().lower()
+    if s in _VALID_OFFLINE_STATES:
+        return s
+    if s in ("available", "complete", "completed", "synced", "offline", "yes"):
+        return "downloaded"
+    if s in ("in_progress", "syncing", "pending", "queued", "waiting"):
+        return "downloading"
+    if s in ("paused", "low_space", "paused_low_space"):
+        return "paused_low_space"
+    if progress >= 100:
+        return "downloaded"
+    if progress > 0:
+        return "downloading"
+    return "not_downloaded"
+
+
+def load_offline_downloads_cache(cache_file: str | None = None) -> dict:
+    """Load persisted offline downloads cache from disk, returning {} on missing/corrupt data."""
+    target = cache_file or OFFLINE_DOWNLOADS_CACHE_FILE
+    if not os.path.exists(target):
+        return {}
+    try:
+        with open(target, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _write_offline_cache_unlocked(data: dict, target: str) -> bool:
+    parent = os.path.dirname(target)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    tmp_path = f"{target}.{os.getpid()}.{threading.get_ident()}.tmp"
+    try:
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(data if isinstance(data, dict) else {}, f, indent=2)
+        os.replace(tmp_path, target)
+        return True
+    except Exception as e:
+        decky.logger.error("Failed to save offline downloads cache %s: %s", target, e)
+        if os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+        return False
+
+
+def save_offline_downloads_cache(data: dict, cache_file: str | None = None) -> bool:
+    """Atomically persist offline downloads cache to disk via .tmp + os.replace."""
+    target = cache_file or OFFLINE_DOWNLOADS_CACHE_FILE
+    with _OFFLINE_CACHE_LOCK:
+        return _write_offline_cache_unlocked(data, target)
+
+
+def _update_offline_cache_entry(
+    uri: str,
+    entry: dict | None,
+    cache_file: str | None = None,
+) -> bool:
+    target = cache_file or OFFLINE_DOWNLOADS_CACHE_FILE
+    with _OFFLINE_CACHE_LOCK:
+        current = load_offline_downloads_cache(target)
+        if entry is None:
+            current.pop(uri, None)
+        else:
+            existing = current.get(uri) if isinstance(current.get(uri), dict) else {}
+            merged = {**existing, **entry, "uri": uri}
+            current[uri] = merged
+        return _write_offline_cache_unlocked(current, target)
+
+
+def cdp_set_offline_download(
+    uri: str,
+    download: bool,
+    item_meta: dict | None = None,
+    port: int = SPOTIFY_CDP_PORT,
+    timeout: float = DEFAULT_CDP_TIMEOUT,
+    eval_fn=None,
+    cache_file: str | None = None,
+    storage_path: str | None = None,
+    min_free_gb: float = 3.0,
+) -> dict:
+    """Toggle offline download for a playlist, album, or episode via Official Spotify Client CDP OfflineAPI."""
+    norm_uri = str(uri or "").strip()
+    if not norm_uri:
+        return {"ok": False, "error": "URI is required"}
+
+    if download:
+        guardrail = check_disk_guardrail(storage_path or SPOTIFY_CLIENT_CACHE_DIR, min_free_gb)
+        if not guardrail.get("allowed", False):
+            return {
+                "ok": False,
+                "uri": norm_uri,
+                "offline_state": "paused_low_space",
+                "guardrail": guardrail,
+                "error": (
+                    f"Insufficient disk space: {guardrail.get('free_gb')} GB free "
+                    f"(minimum {guardrail.get('min_free_gb')} GB required)"
+                ),
+            }
+
+    uri_js = json.dumps(norm_uri)
+    want_js = "true" if download else "false"
+    body_js = f"""
+    const uri = {uri_js};
+    const want = {want_js};
+    const offlineApi = getService('OfflineAPI');
+    const playlistApi = getService('PlaylistAPI');
+    const showApi = getService('ShowAPI');
+
+    if (want) {{
+      if (offlineApi && typeof offlineApi.addDownload === 'function') {{
+        await offlineApi.addDownload(uri);
+        return {{ ok: true, offline_state: 'downloading', progress: 0 }};
+      }}
+      if (offlineApi && typeof offlineApi.sync === 'function') {{
+        await offlineApi.sync(uri);
+        return {{ ok: true, offline_state: 'downloading', progress: 0 }};
+      }}
+      if (uri.includes(':playlist:') && playlistApi && typeof playlistApi.setOffline === 'function') {{
+        await playlistApi.setOffline(uri, true);
+        return {{ ok: true, offline_state: 'downloading', progress: 0 }};
+      }}
+      if ((uri.includes(':episode:') || uri.includes(':show:')) && showApi && typeof showApi.setOffline === 'function') {{
+        await showApi.setOffline(uri, true);
+        return {{ ok: true, offline_state: 'downloading', progress: 0 }};
+      }}
+      return {{ ok: false, error: 'OfflineAPI.addDownload not found' }};
+    }} else {{
+      if (offlineApi && typeof offlineApi.removeDownload === 'function') {{
+        await offlineApi.removeDownload(uri);
+        return {{ ok: true, offline_state: 'not_downloaded', progress: 0 }};
+      }}
+      if (offlineApi && typeof offlineApi.unsync === 'function') {{
+        await offlineApi.unsync(uri);
+        return {{ ok: true, offline_state: 'not_downloaded', progress: 0 }};
+      }}
+      if (uri.includes(':playlist:') && playlistApi && typeof playlistApi.setOffline === 'function') {{
+        await playlistApi.setOffline(uri, false);
+        return {{ ok: true, offline_state: 'not_downloaded', progress: 0 }};
+      }}
+      if ((uri.includes(':episode:') || uri.includes(':show:')) && showApi && typeof showApi.setOffline === 'function') {{
+        await showApi.setOffline(uri, false);
+        return {{ ok: true, offline_state: 'not_downloaded', progress: 0 }};
+      }}
+      return {{ ok: false, error: 'OfflineAPI.removeDownload not found' }};
+    }}
+    """
+    res = evaluate_with_registry(body_js, port=port, timeout=timeout, eval_fn=eval_fn)
+    if not res.get("ok"):
+        return {
+            "ok": False,
+            "uri": norm_uri,
+            "error": res.get("error") or "CDP OfflineAPI request failed",
+        }
+
+    if download:
+        progress = _normalize_offline_progress(res.get("progress", 0))
+        state = _normalize_offline_state(res.get("offline_state") or "downloading", progress)
+        if state == "not_downloaded":
+            state = "downloading"
+        meta = dict(item_meta) if isinstance(item_meta, dict) else {}
+        entry = {
+            **meta,
+            "uri": norm_uri,
+            "offline_state": state,
+            "progress": progress,
+        }
+        _update_offline_cache_entry(norm_uri, entry, cache_file=cache_file)
+        return {"ok": True, "uri": norm_uri, "offline_state": state, "progress": progress}
+
+    _update_offline_cache_entry(norm_uri, None, cache_file=cache_file)
+    return {"ok": True, "uri": norm_uri, "offline_state": "not_downloaded", "progress": 0}
+
+
+def cdp_get_offline_status(
+    uris: list[str] | None = None,
+    port: int = SPOTIFY_CDP_PORT,
+    timeout: float = DEFAULT_CDP_TIMEOUT,
+    eval_fn=None,
+    cache_file: str | None = None,
+) -> dict:
+    """Query offline download status from CDP OfflineAPI and merge with offline_downloads.json cache."""
+    filter_uris = [str(u).strip() for u in (uris or []) if str(u).strip()]
+    uris_js = json.dumps(filter_uris)
+    body_js = f"""
+    const uris = {uris_js};
+    const offlineApi = getService('OfflineAPI');
+    if (!offlineApi) {{
+      return {{ ok: false, error: 'OfflineAPI not found' }};
+    }}
+    let raw = null;
+    if (typeof offlineApi.getDownloadStatus === 'function') {{
+      raw = await offlineApi.getDownloadStatus(uris.length ? uris : undefined);
+    }} else if (typeof offlineApi.getOfflineStatus === 'function') {{
+      raw = await offlineApi.getOfflineStatus(uris.length ? uris : undefined);
+    }} else if (typeof offlineApi.getDownloads === 'function') {{
+      raw = await offlineApi.getDownloads();
+    }} else if (typeof offlineApi.getStatus === 'function') {{
+      raw = await offlineApi.getStatus();
+    }} else {{
+      return {{ ok: false, error: 'OfflineAPI status method not found' }};
+    }}
+    const list = Array.isArray(raw) ? raw : (raw?.items || raw?.downloads || []);
+    return {{ ok: true, items: Array.isArray(list) ? list : [] }};
+    """
+    cached = load_offline_downloads_cache(cache_file=cache_file)
+    merged: dict[str, dict] = {}
+    for k, v in cached.items():
+        if isinstance(v, dict):
+            prog = _normalize_offline_progress(v.get("progress", 0))
+            st = _normalize_offline_state(v.get("offline_state"), prog)
+            merged[k] = {**v, "uri": k, "progress": prog, "offline_state": st}
+
+    res = evaluate_with_registry(body_js, port=port, timeout=timeout, eval_fn=eval_fn)
+    source = "cache"
+    if res.get("ok") and isinstance(res.get("items"), list):
+        source = "cdp"
+        for item in res["items"]:
+            if not isinstance(item, dict):
+                continue
+            item_uri = str(item.get("uri") or "").strip()
+            if not item_uri:
+                continue
+            prog = _normalize_offline_progress(item.get("progress", item.get("percent", 0)))
+            st = _normalize_offline_state(
+                item.get("offline_state") or item.get("status") or item.get("state"),
+                prog,
+            )
+            prev = merged.get(item_uri, {})
+            merged[item_uri] = {
+                **prev,
+                **item,
+                "uri": item_uri,
+                "progress": prog,
+                "offline_state": st,
+            }
+        save_offline_downloads_cache(merged, cache_file=cache_file)
+
+    if filter_uris:
+        merged = {u: merged[u] for u in filter_uris if u in merged}
+
+    return {"ok": True, "items": merged, "source": source}
+
+
+def cdp_get_offline_downloads_list(
+    port: int = SPOTIFY_CDP_PORT,
+    timeout: float = DEFAULT_CDP_TIMEOUT,
+    eval_fn=None,
+    cache_file: str | None = None,
+) -> list[dict]:
+    """Return a deterministic list of offline download entries sorted by URI."""
+    res = cdp_get_offline_status(None, port=port, timeout=timeout, eval_fn=eval_fn, cache_file=cache_file)
+    items = res.get("items") if isinstance(res, dict) else {}
+    if not isinstance(items, dict):
+        return []
+    return [items[k] for k in sorted(items.keys()) if isinstance(items[k], dict)]
+
+
+def cdp_remove_all_offline_downloads(
+    port: int = SPOTIFY_CDP_PORT,
+    timeout: float = DEFAULT_CDP_TIMEOUT,
+    eval_fn=None,
+    cache_file: str | None = None,
+) -> dict:
+    """Remove all offline downloads via CDP OfflineAPI and clear offline_downloads.json."""
+    cached = load_offline_downloads_cache(cache_file=cache_file)
+    cached_uris = sorted(cached.keys())
+    uris_js = json.dumps(cached_uris)
+    body_js = f"""
+    const uris = {uris_js};
+    const offlineApi = getService('OfflineAPI');
+    const playlistApi = getService('PlaylistAPI');
+    if (offlineApi && typeof offlineApi.removeAllDownloads === 'function') {{
+      await offlineApi.removeAllDownloads();
+      return {{ ok: true, removed_count: uris.length }};
+    }}
+    let removed = 0;
+    for (const u of uris) {{
+      try {{
+        if (offlineApi && typeof offlineApi.removeDownload === 'function') {{
+          await offlineApi.removeDownload(u);
+          removed++;
+        }} else if (offlineApi && typeof offlineApi.unsync === 'function') {{
+          await offlineApi.unsync(u);
+          removed++;
+        }} else if (u.includes(':playlist:') && playlistApi && typeof playlistApi.setOffline === 'function') {{
+          await playlistApi.setOffline(u, false);
+          removed++;
+        }}
+      }} catch (_e) {{}}
+    }}
+    return {{ ok: true, removed_count: removed }};
+    """
+    res = evaluate_with_registry(body_js, port=port, timeout=timeout, eval_fn=eval_fn)
+    save_offline_downloads_cache({}, cache_file=cache_file)
+    if res.get("ok"):
+        return {"ok": True, "removed_count": int(res.get("removed_count", len(cached_uris)))}
+    return {
+        "ok": False,
+        "removed_count": len(cached_uris),
+        "error": res.get("error") or "CDP OfflineAPI removeAllDownloads failed",
+    }
