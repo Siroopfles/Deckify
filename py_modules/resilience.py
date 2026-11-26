@@ -22,6 +22,7 @@ POLL_INTERVAL_FAST_S = 3.0
 ONEVENT_SILENCE_THRESHOLD_S = 90.0
 
 WIFI_GRACE_WINDOW_S = 4.0
+WAKE_GRACE_WINDOW_S = 10.0
 RECOVERY_COOLDOWN_S = 10.0
 SNAPSHOT_THROTTLE_S = 5.0
 TOKEN_BACKOFF_DELAYS_S = (1.0, 2.0, 4.0, 8.0)
@@ -494,12 +495,22 @@ class SessionBookmarkManager:
         cooldown_s: float = RECOVERY_COOLDOWN_S,
         wifi_grace_s: float = WIFI_GRACE_WINDOW_S,
         snapshot_throttle_s: float = SNAPSHOT_THROTTLE_S,
+        wake_grace_s: float = WAKE_GRACE_WINDOW_S,
+        travel_mode_enabled: bool = False,
+        travel_mode_manual: bool = False,
+        travel_mode_auto_enabled: bool = True,
+        on_travel_mode_changed=None,
     ):
         self._plugin = plugin
         self.bookmark_file = bookmark_file or common.SESSION_BOOKMARK_FILE or SESSION_BOOKMARK_FILE
         self.cooldown_s = cooldown_s
         self.wifi_grace_s = wifi_grace_s
         self.snapshot_throttle_s = snapshot_throttle_s
+        self.wake_grace_s = float(wake_grace_s)
+        self.travel_mode_enabled = bool(travel_mode_enabled)
+        self.travel_mode_manual = bool(travel_mode_manual)
+        self.travel_mode_auto_enabled = bool(travel_mode_auto_enabled)
+        self._on_travel_mode_changed = on_travel_mode_changed
 
         self._recovery_lock = asyncio.Lock()
         self._last_recovery_ts: float = 0.0
@@ -510,6 +521,43 @@ class SessionBookmarkManager:
         self._last_snapshot_write_ts: float = 0.0
         self._bookmark: dict | None = None
         self._recovering: bool = False
+
+    def get_travel_mode_state(self) -> dict:
+        """Return current Travel Mode state flags."""
+        return {
+            "travel_mode_enabled": self.travel_mode_enabled,
+            "travel_mode_manual": self.travel_mode_manual,
+            "travel_mode_auto_enabled": self.travel_mode_auto_enabled,
+        }
+
+    def _notify_travel_mode_changed(self) -> None:
+        if not callable(self._on_travel_mode_changed):
+            return
+        try:
+            res = self._on_travel_mode_changed(self.get_travel_mode_state())
+            if asyncio.iscoroutine(res):
+                try:
+                    asyncio.get_running_loop().create_task(res)
+                except RuntimeError:
+                    res.close()
+        except Exception as e:
+            decky.logger.warning("on_travel_mode_changed callback failed: %s", e)
+
+    def set_manual_travel_mode(self, enabled: bool) -> dict:
+        """Idempotently set manual Travel Mode ON or OFF."""
+        next_enabled = bool(enabled)
+        next_manual = bool(enabled)
+        changed = (self.travel_mode_enabled, self.travel_mode_manual) != (next_enabled, next_manual)
+        self.travel_mode_enabled = next_enabled
+        self.travel_mode_manual = next_manual
+        if changed:
+            self._notify_travel_mode_changed()
+        return self.get_travel_mode_state()
+
+    def set_auto_travel_mode_enabled(self, enabled: bool) -> dict:
+        """Enable or disable automatic Travel Mode activation on sustained Wi-Fi disconnect."""
+        self.travel_mode_auto_enabled = bool(enabled)
+        return self.get_travel_mode_state()
 
     def load_bookmark(self) -> dict | None:
         """Load persisted bookmark from disk, falling back safely on missing or corrupt JSON."""
@@ -678,7 +726,7 @@ class SessionBookmarkManager:
             )
 
     async def on_poll_network_result(self, ok: bool) -> dict | None:
-        """Buffer-aware 4s Wi-Fi drop detector (D-02)."""
+        """Buffer-aware 4s Wi-Fi drop detector (D-02) & 10s wake-grace Travel Mode state machine (D-06)."""
         now_mono = time.monotonic()
         if not ok:
             if self._wifi_drop_started_at is None:
@@ -686,9 +734,25 @@ class SessionBookmarkManager:
             elif (now_mono - self._wifi_drop_started_at) >= self.wifi_grace_s and not self._network_lost_session:
                 self._network_lost_session = True
                 self.flush_snapshot()
+
+            in_wake_grace = self._last_recovery_ts > 0.0 and (now_mono - self._last_recovery_ts) < self.wake_grace_s
+            if (
+                self._wifi_drop_started_at is not None
+                and (now_mono - self._wifi_drop_started_at) >= self.wifi_grace_s
+                and not in_wake_grace
+                and self.travel_mode_auto_enabled
+                and not self.travel_mode_enabled
+            ):
+                self.travel_mode_enabled = True
+                self.travel_mode_manual = False
+                self._notify_travel_mode_changed()
             return None
 
         # ok is True
+        if self.travel_mode_enabled and not self.travel_mode_manual:
+            self.travel_mode_enabled = False
+            self._notify_travel_mode_changed()
+
         if self._wifi_drop_started_at is not None:
             drop_duration = now_mono - self._wifi_drop_started_at
             if drop_duration >= self.wifi_grace_s:
