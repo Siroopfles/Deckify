@@ -1348,6 +1348,27 @@ const Content: FC = () => {
     </PanelSectionRow>
   );
 
+  const renderTravelModeToggle = () => (
+    <PanelSectionRow>
+      <ToggleField
+        label="Offline / Travel Mode"
+        description="Filter library to locally downloaded content"
+        checked={travelModeEnabled}
+        onChange={async (val) => {
+          setTravelModeEnabled(val);
+          try {
+            const res = await backendSetTravelMode(val, true);
+            if (!res?.ok) {
+              setTravelModeEnabled((prev) => !prev);
+            }
+          } catch {
+            setTravelModeEnabled((prev) => !prev);
+          }
+        }}
+      />
+    </PanelSectionRow>
+  );
+
   const renderBindButton = () =>
     activeGameAppId !== null ? (
       <PanelSectionRow>
@@ -1777,6 +1798,7 @@ const Content: FC = () => {
             </PanelSectionRow>
 
             {renderBindButton()}
+            {renderTravelModeToggle()}
 
             {/* Collapsible Controls & Settings */}
             <PanelSectionRow>
@@ -1798,24 +1820,6 @@ const Content: FC = () => {
 
             {controlsExpanded && (
               <>
-                <PanelSectionRow>
-                  <ToggleField
-                    label="Offline / Travel Mode"
-                    description="Filter library to locally downloaded content"
-                    checked={travelModeEnabled}
-                    onChange={async (val) => {
-                      setTravelModeEnabled(val);
-                      try {
-                        const res = await backendSetTravelMode(val, true);
-                        if (!res?.ok) {
-                          setTravelModeEnabled((prev) => !prev);
-                        }
-                      } catch {
-                        setTravelModeEnabled((prev) => !prev);
-                      }
-                    }}
-                  />
-                </PanelSectionRow>
                 {renderDeviceDropdown()}
                 {renderOverlayControls()}
                 {renderEngineToggle()}
@@ -1827,6 +1831,7 @@ const Content: FC = () => {
           <>
             {renderOpenFullScreenButton()}
             {renderEngineToggle()}
+            {renderTravelModeToggle()}
             {renderBindButton()}
             {renderDeviceDropdown()}
             {renderOverlayControls()}
