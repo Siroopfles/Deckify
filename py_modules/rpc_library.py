@@ -152,6 +152,24 @@ def _get_cached_mix_tracks(pid: str) -> list[dict]:
     return []
 
 
+def _get_cached_mix_meta(pid: str) -> tuple[str, str]:
+    """Return (name, description) for a cached algorithmic mix matching pid, or ('', '')."""
+    if not pid:
+        return "", ""
+    disk_cache = load_discovery_mixes_cache()
+    mixes = disk_cache.get("mixes")
+    if not isinstance(mixes, list):
+        return "", ""
+    for m in mixes:
+        if not isinstance(m, dict):
+            continue
+        if m.get("id") == pid or str(m.get("uri") or "").endswith(f":{pid}"):
+            name = str(m.get("name") or "").strip()
+            desc = str(m.get("description") or m.get("subtitle") or "").strip()
+            return name, desc
+    return "", ""
+
+
 async def get_playlist_tracks(
     plugin,
     playlist_id: str,
@@ -173,6 +191,8 @@ async def get_playlist_tracks(
         cur_offset = max(0, int(offset))
         req_limit = 100 if fetch_all else max(1, min(int(limit), 100))
         total = 0
+        playlist_name = ""
+        playlist_description = ""
 
         while True:
             data = None
@@ -200,6 +220,11 @@ async def get_playlist_tracks(
 
             if not data:
                 break
+            if isinstance(data, dict):
+                if not playlist_name and isinstance(data.get("name"), str) and data["name"].strip():
+                    playlist_name = data["name"].strip()
+                if not playlist_description and isinstance(data.get("description"), str) and data["description"].strip():
+                    playlist_description = data["description"].strip()
             items_obj = (
                 (data.get("items") if "items" in data else data.get("tracks"))
                 if isinstance(data, dict)
@@ -247,6 +272,10 @@ async def get_playlist_tracks(
                     if isinstance(cdp_res, dict) and cdp_res.get("ok") and cdp_res.get("tracks"):
                         tracks = cdp_res["tracks"]
                         total = cdp_res.get("total", len(tracks))
+                        if not playlist_name and isinstance(cdp_res.get("playlist_name"), str) and cdp_res["playlist_name"].strip():
+                            playlist_name = cdp_res["playlist_name"].strip()
+                        if not playlist_description and isinstance(cdp_res.get("playlist_description"), str) and cdp_res["playlist_description"].strip():
+                            playlist_description = cdp_res["playlist_description"].strip()
                         _refresh_cached_mix_tracks(pid, tracks, total)
                 except Exception as cdp_err:
                     decky.logger.warning("get_playlist_tracks CDP fallback failed: %s", cdp_err)
@@ -257,19 +286,34 @@ async def get_playlist_tracks(
                         await plugin._annotate_tracks_liked(token, cached_tracks)
                     except Exception as ex:
                         decky.logger.warning("Failed to annotate cached mix tracks liked: %s", ex)
-                    return {
+                    cached_name, cached_desc = _get_cached_mix_meta(pid)
+                    if not playlist_name and cached_name:
+                        playlist_name = cached_name
+                    if not playlist_description and cached_desc:
+                        playlist_description = cached_desc
+                    resp = {
                         "ok": True,
                         "tracks": cached_tracks,
                         "total": len(cached_tracks),
                         "has_more": False,
                         "cached": True,
                     }
+                    if playlist_name:
+                        resp["playlist_name"] = playlist_name
+                    if playlist_description:
+                        resp["playlist_description"] = playlist_description
+                    return resp
 
         try:
             await plugin._annotate_tracks_liked(token, tracks)
         except Exception as ex:
             decky.logger.warning("Failed to annotate tracks liked: %s", ex)
-        return {"ok": True, "tracks": tracks, "total": total or len(tracks), "offset": offset}
+        resp = {"ok": True, "tracks": tracks, "total": total or len(tracks), "offset": offset}
+        if playlist_name:
+            resp["playlist_name"] = playlist_name
+        if playlist_description:
+            resp["playlist_description"] = playlist_description
+        return resp
     except urllib.error.HTTPError as e:
         if getattr(e, "code", None) in (403, 404) and int(offset) == 0:
             if is_spotify_client_running(plugin):
@@ -283,12 +327,19 @@ async def get_playlist_tracks(
                             await plugin._annotate_tracks_liked(token, cdp_tracks)
                         except Exception:
                             pass
-                        return {
+                        resp = {
                             "ok": True,
                             "tracks": cdp_tracks,
                             "total": cdp_res.get("total", len(cdp_tracks)),
                             "offset": offset,
                         }
+                        cdp_name = str(cdp_res.get("playlist_name") or "").strip()
+                        cdp_desc = str(cdp_res.get("playlist_description") or "").strip()
+                        if cdp_name:
+                            resp["playlist_name"] = cdp_name
+                        if cdp_desc:
+                            resp["playlist_description"] = cdp_desc
+                        return resp
                 except Exception as cdp_err:
                     decky.logger.warning("get_playlist_tracks CDP %s fallback failed: %s", e.code, cdp_err)
             cached_tracks = _get_cached_mix_tracks(pid)
@@ -297,13 +348,19 @@ async def get_playlist_tracks(
                     await plugin._annotate_tracks_liked(token, cached_tracks)
                 except Exception as ex:
                     decky.logger.warning("Failed to annotate cached mix tracks liked: %s", ex)
-                return {
+                cached_name, cached_desc = _get_cached_mix_meta(pid)
+                resp = {
                     "ok": True,
                     "tracks": cached_tracks,
                     "total": len(cached_tracks),
                     "has_more": False,
                     "cached": True,
                 }
+                if cached_name:
+                    resp["playlist_name"] = cached_name
+                if cached_desc:
+                    resp["playlist_description"] = cached_desc
+                return resp
         decky.logger.error("get_playlist_tracks failed: %s", e)
         return {"ok": False, "error": _parse_spotify_error(e)}
     except Exception as e:
@@ -1841,6 +1898,7 @@ async def _search_missing_core_mixes(
             ("Release Radar", "release radar"),
             ("Daily Mix", "daily mix"),
             ("Daylist", "daylist"),
+            ("On Repeat", "on repeat"),
         )
         if not any(needle in n for n in names_lower)
     ]

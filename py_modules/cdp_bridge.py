@@ -328,6 +328,13 @@ def cdp_get_playlist_tracks(
     const limit = 100;
     let curOffset = startOffset;
     let total = 0;
+    let meta = null;
+    let lastPage = null;
+    if (typeof playlistApi.getMetadata === 'function') {{
+      try {{
+        meta = await playlistApi.getMetadata(uri);
+      }} catch (e) {{}}
+    }}
     const tracks = [];
     while (true) {{
       let page = null;
@@ -335,10 +342,12 @@ def cdp_get_playlist_tracks(
         page = await playlistApi.getContents(uri, {{ offset: curOffset, limit }});
       }} else if (typeof playlistApi.getPlaylist === 'function') {{
         const pl = await playlistApi.getPlaylist(uri, {{}}, {{ offset: curOffset, limit }});
+        if (!meta && pl) meta = pl?.metadata || pl;
         page = pl?.contents || pl;
       }} else {{
         return {{ ok: false, error: 'PlaylistAPI.getContents/getPlaylist not found' }};
       }}
+      if (page) lastPage = page;
       const items = Array.isArray(page?.items) ? page.items : [];
       total = typeof page?.totalLength === 'number' ? page.totalLength : (typeof page?.total === 'number' ? page.total : items.length);
       for (const entry of items) {{
@@ -368,7 +377,15 @@ def cdp_get_playlist_tracks(
       curOffset += items.length;
       if (!fetchAll || items.length === 0 || tracks.length >= total || tracks.length >= 1000) break;
     }}
-    return {{ ok: true, tracks, total: total || tracks.length, offset: startOffset }};
+    if (!meta && typeof playlistApi.getPlaylist === 'function') {{
+      try {{
+        const pl = await playlistApi.getPlaylist(uri, {{}}, {{ offset: startOffset, limit: 1 }});
+        meta = pl?.metadata || pl;
+      }} catch (e) {{}}
+    }}
+    const playlistName = String(meta?.name || meta?.title || lastPage?.name || '').trim();
+    const playlistDescription = String(meta?.description || lastPage?.description || '').trim();
+    return {{ ok: true, tracks, total: total || tracks.length, offset: startOffset, playlist_name: playlistName, playlist_description: playlistDescription }};
     """
     res = evaluate_with_registry(body_js, port=port, timeout=timeout, eval_fn=eval_fn)
     if res.get("ok"):
@@ -592,14 +609,15 @@ def cdp_fetch_discovery_mixes(
       return 'editorial';
     };
     const pushItem = (raw) => {
-      if (!raw) return;
-      const uri = raw.uri || '';
-      const id = raw.id || (uri.includes(':') ? uri.split(':').pop() : '');
-      const name = (raw.name || raw.title || '').trim();
+      if (!raw || typeof raw !== 'object') return;
+      const item = raw?.data && typeof raw.data === 'object' ? raw.data : raw;
+      const uri = item.uri || raw.uri || '';
+      const id = item.id || (uri.includes(':') ? uri.split(':').pop() : '');
+      const name = (item.name || item.title || '').trim();
       if (!uri && !id) return;
       const normUri = uri || (id ? 'spotify:playlist:' + id : '');
       if (!normUri.includes(':playlist:')) return;
-      const owner = raw.owner?.username || raw.owner?.id || raw.owner?.name || raw.owner || '';
+      const owner = item.owner?.username || item.owner?.id || item.owner?.name || item.ownerV2?.data?.name || item.ownerV2?.data?.username || item.owner?.data?.name || (typeof item.owner === 'string' ? item.owner : '') || '';
       if (!name || seen.has(normUri)) return;
       const pid = id || normUri.split(':').pop();
       const kind = classifyKind(pid, normUri, name, owner);
@@ -609,19 +627,19 @@ def cdp_fetch_discovery_mixes(
         id: pid,
         name,
         uri: normUri,
-        image_url: parseImg(raw.images || raw.coverArt?.sources || raw.image),
-        subtitle: raw.description || raw.subtitle || (owner ? 'Made by ' + owner : 'Made for you'),
+        image_url: parseImg(item.images?.items?.[0]?.sources || item.images || item.coverArt?.sources || item.image),
+        subtitle: item.description || item.subtitle || (owner ? 'Made by ' + owner : 'Made for you'),
         type: 'playlist',
         owner: owner || 'Spotify',
         kind
       });
     };
     const extractHomeSections = (home) => {
-      const sections = home?.sections || home?.items || home?.data?.home?.sectionContainer?.sections?.items || [];
+      const sections = home?.sections || home?.items || home?.home?.sectionContainer?.sections?.items || home?.data?.home?.sectionContainer?.sections?.items || [];
       for (const sec of (Array.isArray(sections) ? sections : [])) {
         const secItems = sec?.items || sec?.sectionItems?.items || sec?.content?.items || [];
         for (const entry of (Array.isArray(secItems) ? secItems : [])) {
-          const node = entry?.content?.data || entry?.data || entry?.item || entry;
+          const node = entry?.content?.data?.data || entry?.content?.data || entry?.data?.data || entry?.data || entry?.item?.data || entry?.item || entry;
           pushItem(node);
         }
       }
@@ -648,7 +666,7 @@ def cdp_fetch_discovery_mixes(
     }
 
     const hasCoreMix = (needle) => items.some((it) => it.kind === 'core' && it.name.toLowerCase().includes(needle));
-    const missingCore = () => ['discover weekly', 'release radar', 'daily mix', 'daylist'].filter((n) => !hasCoreMix(n));
+    const missingCore = () => ['discover weekly', 'release radar', 'daily mix', 'daylist', 'on repeat'].filter((n) => !hasCoreMix(n));
 
     if (missingCore().length > 0) {
       const gql = getService('GraphQL');
@@ -687,7 +705,8 @@ def cdp_fetch_discovery_mixes(
           'discover weekly': 'Discover Weekly',
           'release radar': 'Release Radar',
           'daily mix': 'Daily Mix',
-          'daylist': 'Daylist'
+          'daylist': 'Daylist',
+          'on repeat': 'On Repeat'
         };
         for (const key of stillMissing) {
           const q = queryMap[key];
@@ -702,7 +721,7 @@ def cdp_fetch_discovery_mixes(
             }
             const plList = res?.playlists?.items || res?.playlists || res?.results?.playlists?.items || res?.items || [];
             for (const p of (Array.isArray(plList) ? plList : [])) {
-              pushItem(p);
+              pushItem(p?.data || p?.item?.data || p?.item || p);
             }
           } catch (e) {
             warnings.push('SearchAPI(' + q + '): ' + (e?.message || String(e)));
