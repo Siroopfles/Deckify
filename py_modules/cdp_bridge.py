@@ -381,7 +381,8 @@ def cdp_get_playlist_tracks(
           uri: turi,
           duration_ms: t.duration?.milliseconds ?? t.duration_ms ?? 0,
           image_url: imgUrl,
-          artwork_url: imgUrl
+          artwork_url: imgUrl,
+          added_at: String(entry?.addedAt || entry?.added_at || t?.addedAt || t?.added_at || '')
         }});
       }}
       curOffset += items.length;

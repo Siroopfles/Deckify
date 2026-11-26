@@ -243,6 +243,52 @@ class TestPlaylistManagement(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(res_mv["ok"])
         self.assertIn("moveAfter = true", seen[-1])
 
+    async def test_get_playlist_tracks_extracts_added_at(self):
+        plugin = _make_plugin()
+
+        def fake_api(endpoint, token, method="GET", params=None, body=None):
+            return {
+                "name": "Liked Mix",
+                "description": "",
+                "items": {
+                    "total": 2,
+                    "items": [
+                        {
+                            "added_at": "2026-05-01T12:34:56Z",
+                            "item": {
+                                "id": "tr1",
+                                "name": "Track One",
+                                "uri": "spotify:track:tr1",
+                                "duration_ms": 180000,
+                                "artists": [{"id": "a1", "name": "Artist 1"}],
+                                "album": {"id": "al1", "name": "Album 1", "images": []},
+                            },
+                        },
+                        {
+                            "track": {
+                                "id": "tr2",
+                                "name": "Track Two",
+                                "uri": "spotify:track:tr2",
+                                "duration_ms": 200000,
+                                "artists": [{"id": "a2", "name": "Artist 2"}],
+                                "album": {"id": "al2", "name": "Album 2", "images": []},
+                            },
+                        },
+                    ],
+                },
+            }
+
+        with (
+            patch.object(rpc_library, "_spotify_api_request", side_effect=fake_api),
+            patch.object(plugin, "_annotate_tracks_liked", AsyncMock(return_value=None), create=True),
+        ):
+            res = await rpc_library.get_playlist_tracks(plugin, "p1", fetch_all=False)
+
+        self.assertTrue(res["ok"])
+        self.assertEqual(len(res["tracks"]), 2)
+        self.assertEqual(res["tracks"][0]["added_at"], "2026-05-01T12:34:56Z")
+        self.assertEqual(res["tracks"][1]["added_at"], "")
+
 
 if __name__ == "__main__":
     unittest.main()

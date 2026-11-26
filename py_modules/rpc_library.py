@@ -282,6 +282,7 @@ async def get_playlist_tracks(
                 img_url = _image_url(images)
                 artist_id = (t.get("artists") or [{}])[0].get("id", "")
                 album_id = t.get("album", {}).get("id", "")
+                added_at = str(item.get("added_at") or "")
                 tracks.append({
                     "id": t.get("id"),
                     "name": t.get("name", ""),
@@ -293,6 +294,7 @@ async def get_playlist_tracks(
                     "duration_ms": t.get("duration_ms", 0),
                     "image_url": img_url,
                     "artwork_url": img_url,
+                    "added_at": added_at,
                 })
             cur_offset += len(raw_items)
             if not fetch_all or not raw_items or cur_offset >= total or len(tracks) >= 1000:
@@ -304,6 +306,9 @@ async def get_playlist_tracks(
                     cdp_res = await _exec(_cdp_get_playlist_tracks, pid, offset, fetch_all)
                     if isinstance(cdp_res, dict) and cdp_res.get("ok") and cdp_res.get("tracks"):
                         tracks = cdp_res["tracks"]
+                        for ct in tracks:
+                            if isinstance(ct, dict) and "added_at" not in ct:
+                                ct["added_at"] = str(ct.get("addedAt") or "")
                         total = cdp_res.get("total", len(tracks))
                         if not playlist_name and isinstance(cdp_res.get("playlist_name"), str) and cdp_res["playlist_name"].strip():
                             playlist_name = cdp_res["playlist_name"].strip()
@@ -354,6 +359,9 @@ async def get_playlist_tracks(
                     cdp_res = await _exec(_cdp_get_playlist_tracks, pid, offset, fetch_all)
                     if isinstance(cdp_res, dict) and cdp_res.get("ok"):
                         cdp_tracks = cdp_res.get("tracks") or []
+                        for ct in cdp_tracks:
+                            if isinstance(ct, dict) and "added_at" not in ct:
+                                ct["added_at"] = str(ct.get("addedAt") or "")
                         if cdp_tracks:
                             _refresh_cached_mix_tracks(pid, cdp_tracks, cdp_res.get("total", len(cdp_tracks)))
                         try:
