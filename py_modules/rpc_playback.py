@@ -347,23 +347,31 @@ async def toggle_like_track(plugin, track_id: str = "", liked: bool | None = Non
 
 
 def _invalidate_optimistic_queue(plugin) -> None:
-    """Clear any cached optimistic queue snapshot."""
+    """Clear any cached optimistic queue snapshot and deferred override."""
     if plugin is not None:
         plugin._optimistic_queue_snapshot = None
         plugin._queue_cleared_for_track_id = None
+        plugin._pending_queue_override = None
 
 
 def _get_valid_optimistic_queue(plugin) -> list[dict] | None:
-    """Return cached optimistic queue items if within TTL and track/shuffle match."""
+    """Return cached optimistic queue items if within TTL (or active deferred override) and track/shuffle match."""
     if plugin is None:
         return None
     snap = getattr(plugin, "_optimistic_queue_snapshot", None)
     if not isinstance(snap, dict):
         return None
-    if time.monotonic() >= float(snap.get("expires_at", 0.0)):
+    curr_track_id = getattr(plugin, "_poll_track_id", None)
+    pending = getattr(plugin, "_pending_queue_override", None)
+    has_active_override = (
+        isinstance(pending, dict)
+        and bool(curr_track_id)
+        and pending.get("for_track_id") == curr_track_id
+    )
+    if not has_active_override and time.monotonic() >= float(snap.get("expires_at", 0.0)):
         plugin._optimistic_queue_snapshot = None
         return None
-    if snap.get("track_id") != getattr(plugin, "_poll_track_id", None):
+    if snap.get("track_id") != curr_track_id:
         plugin._optimistic_queue_snapshot = None
         return None
     if snap.get("shuffle") != getattr(plugin, "_shuffle_state", None):
@@ -546,13 +554,76 @@ async def _mutate_queue_via_uri_slice(
         return {"ok": False, "error": str(e)}
 
 
+def _schedule_deferred_queue_override(
+    plugin,
+    upcoming_tracks: list[dict],
+    cleared: bool = False,
+) -> None:
+    """Record a deferred queue mutation to be applied at the next natural track transition."""
+    if plugin is None:
+        return
+    upcoming_uris = [
+        str(t.get("uri") or "").strip()
+        for t in (upcoming_tracks or [])
+        if isinstance(t, dict) and str(t.get("uri") or "").strip()
+    ][:100]
+    plugin._pending_queue_override = {
+        "for_track_id": getattr(plugin, "_poll_track_id", None),
+        "upcoming_uris": upcoming_uris,
+        "cleared": bool(cleared),
+    }
+
+
+async def flush_pending_queue_override(plugin, prev_track_id: str | None) -> dict:
+    """Apply a deferred queue mutation cleanly when playback naturally transitions from prev_track_id."""
+    if plugin is None:
+        return {"ok": False, "skipped": True}
+    pending = getattr(plugin, "_pending_queue_override", None)
+    if not isinstance(pending, dict):
+        return {"ok": True, "skipped": True}
+    for_track_id = pending.get("for_track_id")
+    if not prev_track_id or for_track_id != prev_track_id:
+        return {"ok": True, "skipped": True}
+    plugin._pending_queue_override = None
+    token = await plugin._ensure_token()
+    if not token:
+        return {"ok": False, "error": "Not authenticated"}
+    try:
+        if pending.get("cleared"):
+            await _exec(_spotify_api_request, "me/player/pause", token, "PUT")
+            return {"ok": True, "action": "paused"}
+        upcoming_uris = [
+            str(u).strip()
+            for u in (pending.get("upcoming_uris") or [])
+            if str(u).strip()
+        ][:100]
+        if upcoming_uris:
+            await _exec(
+                _spotify_api_request,
+                "me/player/play",
+                token,
+                "PUT",
+                None,
+                {"uris": upcoming_uris},
+            )
+            return {"ok": True, "action": "play_uris", "count": len(upcoming_uris)}
+        return {"ok": True, "skipped": True}
+    except urllib.error.HTTPError as e:
+        err_msg = _parse_spotify_error(e)
+        decky.logger.warning("flush_pending_queue_override HTTP error: %s", err_msg)
+        return {"ok": False, "error": err_msg}
+    except Exception as e:
+        decky.logger.warning("flush_pending_queue_override failed: %s", e)
+        return {"ok": False, "error": str(e)}
+
+
 async def reorder_queue_track(
     plugin,
     from_index: int,
     to_index: int,
     upcoming_tracks: list[dict] | None = None,
 ) -> dict:
-    """Reorder an upcoming queue track via CDP PlayerAPI first, falling back to URI-slice replacement."""
+    """Reorder an upcoming queue track via CDP PlayerAPI first, deferring fallback until track transition."""
     token = await plugin._ensure_token()
     if not token:
         return {"ok": False, "error": "Not authenticated"}
@@ -588,9 +659,12 @@ async def reorder_queue_track(
         used_cdp = bool(isinstance(cdp_res, dict) and cdp_res.get("ok"))
 
     if not used_cdp:
-        fallback_res = await _mutate_queue_via_uri_slice(plugin, token, mutated)
-        if not fallback_res.get("ok"):
-            return fallback_res
+        if getattr(plugin, "_poll_track_id", None):
+            _schedule_deferred_queue_override(plugin, mutated, cleared=False)
+        else:
+            fallback_res = await _mutate_queue_via_uri_slice(plugin, token, mutated)
+            if not fallback_res.get("ok"):
+                return fallback_res
 
     _set_optimistic_queue_snapshot(plugin, mutated)
     return {"ok": True, "queue": mutated}
@@ -603,7 +677,7 @@ async def remove_queue_track(
     uid: str = "",
     upcoming_tracks: list[dict] | None = None,
 ) -> dict:
-    """Remove a single upcoming queue track via CDP PlayerAPI first, falling back to URI-slice replacement."""
+    """Remove a single upcoming queue track via CDP PlayerAPI first, deferring fallback until track transition."""
     token = await plugin._ensure_token()
     if not token:
         return {"ok": False, "error": "Not authenticated"}
@@ -634,16 +708,19 @@ async def remove_queue_track(
         used_cdp = bool(isinstance(cdp_res, dict) and cdp_res.get("ok"))
 
     if not used_cdp:
-        fallback_res = await _mutate_queue_via_uri_slice(plugin, token, mutated)
-        if not fallback_res.get("ok"):
-            return fallback_res
+        if getattr(plugin, "_poll_track_id", None):
+            _schedule_deferred_queue_override(plugin, mutated, cleared=False)
+        else:
+            fallback_res = await _mutate_queue_via_uri_slice(plugin, token, mutated)
+            if not fallback_res.get("ok"):
+                return fallback_res
 
     _set_optimistic_queue_snapshot(plugin, mutated)
     return {"ok": True, "queue": mutated}
 
 
 async def clear_queue(plugin) -> dict:
-    """Clear all upcoming tracks while keeping the currently playing track playing or paused."""
+    """Clear all upcoming tracks without interrupting the currently playing track."""
     token = await plugin._ensure_token()
     if not token:
         return {"ok": False, "error": "Not authenticated"}
@@ -670,11 +747,14 @@ async def clear_queue(plugin) -> dict:
                 plugin._queue_cleared_for_track_id = getattr(plugin, "_poll_track_id", None)
                 _set_optimistic_queue_snapshot(plugin, [])
                 return {"ok": True, "queue": []}
-        fallback_res = await _mutate_queue_via_uri_slice(plugin, token, [])
-        if not fallback_res.get("ok"):
-            err_msg = str(fallback_res.get("error") or "")
-            if not (used_cdp and "No active track" in err_msg):
-                return fallback_res
+        if getattr(plugin, "_poll_track_id", None):
+            _schedule_deferred_queue_override(plugin, [], cleared=True)
+        else:
+            fallback_res = await _mutate_queue_via_uri_slice(plugin, token, [])
+            if not fallback_res.get("ok"):
+                err_msg = str(fallback_res.get("error") or "")
+                if not (used_cdp and "No active track" in err_msg):
+                    return fallback_res
 
     plugin._queue_cleared_for_track_id = getattr(plugin, "_poll_track_id", None)
     _set_optimistic_queue_snapshot(plugin, [])

@@ -110,6 +110,44 @@ class TestCdpQueueHelpers(unittest.TestCase):
         self.assertIn("futureTracks", captured["expr"])
         self.assertIn("future", captured["expr"])
         self.assertIn("matchedUid", captured["expr"])
+        self.assertIn("isContextTrack", captured["expr"])
+
+        res_ctx = cdp_bridge.cdp_remove_from_queue(
+            "spotify:track:ctx",
+            eval_fn=lambda *a, **kw: {
+                "ok": False,
+                "isContextTrack": True,
+                "error": "Context track removal deferred",
+            },
+        )
+        self.assertFalse(res_ctx["ok"])
+        self.assertTrue(res_ctx.get("is_context_track"))
+
+    def test_cdp_reorder_queue_resolves_uids_and_context_flag(self):
+        captured = {}
+
+        def fake_eval(expr, port=9229, timeout=4.0):
+            captured["expr"] = expr
+            return {"ok": True}
+
+        res = cdp_bridge.cdp_reorder_queue(0, 2, eval_fn=fake_eval)
+        self.assertEqual(res, {"ok": True})
+        self.assertIn("getQueue", captured["expr"])
+        self.assertIn("getState", captured["expr"])
+        self.assertIn("upcoming[fromIdx]?.uid", captured["expr"])
+        self.assertIn("upcoming[toIdx]?.uid", captured["expr"])
+
+        res_ctx = cdp_bridge.cdp_reorder_queue(
+            1,
+            3,
+            eval_fn=lambda *a, **kw: {
+                "ok": False,
+                "isContextTrack": True,
+                "error": "Cannot reorder context track",
+            },
+        )
+        self.assertFalse(res_ctx["ok"])
+        self.assertTrue(res_ctx.get("is_context_track"))
 
     def test_cdp_clear_queue_checks_active_context_uri(self):
         captured = {}
@@ -124,7 +162,7 @@ class TestCdpQueueHelpers(unittest.TestCase):
 
 
 class TestQueueStudioRpc(unittest.IsolatedAsyncioTestCase):
-    async def test_reorder_spotify_client_tries_cdp_then_falls_back_to_uri_slice(self):
+    async def test_reorder_spotify_client_defers_without_mid_track_play_when_cdp_fails(self):
         plugin = _make_plugin(backend="spotify_client", running=True)
         upcoming = [
             {"id": "t1", "uri": "spotify:track:t1", "uid": "u1", "name": "One"},
@@ -135,12 +173,6 @@ class TestQueueStudioRpc(unittest.IsolatedAsyncioTestCase):
 
         def fake_api(endpoint, token, method="GET", params=None, body=None):
             api_calls.append((method, endpoint, body))
-            if method == "GET" and endpoint == "me/player":
-                return {
-                    "is_playing": True,
-                    "progress_ms": 42000,
-                    "item": {"uri": "spotify:track:curr"},
-                }
             return {}
 
         with (
@@ -156,26 +188,22 @@ class TestQueueStudioRpc(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(res["ok"])
         mock_cdp.assert_called_once()
         self.assertEqual([t["id"] for t in res["queue"]], ["t2", "t3", "t1"])
-        self.assertIn(
-            (
-                "PUT",
-                "me/player/play",
-                {
-                    "uris": [
-                        "spotify:track:curr",
-                        "spotify:track:t2",
-                        "spotify:track:t3",
-                        "spotify:track:t1",
-                    ],
-                    "position_ms": 42000,
-                },
-            ),
-            api_calls,
+        # Must NOT call PUT me/player/play mid-track while _poll_track_id is active
+        self.assertFalse(any(ep == "me/player/play" for _, ep, _ in api_calls))
+        self.assertEqual(
+            plugin._pending_queue_override,
+            {
+                "for_track_id": "track_curr",
+                "upcoming_uris": [
+                    "spotify:track:t2",
+                    "spotify:track:t3",
+                    "spotify:track:t1",
+                ],
+                "cleared": False,
+            },
         )
-        # Should NOT call pause because is_playing was True
-        self.assertFalse(any(ep == "me/player/pause" for _, ep, _ in api_calls))
 
-    async def test_remove_and_clear_on_librespot_preserve_paused_state(self):
+    async def test_remove_and_clear_on_librespot_defer_mid_track_and_fallback_when_stopped(self):
         plugin = _make_plugin(backend="librespot")
         upcoming = [
             {"id": "t1", "uri": "spotify:track:t1", "name": "One"},
@@ -202,25 +230,41 @@ class TestQueueStudioRpc(unittest.IsolatedAsyncioTestCase):
             rm_res = await rpc_playback.remove_queue_track(plugin, 0, upcoming_tracks=upcoming)
             self.assertTrue(rm_res["ok"])
             self.assertEqual([t["id"] for t in rm_res["queue"]], ["t2"])
-            self.assertIn(
-                (
-                    "PUT",
-                    "me/player/play",
-                    {"uris": ["spotify:track:curr", "spotify:track:t2"], "position_ms": 15000},
-                ),
-                api_calls,
+            self.assertFalse(any(ep == "me/player/play" for _, ep, _ in api_calls))
+            self.assertEqual(
+                plugin._pending_queue_override,
+                {
+                    "for_track_id": "track_curr",
+                    "upcoming_uris": ["spotify:track:t2"],
+                    "cleared": False,
+                },
             )
-            self.assertIn(("PUT", "me/player/pause", None), api_calls)
 
             api_calls.clear()
             clr_res = await rpc_playback.clear_queue(plugin)
             self.assertTrue(clr_res["ok"])
             self.assertEqual(clr_res["queue"], [])
+            self.assertFalse(any(ep == "me/player/play" for _, ep, _ in api_calls))
+            self.assertEqual(
+                plugin._pending_queue_override,
+                {
+                    "for_track_id": "track_curr",
+                    "upcoming_uris": [],
+                    "cleared": True,
+                },
+            )
+
+            # When no track is active (_poll_track_id is None), fallback URI slice runs and preserves paused state
+            plugin._poll_track_id = None
+            plugin._pending_queue_override = None
+            api_calls.clear()
+            rm_stopped = await rpc_playback.remove_queue_track(plugin, 0, upcoming_tracks=upcoming)
+            self.assertTrue(rm_stopped["ok"])
             self.assertIn(
                 (
                     "PUT",
                     "me/player/play",
-                    {"uris": ["spotify:track:curr"], "position_ms": 15000},
+                    {"uris": ["spotify:track:curr", "spotify:track:t2"], "position_ms": 15000},
                 ),
                 api_calls,
             )
@@ -290,7 +334,7 @@ class TestQueueStudioRpc(unittest.IsolatedAsyncioTestCase):
             await rpc_playback.control_playback(plugin, "next")
             self.assertIsNone(plugin._optimistic_queue_snapshot)
 
-    async def test_remove_queue_track_cdp_not_in_next_tracks_falls_back_to_uri_slice(self):
+    async def test_remove_queue_track_cdp_not_in_next_tracks_defers_without_mid_track_play(self):
         plugin = _make_plugin(backend="spotify_client", running=True)
         upcoming = [
             {"id": "t1", "uri": "spotify:track:t1", "uid": "u1", "name": "One"},
@@ -300,19 +344,13 @@ class TestQueueStudioRpc(unittest.IsolatedAsyncioTestCase):
 
         def fake_api(endpoint, token, method="GET", params=None, body=None):
             api_calls.append((method, endpoint, body))
-            if method == "GET" and endpoint == "me/player":
-                return {
-                    "is_playing": True,
-                    "progress_ms": 12000,
-                    "item": {"uri": "spotify:track:curr"},
-                }
             return {}
 
         with (
             patch.object(
                 cdp_bridge,
                 "cdp_remove_from_queue",
-                return_value={"ok": False, "error": "Track not in next_tracks"},
+                return_value={"ok": False, "is_context_track": True, "error": "Context track removal deferred"},
             ) as mock_cdp,
             patch.object(rpc_playback, "_spotify_api_request", side_effect=fake_api),
         ):
@@ -321,32 +359,32 @@ class TestQueueStudioRpc(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(res["ok"])
         mock_cdp.assert_called_once_with("spotify:track:t1", "u1")
         self.assertEqual([t["id"] for t in res["queue"]], ["t2"])
-        self.assertIn(
-            (
-                "PUT",
-                "me/player/play",
-                {"uris": ["spotify:track:curr", "spotify:track:t2"], "position_ms": 12000},
-            ),
-            api_calls,
+        self.assertFalse(any(ep == "me/player/play" for _, ep, _ in api_calls))
+        self.assertEqual(
+            plugin._pending_queue_override,
+            {
+                "for_track_id": "track_curr",
+                "upcoming_uris": ["spotify:track:t2"],
+                "cleared": False,
+            },
         )
-        # Optimistic snapshot TTL should be >= 15s
-        self.assertGreater(
-            plugin._optimistic_queue_snapshot["expires_at"] - time.monotonic(),
-            10.0,
-        )
+        # Optimistic snapshot stays valid even after 15s TTL while _pending_queue_override is active for same track
+        plugin._optimistic_queue_snapshot["expires_at"] = time.monotonic() - 1.0
+        with patch.object(
+            rpc_playback,
+            "_spotify_api_request",
+            side_effect=AssertionError("should keep optimistic snapshot while _pending_queue_override is active"),
+        ):
+            q_res = await rpc_playback.get_queue(plugin)
+        self.assertTrue(q_res["ok"])
+        self.assertEqual([t["id"] for t in q_res["queue"]], ["t2"])
 
-    async def test_clear_queue_context_fallback_and_persistent_suppression(self):
+    async def test_clear_queue_context_defers_and_persistent_suppression(self):
         plugin = _make_plugin(backend="spotify_client", running=True)
         api_calls = []
 
         def fake_api(endpoint, token, method="GET", params=None, body=None):
             api_calls.append((method, endpoint, body))
-            if method == "GET" and endpoint == "me/player":
-                return {
-                    "is_playing": True,
-                    "progress_ms": 5000,
-                    "item": {"uri": "spotify:track:curr"},
-                }
             if method == "GET" and endpoint == "me/player/queue":
                 return {
                     "currently_playing": {"id": "curr", "uri": "spotify:track:curr", "name": "Curr", "artists": []},
@@ -368,9 +406,10 @@ class TestQueueStudioRpc(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(clr_res, {"ok": True, "queue": []})
         mock_cdp.assert_called_once()
-        self.assertIn(
-            ("PUT", "me/player/play", {"uris": ["spotify:track:curr"], "position_ms": 5000}),
-            api_calls,
+        self.assertFalse(any(ep == "me/player/play" for _, ep, _ in api_calls))
+        self.assertEqual(
+            plugin._pending_queue_override,
+            {"for_track_id": "track_curr", "upcoming_uris": [], "cleared": True},
         )
         self.assertEqual(plugin._queue_cleared_for_track_id, "track_curr")
         self.assertGreater(
@@ -378,20 +417,20 @@ class TestQueueStudioRpc(unittest.IsolatedAsyncioTestCase):
             10.0,
         )
 
-        # Even after 15s optimistic snapshot expires, get_queue suppresses Autoplay for same track
+        # Even after 15s optimistic snapshot expires, get_queue returns [] for same track
         plugin._optimistic_queue_snapshot["expires_at"] = time.monotonic() - 1.0
         with patch.object(
             rpc_playback,
             "_spotify_api_request",
-            side_effect=AssertionError("should suppress get_queue while _queue_cleared_for_track_id matches"),
+            side_effect=AssertionError("should suppress get_queue while _pending_queue_override/_queue_cleared_for_track_id matches"),
         ):
             q_suppressed = await rpc_playback.get_queue(plugin)
         self.assertTrue(q_suppressed["ok"])
         self.assertEqual(q_suppressed["queue"], [])
-        self.assertTrue(q_suppressed.get("cleared"))
 
         # Track change clears _queue_cleared_for_track_id and fetches queue with uid
         plugin._poll_track_id = "track_next"
+        plugin._pending_queue_override = None
         with patch.object(rpc_playback, "_spotify_api_request", side_effect=fake_api):
             q_after_track = await rpc_playback.get_queue(plugin)
         self.assertTrue(q_after_track["ok"])
@@ -399,12 +438,14 @@ class TestQueueStudioRpc(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(q_after_track["queue"]), 1)
         self.assertEqual(q_after_track["queue"][0]["uid"], "u_auto")
 
-        # add_to_queue also clears _queue_cleared_for_track_id
+        # add_to_queue also clears _queue_cleared_for_track_id and _pending_queue_override
         plugin._poll_track_id = "track_curr"
         plugin._queue_cleared_for_track_id = "track_curr"
+        plugin._pending_queue_override = {"for_track_id": "track_curr", "upcoming_uris": [], "cleared": True}
         with patch.object(rpc_playback, "_spotify_api_request", return_value={}):
             await rpc_playback.add_to_queue(plugin, "spotify:track:new")
         self.assertIsNone(plugin._queue_cleared_for_track_id)
+        self.assertIsNone(plugin._pending_queue_override)
 
     async def test_clear_queue_checks_me_player_context_when_cdp_reports_false(self):
         plugin = _make_plugin(backend="spotify_client", running=True)
@@ -432,13 +473,15 @@ class TestQueueStudioRpc(unittest.IsolatedAsyncioTestCase):
             res = await rpc_playback.clear_queue(plugin)
 
         self.assertEqual(res, {"ok": True, "queue": []})
-        self.assertIn(
-            ("PUT", "me/player/play", {"uris": ["spotify:track:curr"], "position_ms": 8000}),
-            api_calls,
+        self.assertFalse(any(ep == "me/player/play" for _, ep, _ in api_calls))
+        self.assertEqual(
+            plugin._pending_queue_override,
+            {"for_track_id": "track_curr", "upcoming_uris": [], "cleared": True},
         )
 
-        # When me/player has no context, clear_queue should not stutter via PUT me/player/play
+        # When me/player has no context, clear_queue should not schedule deferred override or call PUT me/player/play
         api_calls.clear()
+        plugin._pending_queue_override = None
 
         def fake_api_no_context(endpoint, token, method="GET", params=None, body=None):
             api_calls.append((method, endpoint, body))
@@ -463,6 +506,50 @@ class TestQueueStudioRpc(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(res_no_ctx, {"ok": True, "queue": []})
         self.assertFalse(any(ep == "me/player/play" for _, ep, _ in api_calls))
+        self.assertIsNone(plugin._pending_queue_override)
+
+    async def test_flush_pending_queue_override_applies_uris_or_pause_on_track_transition(self):
+        plugin = _make_plugin(backend="librespot")
+        api_calls = []
+
+        def fake_api(endpoint, token, method="GET", params=None, body=None):
+            api_calls.append((method, endpoint, body))
+            return {}
+
+        # Case 1: Deferred reorder/remove applies upcoming_uris on track transition
+        plugin._pending_queue_override = {
+            "for_track_id": "track_curr",
+            "upcoming_uris": ["spotify:track:t2", "spotify:track:t1"],
+            "cleared": False,
+        }
+        with patch.object(rpc_playback, "_spotify_api_request", side_effect=fake_api):
+            # Mismatched prev_track_id does not flush
+            skip_res = await rpc_playback.flush_pending_queue_override(plugin, "other_track")
+            self.assertTrue(skip_res.get("skipped"))
+            self.assertIsNotNone(plugin._pending_queue_override)
+
+            flush_res = await rpc_playback.flush_pending_queue_override(plugin, "track_curr")
+        self.assertTrue(flush_res["ok"])
+        self.assertEqual(flush_res["action"], "play_uris")
+        self.assertIsNone(plugin._pending_queue_override)
+        self.assertEqual(
+            api_calls,
+            [("PUT", "me/player/play", {"uris": ["spotify:track:t2", "spotify:track:t1"]})],
+        )
+
+        # Case 2: Deferred clear pauses playback at natural track boundary
+        api_calls.clear()
+        plugin._pending_queue_override = {
+            "for_track_id": "track_curr",
+            "upcoming_uris": [],
+            "cleared": True,
+        }
+        with patch.object(rpc_playback, "_spotify_api_request", side_effect=fake_api):
+            clr_flush = await rpc_playback.flush_pending_queue_override(plugin, "track_curr")
+        self.assertTrue(clr_flush["ok"])
+        self.assertEqual(clr_flush["action"], "paused")
+        self.assertIsNone(plugin._pending_queue_override)
+        self.assertEqual(api_calls, [("PUT", "me/player/pause", None)])
 
 
 if __name__ == "__main__":

@@ -2491,7 +2491,13 @@ class Plugin:
             })
 
         if track_id != self._poll_track_id:
+            prev_track_id = self._poll_track_id
             self._poll_track_id = track_id
+            if prev_track_id and getattr(self, "_pending_queue_override", None):
+                try:
+                    await rpc_playback.flush_pending_queue_override(self, prev_track_id)
+                except Exception as e:
+                    decky.logger.warning("flush_pending_queue_override error: %s", e)
             media_type = item.get("type") or data.get("currently_playing_type") or "track"
             is_spoken = media_type in ("episode", "chapter", "audiobook") or str(
                 item.get("uri", "")

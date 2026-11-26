@@ -1425,40 +1425,48 @@ def cdp_remove_from_queue(
     if (typeof playerApi.removeFromQueue !== 'function') {{
       return {{ ok: false, error: 'removeFromQueue not supported' }};
     }}
-    const collectUpcoming = (obj) => {{
-      if (!obj || typeof obj !== 'object') return [];
+    const splitUpcoming = (obj) => {{
+      if (!obj || typeof obj !== 'object') return null;
       const next = Array.isArray(obj.nextTracks) ? obj.nextTracks : [];
       const future = Array.isArray(obj.futureTracks)
         ? obj.futureTracks
         : (Array.isArray(obj.future) ? obj.future : []);
-      return next.concat(future);
+      return {{ next, future, all: next.concat(future) }};
     }};
-    const readUpcoming = async () => {{
+    const readUpcomingParts = async () => {{
       if (typeof playerApi.getQueue === 'function') {{
         try {{
           const q = await playerApi.getQueue();
-          if (q && typeof q === 'object') return collectUpcoming(q);
+          const parts = splitUpcoming(q);
+          if (parts !== null) return parts;
         }} catch (e) {{}}
       }}
       if (typeof playerApi.getState === 'function') {{
         try {{
           const st = await playerApi.getState();
-          if (st && typeof st === 'object') return collectUpcoming(st);
+          const parts = splitUpcoming(st);
+          if (parts !== null) return parts;
         }} catch (e) {{}}
       }}
       return null;
     }};
-    const beforeUpcoming = await readUpcoming();
+    const matchTrack = (t) => {{
+      if (!t) return false;
+      if (targetUid) return String(t.uid || '') === targetUid;
+      return String(t.uri || t.contextTrack?.uri || '') === targetUri;
+    }};
+    const beforeParts = await readUpcomingParts();
+    const beforeUpcoming = beforeParts ? beforeParts.all : null;
     let matchedUid = targetUid;
-    if (beforeUpcoming !== null) {{
-      const match = beforeUpcoming.find((t) => {{
-        if (!t) return false;
-        if (targetUid) return String(t.uid || '') === targetUid;
-        return String(t.uri || t.contextTrack?.uri || '') === targetUri;
-      }});
+    let isContextTrack = false;
+    if (beforeParts !== null) {{
+      const nextMatch = beforeParts.next.find(matchTrack);
+      const futureMatch = nextMatch ? null : beforeParts.future.find(matchTrack);
+      const match = nextMatch || futureMatch;
       if (!match) {{
         return {{ ok: false, error: 'Track not in next_tracks' }};
       }}
+      isContextTrack = Boolean(!nextMatch && futureMatch);
       if (!matchedUid && match.uid) {{
         matchedUid = String(match.uid);
       }}
@@ -1466,8 +1474,12 @@ def cdp_remove_from_queue(
     const item = matchedUid ? {{ uri: targetUri, uid: matchedUid }} : {{ uri: targetUri }};
     await playerApi.removeFromQueue([item]);
     if (beforeUpcoming !== null) {{
-      const afterUpcoming = await readUpcoming();
+      const afterParts = await readUpcomingParts();
+      const afterUpcoming = afterParts ? afterParts.all : null;
       if (afterUpcoming !== null && afterUpcoming.length >= beforeUpcoming.length) {{
+        if (isContextTrack) {{
+          return {{ ok: false, isContextTrack: true, error: 'Context track removal deferred' }};
+        }}
         return {{ ok: false, error: 'removeFromQueue did not shrink next_tracks' }};
       }}
     }}
@@ -1476,7 +1488,10 @@ def cdp_remove_from_queue(
     res = evaluate_with_registry(body_js, port=port, timeout=timeout, eval_fn=eval_fn)
     if res.get("ok"):
         return {"ok": True}
-    return {"ok": False, "error": res.get("error") or "CDP PlayerAPI removeFromQueue failed"}
+    out = {"ok": False, "error": res.get("error") or "CDP PlayerAPI removeFromQueue failed"}
+    if res.get("isContextTrack") or res.get("is_context_track"):
+        out["is_context_track"] = True
+    return out
 
 
 def cdp_clear_queue(
@@ -1543,28 +1558,84 @@ def cdp_reorder_queue(
     body_js = f"""
     const fromIdx = {safe_from};
     const toIdx = {safe_to};
-    const itemUid = {uid_js};
-    const targetUid = {target_uid_js};
+    let itemUid = {uid_js};
+    let targetUid = {target_uid_js};
     const playerApi = getService('PlayerAPI');
     if (!playerApi) return {{ ok: false, error: 'PlayerAPI not found' }};
-    if (typeof playerApi.reorderQueue === 'function') {{
-      if (itemUid && targetUid) {{
-        await playerApi.reorderQueue({{ uid: itemUid }}, {{ uid: targetUid }}, fromIdx, toIdx);
-      }} else {{
-        await playerApi.reorderQueue(fromIdx, toIdx);
+    let nextLen = 0;
+    let upcoming = [];
+    const readUpcoming = async () => {{
+      const extract = (obj) => {{
+        if (!obj || typeof obj !== 'object') return null;
+        const next = Array.isArray(obj.nextTracks) ? obj.nextTracks : [];
+        const future = Array.isArray(obj.futureTracks)
+          ? obj.futureTracks
+          : (Array.isArray(obj.future) ? obj.future : []);
+        return {{ nextLen: next.length, upcoming: next.concat(future) }};
+      }};
+      if (typeof playerApi.getQueue === 'function') {{
+        try {{
+          const res = extract(await playerApi.getQueue());
+          if (res) return res;
+        }} catch (e) {{}}
       }}
-      return {{ ok: true }};
+      if (typeof playerApi.getState === 'function') {{
+        try {{
+          const res = extract(await playerApi.getState());
+          if (res) return res;
+        }} catch (e) {{}}
+      }}
+      return null;
+    }};
+    const qInfo = await readUpcoming();
+    if (qInfo) {{
+      nextLen = qInfo.nextLen;
+      upcoming = qInfo.upcoming;
+      if (!itemUid && upcoming[fromIdx]?.uid) {{
+        itemUid = String(upcoming[fromIdx].uid);
+      }}
+      if (!targetUid && upcoming[toIdx]?.uid) {{
+        targetUid = String(upcoming[toIdx].uid);
+      }}
+    }}
+    const isContextTrack = upcoming.length > 0 && (fromIdx >= nextLen || toIdx >= nextLen);
+    if (typeof playerApi.reorderQueue === 'function') {{
+      try {{
+        if (itemUid && targetUid) {{
+          await playerApi.reorderQueue({{ uid: itemUid }}, {{ uid: targetUid }}, fromIdx, toIdx);
+        }} else {{
+          await playerApi.reorderQueue(fromIdx, toIdx);
+        }}
+        return {{ ok: true }};
+      }} catch (e) {{
+        return {{
+          ok: false,
+          isContextTrack,
+          error: String((e && e.message) || e || 'reorderQueue failed'),
+        }};
+      }}
     }}
     if (playerApi._queue && typeof playerApi._queue.reorder === 'function') {{
-      await playerApi._queue.reorder(fromIdx, toIdx);
-      return {{ ok: true }};
+      try {{
+        await playerApi._queue.reorder(fromIdx, toIdx);
+        return {{ ok: true }};
+      }} catch (e) {{
+        return {{
+          ok: false,
+          isContextTrack,
+          error: String((e && e.message) || e || '_queue.reorder failed'),
+        }};
+      }}
     }}
-    return {{ ok: false, error: 'reorderQueue not supported' }};
+    return {{ ok: false, isContextTrack, error: 'reorderQueue not supported' }};
     """
     res = evaluate_with_registry(body_js, port=port, timeout=timeout, eval_fn=eval_fn)
     if res.get("ok"):
         return {"ok": True}
-    return {"ok": False, "error": res.get("error") or "CDP PlayerAPI reorderQueue failed"}
+    out = {"ok": False, "error": res.get("error") or "CDP PlayerAPI reorderQueue failed"}
+    if res.get("isContextTrack") or res.get("is_context_track"):
+        out["is_context_track"] = True
+    return out
 
 
 def _normalize_playlist_uri(playlist_uri: str) -> str:
