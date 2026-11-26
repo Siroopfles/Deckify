@@ -1,9 +1,9 @@
 ---
-status: diagnosed
+status: complete
 phase: 27-interactive-queue-studio-controller-playlist-management
-source: [27-01-SUMMARY.md, 27-02-SUMMARY.md, 27-03-SUMMARY.md, 27-04-SUMMARY.md, 27-05-SUMMARY.md, 27-06-SUMMARY.md, 27-07-SUMMARY.md, 27-08-SUMMARY.md]
+source: [27-01-SUMMARY.md, 27-02-SUMMARY.md, 27-03-SUMMARY.md, 27-04-SUMMARY.md, 27-05-SUMMARY.md, 27-06-SUMMARY.md, 27-07-SUMMARY.md, 27-08-SUMMARY.md, 27-09-SUMMARY.md, 27-10-SUMMARY.md, 27-11-SUMMARY.md]
 started: 2026-11-25T21:23:00Z
-updated: 2026-11-26T15:31:27.577Z
+updated: 2026-11-26T19:58:50.638Z
 ---
 
 ## Current Test
@@ -13,26 +13,26 @@ updated: 2026-11-26T15:31:27.577Z
 ## Tests
 
 ### 1. QueueTab Controller Grab/Move Reordering, Focus Lock & B-Button Cancel
-expected: In QueueTab ("Next in Queue"), activate the inline ⇅ button on any upcoming track (or press Y → "Move in Queue"). The row highlights with the green accent border, the footer hint bar updates to "↑/↓ Move · A Drop · B Cancel", and L1/R1 tab triggers are suppressed. Pressing D-Pad Up/Down moves the track up or down in the queue while focus stays locked on that row. Pressing B cancels Grab/Move Mode and restores the original track order without closing the modal; grabbing again and pressing A drops the track at its new position and commits the new queue order.
+expected: In QueueTab ("Next in Queue"), activate the inline ⇅ button on any upcoming track (or press Y → "Move in Queue"). The row highlights with the green accent border, the footer hint bar updates to "↑/↓ Move · A Drop · B Cancel", and L1/R1 tab triggers are suppressed. Pressing D-Pad Up/Down moves the track up or down in the queue while focus stays locked on that row without dual green+white selection. Pressing B cancels Grab/Move Mode and restores the original track order without closing the modal; grabbing again and pressing A drops the track at its new position without accidentally playing a track and commits the new queue order.
 result: issue
-reported: "Ik kan hem verplaatsen maar het voelt nog een beetje janky aan en hij selecteerd af en toe ook het andere nummer waardoor je een groene en een witte selectie hebt. Toevoeging: Als ik A klik terwijl ik aan het slepen was deed hij ineens een nummer afspelen (soms)."
-severity: major
+reported: "Yes werkt in que slepen werkt alleen als ik iets neerzet hapert heel de muziek ff | Selecteion is nice heb nog niet gehad dat zomaar een track ging spelen"
+severity: minor
 
 ### 2. QueueTab Single-Track Remove (✕) & 2-Tap Clear Queue
-expected: In QueueTab, activating the inline ✕ button on an upcoming track (or Y → "Remove from Queue") removes only that single track instance while keeping the currently playing track uninterrupted. In the "Next in Queue (N)" header, activating "Clear Queue" reveals inline "Confirm Clear?" and "Cancel" buttons; selecting "Confirm Clear?" clears all upcoming queue tracks while keeping the currently playing song playing (or paused if already paused).
+expected: In QueueTab, activating the inline ✕ button on an upcoming track (or Y → "Remove from Queue") removes only that single track instance while keeping the currently playing track uninterrupted (no audio stutter). In the "Next in Queue (N)" header, activating "Clear Queue" reveals inline "Confirm Clear?" and "Cancel" buttons; selecting "Confirm Clear?" clears all upcoming queue tracks (including context tracks, even after the current song finishes) while keeping the currently playing song playing (or paused if already paused).
 result: issue
-reported: "Okay remove track werkt alleen is er een audio stutter van een paar mili seconden als ik dat doe. clear queue werkt ook helemaal. Toevoeging: bij niet zelf toegevoegde nummers (context) verdwijnt de queue na Clear Queue, maar als het huidige nummer afloopt gaat hij wel verder met de context en verschijnt de queue weer."
+reported: "Remove queue laat ook heel de app even hangen haperen maar ja als queue weg is is die weg das goed"
 severity: minor
 
 ### 3. PlaylistsTab Create, Edit Details & Delete/Unfollow Confirmation Modal
 expected: In PlaylistsTab, create a new playlist with a Name and optional Description (leaving Name empty shows a validation warning). Open the playlist to see its description rendered below the title, use "Edit Details" (in the secondary header bar or via Y → CollectionActionModal) to rename or update the description, and trigger "Delete Playlist" (or "Unfollow Playlist" on a non-owned/Spotify playlist) to open the confirmation modal with initial controller focus safely placed on "Cancel"; confirming deletes/unfollows the playlist and removes it from Pinned QAM Playlists and folders.
 result: pass
 
-### 4. PlaylistsTab Local Overview/Track Filters & Ownership-Gated Track Reorder/Remove
-expected: In PlaylistsTab, typing in the overview filter filters folders and playlists locally. Inside an owned playlist, typing in the track filter filters tracks while hiding the inline ⇅ Grab/Move buttons, and playing or removing (✕) a filtered track targets the exact track instance. Clearing the track filter restores the inline ⇅ and ✕ buttons on user-owned playlists (while keeping them hidden on read-only Spotify mixes), allowing tracks to be reordered via Grab/Move Mode (↑/↓ Move, A Drop, B Cancel).
+### 4. PlaylistsTab Local Overview/Track Filters, Sort Controls & Ownership-Gated Track Reorder/Remove
+expected: In PlaylistsTab, typing in the overview filter filters folders and playlists locally. Inside an owned playlist, sort controls (Custom Order, Title, Album, Duration, Date Added) sort tracks cleanly, and typing in the track filter filters tracks while hiding the inline ⇅ Grab/Move buttons. Clearing the track filter and returning to Custom Order restores the inline ⇅ and ✕ buttons on user-owned playlists (while keeping them hidden on read-only Spotify mixes), allowing tracks to be reordered smoothly via Grab/Move Mode (↑/↓ Move, A Drop, B Cancel) without dual selection or janky drops.
 result: issue
-reported: "Filter werkt ook maar ik mis nog de sort knoppen als tijd, title, custom order, date added, album. Remove van playlist werkt. Hier is met verplaatsen hetzelfde probleem van 2 selecties en droppen werkt ook niet altijd even goed weer janky"
-severity: major
+reported: "Ja alleen zijn ze nog niet selecteer / hoverbaar maar ook like enzo Maar werken wel"
+severity: minor
 
 ### 5. TrackActionModal Searchable Editable-Only Playlist Picker & "+ New Playlist with Track"
 expected: Pressing Y on any track and selecting "Add to Playlist..." opens a picker containing a local search filter, "+ New Playlist with Track" at the top, and only editable playlists (read-only Spotify mixes are excluded). Filtering narrows the list, and selecting "+ New Playlist with Track" opens inline Name + Description fields that create the new playlist and immediately add the track to it.
@@ -227,7 +227,9 @@ blocked: 0
 
 - gap_id: G-27-6
   truth: "Pressing D-Pad Up/Down moves the track up or down in the queue while focus stays locked on that row without jank or dual green+white selection, and pressing A drops without accidentally playing a track."
-  status: failed
+  status: resolved
+  resolved_by: 27-11-PLAN.md
+  resolved_at: 2026-11-26
   reason: "User reported: Ik kan hem verplaatsen maar het voelt nog een beetje janky aan en hij selecteerd af en toe ook het andere nummer waardoor je een groene en een witte selectie hebt. Toevoeging: Als ik A klik terwijl ik aan het slepen was deed hij ineens een nummer afspelen (soms)."
   severity: major
   test: 1
@@ -245,7 +247,9 @@ blocked: 0
 
 - gap_id: G-27-7
   truth: "Activating the inline ✕ button on an upcoming track (or Y → \"Remove from Queue\") removes only that single track instance while keeping the currently playing track uninterrupted (no audio stutter), and Clear Queue keeps context tracks cleared even after the current track finishes."
-  status: failed
+  status: resolved
+  resolved_by: 27-09-PLAN.md
+  resolved_at: 2026-11-26
   reason: "User reported: Okay remove track werkt alleen is er een audio stutter van een paar mili seconden als ik dat doe. clear queue werkt ook helemaal. Toevoeging: bij niet zelf toegevoegde nummers (context) verdwijnt de queue na Clear Queue, maar als het huidige nummer afloopt gaat hij wel verder met de context en verschijnt de queue weer."
   severity: minor
   test: 2
@@ -262,7 +266,9 @@ blocked: 0
 
 - gap_id: G-27-8
   truth: "PlaylistsTab detail view supports sorting tracks (custom order, title, artist, album, duration, date added) and smooth Grab/Move Mode without dual selection or janky drop behavior."
-  status: failed
+  status: resolved
+  resolved_by: 27-11-PLAN.md
+  resolved_at: 2026-11-26
   reason: "User reported: Filter werkt ook maar ik mis nog de sort knoppen als tijd, title, custom order, date added, album. Remove van playlist werkt. Hier is met verplaatsen hetzelfde probleem van 2 selecties en droppen werkt ook niet altijd even goed weer janky"
   severity: major
   test: 4
@@ -282,3 +288,30 @@ blocked: 0
     - "Extract added_at in get_playlist_tracks, add to TrackItem, and render sort chip bar in PlaylistsTab (disabling canReorder when sortBy !== 'custom')."
     - "Apply Grab/Move focus-lock + global-A-drop fix to TrackRowItem/PlaylistsTab and pass pre-grab snapshot uids in handleReorderPlaylistTrack."
   debug_session: ".planning/debug/phase-27-uat-diagnosis.md"
+
+- gap_id: G-27-9
+  truth: "Dropping a reordered track in QueueTab commits the new queue order without causing an audio stutter on the currently playing track"
+  status: failed
+  reason: "User reported: Yes werkt in que slepen werkt alleen als ik iets neerzet hapert heel de muziek ff | Selecteion is nice heb nog niet gehad dat zomaar een track ging spelen"
+  severity: minor
+  test: 1
+  artifacts: []
+  missing: []
+
+- gap_id: G-27-10
+  truth: "Removing a single track from QueueTab does not cause the app or audio playback to hang/stutter briefly"
+  status: failed
+  reason: "User reported: Remove queue laat ook heel de app even hangen haperen maar ja als queue weg is is die weg das goed"
+  severity: minor
+  test: 2
+  artifacts: []
+  missing: []
+
+- gap_id: G-27-11
+  truth: "Sort buttons, filter chips, and inline action buttons (like, etc.) in PlaylistsTab show clear controller focus / hover highlights when navigated to"
+  status: failed
+  reason: "User reported: Ja alleen zijn ze nog niet selecteer / hoverbaar maar ook like enzo Maar werken wel"
+  severity: minor
+  test: 4
+  artifacts: []
+  missing: []
