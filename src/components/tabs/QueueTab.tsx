@@ -15,7 +15,12 @@ export interface QueueTabProps {
   onOpenActions?: (track: TrackItem) => void;
   currentlyPlaying?: TrackItem | TrackMeta | null;
   isPlaying?: boolean;
-  onReorderQueueTrack?: (fromIndex: number, toIndex: number, nextTracks: TrackItem[]) => Promise<boolean> | boolean;
+  onReorderQueueTrack?: (
+    fromIndex: number,
+    toIndex: number,
+    nextTracks: TrackItem[],
+    preGrabTracks?: TrackItem[],
+  ) => Promise<boolean> | boolean;
   onRemoveQueueTrack?: (track: TrackItem, index: number) => Promise<void> | void;
   onClearQueue?: () => Promise<void> | void;
   onGrabStateChange?: (grabbing: boolean) => void;
@@ -295,14 +300,28 @@ function renderQueueInlineControls(
   onGrabToggle: () => void,
   rawTrack: TrackItem,
   idx: number,
+  queueTracks: TrackItem[],
   onRemoveQueueTrack?: (track: TrackItem, index: number) => Promise<void> | void,
 ) {
   if (hasActiveGrab) return null;
+  const adjacentRowKey = queueTracks[idx + 1]?._rowKey ?? queueTracks[idx - 1]?._rowKey;
   return (
     <>
       {onReorderEnabled && renderReorderButton(isGrabbed, onGrabToggle)}
       {onRemoveQueueTrack && (
-        <InteractiveRow aria-label="Remove track" onClick={() => onRemoveQueueTrack(rawTrack, idx)} style={COMPACT_BTN_STYLE}>
+        <InteractiveRow
+          aria-label="Remove track"
+          onClick={() => {
+            if (adjacentRowKey && typeof document !== "undefined" && typeof requestAnimationFrame === "function") {
+              requestAnimationFrame(() => {
+                const row = document.querySelector(`[data-row-key="${adjacentRowKey}"]`) as HTMLElement | null;
+                row?.focus?.();
+              });
+            }
+            void onRemoveQueueTrack(rawTrack, idx);
+          }}
+          style={COMPACT_BTN_STYLE}
+        >
           <FaTimes size={12} color="#ccc" />
         </InteractiveRow>
       )}
@@ -367,6 +386,7 @@ function renderQueueRow(args: RenderQueueRowArgs) {
         onGrabToggle,
         rawTrack,
         idx,
+        queueTracks,
         onRemoveQueueTrack,
       )}
       {onOpenActions && (

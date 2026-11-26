@@ -1266,11 +1266,16 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
   }, [queueTracks, setStatus, showToast, refreshStatus, loadQueue]);
 
   const handleReorderQueueTrack = useCallback(
-    async (fromIndex: number, toIndex: number, nextTracks: TrackItem[]): Promise<boolean> => {
-      const prevTracks = queueTracks;
+    async (
+      fromIndex: number,
+      toIndex: number,
+      nextTracks: TrackItem[],
+      preGrabTracks?: TrackItem[],
+    ): Promise<boolean> => {
+      const prevTracks = preGrabTracks ?? queueTracks;
       setQueueTracks(nextTracks);
       try {
-        const res = await backendReorderQueueTrack(fromIndex, toIndex, nextTracks);
+        const res = await backendReorderQueueTrack(fromIndex, toIndex, preGrabTracks ?? nextTracks);
         if (!res?.ok) {
           setQueueTracks(prevTracks);
           showToast(res?.error || "Failed to reorder queue");

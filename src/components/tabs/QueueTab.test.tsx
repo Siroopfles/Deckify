@@ -555,4 +555,50 @@ describe("useGrabMoveOrder hook", () => {
     expect(preGrabSnapshot.map((t: TrackItem) => t.uid)).toEqual(["u1", "u2"]);
     stateOverrideQueue = [];
   });
+
+  it("restores focus to adjacent queue row on inline remove click", () => {
+    const focusMock = vi.fn();
+    const querySelectorMock = vi.fn().mockReturnValue({ focus: focusMock });
+    vi.stubGlobal("document", { querySelector: querySelectorMock });
+    vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => {
+      cb(0);
+      return 1;
+    });
+
+    try {
+      const keyedQueue: TrackItem[] = [
+        { ...mockQueue[0], _rowKey: "q:0:track1" },
+        { ...mockQueue[1], _rowKey: "q:1:track2" },
+        { ...mockQueue[2], _rowKey: "q:2:track3" },
+      ];
+      const onRemoveQueueTrack = vi.fn();
+      const tree = QueueTab({
+        queueTracks: keyedQueue,
+        handleToggleLike: vi.fn(),
+        onRemoveQueueTrack,
+      });
+
+      const removeBtns = findNodes(
+        tree,
+        (n) => n.type === InteractiveRow && n.props?.["aria-label"] === "Remove track",
+      );
+      expect(removeBtns.length).toBe(3);
+
+      // Removing first row focuses next row (q:1:track2)
+      removeBtns[0].props.onClick();
+      expect(onRemoveQueueTrack).toHaveBeenCalledWith(keyedQueue[0], 0);
+      expect(querySelectorMock).toHaveBeenCalledWith('[data-row-key="q:1:track2"]');
+      expect(focusMock).toHaveBeenCalledTimes(1);
+
+      // Removing last row focuses previous row (q:1:track2)
+      querySelectorMock.mockClear();
+      focusMock.mockClear();
+      removeBtns[2].props.onClick();
+      expect(onRemoveQueueTrack).toHaveBeenCalledWith(keyedQueue[2], 2);
+      expect(querySelectorMock).toHaveBeenCalledWith('[data-row-key="q:1:track2"]');
+      expect(focusMock).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });
