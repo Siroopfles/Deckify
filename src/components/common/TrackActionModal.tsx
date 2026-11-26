@@ -18,6 +18,39 @@ import { isSpokenContent } from "../../utils/playback";
 import { DeckifyImage } from "./DeckifyImage";
 import { InteractiveRow } from "./InteractiveRow";
 
+const PLAYLIST_ADD_COUNTS_KEY = "deckify_playlist_add_counts";
+
+export function getPlaylistAddCounts(): Record<string, number> {
+  try {
+    if (typeof localStorage === "undefined") return {};
+    const raw = localStorage.getItem(PLAYLIST_ADD_COUNTS_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    const result: Record<string, number> = {};
+    for (const [key, val] of Object.entries(parsed)) {
+      if (typeof val === "number" && Number.isFinite(val) && val > 0) {
+        result[key] = val;
+      }
+    }
+    return result;
+  } catch {
+    return {};
+  }
+}
+
+export function recordPlaylistAddCount(playlistId: string): void {
+  if (!playlistId) return;
+  try {
+    if (typeof localStorage === "undefined") return;
+    const counts = getPlaylistAddCounts();
+    counts[playlistId] = (counts[playlistId] || 0) + 1;
+    localStorage.setItem(PLAYLIST_ADD_COUNTS_KEY, JSON.stringify(counts));
+  } catch {
+    // Ignore storage errors in restricted environments
+  }
+}
+
 export interface TrackActionModalProps {
   actionTrack: TrackItem | null;
   activePlaylist: PlaylistItem | null;
@@ -409,9 +442,10 @@ function renderPlaylistPickerOverlay(args: {
   onCloseAddToPlaylist: () => void;
 }) {
   const query = args.pickerFilter.trim().toLowerCase();
-  const editablePlaylists = args.allUserPlaylists.filter(
-    (pl) => pl.is_editable !== false && (!query || (pl.name || "").toLowerCase().includes(query)),
-  );
+  const counts = getPlaylistAddCounts();
+  const editablePlaylists = args.allUserPlaylists
+    .filter((pl) => pl.is_editable !== false && (!query || (pl.name || "").toLowerCase().includes(query)))
+    .sort((a, b) => (counts[b.id] || 0) - (counts[a.id] || 0));
   const hasPlaylists = editablePlaylists.length > 0;
 
   return (
@@ -442,7 +476,13 @@ function renderPlaylistPickerOverlay(args: {
         <Focusable flow-children="column" style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 3, marginBottom: 12 }}>
           {editablePlaylists.map((pl, idx) => (
             <InteractiveRow key={pl.id} tabIndex={idx === 0 ? 0 : undefined} onClick={() => args.onAddTrackToPlaylist(pl.id, pl.name)} style={{ gap: 10 }}>
-              <FaFolder size={12} color="var(--deckify-accent, #1DB954)" />
+              <DeckifyImage
+                src={pl.image_url}
+                width={28}
+                height={28}
+                style={{ borderRadius: 4, flexShrink: 0 }}
+                fallback={<FaFolder size={12} color="var(--deckify-accent, #1DB954)" />}
+              />
               <span style={{ fontSize: 13, fontWeight: 600 }}>{pl.name}</span>
             </InteractiveRow>
           ))}

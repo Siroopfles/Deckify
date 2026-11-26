@@ -81,7 +81,13 @@ vi.mock("react", () => ({
 }));
 
 import { TextField } from "@decky/ui";
-import { TrackActionModal, TrackActionModalProps } from "./TrackActionModal";
+import {
+  TrackActionModal,
+  TrackActionModalProps,
+  getPlaylistAddCounts,
+  recordPlaylistAddCount,
+} from "./TrackActionModal";
+import { DeckifyImage } from "./DeckifyImage";
 import { InteractiveRow } from "./InteractiveRow";
 
 function findNodes(tree: any, predicate: (node: any) => boolean, results: any[] = []): any[] {
@@ -391,5 +397,57 @@ describe("TrackActionModal Phase 27 Queue & Playlist actions (27-04)", () => {
 
     const rows = findNodes(picker, (n) => n.type === InteractiveRow);
     expect(collectText(rows[0])).toContain("+ New Playlist with Track");
+  });
+
+  it("renders DeckifyImage cover art on playlist picker rows and sorts frequent playlists first while preserving tie order", () => {
+    const store: Record<string, string> = {
+      deckify_playlist_add_counts: JSON.stringify({ "pl-3": 5, "pl-1": 2 }),
+    };
+    const origStorage = (globalThis as any).localStorage;
+    (globalThis as any).localStorage = {
+      getItem: (k: string) => store[k] ?? null,
+      setItem: (k: string, v: string) => {
+        store[k] = v;
+      },
+    };
+
+    try {
+      const tree = TrackActionModal(
+        makeProps({
+          showAddToPlaylistModal: true,
+          allUserPlaylists: [
+            { id: "pl-1", name: "Alpha", uri: "spotify:playlist:pl-1", image_url: "https://img/1.jpg", is_editable: true },
+            { id: "pl-2", name: "Beta", uri: "spotify:playlist:pl-2", image_url: "https://img/2.jpg", is_editable: true },
+            { id: "pl-3", name: "Gamma", uri: "spotify:playlist:pl-3", image_url: "https://img/3.jpg", is_editable: true },
+            { id: "pl-4", name: "Delta", uri: "spotify:playlist:pl-4", is_editable: true },
+          ],
+        }),
+      );
+      const picker = findNodes(tree, (n) => n.props?.["data-testid"] === "playlist-picker-overlay")[0];
+      const images = findNodes(picker, (n) => n.type === DeckifyImage);
+      expect(images.length).toBe(4);
+      expect(images[0].props.src).toBe("https://img/3.jpg");
+      expect(images[0].props.width).toBe(28);
+      expect(images[0].props.height).toBe(28);
+      expect(images[1].props.src).toBe("https://img/1.jpg");
+      expect(images[2].props.src).toBe("https://img/2.jpg");
+      expect(images[3].props.src).toBeUndefined();
+
+      const rows = findNodes(picker, (n) => n.type === InteractiveRow);
+      // rows[0] is "+ New Playlist with Track", rows[1..4] are sorted playlists, rows[5] is "Cancel"
+      expect(collectText(rows[1])).toContain("Gamma");
+      expect(collectText(rows[2])).toContain("Alpha");
+      // Ties (count 0) preserve original order: Beta before Delta
+      expect(collectText(rows[3])).toContain("Beta");
+      expect(collectText(rows[4])).toContain("Delta");
+
+      recordPlaylistAddCount("pl-2");
+      expect(getPlaylistAddCounts()["pl-2"]).toBe(1);
+
+      store.deckify_playlist_add_counts = "{bad-json";
+      expect(getPlaylistAddCounts()).toEqual({});
+    } finally {
+      (globalThis as any).localStorage = origStorage;
+    }
   });
 });
