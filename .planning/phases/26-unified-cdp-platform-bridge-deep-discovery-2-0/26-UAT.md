@@ -1,9 +1,9 @@
 ---
-status: complete
+status: diagnosed
 phase: 26-unified-cdp-platform-bridge-deep-discovery-2-0
 source: [26-VERIFICATION.md]
 started: 2026-11-25T18:28:00Z
-updated: 2026-11-26T07:26:06.742Z
+updated: 2026-11-26T08:28:30Z
 ---
 
 ## Current Test
@@ -45,5 +45,20 @@ blocked: 0
   reason: "User reported: Ik zag gisteren alleen de daylist en ai dj apart. Maar als ik de daylist open pakt hij niet de custom titel die eraan gekoppeld zit. De Ai Dj list als ik die afspeel gaf hij niet aan als ai dj aan het woord was in de now playing tab en er was geen ai dj button op nowplaying om op te klikken. Voor de rest zag ik de andere playlisten niet"
   severity: major
   test: 1
-  artifacts: []
-  missing: []
+  root_cause: "Four interrelated Phase 26 gaps: (1) cdp_fetch_discovery_mixes in py_modules/cdp_bridge.py does not unwrap GraphQL PlaylistResponseWrapper nodes (node.data / ownerV2.data / images.items) and omits 'on repeat', dropping HomeAPI/SearchAPI core mixes; (2) cdp_get_playlist_tracks and rpc_library.get_playlist_tracks do not return playlist name/description, and handleOpenPlaylist in DeckifyExpandedModal.tsx only updates is_mixed; (3) _poll_playback in main.py short-circuits when item is None during AI DJ voice interludes without querying CDP PlayerAPI.getState() or exposing AI DJ speaking state in get_status; (4) NowPlayingTab.tsx and DeckifyExpandedModal.tsx have no AI DJ button or speaking indicator."
+  artifacts:
+    - path: "py_modules/cdp_bridge.py"
+      issue: "extractHomeSections/SearchAPI miss GraphQL .data unwrapping and 'on repeat'; cdp_get_playlist_tracks omits playlist metadata; no CDP AI DJ state/nudge helper."
+    - path: "py_modules/rpc_library.py"
+      issue: "Core mix checks omit 'on repeat'; get_playlist_tracks does not return playlist_name/description."
+    - path: "main.py"
+      issue: "_poll_playback returns early when item is None during AI DJ voice interludes; get_status omits AI DJ active/speaking state."
+    - path: "src/components/DeckifyExpandedModal.tsx"
+      issue: "handleOpenPlaylist does not update activePlaylist.name/description; no AI DJ handler passed to NowPlayingTab."
+    - path: "src/components/tabs/NowPlayingTab.tsx"
+      issue: "Missing AI DJ speaking indicator and AI DJ button."
+  missing:
+    - "Unwrap GraphQL ResponseWrapper nodes and include 'on repeat' in cdp_fetch_discovery_mixes and rpc_library."
+    - "Return playlist_name/description from cdp_get_playlist_tracks and get_playlist_tracks and update activePlaylist in handleOpenPlaylist."
+    - "Detect AI DJ speaking state in _poll_playback / get_status and render an AI DJ speaking indicator and AI DJ button in NowPlayingTab."
+  debug_session: ".planning/debug/discovery-missing-made-for-you-mixes-daylist-title-and-ai-dj-now-playing.md"
