@@ -507,6 +507,86 @@ class TestCdpBridge(unittest.TestCase):
         mock_cdp.assert_called_once()
         mock_api.assert_not_called()
 
+    def test_strip_html_and_playlist_description_sanitization(self):
+        self.assertEqual(
+            cdp_bridge._strip_html('Here&#39;s some <a href="spotify:playlist:123">bass</a> &amp;   chill'),
+            "Here's some bass & chill",
+        )
+        self.assertEqual(cdp_bridge._strip_html(None), "")
+
+        res = cdp_bridge.cdp_get_playlist_tracks(
+            "37i9dQZF1EP6YuccBxUyC1",
+            eval_fn=lambda *a, **kw: {
+                "ok": True,
+                "tracks": [],
+                "total": 0,
+                "offset": 0,
+                "playlist_name": "daylist",
+                "playlist_description": 'Your <a href="spotify:playlist:abc">bass</a> &amp; synth vibe',
+            },
+        )
+        self.assertTrue(res["ok"])
+        self.assertEqual(res["playlist_description"], "Your bass & synth vibe")
+
+    def test_discovery_mixes_and_browse_categories_use_1_2_95_services(self):
+        captured_mixes = {}
+
+        def fake_mixes_eval(expr, port=9229, timeout=4.0):
+            captured_mixes["expr"] = expr
+            return {
+                "ok": True,
+                "warnings": [],
+                "items": [
+                    {
+                        "id": "37i9dQZF1EP6YuccBxUcC1",
+                        "name": "daylist",
+                        "uri": "spotify:playlist:37i9dQZF1EP6YuccBxUcC1",
+                        "subtitle": 'Here&#39;s some <a href="spotify:playlist:xyz">bass</a>',
+                        "owner": "Spotify",
+                    },
+                    {
+                        "id": "37i9dQZEVXc123",
+                        "name": "Release Radar",
+                        "uri": "spotify:playlist:37i9dQZEVXc123",
+                        "subtitle": "Catch all the latest music",
+                        "owner": "Spotify",
+                    },
+                ],
+            }
+
+        res = cdp_bridge.cdp_fetch_discovery_mixes(eval_fn=fake_mixes_eval)
+        self.assertTrue(res["ok"])
+        self.assertEqual(res["items"][0]["subtitle"], "Here's some bass")
+        self.assertEqual(res["items"][1]["kind"], "core")
+        expr = captured_mixes["expr"]
+        self.assertIn("RecentlyPlayedAPI", expr)
+        self.assertIn("RootlistAPI", expr)
+        self.assertIn("PlaylistAPI", expr)
+        self.assertIn("TokenProvider", expr)
+        self.assertIn("pathfinder/v1/query", expr)
+
+        captured_cats = {}
+
+        def fake_cats_eval(expr, port=9229, timeout=4.0):
+            captured_cats["expr"] = expr
+            return {
+                "ok": True,
+                "categories": [
+                    {
+                        "id": "gaming",
+                        "name": "Gaming",
+                        "image_url": "https://i.scdn.co/image/g1",
+                        "uri": "spotify:genre:gaming",
+                    }
+                ],
+            }
+
+        cats = cdp_bridge.cdp_fetch_browse_categories(eval_fn=fake_cats_eval)
+        self.assertEqual(len(cats), 1)
+        self.assertEqual(cats[0]["id"], "gaming")
+        self.assertIn("TokenProvider", captured_cats["expr"])
+        self.assertIn("pathfinder/v1/query", captured_cats["expr"])
+
 
 if __name__ == "__main__":
     unittest.main()
