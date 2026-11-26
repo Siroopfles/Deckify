@@ -42,6 +42,37 @@ from py_modules.engine import (
 from py_modules.rpc_playback import annotate_tracks_liked
 
 
+def annotate_offline_metadata(items: list[dict], cache: dict | None = None) -> list[dict]:
+    """Attach offline_state, offline_progress, and offline_size_bytes from offline_downloads.json."""
+    if not isinstance(items, list):
+        return items
+    cache_map = cache if isinstance(cache, dict) else cdp_bridge.load_offline_downloads_cache()
+    if not isinstance(cache_map, dict):
+        cache_map = {}
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        uri = str(item.get("uri") or "").strip()
+        entry = cache_map.get(uri) if uri else None
+        if isinstance(entry, dict):
+            item["offline_state"] = str(entry.get("offline_state") or "not_downloaded")
+            try:
+                prog = int(round(float(entry.get("progress", entry.get("offline_progress", 0)) or 0)))
+            except (TypeError, ValueError):
+                prog = 0
+            item["offline_progress"] = max(0, min(100, prog))
+            try:
+                size_bytes = int(entry.get("size_bytes", entry.get("offline_size_bytes", 0)) or 0)
+            except (TypeError, ValueError):
+                size_bytes = 0
+            item["offline_size_bytes"] = max(0, size_bytes)
+        else:
+            item.setdefault("offline_state", "not_downloaded")
+            item.setdefault("offline_progress", 0)
+            item.setdefault("offline_size_bytes", 0)
+    return items
+
+
 async def _get_current_user_id(plugin, token: str) -> str:
     """Return cached Spotify user ID, fetching /v1/me once per plugin session."""
     cached = getattr(plugin, "_current_user_id", "")
@@ -98,6 +129,7 @@ async def get_playlists(plugin, offset: int = 0) -> dict:
                 "artwork_url": _image_url(images),
                 "track_count": (p.get("items") or p.get("tracks") or {}).get("total", 0),
             })
+        annotate_offline_metadata(playlists)
         total = data.get("total", 0) if data else 0
         return {"ok": True, "playlists": playlists, "total": total, "offset": offset}
     except Exception as e:
@@ -1054,6 +1086,7 @@ async def get_saved_shows(plugin, offset: int = 0) -> dict:
                 "image_url": _image_url(images),
                 "artwork_url": _image_url(images),
             })
+        annotate_offline_metadata(shows)
         total = data.get("total", 0) if data else 0
         return {"ok": True, "shows": shows, "total": total, "offset": offset}
     except Exception as e:
@@ -1088,6 +1121,7 @@ async def get_saved_albums(plugin, offset: int = 0) -> dict:
                 "track_count": a.get("total_tracks", 0),
                 "uri": a.get("uri", ""),
             })
+        annotate_offline_metadata(albums)
         total = data.get("total", 0) if data else 0
         return {"ok": True, "albums": albums, "total": total, "offset": offset}
     except Exception as e:
@@ -1199,6 +1233,7 @@ async def get_show_episodes(plugin, show_id: str, offset: int = 0) -> dict:
                 "resume_position_ms": int(resume_point.get("resume_position_ms") or 0),
                 "fully_played": bool(resume_point.get("fully_played", False)),
             })
+        annotate_offline_metadata(episodes)
         total = data.get("total", len(episodes)) if isinstance(data, dict) else len(episodes)
         return {"ok": True, "episodes": episodes, "total": total, "offset": safe_offset}
     except Exception as e:
@@ -1258,6 +1293,7 @@ async def get_artist_albums(plugin, artist_id: str, offset: int = 0) -> dict:
                 "track_count": a.get("total_tracks", 0),
                 "uri": a.get("uri", ""),
             })
+        annotate_offline_metadata(albums)
         total = data.get("total", 0) if data else 0
         return {"ok": True, "albums": albums, "total": total, "offset": offset}
     except Exception as e:
