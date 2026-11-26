@@ -678,4 +678,145 @@ describe("SearchTab per-section Load More paging (G-26-2)", () => {
       vi.useRealTimers();
     }
   });
+
+async function withPersistentRefs(fn: () => Promise<void>) {
+  const refs: Array<{ current: unknown }> = [];
+  const refAwareUseRef = <T,>(init: T) => {
+    const idx = stateIdx++;
+    if (!refs[idx]) refs[idx] = { current: init };
+    return refs[idx];
+  };
+  const reactMod = await import("react");
+  const origUseRef = reactMod.useRef;
+  (reactMod as unknown as { useRef: typeof refAwareUseRef }).useRef = refAwareUseRef;
+  try {
+    await fn();
+  } finally {
+    (reactMod as unknown as { useRef: typeof origUseRef }).useRef = origUseRef;
+  }
+}
+
+  it("preserves searchEpochRef across re-render on tile selection with deferred search_spotify (G-26-13)", async () => {
+    stateSlots.length = 0;
+    stateIdx = 0;
+    mockSearchSpotify.mockReset();
+
+    await withPersistentRefs(async () => {
+      let currentQuery = "";
+      const onSearchQueryChange = vi.fn((q: string) => {
+        currentQuery = q;
+      });
+      const onSearchResultsChange = vi.fn();
+
+      let resolveTile!: (val: unknown) => void;
+      const tilePromise = new Promise((r) => {
+        resolveTile = r;
+      });
+      mockSearchSpotify.mockReturnValueOnce(tilePromise);
+
+      const idleTree = renderSearchTab({
+        searchQuery: currentQuery,
+        searchHistory: ["lofi"],
+        onSearchQueryChange,
+        onSearchResultsChange,
+      });
+
+      const epicTile = findNodes(
+        idleTree,
+        (n) => n.type === "Focusable" && n.props?.["data-deckify-label"] === "Epic Gaming",
+      )[0];
+      (epicTile.props?.onClick as () => void)();
+      expect(currentQuery).toBe("epic gaming soundtrack");
+
+      renderSearchTab({
+        searchQuery: currentQuery,
+        searchHistory: ["lofi"],
+        onSearchQueryChange,
+        onSearchResultsChange,
+      });
+
+      resolveTile({ ok: true, tracks: mockTracks, playlists: mockPlaylists });
+      await new Promise((r) => setTimeout(r, 0));
+
+      expect(onSearchResultsChange).toHaveBeenCalledWith(
+        expect.objectContaining({ tracks: mockTracks, playlists: mockPlaylists }),
+      );
+    });
+  });
+
+  it("preserves searchEpochRef across re-render on history pill selection with deferred search_spotify (G-26-13)", async () => {
+    stateSlots.length = 0;
+    stateIdx = 0;
+    mockSearchSpotify.mockReset();
+
+    await withPersistentRefs(async () => {
+      let currentQuery = "";
+      const onSearchQueryChange = vi.fn((q: string) => {
+        currentQuery = q;
+      });
+      const onSearchResultsChange = vi.fn();
+
+      let resolveHistory!: (val: unknown) => void;
+      const historyPromise = new Promise((r) => {
+        resolveHistory = r;
+      });
+      mockSearchSpotify.mockReturnValueOnce(historyPromise);
+
+      const idleTree = renderSearchTab({
+        searchQuery: currentQuery,
+        searchHistory: ["lofi"],
+        onSearchQueryChange,
+        onSearchResultsChange,
+      });
+      const lofiPill = findNodes(
+        idleTree,
+        (n) => n.type === "Focusable" && n.props?.["data-deckify-label"] === "lofi",
+      )[0];
+      (lofiPill.props?.onClick as () => void)();
+      expect(currentQuery).toBe("lofi");
+
+      renderSearchTab({
+        searchQuery: currentQuery,
+        searchHistory: ["lofi"],
+        onSearchQueryChange,
+        onSearchResultsChange,
+      });
+
+      resolveHistory({ ok: true, tracks: mockTracks, playlists: [] });
+      await new Promise((r) => setTimeout(r, 0));
+
+      expect(onSearchResultsChange).toHaveBeenCalledWith(
+        expect.objectContaining({ tracks: mockTracks, playlists: [] }),
+      );
+    });
+  });
+
+  it("retries get_search_browse_categories on return to idle after an empty response (G-26-14)", async () => {
+    stateSlots.length = 0;
+    stateIdx = 0;
+    mockGetSearchBrowseCategories.mockReset();
+
+    await withPersistentRefs(async () => {
+      mockGetSearchBrowseCategories.mockResolvedValueOnce({ ok: true, categories: [] });
+      renderSearchTab({ searchQuery: "" });
+      await new Promise((r) => setTimeout(r, 0));
+      expect(mockGetSearchBrowseCategories).toHaveBeenCalledTimes(1);
+
+      renderSearchTab({ searchQuery: "lofi" });
+      expect(mockGetSearchBrowseCategories).toHaveBeenCalledTimes(1);
+
+      mockGetSearchBrowseCategories.mockResolvedValueOnce({
+        ok: true,
+        categories: [{ id: "cat-1", name: "Gaming", image_url: "https://i.scdn.co/cat1" }],
+      });
+      renderSearchTab({ searchQuery: "" });
+      await new Promise((r) => setTimeout(r, 0));
+      expect(mockGetSearchBrowseCategories).toHaveBeenCalledTimes(2);
+
+      const populatedTree = renderSearchTab({ searchQuery: "" });
+      expect(cleanText(populatedTree)).toContain("Browse Categories");
+      expect(cleanText(populatedTree)).toContain("Gaming");
+      expect(mockGetSearchBrowseCategories).toHaveBeenCalledTimes(2);
+    });
+  });
 });
