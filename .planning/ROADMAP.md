@@ -258,7 +258,7 @@ Plans:
   2. `DiscoveryTab` populates the *Made For You* section with the user's personalized algorithmic mixes (*Daylist*, *Discover Weekly*, *Release Radar*, *Daily Mix 1–6*) via the CDP Pathfinder/Rootlist bridge, bypassing Spotify Web API Development Mode `HTTP 403/404` blocks.
   3. Resolved algorithmic mix metadata and track URI lists are cached locally on disk so users can browse and play those mixes even after switching their active playback engine to `librespot`.
   4. `py_modules/rpc_playback.py:_try_cdp_station_radio` (Phase 25 Tier 1 hook) is wired to `cdp_bridge.py` to start native Spotify `spotify:station:...` radio when `spotify_client` is active (falling back silently to Tier 2/3), `SearchTab` optionally enriches its Browse Categories / Gaming & Mood tiles via CDP with the 12 static tiles as automatic fallback on `librespot` or when CDP is unavailable, and pressing `B` while viewing search results in `SearchTab` (when `searchQuery` is non-empty) clears the search query/results and returns to the main Search idle view instead of closing the modal.
-**Plans:** 17/17 plans executed (14 executed, 3 gap-closure planned)
+**Plans:** 17/20 plans executed (14 executed, 6 gap-closure planned)
 
 Plans:
 **Wave 1**
@@ -303,6 +303,13 @@ Plans:
 
 **Wave 2 (Gap Closure - UAT Round 3)** *(blocked on 26-16)*
 - [x] 26-17-PLAN.md — Close UAT gaps G-26-11 & G-26-12: broaden `cdp_get_player_state` & `_poll_playback` for later AI DJ interludes, extract & emit `duration_ms`/`position_ms` during interludes, and subscribe to `ai_dj_state` in `usePlaybackStatus.ts`
+
+**Wave 1 (Gap Closure - UAT Round 4)**
+- [ ] 26-18-PLAN.md — Close UAT gaps G-26-15, G-26-16, G-26-17 (backend): fix Daily Mixes/On Repeat CDP discovery, `librespot` `' · Cached'` subtitles & Daylist `uris[]` playback, and `cardRepresentation` / Web API Browse Categories fallback
+
+**Wave 2 (Gap Closure - UAT Round 4)** *(blocked on 26-18)*
+- [ ] 26-19-PLAN.md — Close UAT gap G-26-18: gate `cdp_get_player_state` `isDjInterlude` on `!isRealTrack` + DOM clock fallback, sync `_poll_playback` `ai_dj_state` on track return, and render advancing DJ X progress bar across NowPlayingTab, QAM, and DeckifyOverlay
+- [ ] 26-20-PLAN.md — Close UAT gap G-26-17 (frontend): wire `audioBackend` prop and retry-on-idle/backend-switch into `SearchTab` `useBrowseCategories`
 **UI hint**: yes
 
 ### Phase 27: Interactive Queue Studio & Controller Playlist Management
