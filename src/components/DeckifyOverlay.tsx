@@ -11,6 +11,7 @@ export interface OverlayTrack {
   artwork_url?: string | null;
   image_url?: string | null;
   duration_ms?: number;
+  media_type?: string;
   track_id?: string;
   id?: string;
 }

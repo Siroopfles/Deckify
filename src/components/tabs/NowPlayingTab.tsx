@@ -506,7 +506,7 @@ function resolveIsLossless(status: StatusResponse | null): boolean {
   return Boolean((legacyStream || status?.audio_stream_info)?.is_lossless_rate);
 }
 
-const DjInterludeProgressBar: FC<{ currentPositionMs: number }> = ({ currentPositionMs }) => {
+function renderDjInterludeProgressBar(currentPositionMs: number) {
   const fillPct = Math.min(100, Math.max(8, (currentPositionMs / 25000) * 100));
   return (
     <div data-testid="dj-interlude-progress-bar" style={{ width: "100%", marginBottom: 16 }}>
@@ -535,7 +535,7 @@ const DjInterludeProgressBar: FC<{ currentPositionMs: number }> = ({ currentPosi
       </div>
     </div>
   );
-};
+}
 
 function renderAiDjIndicator(aiDjActive: boolean, aiDjSpeaking: boolean) {
   if (!aiDjActive && !aiDjSpeaking) return null;
@@ -734,7 +734,7 @@ export const NowPlayingTab: FC<NowPlayingTabProps> = ({
           onSeekPlayback={onSeekPlayback}
         />
       ) : (track?.media_type === "dj_interlude" || aiDjSpeaking) ? (
-        <DjInterludeProgressBar currentPositionMs={currentPositionMs} />
+        renderDjInterludeProgressBar(currentPositionMs)
       ) : null}
       {renderTransportRow({
         isSpoken, isPlaying, status, track, handlePlayPause, handleNext,

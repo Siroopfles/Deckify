@@ -1614,7 +1614,7 @@ const Content: FC = () => {
               </Field>
             </PanelSectionRow>
 
-            {durationSec <= 0 && (trackMeta?.media_type === "dj_interlude" || aiDjSpeaking) && (
+            {durationSec <= 0 && trackMeta?.media_type === "dj_interlude" && (
               <PanelSectionRow>
                 <div style={{ width: "100%", padding: "4px 0" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, opacity: 0.7, marginBottom: 4 }}>
