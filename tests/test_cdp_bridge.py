@@ -710,6 +710,32 @@ class TestCdpBridge(unittest.TestCase):
         self.assertIn("position_ms: positionMs", expr)
         self.assertIn("hasExplicitItemTitle", expr)
 
+    def test_cdp_get_player_state_real_track_guard_and_dom_clock_fallback(self):
+        captured = {}
+
+        def fake_eval(expr, port=9229, timeout=3.0):
+            captured["expr"] = expr
+            return {
+                "ok": True,
+                "is_playing": True,
+                "context_uri": "spotify:playlist:37i9dQZF1EYkqdzj48dyYq",
+                "track_uri": "spotify:track:abc123",
+                "track_name": "Real Song",
+                "media_type": "track",
+                "is_dj_interlude": False,
+                "duration_ms": 210000,
+                "position_ms": 5000,
+            }
+
+        res = cdp_bridge.cdp_get_player_state(eval_fn=fake_eval)
+        self.assertTrue(res["ok"])
+        self.assertFalse(res["is_dj_interlude"])
+        expr = captured["expr"]
+        self.assertIn("isRealTrack", expr)
+        self.assertIn("!isRealTrack", expr)
+        self.assertIn('[data-testid="playback-duration"]', expr)
+        self.assertIn('[data-testid="playback-position"]', expr)
+
     def test_cdp_fetch_discovery_mixes_graphql_client_token_browse_and_search_parallel(self):
         captured = {}
 

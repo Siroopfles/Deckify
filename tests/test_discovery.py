@@ -1165,6 +1165,89 @@ class TestAiDjPollAndStatus(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(playing_events[0]["position_ms"], 6500)
         self.assertEqual(playing_events[0]["duration_ms"], 22000)
 
+    async def test_poll_playback_clears_dj_x_and_emits_ai_dj_state_when_track_starts(self):
+        import test_token_refresh
+        main_mod = test_token_refresh.main
+
+        plugin = main_mod.Plugin()
+        plugin._settings = dict(common.DEFAULT_SETTINGS)
+        plugin._access_token = "tok"
+        plugin._ensure_token = AsyncMock(return_value="tok")
+        plugin._is_engine_running = MagicMock(return_value=True)
+        plugin._is_librespot_running = MagicMock(return_value=False)
+        plugin._is_spotify_client_running = MagicMock(return_value=True)
+        plugin._last_event = None
+        plugin._track_meta = None
+        plugin._ai_dj_active = False
+        plugin._ai_dj_speaking = False
+        plugin._poll_track_id = None
+        plugin._shuffle_state = False
+        plugin._repeat_state = "off"
+
+        # 1) DJ X interlude active
+        interlude_payload = {
+            "is_playing": True,
+            "currently_playing_type": "unknown",
+            "progress_ms": 0,
+            "context": {"uri": "spotify:playlist:37i9dQZF1EYkqdzj48dyYq"},
+            "item": None,
+        }
+        cdp_interlude = {
+            "ok": True,
+            "is_playing": True,
+            "context_uri": "spotify:playlist:37i9dQZF1EYkqdzj48dyYq",
+            "track_uri": "spotify:narration:seg_1",
+            "track_name": "DJ X",
+            "media_type": "unknown",
+            "is_dj_interlude": True,
+            "duration_ms": 19000,
+            "position_ms": 2500,
+            "image_url": "https://i.scdn.co/image/djx",
+            "title": "DJ X",
+            "subtitle": "Up next: Electric Feel",
+        }
+        with patch.object(main_mod, "_spotify_api_request", return_value=interlude_payload), \
+             patch.object(main_mod, "_cdp_get_player_state", return_value=cdp_interlude), \
+             patch.object(main_mod.decky, "emit", new=AsyncMock()):
+            ok1 = await plugin._poll_playback()
+
+        self.assertTrue(ok1)
+        self.assertTrue(plugin._ai_dj_active)
+        self.assertTrue(plugin._ai_dj_speaking)
+        self.assertEqual(plugin._poll_track_id, "spotify:narration:seg_1")
+
+        # 2) Real music track starts on /me/player
+        music_payload = {
+            "is_playing": True,
+            "currently_playing_type": "track",
+            "progress_ms": 1500,
+            "context": {"uri": "spotify:playlist:37i9dQZF1EYkqdzj48dyYq"},
+            "item": {
+                "id": "track_music_1",
+                "name": "Electric Feel",
+                "duration_ms": 229000,
+                "uri": "spotify:track:track_music_1",
+                "type": "track",
+                "artists": [{"name": "MGMT"}],
+                "album": {"name": "Oracular Spectacular", "images": []},
+            },
+        }
+        emit_mock = AsyncMock()
+        with patch.object(main_mod, "_spotify_api_request", return_value=music_payload), \
+             patch.object(main_mod, "_cdp_get_player_state", side_effect=AssertionError("should not query CDP for valid track with ctx")), \
+             patch.object(main_mod.decky, "emit", new=emit_mock):
+            ok2 = await plugin._poll_playback()
+
+        self.assertTrue(ok2)
+        self.assertTrue(plugin._ai_dj_active)
+        self.assertFalse(plugin._ai_dj_speaking)
+        self.assertEqual(plugin._poll_track_id, "track_music_1")
+
+        dj_events = [c.args[1] for c in emit_mock.call_args_list if c.args[0] == "ai_dj_state"]
+        self.assertTrue(any(ev.get("ai_dj_speaking") is False for ev in dj_events))
+        meta_events = [c.args[1] for c in emit_mock.call_args_list if c.args[0] == "track_metadata"]
+        self.assertTrue(any(ev.get("track_id") == "track_music_1" and ev.get("name") == "Electric Feel" for ev in meta_events))
+
 
 class TestGapClosureDiscoveryAndPlayback(unittest.IsolatedAsyncioTestCase):
     def setUp(self):

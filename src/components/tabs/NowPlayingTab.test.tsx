@@ -661,3 +661,55 @@ describe("NowPlayingTab Spotify Jam controls (JAM-01)", () => {
     expect(onEndJam).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("NowPlayingTab DJ X interlude progress bar (G-26-18)", () => {
+  it("renders advancing dj-interlude-progress-bar when media_type is dj_interlude and duration_ms is 0", () => {
+    const tree = NowPlayingTab({
+      ...makeProps(),
+      currentPositionMs: 12500,
+      status: makeStatus({
+        ai_dj_active: true,
+        ai_dj_speaking: true,
+        track_meta: {
+          id: "ai_dj_interlude",
+          name: "DJ X",
+          artist: "Spotify AI DJ",
+          album: "AI DJ",
+          uri: "spotify:narration:seg1",
+          duration_ms: 0,
+          media_type: "dj_interlude",
+        },
+      }),
+    }) as unknown as MockNode;
+
+    const djBar = findNodes(tree, (n) => n.props?.["data-testid"] === "dj-interlude-progress-bar");
+    expect(djBar).toHaveLength(1);
+    expect(collectText(djBar[0])).toContain("12s");
+    expect(collectText(djBar[0])).toContain("DJ X");
+    const scrubBars = findNodes(tree, (n) => n.type === ProgressScrubBar);
+    expect(scrubBars).toHaveLength(0);
+  });
+
+  it("renders ProgressScrubBar instead of dj-interlude-progress-bar when duration_ms > 0", () => {
+    const tree = NowPlayingTab({
+      ...makeProps(),
+      currentPositionMs: 15000,
+      status: makeStatus({
+        track_meta: {
+          id: "t1",
+          name: "Track 1",
+          artist: "Artist 1",
+          album: "Album 1",
+          uri: "spotify:track:t1",
+          duration_ms: 180000,
+          media_type: "track",
+        },
+      }),
+    }) as unknown as MockNode;
+
+    const djBar = findNodes(tree, (n) => n.props?.["data-testid"] === "dj-interlude-progress-bar");
+    expect(djBar).toHaveLength(0);
+    const scrubBars = findNodes(tree, (n) => n.type === ProgressScrubBar);
+    expect(scrubBars).toHaveLength(1);
+  });
+});
