@@ -710,6 +710,73 @@ class TestCdpBridge(unittest.TestCase):
         self.assertIn("position_ms: positionMs", expr)
         self.assertIn("hasExplicitItemTitle", expr)
 
+    def test_cdp_fetch_discovery_mixes_graphql_client_token_browse_and_search_parallel(self):
+        captured = {}
+
+        def fake_eval(expr, port=9229, timeout=8.0):
+            captured["expr"] = expr
+            captured["timeout"] = timeout
+            return {
+                "ok": True,
+                "warnings": [],
+                "items": [
+                    {
+                        "id": "37i9dQZF1E3abc",
+                        "name": "Daily Mix 1",
+                        "uri": "spotify:playlist:37i9dQZF1E3abc",
+                        "subtitle": "Artist 1, Artist 2",
+                        "owner": "Spotify",
+                    },
+                    {
+                        "id": "37i9dQZF1Epxyz",
+                        "name": "On Repeat",
+                        "uri": "spotify:playlist:37i9dQZF1Epxyz",
+                        "subtitle": "Songs you love right now",
+                        "owner": "Spotify",
+                    },
+                ],
+            }
+
+        res = cdp_bridge.cdp_fetch_discovery_mixes(eval_fn=fake_eval)
+        self.assertTrue(res["ok"])
+        self.assertEqual(captured["timeout"], 8.0)
+        self.assertEqual([i["kind"] for i in res["items"]], ["core", "core"])
+        expr = captured["expr"]
+        self.assertIn("GraphQL", expr)
+        self.assertIn("ClientTokenAPI", expr)
+        self.assertIn("0JQ5DAqbMKFHOzuVTgTizF", expr)
+        self.assertIn("Promise.allSettled", expr)
+        self.assertIn("topResultsV2", expr)
+        self.assertIn("Daily Mix 1", expr)
+
+    def test_cdp_fetch_browse_categories_merges_parent_uri_into_card_representation(self):
+        captured = {}
+
+        def fake_eval(expr, port=9229, timeout=6.0):
+            captured["expr"] = expr
+            captured["timeout"] = timeout
+            return {
+                "ok": True,
+                "categories": [
+                    {
+                        "id": "0JQ5DAqbMKFzHmL4tf05da",
+                        "name": "Mood",
+                        "image_url": "https://i.scdn.co/image/mood1",
+                        "uri": "spotify:genre:0JQ5DAqbMKFzHmL4tf05da",
+                    }
+                ],
+            }
+
+        cats = cdp_bridge.cdp_fetch_browse_categories(eval_fn=fake_eval)
+        self.assertEqual(captured["timeout"], 6.0)
+        self.assertEqual(len(cats), 1)
+        self.assertEqual(cats[0]["id"], "0JQ5DAqbMKFzHmL4tf05da")
+        self.assertEqual(cats[0]["uri"], "spotify:genre:0JQ5DAqbMKFzHmL4tf05da")
+        expr = captured["expr"]
+        self.assertIn("Object.assign", expr)
+        self.assertIn("rawCard?.uri || entry?.uri || entry?.content?.uri", expr)
+        self.assertIn("pushCat(merged)", expr)
+
 
 if __name__ == "__main__":
     unittest.main()

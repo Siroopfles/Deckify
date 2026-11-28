@@ -146,6 +146,7 @@ def _refresh_cached_mix_tracks(
     total: int | None = None,
     playlist_name: str | None = None,
     playlist_description: str | None = None,
+    playlist_owner: str | None = None,
 ) -> None:
     """Refresh or upsert cached core mix tracks (up to 100) and URIs in discovery_mixes.json."""
     if not pid or not tracks:
@@ -160,6 +161,7 @@ def _refresh_cached_mix_tracks(
         uris = [t["uri"] for t in capped if t.get("uri")]
         clean_name = _strip_html(playlist_name or "")
         clean_desc = _strip_html(playlist_description or "")
+        owner_id = str(playlist_owner or "").strip()
         updated = False
         for m in mixes:
             if not isinstance(m, dict):
@@ -179,7 +181,10 @@ def _refresh_cached_mix_tracks(
             norm_uri = f"spotify:playlist:{pid}"
             is_core = (
                 pid == "37i9dQZF1EP6YuccBxUcC1"
-                or _classify_discovery_kind(pid, norm_uri, clean_name, "spotify", clean_desc) == "core"
+                or (
+                    owner_id.lower() == "spotify"
+                    and _classify_discovery_kind(pid, norm_uri, clean_name, owner_id, clean_desc) == "core"
+                )
             )
             if is_core:
                 mixes.append(
@@ -265,6 +270,7 @@ async def get_playlist_tracks(
         total = 0
         playlist_name = ""
         playlist_description = ""
+        playlist_owner = ""
 
         while True:
             data = None
@@ -297,6 +303,8 @@ async def get_playlist_tracks(
                     playlist_name = data["name"].strip()
                 if not playlist_description and isinstance(data.get("description"), str) and data["description"].strip():
                     playlist_description = _strip_html(data["description"])
+                if not playlist_owner and isinstance(data.get("owner"), dict):
+                    playlist_owner = str(data["owner"].get("id") or data["owner"].get("username") or "").strip()
             items_obj = (
                 (data.get("items") if "items" in data else data.get("tracks"))
                 if isinstance(data, dict)
@@ -392,6 +400,7 @@ async def get_playlist_tracks(
                 total or len(tracks),
                 playlist_name=playlist_name,
                 playlist_description=playlist_description,
+                playlist_owner=playlist_owner,
             )
         resp = {"ok": True, "tracks": tracks, "total": total or len(tracks), "offset": offset}
         if playlist_name:

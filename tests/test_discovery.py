@@ -134,7 +134,7 @@ class TestDiscoveryTracer(unittest.IsolatedAsyncioTestCase):
         with patch.object(rpc_library, "_spotify_api_request", side_effect=fake_api):
             res = await rpc_library.get_discovery_feed(self.plugin, "invalid_range")
 
-        self.assertTrue(res["ok"])
+        self.assertTrue(res["ok"], res)
         self.assertEqual(res["time_range"], "medium_term")
         self.assertEqual(len(res["made_for_you"]), 1)
         self.assertEqual(len(res["top_tracks"]), 1)
@@ -274,7 +274,7 @@ class TestDiscoveryCacheAndResilience(unittest.IsolatedAsyncioTestCase):
         with patch.object(rpc_library, "_spotify_api_request", side_effect=fake_api):
             res = await rpc_library.get_discovery_feed(self.plugin, "medium_term")
 
-        self.assertTrue(res["ok"])
+        self.assertTrue(res["ok"], res)
         self.assertTrue(res["needs_reauth"])
         self.assertEqual(res["top_tracks"], [])
         self.assertEqual(res["top_artists"], [])
@@ -433,7 +433,7 @@ class TestDiscoveryAlgorithmicMixes(unittest.IsolatedAsyncioTestCase):
              patch.object(rpc_library, "cdp_get_playlist_tracks", return_value={"ok": True, "tracks": long_tracklist, "total": 120}) as mock_prefetch:
             res = await rpc_library.get_discovery_feed(self.plugin, "medium_term")
 
-        self.assertTrue(res["ok"])
+        self.assertTrue(res["ok"], res)
         self.assertFalse(res["made_for_you_fallback"])
         self.assertEqual([m["name"] for m in res["made_for_you"]], ["daylist", "Discover Weekly", "Release Radar", "On Repeat"])
         self.assertEqual(mock_prefetch.call_count, 4)
@@ -482,7 +482,7 @@ class TestDiscoveryAlgorithmicMixes(unittest.IsolatedAsyncioTestCase):
 
         mock_cdp_mixes.assert_not_called()
         mock_cdp_tracks.assert_not_called()
-        self.assertTrue(res["ok"])
+        self.assertTrue(res["ok"], res)
         self.assertFalse(res["made_for_you_fallback"])
         self.assertEqual(len(res["made_for_you"]), 1)
         self.assertEqual(res["made_for_you"][0]["subtitle"], "chill tuesday · Cached")
@@ -543,7 +543,7 @@ class TestDiscoveryAlgorithmicMixes(unittest.IsolatedAsyncioTestCase):
              patch.object(rpc_library, "cdp_get_playlist_tracks", return_value={"ok": True, "tracks": [{"id": "t3", "uri": "spotify:track:t3", "name": "Track 3"}], "total": 1}):
             res = await rpc_library.get_discovery_feed(self.plugin, "medium_term", force_refresh=True)
 
-        self.assertTrue(res["ok"])
+        self.assertTrue(res["ok"], res)
         names = [m["name"] for m in res["made_for_you"]]
         self.assertEqual(names, ["chill indie thursday afternoon", "Discover Weekly", "Release Radar"])
         self.assertEqual(len(res["blends"]), 1)
@@ -598,7 +598,7 @@ class TestDiscoveryAlgorithmicMixes(unittest.IsolatedAsyncioTestCase):
                  patch.object(rpc_library, "_cdp_get_playlist_tracks") as mock_cdp:
                 res = await rpc_library.get_playlist_tracks(self.plugin, "dl1", offset=0, fetch_all=False)
             mock_cdp.assert_not_called()
-            self.assertTrue(res["ok"])
+            self.assertTrue(res["ok"], res)
             self.assertTrue(res["cached"])
             self.assertFalse(res["has_more"])
             self.assertEqual(res["total"], 1)
@@ -624,7 +624,7 @@ class TestDiscoveryAlgorithmicMixes(unittest.IsolatedAsyncioTestCase):
              patch.object(rpc_library, "_cdp_get_playlist_tracks", return_value={"ok": True, "tracks": fresh_tracks, "total": 110}):
             res = await rpc_library.get_playlist_tracks(self.plugin, "spotify:playlist:dl1", offset=0, fetch_all=True)
 
-        self.assertTrue(res["ok"])
+        self.assertTrue(res["ok"], res)
         self.assertEqual(len(res["tracks"]), 110)
         disk = cdp_bridge.load_discovery_mixes_cache()
         self.assertEqual(len(disk["mixes"][0]["tracks"]), 100)
@@ -674,7 +674,7 @@ class TestDiscoveryAlgorithmicMixes(unittest.IsolatedAsyncioTestCase):
              patch.object(rpc_library, "cdp_get_playlist_tracks", side_effect=fake_prefetch):
             res = await rpc_library.get_discovery_feed(self.plugin, "medium_term")
 
-        self.assertTrue(res["ok"])
+        self.assertTrue(res["ok"], res)
         self.assertTrue(res["cdp_active"])
         self.assertEqual([m["name"] for m in res["made_for_you"]], ["daylist", "Discover Weekly", "Release Radar", "Daily Mix 1"])
         self.assertEqual([b["name"] for b in res["blends"]], ["Alex + Sam"])
@@ -748,7 +748,7 @@ class TestDiscoveryAlgorithmicMixes(unittest.IsolatedAsyncioTestCase):
              patch.object(rpc_library, "_refresh_cached_mix_tracks"):
             res = await rpc_library.get_playlist_tracks(self.plugin, "37i9dQZF1EP6YuccBxUyC1")
 
-        self.assertTrue(res["ok"])
+        self.assertTrue(res["ok"], res)
         self.assertEqual(res["playlist_name"], "chill afternoon mix")
         self.assertEqual(res["playlist_description"], "Dynamic Daylist title")
 
@@ -843,7 +843,7 @@ class TestDiscoveryAlgorithmicMixes(unittest.IsolatedAsyncioTestCase):
              patch.object(rpc_library, "_refresh_cached_mix_tracks"):
             res = await rpc_library.get_playlist_tracks(self.plugin, "37i9dQZF1EP6YuccBxUyC1")
 
-        self.assertTrue(res["ok"])
+        self.assertTrue(res["ok"], res)
         self.assertEqual(res["playlist_description"], "Late night synthwave & chill")
 
     async def test_fetch_made_for_you_skips_web_search_when_cdp_mixes_present(self):
@@ -1164,3 +1164,139 @@ class TestAiDjPollAndStatus(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(playing_events), 1)
         self.assertEqual(playing_events[0]["position_ms"], 6500)
         self.assertEqual(playing_events[0]["duration_ms"], 22000)
+
+
+class TestGapClosureDiscoveryAndPlayback(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        self.plugin = SimpleNamespace(
+            _settings={"audio_backend": "librespot"},
+            _spotify_client_process=None,
+            _liked_cache={},
+            _ensure_token=AsyncMock(return_value="tok-1"),
+            _annotate_tracks_liked=AsyncMock(),
+            _auto_transfer_and_play=AsyncMock(return_value={"ok": False}),
+            _is_engine_running=MagicMock(return_value=True),
+            _optimistic_queue_ts=0,
+            _optimistic_queue=None,
+            _context_uri="",
+        )
+
+    async def test_librespot_cached_subtitle_and_uris_beat_web_mixes(self):
+        cached = {
+            "mixes": [
+                {
+                    "id": "37i9dQZF1EP6YuccBxUcC1",
+                    "uri": "spotify:playlist:37i9dQZF1EP6YuccBxUcC1",
+                    "name": "daylist",
+                    "subtitle": "synthwave tuesday morning",
+                    "owner": "Spotify",
+                    "kind": "core",
+                    "tracks": [{"id": "t1", "uri": "spotify:track:t1", "name": "Song 1"}],
+                    "uris": ["spotify:track:t1"],
+                }
+            ]
+        }
+        web_playlists = {
+            "items": [
+                {
+                    "id": "37i9dQZF1EP6YuccBxUcC1",
+                    "uri": "spotify:playlist:37i9dQZF1EP6YuccBxUcC1",
+                    "name": "daylist",
+                    "description": "synthwave tuesday morning",
+                    "owner": {"id": "spotify"},
+                    "images": [],
+                    "tracks": {"total": 50},
+                }
+            ],
+            "total": 1,
+        }
+        with patch.object(rpc_library, "load_discovery_mixes_cache", return_value=cached), \
+             patch.object(rpc_library, "_spotify_api_request", return_value=web_playlists):
+            res = await rpc_library._fetch_made_for_you_section("tok-1", self.plugin)
+
+        self.assertFalse(res["fallback"])
+        self.assertEqual(len(res["made_for_you"]), 1)
+        daylist = res["made_for_you"][0]
+        self.assertTrue(daylist["subtitle"].endswith(" · Cached"))
+        self.assertEqual(daylist["uris"], ["spotify:track:t1"])
+
+    async def test_get_playlist_tracks_web_api_200_upserts_daylist_cache(self):
+        saved_payloads = []
+        web_playlist = {
+            "name": "daylist",
+            "description": "<b>dream pop</b> afternoon",
+            "tracks": {
+                "total": 1,
+                "items": [
+                    {
+                        "track": {
+                            "id": "t99",
+                            "name": "Dream Track",
+                            "uri": "spotify:track:t99",
+                            "duration_ms": 200000,
+                            "artists": [{"id": "a1", "name": "Artist"}],
+                            "album": {"id": "alb1", "name": "Album", "images": []},
+                        }
+                    }
+                ],
+            },
+        }
+        with patch.object(rpc_library, "_spotify_api_request", return_value=web_playlist), \
+             patch.object(rpc_library, "load_discovery_mixes_cache", return_value={"mixes": []}), \
+             patch.object(rpc_library, "save_discovery_mixes_cache", side_effect=lambda p: saved_payloads.append(p)):
+            res = await rpc_library.get_playlist_tracks(self.plugin, "37i9dQZF1EP6YuccBxUcC1", offset=0, fetch_all=False)
+
+        self.assertTrue(res["ok"], res)
+        self.assertEqual(len(saved_payloads), 1)
+        mixes = saved_payloads[0]["mixes"]
+        self.assertEqual(mixes[0]["id"], "37i9dQZF1EP6YuccBxUcC1")
+        self.assertEqual(mixes[0]["uris"], ["spotify:track:t99"])
+        self.assertEqual(mixes[0]["subtitle"], "dream pop afternoon")
+
+    async def test_play_tracks_daylist_403_falls_back_to_live_get_playlist_tracks_uris(self):
+        from py_modules import rpc_library as mod_rpc_library, rpc_playback
+
+        calls = []
+
+        def fake_api(endpoint, token, method="GET", params=None, body=None):
+            calls.append((endpoint, method, body))
+            if endpoint == "me/player/play" and body and "context_uri" in body:
+                raise _http_error(403)
+            return {}
+
+        live_tracks = {"ok": True, "tracks": [{"uri": "spotify:track:dl1"}, {"uri": "spotify:track:dl2"}]}
+        with patch.object(rpc_playback, "_resolve_cached_mix_uris", return_value=[]), \
+             patch.object(rpc_playback, "_spotify_api_request", side_effect=fake_api), \
+             patch.object(mod_rpc_library, "get_playlist_tracks", new=AsyncMock(return_value=live_tracks)) as mock_gpt:
+            res = await rpc_playback.play_tracks(
+                self.plugin,
+                context_uri="spotify:playlist:37i9dQZF1EP6YuccBxUcC1",
+            )
+
+        self.assertTrue(res["ok"], res)
+        mock_gpt.assert_awaited_once_with(self.plugin, "37i9dQZF1EP6YuccBxUcC1", offset=0, fetch_all=False)
+        self.assertEqual(calls[-1][2]["uris"], ["spotify:track:dl1", "spotify:track:dl2"])
+
+    async def test_get_search_browse_categories_falls_back_to_web_api(self):
+        self.plugin._settings["audio_backend"] = "spotify_client"
+        self.plugin._spotify_client_process = SimpleNamespace(poll=lambda: None)
+        web_cats = {
+            "categories": {
+                "items": [
+                    {
+                        "id": "gaming",
+                        "name": "Gaming",
+                        "icons": [{"url": "https://i.scdn.co/image/gaming"}],
+                    }
+                ]
+            }
+        }
+        with patch.object(rpc_library, "cdp_fetch_browse_categories", return_value=[]), \
+             patch.object(rpc_library, "_spotify_api_request", return_value=web_cats) as mock_api:
+            res = await rpc_library.get_search_browse_categories(self.plugin)
+
+        self.assertTrue(res["ok"], res)
+        mock_api.assert_called_once()
+        self.assertEqual(len(res["categories"]), 1)
+        self.assertEqual(res["categories"][0]["id"], "gaming")
+        self.assertEqual(res["categories"][0]["uri"], "spotify:genre:gaming")
