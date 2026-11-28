@@ -2351,6 +2351,12 @@ class Plugin:
         item = data.get("item")
         is_dj_ctx = bool("37i9dQZF1EYkqdzj48dyYq" in ctx_uri or ctx_uri.startswith("spotify:dj:"))
         item_name_norm = str(item.get("name") or "").strip().lower() if isinstance(item, dict) else ""
+        has_valid_web_track = bool(
+            isinstance(item, dict)
+            and item.get("id")
+            and currently_playing_type != "unknown"
+            and item_name_norm not in ("", "dj", "dj x", "spotify ai dj")
+        )
         is_dj_interlude_candidate = (
             item is None
             or (
@@ -2372,11 +2378,15 @@ class Plugin:
         cdp_track_uri = ""
         cdp_duration_ms = 0
         cdp_position_ms = 0
-        if self._is_spotify_client_running() and (
-            getattr(self, "_ai_dj_active", False)
-            or is_dj_ctx
-            or currently_playing_type == "unknown"
-            or item is None
+        if (
+            self._is_spotify_client_running()
+            and (not has_valid_web_track or not ctx_uri or prefetched_cdp_state is not None)
+            and (
+                getattr(self, "_ai_dj_active", False)
+                or is_dj_ctx
+                or currently_playing_type == "unknown"
+                or item is None
+            )
         ):
             try:
                 cdp_state = prefetched_cdp_state if prefetched_cdp_state is not None else await _exec(_cdp_get_player_state)
@@ -2402,7 +2412,7 @@ class Plugin:
             or (getattr(self, "_ai_dj_active", False) and not ctx_uri)
         )
 
-        if is_dj_ctx and (cdp_dj_speaking or (is_dj_interlude_candidate and is_playing)):
+        if is_dj_ctx and (cdp_dj_speaking or (not has_valid_web_track and is_dj_interlude_candidate and is_playing)):
             prev_active = bool(getattr(self, "_ai_dj_active", False))
             prev_speaking = bool(getattr(self, "_ai_dj_speaking", False))
             self._ai_dj_active = True
@@ -2431,6 +2441,7 @@ class Plugin:
             if interlude_meta != getattr(self, "_track_meta", None):
                 self._track_meta = interlude_meta
                 self._current_track_id = interlude_meta["track_id"]
+                self._poll_track_id = interlude_meta["track_id"]
                 await decky.emit("track_metadata", interlude_meta)
                 track_event = {
                     "event": "track_changed",
@@ -2467,18 +2478,26 @@ class Plugin:
         self._poll_updated_at = time.time()
         effective_ctx_uri = ctx_uri or cdp_ctx_uri
         self._context_uri = effective_ctx_uri
+        prev_ai_dj_active = bool(getattr(self, "_ai_dj_active", False))
+        prev_ai_dj_speaking = bool(getattr(self, "_ai_dj_speaking", False))
         if effective_ctx_uri:
             self._ai_dj_active = bool(
                 "37i9dQZF1EYkqdzj48dyYq" in effective_ctx_uri
                 or effective_ctx_uri.startswith("spotify:dj:")
             )
         else:
-            self._ai_dj_active = bool(getattr(self, "_ai_dj_active", False))
+            self._ai_dj_active = prev_ai_dj_active
         self._ai_dj_speaking = bool(
             self._ai_dj_active
             and is_playing
             and (currently_playing_type == "unknown" or not track_id)
         )
+        if self._ai_dj_active != prev_ai_dj_active or self._ai_dj_speaking != prev_ai_dj_speaking:
+            await decky.emit("ai_dj_state", {
+                "ai_dj_active": self._ai_dj_active,
+                "ai_dj_speaking": self._ai_dj_speaking,
+                "context_uri": self._context_uri,
+            })
 
         shuffle_state = bool(data.get("shuffle_state", False))
         repeat_state = data.get("repeat_state", "off")

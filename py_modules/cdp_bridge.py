@@ -547,9 +547,16 @@ def cdp_get_player_state(
     const isDjContext = ctxUri.includes('37i9dQZF1EYkqdzj48dyYq') || ctxUri.startsWith('spotify:dj:');
     const itemMeta = state.item?.metadata || {};
     const ctxMeta = state.context?.metadata || {};
+    const isRealTrack = Boolean(
+      trackUri.startsWith('spotify:track:') &&
+      (mediaType === 'track' || !mediaType) &&
+      !['dj', 'dj x', 'spotify ai dj'].includes(trackName.trim().toLowerCase()) &&
+      !itemMeta.is_dj_interlude
+    );
     const isDjInterlude = Boolean(
       isDjContext &&
       isPlaying &&
+      !isRealTrack &&
       (
         mediaType === 'unknown' ||
         !trackUri ||
@@ -560,7 +567,7 @@ def cdp_get_player_state(
         Boolean(itemMeta.narration_title || itemMeta.dj_vibe || itemMeta.vibe_name)
       )
     );
-    const durationMs = Math.max(
+    let durationMs = Math.max(
       0,
       Math.round(
         Number(
@@ -576,9 +583,49 @@ def cdp_get_player_state(
     if (!state.isPaused && typeof state.timestamp === 'number' && state.timestamp > 0) {
       rawPositionMs += Math.max(0, Date.now() - Number(state.timestamp));
     }
-    const positionMs = durationMs > 0
+    let positionMs = durationMs > 0
       ? Math.max(0, Math.min(durationMs, Math.round(rawPositionMs)))
       : Math.max(0, Math.round(rawPositionMs));
+    const parseClockMs = (raw) => {
+      const s = String(raw || '').trim();
+      if (!s || !/^\\d{1,2}(:\\d{2}){1,2}$/.test(s)) return 0;
+      const parts = s.split(':').map((p) => Number(p));
+      if (parts.some((n) => !Number.isFinite(n) || n < 0)) return 0;
+      let totalSec = 0;
+      if (parts.length === 2) {
+        totalSec = parts[0] * 60 + parts[1];
+      } else if (parts.length === 3) {
+        totalSec = parts[0] * 3600 + parts[1] * 60 + parts[2];
+      }
+      return Math.max(0, Math.round(totalSec * 1000));
+    };
+    if (durationMs <= 0) {
+      try {
+        const domDurEl = document.querySelector('[data-testid="playback-duration"]');
+        const domPosEl = document.querySelector('[data-testid="playback-position"]');
+        let domDurMs = parseClockMs(domDurEl?.textContent);
+        let domPosMs = parseClockMs(domPosEl?.textContent);
+        if (domDurMs <= 0) {
+          const rangeEl = document.querySelector('[data-testid="playback-progressbar"] input[type="range"]');
+          if (rangeEl) {
+            const maxNum = Number(rangeEl.getAttribute('max') || rangeEl.max || 0);
+            const valNum = Number(rangeEl.getAttribute('value') || rangeEl.value || 0);
+            if (Number.isFinite(maxNum) && maxNum > 0) {
+              domDurMs = Math.max(0, Math.round(maxNum));
+            }
+            if (domPosMs <= 0 && Number.isFinite(valNum) && valNum > 0) {
+              domPosMs = Math.max(0, Math.round(valNum));
+            }
+          }
+        }
+        if (domDurMs > 0) {
+          durationMs = domDurMs;
+        }
+        if (positionMs <= 0 && domPosMs > 0) {
+          positionMs = durationMs > 0 ? Math.min(durationMs, domPosMs) : domPosMs;
+        }
+      } catch (e) {}
+    }
     const rawImg =
       state.item?.images ||
       state.item?.album?.images ||

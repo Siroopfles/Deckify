@@ -435,7 +435,7 @@ export const DeckifyOverlay: FC<DeckifyOverlayProps> = ({
         </div>
       )}
 
-      {showProgress && durationMs > 0 && (
+      {showProgress && (durationMs > 0 || track?.media_type === "dj_interlude") && (
         <div
           data-testid="overlay-progress-bar"
           style={{
@@ -450,10 +450,11 @@ export const DeckifyOverlay: FC<DeckifyOverlayProps> = ({
           <div
             style={{
               height: "100%",
-              width: `${Math.min(
-                100,
-                Math.max(0, (positionMs / durationMs) * 100)
-              )}%`,
+              width: `${
+                durationMs > 0
+                  ? Math.min(100, Math.max(0, (positionMs / durationMs) * 100))
+                  : Math.min(100, Math.max(8, (positionMs / 25000) * 100))
+              }%`,
               background: "var(--deckify-accent, #1DB954)",
               transition: animationsSuspended ? "none" : "width 0.25s linear",
             }}

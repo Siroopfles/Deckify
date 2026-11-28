@@ -506,6 +506,37 @@ function resolveIsLossless(status: StatusResponse | null): boolean {
   return Boolean((legacyStream || status?.audio_stream_info)?.is_lossless_rate);
 }
 
+const DjInterludeProgressBar: FC<{ currentPositionMs: number }> = ({ currentPositionMs }) => {
+  const fillPct = Math.min(100, Math.max(8, (currentPositionMs / 25000) * 100));
+  return (
+    <div data-testid="dj-interlude-progress-bar" style={{ width: "100%", marginBottom: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, opacity: 0.6, marginBottom: 4 }}>
+        <span>{formatMs(currentPositionMs)}</span>
+        <span>DJ X</span>
+      </div>
+      <div
+        style={{
+          width: "100%",
+          height: 4,
+          borderRadius: 2,
+          background: "rgba(255, 255, 255, 0.2)",
+          overflow: "hidden",
+        }}
+      >
+        <div
+          style={{
+            width: `${fillPct}%`,
+            height: "100%",
+            background: "var(--deckify-accent, #1DB954)",
+            borderRadius: 2,
+            transition: "width 0.25s linear",
+          }}
+        />
+      </div>
+    </div>
+  );
+};
+
 function renderAiDjIndicator(aiDjActive: boolean, aiDjSpeaking: boolean) {
   if (!aiDjActive && !aiDjSpeaking) return null;
   const label = aiDjSpeaking ? "AI DJ Speaking..." : "AI DJ Active";
@@ -695,14 +726,16 @@ export const NowPlayingTab: FC<NowPlayingTabProps> = ({
       <p style={{ fontSize: 15, opacity: 0.7, margin: "0 0 16px 0" }}>
         {track?.artist || "Choose a playlist or album"}
       </p>
-      {track?.duration_ms && track.duration_ms > 0 && (
+      {track?.duration_ms && track.duration_ms > 0 ? (
         <ProgressScrubBar
           durationMs={track.duration_ms}
           currentPositionMs={currentPositionMs}
           handleSeekDelta={handleSeekDelta}
           onSeekPlayback={onSeekPlayback}
         />
-      )}
+      ) : (track?.media_type === "dj_interlude" || aiDjSpeaking) ? (
+        <DjInterludeProgressBar currentPositionMs={currentPositionMs} />
+      ) : null}
       {renderTransportRow({
         isSpoken, isPlaying, status, track, handlePlayPause, handleNext,
         handlePrev, handleToggleRepeat, handleToggleLike, handleSeekDelta, onSetShuffle, onOpenActions,

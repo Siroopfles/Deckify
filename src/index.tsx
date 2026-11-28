@@ -1614,6 +1614,27 @@ const Content: FC = () => {
               </Field>
             </PanelSectionRow>
 
+            {durationSec <= 0 && (trackMeta?.media_type === "dj_interlude" || aiDjSpeaking) && (
+              <PanelSectionRow>
+                <div style={{ width: "100%", padding: "4px 0" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, opacity: 0.7, marginBottom: 4 }}>
+                    <span>{formatMs(clock.positionMs)}</span>
+                    <span>DJ X</span>
+                  </div>
+                  <div style={{ width: "100%", height: 4, borderRadius: 2, background: "rgba(255, 255, 255, 0.2)", overflow: "hidden" }}>
+                    <div
+                      style={{
+                        width: `${Math.min(100, Math.max(8, (clock.positionMs / 25000) * 100))}%`,
+                        height: "100%",
+                        background: "var(--deckify-accent, #1DB954)",
+                        borderRadius: 2,
+                        transition: "width 0.25s linear",
+                      }}
+                    />
+                  </div>
+                </div>
+              </PanelSectionRow>
+            )}
             {durationSec > 0 && (
               <PanelSectionRow>
                 <div style={{ width: "100%" }}>
