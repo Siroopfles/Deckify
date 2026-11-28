@@ -44,6 +44,7 @@ yalc.lock
 
 .vscode/
 .agents/
+scripts/steam-machine-test.*
 
 # Ignore output folder
 
