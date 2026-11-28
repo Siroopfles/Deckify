@@ -140,27 +140,64 @@ async def get_playlists(plugin, offset: int = 0) -> dict:
         return {"ok": False, "error": str(e)}
 
 
-def _refresh_cached_mix_tracks(pid: str, tracks: list[dict], total: int | None = None) -> None:
-    """Refresh cached mix tracks (up to 100) and URIs in discovery_mixes.json when present."""
+def _refresh_cached_mix_tracks(
+    pid: str,
+    tracks: list[dict],
+    total: int | None = None,
+    playlist_name: str | None = None,
+    playlist_description: str | None = None,
+) -> None:
+    """Refresh or upsert cached core mix tracks (up to 100) and URIs in discovery_mixes.json."""
     if not pid or not tracks:
         return
     try:
         disk_cache = load_discovery_mixes_cache()
         mixes = disk_cache.get("mixes")
         if not isinstance(mixes, list):
-            return
+            mixes = []
+            disk_cache["mixes"] = mixes
+        capped = [dict(t) for t in tracks[:100] if isinstance(t, dict)]
+        uris = [t["uri"] for t in capped if t.get("uri")]
+        clean_name = _strip_html(playlist_name or "")
+        clean_desc = _strip_html(playlist_description or "")
         updated = False
         for m in mixes:
             if not isinstance(m, dict):
                 continue
             if m.get("id") == pid or str(m.get("uri") or "").endswith(f":{pid}"):
-                capped = [dict(t) for t in tracks[:100] if isinstance(t, dict)]
                 m["tracks"] = capped
-                m["uris"] = [t["uri"] for t in capped if t.get("uri")]
+                m["uris"] = uris
                 if total:
                     m["track_count"] = total
+                if clean_name:
+                    m["name"] = clean_name
+                if clean_desc:
+                    m["subtitle"] = clean_desc
                 updated = True
                 break
+        if not updated:
+            norm_uri = f"spotify:playlist:{pid}"
+            is_core = (
+                pid == "37i9dQZF1EP6YuccBxUcC1"
+                or _classify_discovery_kind(pid, norm_uri, clean_name, "spotify", clean_desc) == "core"
+            )
+            if is_core:
+                mixes.append(
+                    {
+                        "id": pid,
+                        "name": clean_name or ("daylist" if pid == "37i9dQZF1EP6YuccBxUcC1" else pid),
+                        "uri": norm_uri,
+                        "image_url": next((t.get("image_url") for t in capped if t.get("image_url")), None),
+                        "subtitle": clean_desc or "Made for you",
+                        "type": "playlist",
+                        "owner": "Spotify",
+                        "kind": "core",
+                        "tracks": capped,
+                        "uris": uris,
+                        "track_count": total or len(capped),
+                    }
+                )
+                updated = True
         if updated:
             disk_cache["version"] = disk_cache.get("version") or 1
             disk_cache["updated_at"] = int(time.time())
@@ -348,6 +385,14 @@ async def get_playlist_tracks(
             await plugin._annotate_tracks_liked(token, tracks)
         except Exception as ex:
             decky.logger.warning("Failed to annotate tracks liked: %s", ex)
+        if int(offset) == 0 and tracks:
+            _refresh_cached_mix_tracks(
+                pid,
+                tracks,
+                total or len(tracks),
+                playlist_name=playlist_name,
+                playlist_description=playlist_description,
+            )
         resp = {"ok": True, "tracks": tracks, "total": total or len(tracks), "offset": offset}
         if playlist_name:
             resp["playlist_name"] = playlist_name
@@ -2165,7 +2210,14 @@ async def _fetch_made_for_you_section(token: str, plugin=None) -> dict:
         cached_raw.extend(_with_cached_suffix(b) for b in cached_blends if isinstance(b, dict))
         if isinstance(cached_dj, dict):
             cached_raw.append(dict(cached_dj))
-        merged_core, merged_blends, merged_dj = _partition_discovery_mixes(combined + cached_raw)
+        merged_core, merged_blends, merged_dj = _partition_discovery_mixes(cached_raw + combined)
+        cached_uris = {
+            str(entry.get("uri"))
+            for entry in (cached_mixes + cached_blends)
+            if isinstance(entry, dict) and entry.get("uri")
+        }
+        merged_core = [_with_cached_suffix(m) if m.get("uri") in cached_uris else m for m in merged_core]
+        merged_blends = [_with_cached_suffix(b) if b.get("uri") in cached_uris else b for b in merged_blends]
         if merged_core or merged_blends or merged_dj:
             return {
                 "made_for_you": merged_core,
@@ -2494,14 +2546,41 @@ async def get_discovery_feed(
 
 
 async def get_search_browse_categories(plugin) -> dict:
-    """Fetch live Spotify browse category tiles via CDP when spotify_client is running."""
-    if not is_spotify_client_running(plugin):
-        return {"ok": True, "categories": []}
-    try:
-        categories = await _exec(cdp_fetch_browse_categories)
-        if not isinstance(categories, list):
-            categories = []
-        return {"ok": True, "categories": categories}
-    except Exception as e:
-        decky.logger.debug("get_search_browse_categories failed: %s", e)
-        return {"ok": True, "categories": []}
+    """Fetch live Spotify browse category tiles via CDP when spotify_client is running, with Web API fallback."""
+    categories: list[dict] = []
+    if is_spotify_client_running(plugin):
+        try:
+            cdp_cats = await _exec(cdp_fetch_browse_categories)
+            if isinstance(cdp_cats, list):
+                categories = cdp_cats
+        except Exception as e:
+            decky.logger.debug("get_search_browse_categories CDP failed: %s", e)
+
+    if not categories:
+        try:
+            token = await plugin._ensure_token()
+            if token:
+                data = await _exec(_spotify_api_request, "browse/categories", token, "GET", {"limit": 30})
+                for item in (data or {}).get("categories", {}).get("items", []) or []:
+                    if not isinstance(item, dict):
+                        continue
+                    cid = str(item.get("id") or "").strip()
+                    name = _strip_html(item.get("name") or "").strip()
+                    if not cid or not name:
+                        continue
+                    icons = item.get("icons") or []
+                    img_url = (
+                        icons[0].get("url")
+                        if (isinstance(icons, list) and icons and isinstance(icons[0], dict))
+                        else None
+                    )
+                    categories.append({
+                        "id": cid,
+                        "name": name,
+                        "image_url": img_url,
+                        "uri": f"spotify:genre:{cid}",
+                    })
+        except (SpotifyRateLimitError, Exception) as e:
+            decky.logger.debug("get_search_browse_categories Web API fallback failed: %s", e)
+
+    return {"ok": True, "categories": categories}

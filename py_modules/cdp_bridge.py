@@ -807,7 +807,7 @@ def cdp_play_context(
 
 def cdp_fetch_discovery_mixes(
     port: int = SPOTIFY_CDP_PORT,
-    timeout: float = DEFAULT_CDP_TIMEOUT,
+    timeout: float = 8.0,
     eval_fn=None,
 ) -> dict:
     """Probe RecentlyPlayedAPI / RootlistAPI / TokenProvider Pathfinder (with legacy fallbacks) for personalized discovery mixes."""
@@ -946,73 +946,128 @@ def cdp_fetch_discovery_mixes(
     };
 
     if (missingCore().length > 0) {
-      const tokenProvider = getService('TokenProvider');
-      const cosmos = getService('Cosmos');
-      const reqBuilder = getService('RequestBuilder');
-      let accessToken = '';
-      if (tokenProvider && typeof tokenProvider.loadToken === 'function') {
-        try {
-          const tok = await tokenProvider.loadToken();
-          accessToken = tok?.accessToken || tok?.token || (typeof tok === 'string' ? tok : '');
-        } catch (e) {
-          warnings.push('TokenProvider: ' + (e?.message || String(e)));
+      const gql = getService('GraphQL');
+      const defs = gql?.Definitions || gql?.definitions || window.Spicetify?.GraphQL?.Definitions || {};
+      const homeDef = defs.home || defs.Home || null;
+      const madeForYouDef = defs.madeForYou || defs.MadeForYou || defs.browsePage || defs.BrowsePage || null;
+      const tz = (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch (e) { return 'UTC'; } })();
+
+      if (gql && typeof gql.query === 'function') {
+        for (const def of [homeDef, madeForYouDef]) {
+          if (!def || missingCore().length === 0) continue;
+          try {
+            const res = await gql.query(def, { timeZone: tz, sectionItemsLimit: 20 });
+            if (res) extractHomeSections(res);
+          } catch (e) {
+            warnings.push('GraphQL: ' + (e?.message || String(e)));
+          }
         }
       }
-      if (accessToken || cosmos || reqBuilder) {
-        const tz = (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch (e) { return 'UTC'; } })();
-        const homePayload = {
-          operationName: 'home',
-          variables: { timeZone: tz, sp_t: '', facet: '', sectionItemsLimit: 20 },
-          extensions: {
-            persistedQuery: {
-              version: 1,
-              sha256Hash: '3782a4e26466d66eb035e67d0b0245e3d199b885e6a408446c496215a0214536'
+
+      if (missingCore().length > 0) {
+        const tokenProvider = getService('TokenProvider');
+        const clientTokenApi = getService('ClientTokenAPI');
+        const cosmos = getService('Cosmos');
+        const reqBuilder = getService('RequestBuilder');
+        let accessToken = '';
+        let clientToken = '';
+        if (tokenProvider && typeof tokenProvider.loadToken === 'function') {
+          try {
+            const tok = await tokenProvider.loadToken();
+            accessToken = tok?.accessToken || tok?.token || (typeof tok === 'string' ? tok : '');
+          } catch (e) {
+            warnings.push('TokenProvider: ' + (e?.message || String(e)));
+          }
+        }
+        if (clientTokenApi && typeof clientTokenApi.getClientToken === 'function') {
+          try {
+            const ct = await clientTokenApi.getClientToken();
+            clientToken = ct?.clientToken || ct?.token || (typeof ct === 'string' ? ct : '');
+          } catch (e) {}
+        }
+        if (accessToken || cosmos || reqBuilder) {
+          const homeHash = homeDef?.sha256Hash || '3782a4e26466d66eb035e67d0b0245e3d199b885e6a408446c496215a0214536';
+          const homePayload = {
+            operationName: 'home',
+            variables: { timeZone: tz, sp_t: '', facet: '', sectionItemsLimit: 20 },
+            extensions: {
+              persistedQuery: {
+                version: 1,
+                sha256Hash: homeHash
+              }
+            }
+          };
+          let pfData = null;
+          if (cosmos && typeof cosmos.post === 'function') {
+            try {
+              const raw = await cosmos.post('https://api-partner.spotify.com/pathfinder/v1/query', homePayload);
+              const parsed = unwrapJson(raw);
+              if (parsed && hasHomeSections(parsed)) pfData = parsed;
+            } catch (e) {
+              warnings.push('Pathfinder(home/cosmos): ' + (e?.message || String(e)));
             }
           }
-        };
-        let pfData = null;
-        if (cosmos && typeof cosmos.post === 'function') {
-          try {
-            const raw = await cosmos.post('https://api-partner.spotify.com/pathfinder/v1/query', homePayload);
-            const parsed = unwrapJson(raw);
-            if (parsed && hasHomeSections(parsed)) pfData = parsed;
-          } catch (e) {
-            warnings.push('Pathfinder(home/cosmos): ' + (e?.message || String(e)));
+          if (!pfData && reqBuilder && typeof reqBuilder.build === 'function') {
+            try {
+              const resp = await reqBuilder.build()
+                .withHost('https://api-partner.spotify.com')
+                .withPath('/pathfinder/v1/query')
+                .withMethod('POST')
+                .withBody(homePayload)
+                .send();
+              const parsed = unwrapJson(resp);
+              if (parsed && hasHomeSections(parsed)) pfData = parsed;
+            } catch (e) {
+              warnings.push('Pathfinder(home/reqBuilder): ' + (e?.message || String(e)));
+            }
           }
-        }
-        if (!pfData && reqBuilder && typeof reqBuilder.build === 'function') {
-          try {
-            const resp = await reqBuilder.build()
-              .withHost('https://api-partner.spotify.com')
-              .withPath('/pathfinder/v1/query')
-              .withMethod('POST')
-              .withBody(homePayload)
-              .send();
-            const parsed = unwrapJson(resp);
-            if (parsed && hasHomeSections(parsed)) pfData = parsed;
-          } catch (e) {
-            warnings.push('Pathfinder(home/reqBuilder): ' + (e?.message || String(e)));
-          }
-        }
-        if (!pfData && accessToken) {
-          try {
-            const resp = await fetch('https://api-partner.spotify.com/pathfinder/v1/query', {
-              method: 'POST',
-              headers: {
+          if (!pfData && accessToken) {
+            try {
+              const headers = {
                 'Authorization': 'Bearer ' + accessToken,
                 'Content-Type': 'application/json'
-              },
-              body: JSON.stringify(homePayload)
-            });
-            if (resp && resp.ok) {
-              const parsed = unwrapJson(await resp.json());
-              if (parsed) pfData = parsed;
+              };
+              if (clientToken) headers['client-token'] = clientToken;
+              const resp = await fetch('https://api-partner.spotify.com/pathfinder/v1/query', {
+                method: 'POST',
+                headers,
+                body: JSON.stringify(homePayload)
+              });
+              if (resp && resp.ok) {
+                const parsed = unwrapJson(await resp.json());
+                if (parsed) pfData = parsed;
+              }
+            } catch (e) {
+              warnings.push('Pathfinder(home/fetch): ' + (e?.message || String(e)));
+            }
+          }
+          if (pfData) extractHomeSections(pfData);
+        }
+      }
+    }
+
+    if (missingCore().length > 0) {
+      const browseApi = getService('BrowseAPI');
+      if (browseApi) {
+        const browseAttempts = [
+          () => typeof browseApi.getPage === 'function' ? browseApi.getPage('made-for-you') : null,
+          () => typeof browseApi.getCategory === 'function' ? browseApi.getCategory('0JQ5DAqbMKFHOzuVTgTizF') : null,
+          () => typeof browseApi.getSection === 'function' ? browseApi.getSection('0JQ5DAnM3wGh0gz1MXnu3C') : null,
+        ];
+        for (const fn of browseAttempts) {
+          if (missingCore().length === 0) break;
+          try {
+            const bRes = await fn();
+            if (bRes) {
+              extractHomeSections(bRes);
+              for (const it of (Array.isArray(bRes?.items) ? bRes.items : (Array.isArray(bRes) ? bRes : []))) {
+                pushItem(it?.data || it?.item?.data || it?.item || it);
+              }
             }
           } catch (e) {
-            warnings.push('Pathfinder(home/fetch): ' + (e?.message || String(e)));
+            warnings.push('BrowseAPI: ' + (e?.message || String(e)));
           }
         }
-        if (pfData) extractHomeSections(pfData);
       }
     }
 
@@ -1038,36 +1093,24 @@ def cdp_fetch_discovery_mixes(
       }
     }
 
-    if (missingCore().length > 0) {
-      const gql = getService('GraphQL');
-      if (gql && typeof gql.query === 'function') {
-        try {
-          const defs = gql.Definitions || gql.definitions || window.Spicetify?.GraphQL?.Definitions || {};
-          const homeDef = defs.home || defs.Home || null;
-          if (homeDef) {
-            const tz = (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch (e) { return 'UTC'; } })();
-            const res = await gql.query(homeDef, { timeZone: tz, sectionItemsLimit: 20 });
-            extractHomeSections(res);
-          }
-        } catch (e) {
-          warnings.push('GraphQL: ' + (e?.message || String(e)));
-        }
-      }
-    }
-
     const stillMissing = missingCore();
     if (stillMissing.length > 0) {
       const searchApi = getService('SearchAPI');
       if (searchApi) {
         const queryMap = {
-          'discover weekly': 'Discover Weekly',
-          'release radar': 'Release Radar',
-          'daily mix': 'Daily Mix',
-          'daylist': 'Daylist',
-          'on repeat': 'On Repeat'
+          'discover weekly': ['Discover Weekly'],
+          'release radar': ['Release Radar'],
+          'daily mix': ['Daily Mix 1', 'Daily Mix 2'],
+          'daylist': ['Daylist'],
+          'on repeat': ['On Repeat']
         };
+        const queries = [];
         for (const key of stillMissing) {
-          const q = queryMap[key];
+          for (const q of (queryMap[key] || [])) {
+            if (!queries.includes(q)) queries.push(q);
+          }
+        }
+        await Promise.allSettled(queries.map(async (q) => {
           try {
             let res = null;
             if (typeof searchApi.search === 'function') {
@@ -1079,18 +1122,29 @@ def cdp_fetch_discovery_mixes(
             }
             const root = res?.searchV2 || res?.data?.searchV2 || res || {};
             const plList = root?.playlists?.items || res?.playlists?.items || res?.playlists || res?.results?.playlists?.items || res?.items || [];
-            for (const p of (Array.isArray(plList) ? plList : [])) {
-              const pObj = p?.data || p?.item?.data || p?.item || p;
+            const topList = root?.topResultsV2?.itemsV2 || root?.topResults?.items || [];
+            const combinedList = [
+              ...(Array.isArray(plList) ? plList : []),
+              ...(Array.isArray(topList) ? topList : [])
+            ];
+            for (const entry of combinedList) {
+              const pObj = entry?.item?.data || entry?.data || entry?.item || entry;
               if (!pObj || typeof pObj !== 'object') continue;
+              const pUri = String(pObj.uri || entry?.uri || '');
+              const pName = String(pObj.name || pObj.title || '').trim();
+              if (!pUri && !pName) continue;
+              const ownerId = pObj?.ownerV2?.data?.username || pObj?.owner?.id || pObj?.owner_id || '';
               pushItem(Object.assign({}, pObj, {
-                owner_id: pObj?.ownerV2?.data?.username || pObj?.owner?.id || '',
+                uri: pUri,
+                name: pName,
+                owner_id: ownerId,
                 images: pObj?.images?.items?.[0]?.sources || pObj?.images
               }));
             }
           } catch (e) {
             warnings.push('SearchAPI(' + q + '): ' + (e?.message || String(e)));
           }
-        }
+        }));
       }
     }
 
@@ -1226,7 +1280,7 @@ def cdp_fetch_station_radio_uris(
 
 def cdp_fetch_browse_categories(
     port: int = SPOTIFY_CDP_PORT,
-    timeout: float = DEFAULT_CDP_TIMEOUT,
+    timeout: float = 6.0,
     eval_fn=None,
 ) -> list[dict]:
     """Probe TokenProvider Pathfinder / Cosmos (with legacy fallbacks) for live Spotify browse category tiles."""
@@ -1251,14 +1305,25 @@ def cdp_fetch_browse_categories(
       });
     };
 
+    const gql = getService('GraphQL');
+    const gqlDefs = gql?.Definitions || gql?.definitions || window.Spicetify?.GraphQL?.Definitions || {};
+    const browseDef = gqlDefs.browseAll || gqlDefs.browseStart || gqlDefs.browse || null;
     const tokenProvider = getService('TokenProvider');
+    const clientTokenApi = getService('ClientTokenAPI');
     const cosmos = getService('Cosmos');
     const reqBuilder = getService('RequestBuilder');
     let accessToken = '';
+    let clientToken = '';
     if (tokenProvider && typeof tokenProvider.loadToken === 'function') {
       try {
         const tok = await tokenProvider.loadToken();
         accessToken = tok?.accessToken || tok?.token || (typeof tok === 'string' ? tok : '');
+      } catch (e) {}
+    }
+    if (clientTokenApi && typeof clientTokenApi.getClientToken === 'function') {
+      try {
+        const ct = await clientTokenApi.getClientToken();
+        clientToken = ct?.clientToken || ct?.token || (typeof ct === 'string' ? ct : '');
       } catch (e) {}
     }
 
@@ -1281,21 +1346,36 @@ def cdp_fetch_browse_categories(
           const rawCard = entry?.content?.data?.data || entry?.content?.data || entry?.data?.data || entry?.data || entry;
           const card = rawCard?.cardRepresentation || entry?.content?.data?.data?.cardRepresentation || entry?.content?.data?.cardRepresentation || rawCard?.data?.cardRepresentation || rawCard;
           if (!card || typeof card !== 'object') continue;
-          if (card?.uri?.includes(':genre:') || card?.uri?.includes(':page:') || entry?.content?.__typename === 'BrowseSectionContainerWrapper' || card?.__typename === 'BrowseCategory' || card?.artwork || card?.title || rawCard?.cardRepresentation) {
-            pushCat(card);
+          const merged = Object.assign(
+            {
+              uri: rawCard?.uri || entry?.uri || entry?.content?.uri || '',
+              id: rawCard?.id || entry?.id || ''
+            },
+            card
+          );
+          if (merged?.uri?.includes(':genre:') || merged?.uri?.includes(':page:') || entry?.content?.__typename === 'BrowseSectionContainerWrapper' || merged?.__typename === 'BrowseCategory' || merged?.artwork || merged?.title || rawCard?.cardRepresentation) {
+            pushCat(merged);
           }
         }
       }
     };
 
-    if (accessToken || cosmos || reqBuilder) {
+    if (gql && typeof gql.query === 'function' && browseDef) {
+      try {
+        const gRes = await gql.query(browseDef, { pagePagination: { offset: 0, limit: 30 }, sectionPagination: { offset: 0, limit: 30 } });
+        if (gRes) extractBrowseNodes(gRes);
+      } catch (e) {}
+    }
+
+    if (categories.length === 0 && (accessToken || cosmos || reqBuilder)) {
+      const browseHash = browseDef?.sha256Hash || '3644f08c4f1d2e838e3d93f933104c51a995736e61a998448025d36d1d05b9df';
       const browsePayload = {
-        operationName: 'browseAll',
+        operationName: browseDef?.name || 'browseAll',
         variables: { pagePagination: { offset: 0, limit: 30 }, sectionPagination: { offset: 0, limit: 30 } },
         extensions: {
           persistedQuery: {
             version: 1,
-            sha256Hash: '3644f08c4f1d2e838e3d93f933104c51a995736e61a998448025d36d1d05b9df'
+            sha256Hash: browseHash
           }
         }
       };
@@ -1320,12 +1400,14 @@ def cdp_fetch_browse_categories(
       }
       if (categories.length === 0 && accessToken) {
         try {
+          const headers = {
+            'Authorization': 'Bearer ' + accessToken,
+            'Content-Type': 'application/json'
+          };
+          if (clientToken) headers['client-token'] = clientToken;
           const resp = await fetch('https://api-partner.spotify.com/pathfinder/v1/query', {
             method: 'POST',
-            headers: {
-              'Authorization': 'Bearer ' + accessToken,
-              'Content-Type': 'application/json'
-            },
+            headers,
             body: JSON.stringify(browsePayload)
           });
           if (resp && resp.ok) {

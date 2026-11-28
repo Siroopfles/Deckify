@@ -917,6 +917,22 @@ async def play_tracks(
         except TypeError:
             return await plugin._auto_transfer_and_play(token)
 
+    async def _resolve_fallback_uris(target_ctx: str) -> list[str]:
+        resolved = _resolve_cached_mix_uris(target_ctx)
+        if resolved:
+            return resolved
+        if target_ctx.startswith("spotify:playlist:"):
+            pid = target_ctx.split(":")[-1]
+            if pid:
+                try:
+                    import py_modules.rpc_library as rpc_library
+                    res = await rpc_library.get_playlist_tracks(plugin, pid, offset=0, fetch_all=False)
+                    if isinstance(res, dict):
+                        return [t["uri"] for t in (res.get("tracks") or []) if isinstance(t, dict) and t.get("uri")]
+                except Exception as exc:
+                    decky.logger.debug("play_tracks live playlist fallback failed for %s: %s", pid, exc)
+        return []
+
     try:
         await _exec(
             _spotify_api_request, "me/player/play", token, "PUT", None, body,
@@ -926,7 +942,7 @@ async def play_tracks(
     except urllib.error.HTTPError as e:
         if e.code in (403, 404) and body.get("context_uri") and not tried_cached_mix:
             tried_cached_mix = True
-            cached_uris = _resolve_cached_mix_uris(context_uri or body["context_uri"])
+            cached_uris = await _resolve_fallback_uris(context_uri or body["context_uri"])
             if cached_uris:
                 body = _build_uris_body(cached_uris, offset_uri, position, position_ms)
                 try:
@@ -975,7 +991,7 @@ async def play_tracks(
                 except urllib.error.HTTPError as retry_err:
                     if retry_err.code in (403, 404) and body.get("context_uri") and not tried_cached_mix:
                         tried_cached_mix = True
-                        cached_uris = _resolve_cached_mix_uris(context_uri or body["context_uri"])
+                        cached_uris = await _resolve_fallback_uris(context_uri or body["context_uri"])
                         if cached_uris:
                             body = _build_uris_body(cached_uris, offset_uri, position, position_ms)
                             try:
