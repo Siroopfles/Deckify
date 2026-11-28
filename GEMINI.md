@@ -248,7 +248,7 @@ Deckify is an open-source Spotify client and Decky Loader plugin for Valve's Ste
 
 ## Project Skills
 
-No project skills found. Add skills to any of: `.agents/skills/`, `.agents/skills/`, `.cursor/skills/`, `.github/skills/`, or `.codex/skills/` with a `SKILL.md` index file.
+- `steam-machine-test` (`.agents/skills/steam-machine-test/SKILL.md`): Deploy Deckify to the living-room Steam Machine (`deck@<STEAM_MACHINE_IP>`) and run automated non-interactive live health and targeted feature checks.
 <!-- GSD:skills-end -->
 
 <!-- GSD:workflow-start source:GSD defaults -->
@@ -265,6 +265,21 @@ Use these entry points:
 
 Do not make direct repo edits outside a GSD workflow unless the user explicitly asks to bypass it.
 <!-- GSD:workflow-end -->
+
+## Live Steam Machine Verification
+
+Default target (from `.vscode/settings.json`): `deck@<STEAM_MACHINE_IP>`, port `22`, plugin `Deckify` (`/home/deck/homebrew/plugins/Deckify`).
+
+- **Full build, deploy, and live health check (Windows PowerShell):**
+  `powershell -ExecutionPolicy Bypass -File scripts/steam-machine-test.ps1 -Build`
+- **Read-only live health check (no deploy):**
+  `powershell -ExecutionPolicy Bypass -File scripts/steam-machine-test.ps1 -VerifyOnly`
+- **Targeted feature verification (custom read-only command on target):**
+  `powershell -ExecutionPolicy Bypass -File scripts/steam-machine-test.ps1 -VerifyOnly -RemoteCmd "<read-only command>"`
+- **Git Bash / Linux / macOS equivalents:**
+  `scripts/steam-machine-test.sh --build`, `scripts/steam-machine-test.sh --verify-only`, `scripts/steam-machine-test.sh --verify-only --remote-cmd "<read-only command>"`
+
+**Mandatory feature-specific verification:** A generic `plugin_loader` active check is not sufficient. When verifying work on the live Steam Machine, GSD agents must actually inspect and verify the specific feature or code they built (e.g., targeted remote Python/RPC smoke checks via `-RemoteCmd`, inspecting `journalctl -u plugin_loader` and `/home/deck/homebrew/logs/Deckify/` for feature behavior, or checking PipeWire, `librespot`, and Steam CEF CDP port `9229` state). See `.agents/skills/steam-machine-test/SKILL.md` for full safety rules (`BatchMode=yes`, read-only checks, no destructive SteamOS commands).
 
 <!-- GSD:profile-start -->
 
