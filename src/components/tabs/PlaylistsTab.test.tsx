@@ -374,7 +374,7 @@ describe("PlaylistsTab Phase 27 CRUD, filtering, ownership & Grab/Move (27-04)",
     expect(chipBar).toBeDefined();
     expect(chipBar.props["flow-children"]).toBe("horizontal");
 
-    const chips = findNodes(chipBar, (n) => n.type === DialogButton);
+    const chips = findNodes(chipBar, (n) => n.type === InteractiveRow);
     expect(chips.map((c) => collectText(c).trim())).toEqual(["All", "Editable", "Followed", "Collaborative", "Pinned"]);
     expect(chips[0].props.style.width).toBe("auto");
     expect(chips[0].props.style.minWidth).toBe("auto");
@@ -391,7 +391,7 @@ describe("PlaylistsTab Phase 27 CRUD, filtering, ownership & Grab/Move (27-04)",
 
     // Click Collaborative -> only folderPlEditable remains
     const followedBar = findNodes(followedTree, (n) => n.props?.["data-testid"] === "overview-meta-filter-bar")[0];
-    findNodes(followedBar, (n) => n.type === DialogButton && collectText(n).trim() === "Collaborative")[0].props.onClick();
+    findNodes(followedBar, (n) => n.type === InteractiveRow && collectText(n).trim() === "Collaborative")[0].props.onClick();
     stateIdx = 0;
     refIdx = 0;
     const collabTree = expandTree(PlaylistsTab(props));
@@ -401,7 +401,7 @@ describe("PlaylistsTab Phase 27 CRUD, filtering, ownership & Grab/Move (27-04)",
 
     // Click Pinned -> only uncatEditable remains
     const collabBar = findNodes(collabTree, (n) => n.props?.["data-testid"] === "overview-meta-filter-bar")[0];
-    findNodes(collabBar, (n) => n.type === DialogButton && collectText(n).trim() === "Pinned")[0].props.onClick();
+    findNodes(collabBar, (n) => n.type === InteractiveRow && collectText(n).trim() === "Pinned")[0].props.onClick();
     stateIdx = 0;
     refIdx = 0;
     const pinnedTree = expandTree(PlaylistsTab(props));
@@ -410,7 +410,7 @@ describe("PlaylistsTab Phase 27 CRUD, filtering, ownership & Grab/Move (27-04)",
 
     // Clear back to All and search by description + owner_id
     const pinnedBar = findNodes(pinnedTree, (n) => n.props?.["data-testid"] === "overview-meta-filter-bar")[0];
-    findNodes(pinnedBar, (n) => n.type === DialogButton && collectText(n).trim() === "Clear")[0].props.onClick();
+    findNodes(pinnedBar, (n) => n.type === InteractiveRow && collectText(n).trim() === "Clear")[0].props.onClick();
     stateIdx = 0;
     refIdx = 0;
     const resetTree = expandTree(PlaylistsTab(props));
@@ -449,7 +449,7 @@ describe("PlaylistsTab Phase 27 CRUD, filtering, ownership & Grab/Move (27-04)",
     const chipBar = findNodes(tree1, (n) => n.props?.["data-testid"] === "track-meta-filter-bar")[0];
     expect(chipBar).toBeDefined();
     expect(chipBar.props["flow-children"]).toBe("horizontal");
-    const chips1 = findNodes(chipBar, (n) => n.type === DialogButton);
+    const chips1 = findNodes(chipBar, (n) => n.type === InteractiveRow);
     expect(chips1.map((c) => collectText(c).trim())).toEqual(["All", "Liked"]);
 
     // When no filter is active, canReorder is true
@@ -462,7 +462,7 @@ describe("PlaylistsTab Phase 27 CRUD, filtering, ownership & Grab/Move (27-04)",
     refIdx = 0;
     const likedTree = expandTree(PlaylistsTab(props));
     const likedBar = findNodes(likedTree, (n) => n.props?.["data-testid"] === "track-meta-filter-bar")[0];
-    const likedChips = findNodes(likedBar, (n) => n.type === DialogButton);
+    const likedChips = findNodes(likedBar, (n) => n.type === InteractiveRow);
     expect(likedChips.map((c) => collectText(c).trim())).toEqual(["All", "Liked", "Clear"]);
 
     const rowsLiked = findNodes(likedTree, (n) => n.type === TrackRowItem);
@@ -513,7 +513,7 @@ describe("PlaylistsTab Phase 27 CRUD, filtering, ownership & Grab/Move (27-04)",
     const sortBar = findNodes(tree1, (n) => n.props?.["data-testid"] === "track-sort-bar")[0];
     expect(sortBar).toBeDefined();
     expect(sortBar.props["flow-children"]).toBe("horizontal");
-    const sortChips = findNodes(sortBar, (n) => n.type === DialogButton);
+    const sortChips = findNodes(sortBar, (n) => n.type === InteractiveRow);
     expect(sortChips.map((c) => collectText(c).trim())).toEqual([
       "Custom Order",
       "Title",
@@ -525,7 +525,7 @@ describe("PlaylistsTab Phase 27 CRUD, filtering, ownership & Grab/Move (27-04)",
 
     const selectSort = (label: string, currentTree: any) => {
       const bar = findNodes(currentTree, (n) => n.props?.["data-testid"] === "track-sort-bar")[0];
-      const chip = findNodes(bar, (n) => n.type === DialogButton && collectText(n).trim() === label)[0];
+      const chip = findNodes(bar, (n) => n.type === InteractiveRow && collectText(n).trim() === label)[0];
       chip.props.onClick();
       stateIdx = 0;
       refIdx = 0;
@@ -650,5 +650,117 @@ describe("PlaylistsTab Phase 27 CRUD, filtering, ownership & Grab/Move (27-04)",
     expect(text).toContain(`Here's some synthwave & "chill".`);
     expect(text).not.toContain("<a ");
     expect(text).not.toContain("</a>");
+  });
+
+  it("applies focusHalo and hover highlight on InteractiveRow via focus and mouseEnter/mouseLeave", () => {
+    const renderRow = () =>
+      expandTree(
+        InteractiveRow({
+          onClick: vi.fn(),
+          children: "Chip",
+        }),
+      );
+
+    const idleTree = renderRow();
+    const idleFocusable = findNodes(idleTree, (n) => n.type === Focusable)[0];
+    expect(idleFocusable.props.style.boxShadow).toBe("none");
+    expect(idleFocusable.props.style.background).toBe("rgba(255,255,255,0.03)");
+    expect(idleFocusable.props["data-deckify-focused"]).toBeUndefined();
+
+    // Hovering highlights via showHighlight without setting data-deckify-focused
+    idleFocusable.props.onMouseEnter();
+    stateIdx = 0;
+    refIdx = 0;
+    const hoveredTree = renderRow();
+    const hoveredFocusable = findNodes(hoveredTree, (n) => n.type === Focusable)[0];
+    expect(hoveredFocusable.props.style.boxShadow).not.toBe("none");
+    expect(hoveredFocusable.props.style.background).toBe("rgba(255,255,255,0.18)");
+    expect(hoveredFocusable.props["data-deckify-focused"]).toBeUndefined();
+
+    // Mouse leave clears hover highlight
+    hoveredFocusable.props.onMouseLeave();
+    stateIdx = 0;
+    refIdx = 0;
+    const unhoveredTree = renderRow();
+    expect(findNodes(unhoveredTree, (n) => n.type === Focusable)[0].props.style.boxShadow).toBe("none");
+
+    // Controller focus sets both focusHalo and data-deckify-focused
+    unhoveredTree.props.onFocus();
+    stateIdx = 0;
+    refIdx = 0;
+    const focusedTree = renderRow();
+    const focusedFocusable = findNodes(focusedTree, (n) => n.type === Focusable)[0];
+    expect(focusedFocusable.props.style.boxShadow).not.toBe("none");
+    expect(focusedFocusable.props["data-deckify-focused"]).toBe("true");
+  });
+
+  it("renders TrackRowItem Like and Options (Y) as InteractiveRow when not in Grab/Move Mode and spans during Grab/Move Mode", () => {
+    const track = { id: "t1", name: "Alpha", artist: "Artist", uri: "spotify:track:t1", duration_ms: 180000, is_liked: false };
+    const onToggleLike = vi.fn();
+    const onOpenActions = vi.fn();
+
+    const normalTree = expandTree(
+      TrackRowItem({
+        track,
+        index: 0,
+        onPlayTrack: vi.fn(),
+        onToggleLike,
+        onOpenActions,
+        hasActiveGrab: false,
+      }),
+    );
+
+    const likeBtn = findNodes(normalTree, (n) => n.type === InteractiveRow && n.props?.["aria-label"] === "Toggle like")[0];
+    const optBtn = findNodes(normalTree, (n) => n.type === InteractiveRow && n.props?.["aria-label"] === "Track options")[0];
+    expect(likeBtn).toBeDefined();
+    expect(optBtn).toBeDefined();
+
+    const stopProp = vi.fn();
+    likeBtn.props.onClick({ stopPropagation: stopProp });
+    optBtn.props.onClick({ stopPropagation: stopProp });
+    expect(stopProp).toHaveBeenCalledTimes(2);
+    expect(onToggleLike).toHaveBeenCalledWith("t1");
+    expect(onOpenActions).toHaveBeenCalledWith(track);
+
+    stateIdx = 0;
+    refIdx = 0;
+    const grabTree = expandTree(
+      TrackRowItem({
+        track,
+        index: 0,
+        onPlayTrack: vi.fn(),
+        onToggleLike,
+        onOpenActions,
+        hasActiveGrab: true,
+      }),
+    );
+    expect(findNodes(grabTree, (n) => n.type === InteractiveRow && n.props?.["aria-label"] === "Toggle like")).toHaveLength(0);
+    expect(findNodes(grabTree, (n) => n.type === InteractiveRow && n.props?.["aria-label"] === "Track options")).toHaveLength(0);
+    expect(findNodes(grabTree, (n) => n.type === "span" && n.props?.["aria-label"] === "Toggle like")).toHaveLength(1);
+    expect(findNodes(grabTree, (n) => n.type === "span" && n.props?.["aria-label"] === "Track options")).toHaveLength(1);
+  });
+
+  it("renders FolderTreeItem Rename and Delete buttons as focusable InteractiveRow controls", () => {
+    const onRenameFolder = vi.fn();
+    const onDeleteFolder = vi.fn();
+    const tree = expandTree(
+      PlaylistsTab(
+        makeProps({
+          folders: [{ id: "folder-1", name: "Favorites", playlist_ids: [], playlists: [] }],
+          onRenameFolder,
+          onDeleteFolder,
+        }),
+      ),
+    );
+
+    const renameBtn = findNodes(tree, (n) => n.type === InteractiveRow && n.props?.["aria-label"] === "Rename folder")[0];
+    const deleteBtn = findNodes(tree, (n) => n.type === InteractiveRow && n.props?.["aria-label"] === "Delete folder")[0];
+    expect(renameBtn).toBeDefined();
+    expect(deleteBtn).toBeDefined();
+
+    const stopProp = vi.fn();
+    deleteBtn.props.onClick({ stopPropagation: stopProp });
+    expect(stopProp).toHaveBeenCalledTimes(1);
+    expect(onDeleteFolder).toHaveBeenCalledWith("folder-1", "Favorites");
   });
 });

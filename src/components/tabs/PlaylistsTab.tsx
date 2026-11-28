@@ -8,7 +8,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { DialogButton, Focusable, TextField } from "@decky/ui";
+import { Focusable, TextField } from "@decky/ui";
 import { stripHtmlTags } from "./DiscoveryTab";
 import {
   FaCheck,
@@ -341,39 +341,40 @@ function renderMetaFilterBar<T extends string>({
       {chips.map((chip) => {
         const active = activeId === chip.id;
         return (
-          <DialogButton
+          <InteractiveRow
             key={chip.id}
+            active={active}
             onClick={() => onSelect(chip.id)}
             style={{
               width: "auto",
               minWidth: "auto",
               minHeight: 32,
               padding: "4px 12px",
+              borderRadius: 6,
               fontSize: 12,
               fontWeight: active ? 700 : 500,
-              background: active ? "var(--deckify-accent, #1DB954)" : "rgba(255,255,255,0.08)",
-              color: active ? "#000" : "#fff",
+              color: active ? "var(--deckify-accent, #1DB954)" : "#fff",
             }}
           >
             {chip.label}
-          </DialogButton>
+          </InteractiveRow>
         );
       })}
       {onClear && (
-        <DialogButton
+        <InteractiveRow
           onClick={onClear}
           style={{
             width: "auto",
             minWidth: "auto",
             minHeight: 32,
             padding: "4px 12px",
+            borderRadius: 6,
             fontSize: 12,
-            background: "rgba(255,255,255,0.04)",
             color: "#ccc",
           }}
         >
           Clear
-        </DialogButton>
+        </InteractiveRow>
       )}
     </Focusable>
   );
@@ -569,24 +570,26 @@ const FolderTreeItem: FC<{
         <span style={{ fontSize: 11, opacity: 0.5, marginLeft: "auto" }}>{folder.playlists.length}</span>
         {isCustom && !isRenaming && (
           <div style={{ display: "flex", gap: 6, marginLeft: 8 }}>
-            <span
+            <InteractiveRow
+              aria-label="Rename folder"
               onClick={(e) => {
-                e.stopPropagation();
+                e?.stopPropagation?.();
                 props.onStartRename(folder.id, folder.name);
               }}
-              style={{ padding: "4px", opacity: 0.6, cursor: "pointer" }}
+              style={{ width: "auto", minWidth: "auto", padding: "4px 6px", borderRadius: 4 }}
             >
               <FaEdit size={11} color="#aaa" />
-            </span>
-            <span
+            </InteractiveRow>
+            <InteractiveRow
+              aria-label="Delete folder"
               onClick={(e) => {
-                e.stopPropagation();
+                e?.stopPropagation?.();
                 void props.onDeleteFolder(folder.id, folder.name);
               }}
-              style={{ padding: "4px", opacity: 0.6, cursor: "pointer" }}
+              style={{ width: "auto", minWidth: "auto", padding: "4px 6px", borderRadius: 4 }}
             >
               <FaTrash size={11} color="#ff5555" />
-            </span>
+            </InteractiveRow>
           </div>
         )}
       </InteractiveRow>
