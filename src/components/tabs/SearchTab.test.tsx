@@ -819,4 +819,36 @@ async function withPersistentRefs(fn: () => Promise<void>) {
       expect(mockGetSearchBrowseCategories).toHaveBeenCalledTimes(2);
     });
   });
+
+  it("re-invokes get_search_browse_categories when audioBackend switches to spotify_client and renders categories below Gaming & Mood tiles (G-26-17)", async () => {
+    stateSlots.length = 0;
+    stateIdx = 0;
+    mockGetSearchBrowseCategories.mockReset();
+
+    await withPersistentRefs(async () => {
+      mockGetSearchBrowseCategories.mockResolvedValueOnce({ ok: true, categories: [] });
+      renderSearchTab({ searchQuery: "", audioBackend: "librespot" });
+      await new Promise((r) => setTimeout(r, 0));
+      expect(mockGetSearchBrowseCategories).toHaveBeenCalledTimes(1);
+
+      mockGetSearchBrowseCategories.mockResolvedValueOnce({
+        ok: true,
+        categories: [
+          { id: "cat-1", name: "Gaming", image_url: "https://i.scdn.co/cat1" },
+          { id: "cat-2", name: "Chill", image_url: "https://i.scdn.co/cat2" },
+        ],
+      });
+      renderSearchTab({ searchQuery: "", audioBackend: "spotify_client" });
+      await new Promise((r) => setTimeout(r, 0));
+      expect(mockGetSearchBrowseCategories).toHaveBeenCalledTimes(2);
+
+      const populatedTree = renderSearchTab({ searchQuery: "", audioBackend: "spotify_client" });
+      const text = cleanText(populatedTree);
+      expect(text).toContain("Browse Gaming & Mood");
+      expect(text).toContain("Browse Categories");
+      expect(text.indexOf("Browse Gaming & Mood")).toBeLessThan(text.indexOf("Browse Categories"));
+      expect(text).toContain("Chill");
+      expect(mockGetSearchBrowseCategories).toHaveBeenCalledTimes(2);
+    });
+  });
 });

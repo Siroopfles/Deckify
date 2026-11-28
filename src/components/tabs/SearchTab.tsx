@@ -158,6 +158,7 @@ export interface SearchTabProps {
   travelModeEnabled?: boolean;
   onExitTravelMode?: () => void;
   offlineDownloads?: Record<string, OfflineDownloadItem>;
+  audioBackend?: string;
 }
 
 const RecentSearchesSection: FC<{
@@ -1083,9 +1084,18 @@ const BrowseCategoriesSection: FC<{
   );
 };
 
-function useBrowseCategories(hasQuery: boolean, travelModeEnabled: boolean | undefined) {
+function useBrowseCategories(
+  hasQuery: boolean,
+  travelModeEnabled: boolean | undefined,
+  audioBackend?: string,
+) {
   const [browseCategories, setBrowseCategories] = useState<SearchBrowseCategory[]>([]);
   const fetchedBrowseRef = useRef(false);
+  const prevBackendRef = useRef(audioBackend);
+  if (prevBackendRef.current !== audioBackend) {
+    prevBackendRef.current = audioBackend;
+    fetchedBrowseRef.current = false;
+  }
 
   useEffect(() => {
     if (hasQuery || fetchedBrowseRef.current || travelModeEnabled) return;
@@ -1117,7 +1127,7 @@ function useBrowseCategories(hasQuery: boolean, travelModeEnabled: boolean | und
         fetchedBrowseRef.current = false;
       }
     };
-  }, [hasQuery, travelModeEnabled]);
+  }, [hasQuery, travelModeEnabled, audioBackend]);
 
   return browseCategories;
 }
@@ -1189,7 +1199,7 @@ export const SearchTab: FC<SearchTabProps> = (props) => {
   const ctrl = useSearchController(props);
   const { onFocusHistoryPill } = props;
   const hasQuery = Boolean(ctrl.searchQuery.trim());
-  const browseCategories = useBrowseCategories(hasQuery, props.travelModeEnabled);
+  const browseCategories = useBrowseCategories(hasQuery, props.travelModeEnabled, props.audioBackend);
 
   useEffect(() => {
     if (hasQuery) {

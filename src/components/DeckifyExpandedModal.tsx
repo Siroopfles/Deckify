@@ -2384,6 +2384,7 @@ export const DeckifyExpandedModal: FC<{ closeModal?: () => void }> = ({ closeMod
                   travelModeEnabled={travelModeEnabled}
                   onExitTravelMode={handleExitTravelMode}
                   offlineDownloads={offlineDownloads}
+                  audioBackend={audioBackend}
                 />
               )}
 
